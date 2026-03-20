@@ -1971,20 +1971,24 @@ int main(int argc, char **argv) {
     // 创建输出目录
     // 约定：弹性关闭 -> ch 开头；弹性开启 -> chel 开头
     const char *out_prefix = P.elastic_enabled ? "chel" : "ch";
-    char output_dir[256];
+    const char *results_root = "Results";
+    char run_dir_name[256];
+    char output_dir[4096];
     if (P.diag_elastic_bulk_penalty_enabled || P.mode == 1) {
-        snprintf(output_dir, sizeof(output_dir),
+        snprintf(run_dir_name, sizeof(run_dir_name),
                  "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_r%.2f_xB%.3f",
                  out_prefix, P.temperature_C,
                  P.Nx, P.Ny, P.Nz, P.dt, P.nsteps,
                  P.ic_phi_seed_radius, P.ic_23d_xB_out);
     } else {
-        snprintf(output_dir, sizeof(output_dir),
+        snprintf(run_dir_name, sizeof(run_dir_name),
                  "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_xB%.3f",
                  out_prefix, P.temperature_C,
                  P.Nx, P.Ny, P.Nz, P.dt, P.nsteps,
                  P.ic_23d_xB_out);
     }
+    mkdir(results_root, 0755);
+    snprintf(output_dir, sizeof(output_dir), "%s/%s", results_root, run_dir_name);
     mkdir(output_dir, 0755);
 
     // 若用户未指定 init_case_tag，则根据初始化参数自动生成一个简洁标签
