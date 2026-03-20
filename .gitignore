@@ -1,3 +1,4 @@
+.DS_Store
 Results/
 main_cuda
 test_memory_ledger
