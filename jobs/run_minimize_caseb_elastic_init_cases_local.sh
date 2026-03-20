@@ -1,37 +1,27 @@
-#!/bin/bash
-
-# ============================================================
-# 本地运行：单一 radius + 多初值测试（完整版）
-# - 支持 init-test-id sweep
-# - 支持自定义 case
-# - 支持环境变量覆盖参数
-# ============================================================
-
+#!/usr/bin/env bash
 set -euo pipefail
 
+# 作用：
+# 本地执行 Case B 弹性最小化的多初值测试。
+# 与通用初值测试脚本相比，这个脚本保留了该实验使用的默认参数。
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/scripts/lib/site_env.sh"
+source "${SCRIPT_DIR}/_site_env.sh"
 site_setup_project_root "${SCRIPT_DIR}"
+site_prepare_job_dirs
+cd "${PROJECT_ROOT}"
 site_print_env_banner
 site_build_main_cuda
 
-# ============================================================
-# 网格与输出（支持外部覆盖）
-# ============================================================
-NX=${NX:-400}
-NY=${NY:-400}
-NZ=${NZ:-400}
-
+NX=${NX:-256}
+NY=${NY:-256}
+NZ=${NZ:-256}
 OUT_EVERY=${OUT_EVERY:-5000}
 CSV_OUT_EVERY=${CSV_OUT_EVERY:-10}
 
-# ============================================================
-# Minimization 参数
-# ============================================================
 NSTEPS=${NSTEPS:-30000}
 MIN_DT=${MIN_DT:-1e-1}
 
-# 收敛判据
 MIN_RMS_DPHI_THRESHOLD=${MIN_RMS_DPHI_THRESHOLD:-1e-5}
 MIN_RMS_DY_THRESHOLD=${MIN_RMS_DY_THRESHOLD:-1e-5}
 MIN_ENERGY_DIFF_REL_THRESHOLD=${MIN_ENERGY_DIFF_REL_THRESHOLD:-1e-7}
@@ -41,26 +31,19 @@ MIN_VOL_ERR_REL_THRESHOLD=${MIN_VOL_ERR_REL_THRESHOLD:-5e-3}
 MIN_CONVERGENCE_STEPS=${MIN_CONVERGENCE_STEPS:-100}
 MIN_DT_SAFETY_LIMIT=${MIN_DT_SAFETY_LIMIT:-1e-6}
 ETA_LAMBDA_VOL=${ETA_LAMBDA_VOL:-0.9}
-
 POST_PROJ_ITERS=${POST_PROJ_ITERS:-1}
 
-# ============================================================
-# 物理参数（关键）
-# ============================================================
 V0=${V0:-0.0}
-RADIUS=${RADIUS:-7.0}
+RADIUS=${RADIUS:-18.0}
 ELASTIC=${ELASTIC:-1}
 XB_OUT=${XB_OUT:-0.03}
 TEMP_C=${TEMP_C:-380.0}
 
-# ============================================================
-# case 列表（可自定义）
-# ============================================================
 CASE_LIST=${CASE_LIST:-"0 1 2 3 4 5 6 7 custom1 custom2"}
 
 echo ""
 echo "=========================================="
-echo "运行多初值测试（本地）"
+echo "运行 Case B 弹性多初值最小化（本地）"
 echo "=========================================="
 echo "  Grid: ${NX} x ${NY} x ${NZ}"
 echo "  Radius: ${RADIUS}"
@@ -70,11 +53,7 @@ echo "  Case list: ${CASE_LIST}"
 echo "=========================================="
 echo ""
 
-# ============================================================
-# 主循环
-# ============================================================
 for CASE in ${CASE_LIST}; do
-
   echo "-----------------------------------------------------"
   echo "Running case: ${CASE}"
   echo "-----------------------------------------------------"
@@ -82,13 +61,10 @@ for CASE in ${CASE_LIST}; do
   EXTRA_ARGS=""
 
   if [[ "${CASE}" =~ ^[0-9]+$ ]]; then
-    # ===== 标准 preset =====
     TID=${CASE}
     CASE_TAG="test_${TID}"
     EXTRA_ARGS="--init-test-id ${TID}"
-
   elif [[ "${CASE}" == "custom1" ]]; then
-    # ===== 强破对称（推荐重点看）=====
     CASE_TAG="tilt20_strong"
     EXTRA_ARGS="\
       --init-shape ellipsoid \
@@ -98,9 +74,7 @@ for CASE in ${CASE_LIST}; do
       --init-tilt-theta-deg 20 \
       --init-tilt-phi-deg 30 \
     "
-
   elif [[ "${CASE}" == "custom2" ]]; then
-    # ===== 噪声 + 偏移 =====
     CASE_TAG="noise_shift"
     EXTRA_ARGS="\
       --init-shape ellipsoid \
@@ -112,7 +86,6 @@ for CASE in ${CASE_LIST}; do
       --init-phi-noise-amp 5e-4 \
       --init-phi-noise-seed 2026 \
     "
-
   else
     echo "[warning] unknown case: ${CASE}, skip"
     continue
@@ -148,7 +121,6 @@ for CASE in ${CASE_LIST}; do
 
   echo "完成 case: ${CASE_TAG}"
   echo ""
-
 done
 
 echo "=========================================="

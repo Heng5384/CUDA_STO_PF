@@ -1,15 +1,40 @@
 #!/usr/bin/env bash
 
+site_find_project_root() {
+  local start_dir="${1:-$(pwd)}"
+  start_dir="$(cd "$start_dir" && pwd)"
+
+  while true; do
+    if [[ -f "$start_dir/Makefile" && -f "$start_dir/main_cuda.cu" ]]; then
+      printf '%s\n' "$start_dir"
+      return 0
+    fi
+
+    local parent_dir
+    parent_dir="$(dirname "$start_dir")"
+    if [[ "$parent_dir" == "$start_dir" ]]; then
+      return 1
+    fi
+    start_dir="$parent_dir"
+  done
+}
+
 site_setup_project_root() {
-  local caller_dir="${1:-}"
-  if [[ -n "${PROJECT_ROOT:-}" ]]; then
+  local caller_dir="${1:-$(pwd)}"
+
+  if [[ -n "${PROJECT_ROOT:-}" && -f "${PROJECT_ROOT}/Makefile" && -f "${PROJECT_ROOT}/main_cuda.cu" ]]; then
     cd "${PROJECT_ROOT}"
     export PROJECT_ROOT="$(pwd)"
     return 0
   fi
-  if [[ -n "$caller_dir" ]]; then
-    cd "$caller_dir"
+
+  local root
+  if ! root="$(site_find_project_root "$caller_dir")"; then
+    echo "[fatal] Could not locate the project root from: $caller_dir" >&2
+    return 1
   fi
+
+  cd "$root"
   export PROJECT_ROOT="$(pwd)"
 }
 
@@ -27,6 +52,11 @@ site_try_enable_modules() {
       source "$f" >/dev/null 2>&1 || true
     fi
   done
+}
+
+site_prepare_job_dirs() {
+  mkdir -p "${PROJECT_ROOT}/jobs/logs"
+  mkdir -p "${PROJECT_ROOT}/Results"
 }
 
 site_print_env_banner() {
@@ -61,10 +91,8 @@ site_prepare_cuda_env() {
     nvcc_path="${CUDA_ROOT}/bin/nvcc"
   fi
 
-  if [[ -z "$nvcc_path" ]]; then
-    if command -v nvcc >/dev/null 2>&1; then
-      nvcc_path="$(command -v nvcc)"
-    fi
+  if [[ -z "$nvcc_path" ]] && command -v nvcc >/dev/null 2>&1; then
+    nvcc_path="$(command -v nvcc)"
   fi
 
   if [[ -z "$nvcc_path" ]]; then
@@ -89,6 +117,7 @@ site_prepare_cuda_env() {
         /opt/cuda
       )
     fi
+
     local candidate
     for candidate in "${candidates[@]}"; do
       [[ -n "$candidate" ]] || continue
@@ -129,6 +158,7 @@ site_require_cuda_env() {
 site_build_main_cuda() {
   echo "编译程序..."
   site_require_cuda_env || return $?
+  site_prepare_job_dirs
   make clean
   make main_cuda "CUDA_ROOT=${CUDA_ROOT}" "CUDA_ARCH=${CUDA_ARCH}" "NVCC=${NVCC}"
 }
