@@ -219,7 +219,17 @@ site_print_env_banner() {
 }
 
 site_prepare_cuda_env() {
-  export CUDA_ARCH="${CUDA_ARCH:-sm_120}"
+  # 优先级：
+  # 1. 用户显式传入 CUDA_ARCH
+  # 2. Slurm 环境默认用较保守的集群架构
+  # 3. 非 Slurm 环境默认用本地 workstation 架构
+  if [[ -n "${CUDA_ARCH:-}" ]]; then
+    export CUDA_ARCH
+  elif site_in_slurm; then
+    export CUDA_ARCH="${SITE_DEFAULT_CUDA_ARCH_SLURM:-sm_80}"
+  else
+    export CUDA_ARCH="${SITE_DEFAULT_CUDA_ARCH_LOCAL:-sm_120}"
+  fi
 
   local mode="server"
   if site_in_slurm; then
