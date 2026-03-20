@@ -141,7 +141,10 @@ echo "[info] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<not set>}"
 echo "[info] CUDA_ROOT=${CUDA_ROOT:-<not set>}"
 echo "[info] CUDA_ARCH=${CUDA_ARCH:-<not set>}"
 echo "[info] PROJECT_ROOT=$PROJECT_ROOT"
-echo "[info] run: ./main_cuda $NX $NY $NZ $DT $NSTEPS $OUT_EVERY $CSV_OUT_EVERY $ELASTIC"
+PF_PARAM_FILE="$(site_generate_pf_param_file "dynamics_${NX}x${NY}x${NZ}_T${TEMP_C:-base}")"
+echo "[info] pf_param_file=$PF_PARAM_FILE"
+echo "[info] run: ./main_cuda $NX $NY $NZ $DT $NSTEPS $OUT_EVERY $CSV_OUT_EVERY $ELASTIC --pf-param-file $PF_PARAM_FILE"
 echo ""
 
-./main_cuda "$NX" "$NY" "$NZ" "$DT" "$NSTEPS" "$OUT_EVERY" "$CSV_OUT_EVERY" "$ELASTIC"
+./main_cuda "$NX" "$NY" "$NZ" "$DT" "$NSTEPS" "$OUT_EVERY" "$CSV_OUT_EVERY" "$ELASTIC" \
+  --pf-param-file "$PF_PARAM_FILE"

@@ -11,6 +11,8 @@
 #include <time.h>
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <cuComplex.h>
@@ -106,6 +108,188 @@ static void log_kv_text(const char *key, const char *fmt, ...) {
     vsnprintf(value, sizeof(value), fmt, ap);
     va_end(ap);
     printf("  %-24s : %s\n", key ? key : "item", value);
+}
+
+typedef struct {
+    int have_dx, have_dy, have_dz;
+    int have_temperature_C, have_mu_reference_scale;
+    int have_W, have_kappa_phi, have_L_phi;
+    int have_D_alpha, have_D_compound;
+    int have_v_A, have_v_B;
+    int have_Vm_compound, have_Vm_alpha_0, have_dVm_alpha_dxB;
+    int have_ic_vf_init_phi, have_ic_vf_target_phi, have_ic_phi_iface_w;
+    int have_gamma_Jm2, have_lambda_sm_m, have_Vm_alpha_0_phys_m3mol;
+    int have_elastic_shift_dimless, have_eps_iso_over_vB;
+    uint32_t eigen_mask;
+    uint32_t s_mask;
+    uint32_t sp_mask;
+} PFParamOverridePresence;
+
+#define PF_VOIGT21_FULL_MASK ((uint32_t)((1u << 21) - 1u))
+#define PF_EIGEN_FULL_MASK   ((uint32_t)((1u << 6) - 1u))
+
+static int voigt21_suffix_index(const char *suffix) {
+    static const char *const suffixes[21] = {
+        "11", "12", "13", "14", "15", "16",
+        "22", "23", "24", "25", "26",
+        "33", "34", "35", "36",
+        "44", "45", "46",
+        "55", "56",
+        "66"
+    };
+    if (!suffix) return -1;
+    for (int i = 0; i < 21; ++i) {
+        if (strcmp(suffix, suffixes[i]) == 0) return i;
+    }
+    return -1;
+}
+
+static void mark_pfparams_presence(PFParamOverridePresence *presence, const char *key) {
+    if (!presence || !key) return;
+    if (strcmp(key, "dx") == 0) { presence->have_dx = 1; return; }
+    if (strcmp(key, "dy") == 0) { presence->have_dy = 1; return; }
+    if (strcmp(key, "dz") == 0) { presence->have_dz = 1; return; }
+    if (strcmp(key, "temperature_C") == 0) { presence->have_temperature_C = 1; return; }
+    if (strcmp(key, "mu_reference_scale") == 0) { presence->have_mu_reference_scale = 1; return; }
+    if (strcmp(key, "W") == 0) { presence->have_W = 1; return; }
+    if (strcmp(key, "kappa_phi") == 0) { presence->have_kappa_phi = 1; return; }
+    if (strcmp(key, "L_phi") == 0) { presence->have_L_phi = 1; return; }
+    if (strcmp(key, "D_alpha") == 0) { presence->have_D_alpha = 1; return; }
+    if (strcmp(key, "D_compound") == 0) { presence->have_D_compound = 1; return; }
+    if (strcmp(key, "v_A") == 0) { presence->have_v_A = 1; return; }
+    if (strcmp(key, "v_B") == 0) { presence->have_v_B = 1; return; }
+    if (strcmp(key, "Vm_compound") == 0) { presence->have_Vm_compound = 1; return; }
+    if (strcmp(key, "Vm_alpha_0") == 0) { presence->have_Vm_alpha_0 = 1; return; }
+    if (strcmp(key, "dVm_alpha_dxB") == 0) { presence->have_dVm_alpha_dxB = 1; return; }
+    if (strcmp(key, "ic_vf_init_phi") == 0) { presence->have_ic_vf_init_phi = 1; return; }
+    if (strcmp(key, "ic_vf_target_phi") == 0) { presence->have_ic_vf_target_phi = 1; return; }
+    if (strcmp(key, "ic_phi_iface_w") == 0) { presence->have_ic_phi_iface_w = 1; return; }
+    if (strcmp(key, "gamma_Jm2") == 0) { presence->have_gamma_Jm2 = 1; return; }
+    if (strcmp(key, "lambda_sm_m") == 0) { presence->have_lambda_sm_m = 1; return; }
+    if (strcmp(key, "Vm_alpha_0_phys_m3mol") == 0) { presence->have_Vm_alpha_0_phys_m3mol = 1; return; }
+    if (strcmp(key, "elastic_shift_dimless") == 0) { presence->have_elastic_shift_dimless = 1; return; }
+    if (strcmp(key, "eps_iso_over_vB") == 0) { presence->have_eps_iso_over_vB = 1; return; }
+
+    if (strcmp(key, "eps_xx00") == 0) { presence->eigen_mask |= (1u << 0); return; }
+    if (strcmp(key, "eps_yy00") == 0) { presence->eigen_mask |= (1u << 1); return; }
+    if (strcmp(key, "eps_zz00") == 0) { presence->eigen_mask |= (1u << 2); return; }
+    if (strcmp(key, "eps_yz00") == 0) { presence->eigen_mask |= (1u << 3); return; }
+    if (strcmp(key, "eps_xz00") == 0) { presence->eigen_mask |= (1u << 4); return; }
+    if (strcmp(key, "eps_xy00") == 0) { presence->eigen_mask |= (1u << 5); return; }
+
+    if (strncmp(key, "S_p_", 4) == 0) {
+        int idx = voigt21_suffix_index(key + 4);
+        if (idx >= 0) presence->sp_mask |= (1u << idx);
+        return;
+    }
+    if (strncmp(key, "S_", 2) == 0) {
+        int idx = voigt21_suffix_index(key + 2);
+        if (idx >= 0) presence->s_mask |= (1u << idx);
+        return;
+    }
+}
+
+static int validate_required_pfparams_presence(const PFParamOverridePresence *presence, const char *path) {
+    int ok = 1;
+#define REQUIRE_ONE(field, label) \
+    do { \
+        if (!(presence)->field) { \
+            fprintf(stderr, "[fatal] %s 缺少必需物理参数: %s\n", (path ? path : "<pf-param-file>"), (label)); \
+            ok = 0; \
+        } \
+    } while (0)
+
+    REQUIRE_ONE(have_dx, "dx");
+    REQUIRE_ONE(have_dy, "dy");
+    REQUIRE_ONE(have_dz, "dz");
+    REQUIRE_ONE(have_temperature_C, "temperature_C");
+    REQUIRE_ONE(have_mu_reference_scale, "mu_reference_scale");
+    REQUIRE_ONE(have_W, "W");
+    REQUIRE_ONE(have_kappa_phi, "kappa_phi");
+    REQUIRE_ONE(have_L_phi, "L_phi");
+    REQUIRE_ONE(have_D_alpha, "D_alpha");
+    REQUIRE_ONE(have_D_compound, "D_compound");
+    REQUIRE_ONE(have_v_A, "v_A");
+    REQUIRE_ONE(have_v_B, "v_B");
+    REQUIRE_ONE(have_Vm_compound, "Vm_compound");
+    REQUIRE_ONE(have_Vm_alpha_0, "Vm_alpha_0");
+    REQUIRE_ONE(have_dVm_alpha_dxB, "dVm_alpha_dxB");
+    REQUIRE_ONE(have_ic_vf_init_phi, "ic_vf_init_phi");
+    REQUIRE_ONE(have_ic_vf_target_phi, "ic_vf_target_phi");
+    REQUIRE_ONE(have_ic_phi_iface_w, "ic_phi_iface_w");
+    REQUIRE_ONE(have_gamma_Jm2, "gamma_Jm2");
+    REQUIRE_ONE(have_lambda_sm_m, "lambda_sm_m");
+    REQUIRE_ONE(have_Vm_alpha_0_phys_m3mol, "Vm_alpha_0_phys_m3mol");
+    REQUIRE_ONE(have_elastic_shift_dimless, "elastic_shift_dimless");
+    REQUIRE_ONE(have_eps_iso_over_vB, "eps_iso_over_vB");
+
+#undef REQUIRE_ONE
+
+    if (presence->eigen_mask != PF_EIGEN_FULL_MASK) {
+        fprintf(stderr, "[fatal] %s 缺少完整的本征应变输入 eps_xx00..eps_xy00\n",
+                (path ? path : "<pf-param-file>"));
+        ok = 0;
+    }
+    if (presence->s_mask != PF_VOIGT21_FULL_MASK) {
+        fprintf(stderr, "[fatal] %s 缺少完整的基体弹性矩阵输入 S_*\n",
+                (path ? path : "<pf-param-file>"));
+        ok = 0;
+    }
+    if (presence->sp_mask != PF_VOIGT21_FULL_MASK) {
+        fprintf(stderr, "[fatal] %s 缺少完整的弹性差值矩阵输入 S_p_*\n",
+                (path ? path : "<pf-param-file>"));
+        ok = 0;
+    }
+    return ok;
+}
+
+static int validate_physical_params_ready(const PFParams *P) {
+    int ok = 1;
+#define REQUIRE_POSITIVE(field, label) \
+    do { \
+        if (!((P)->field > 0.0)) { \
+            fprintf(stderr, "[fatal] 无效物理参数 %s = %.6e，必须 > 0。\n", (label), (double)(P)->field); \
+            ok = 0; \
+        } \
+    } while (0)
+#define REQUIRE_NONNEG(field, label) \
+    do { \
+        if (!((P)->field >= 0.0)) { \
+            fprintf(stderr, "[fatal] 无效物理参数 %s = %.6e，必须 >= 0。\n", (label), (double)(P)->field); \
+            ok = 0; \
+        } \
+    } while (0)
+
+    REQUIRE_POSITIVE(dx, "dx");
+    REQUIRE_POSITIVE(dy, "dy");
+    REQUIRE_POSITIVE(dz, "dz");
+    REQUIRE_POSITIVE(W, "W");
+    REQUIRE_POSITIVE(kappa_phi, "kappa_phi");
+    REQUIRE_POSITIVE(L_phi, "L_phi");
+    REQUIRE_POSITIVE(D_alpha, "D_alpha");
+    REQUIRE_NONNEG(D_compound, "D_compound");
+    if (!(P->temperature_C > -273.15)) {
+        fprintf(stderr, "[fatal] 无效物理参数 temperature_C = %.6e，必须 > -273.15。\n", P->temperature_C);
+        ok = 0;
+    }
+    if (fabs(P->mu_reference_scale) <= 1e-30) {
+        fprintf(stderr, "[fatal] 无效物理参数 mu_reference_scale = %.6e，不能为 0。\n", P->mu_reference_scale);
+        ok = 0;
+    }
+    REQUIRE_POSITIVE(v_B, "v_B");
+    REQUIRE_POSITIVE(Vm_compound, "Vm_compound");
+    REQUIRE_POSITIVE(Vm_alpha_0, "Vm_alpha_0");
+    REQUIRE_NONNEG(ic_vf_init_phi, "ic_vf_init_phi");
+    REQUIRE_NONNEG(ic_vf_target_phi, "ic_vf_target_phi");
+    REQUIRE_POSITIVE(ic_phi_iface_w, "ic_phi_iface_w");
+    REQUIRE_POSITIVE(gamma_Jm2, "gamma_Jm2");
+    REQUIRE_POSITIVE(lambda_sm_m, "lambda_sm_m");
+    REQUIRE_POSITIVE(Vm_alpha_0_phys_m3mol, "Vm_alpha_0_phys_m3mol");
+    REQUIRE_NONNEG(eps_iso_over_vB, "eps_iso_over_vB");
+
+#undef REQUIRE_POSITIVE
+#undef REQUIRE_NONNEG
+    return ok;
 }
 
 // 辅助函数：周期边界距离（GPU/CPU两用）
@@ -1027,7 +1211,7 @@ static void apply_init_test_preset(PFParams *P) {
 // 默认参数设置
 static void params_default(PFParams *P) {
     P->Nx = 400; P->Ny = 400; P->Nz = 400;
-    P->dx = P->dy = P->dz = 0.1;
+    P->dx = P->dy = P->dz = -1.0;
     P->dt = 1.0e-2;
     P->t_real_unit = 1.114792e+00;
     P->nsteps = 10;
@@ -1036,39 +1220,37 @@ static void params_default(PFParams *P) {
     P->dimension = 3;
     P->seed = 12345;
     
-    P->W = 1.0;
-    P->kappa_phi = 4.500000e-02;
-    // P->L_phi = 5.889664e+00;
-    P->L_phi = 1.432558e+00;
-    // P->L_phi = 0.0;
-    P->D_alpha = 9.000000e+00;
-    P->D_compound = 9.000000e-02;
+    // 物理输入必须由 --pf-param-file 提供；这里使用哨兵值以防漏传
+    P->W = -1.0;
+    P->kappa_phi = -1.0;
+    P->L_phi = -1.0;
+    P->D_alpha = -1.0;
+    P->D_compound = -1.0;
     
-    P->temperature_C = 380.0;
-    // P->mu_reference_scale = 1.686000e+05;
-    P->mu_reference_scale = 4.100900e+04;
-    P->v_B = 1.0;
-    P->v_A = 1.0 - P->v_B;
+    P->temperature_C = -1.0;
+    P->mu_reference_scale = -1.0;
+    P->v_B = -1.0;
+    P->v_A = -1.0;
     
-    // P->Vm_compound = 1.007000e+00;
-    P->Vm_compound = 1.0e+00;
-    P->Vm_alpha_0 = 1.0e+00;
-    // P->dVm_alpha_dxB = 7.00000e-03;
-    P->dVm_alpha_dxB = 0.0e+00;
+    P->Vm_compound = -1.0;
+    P->Vm_alpha_0 = -1.0;
+    P->dVm_alpha_dxB = -1.0;
     
     P->Y_clip = 20.0;
     P->xB_eps = 1e-8;
     P->xB_s_floor = 0.0002;
     
-    P->ic_vf_init_phi = 0.0;
+    P->ic_vf_init_phi = -1.0;
     // P->ic_23d_xB_out = 4.664952e-03;
     P->ic_23d_xB_out = 0.03;
     // P->ic_23d_xB_out = 3.452500e-02;     /* 2D/3D：外部（φ≈0）区域初始 xB；若 >0，则忽略 ic_vf_target_phi，直接使用该值 */
-    P->ic_vf_target_phi = 0.03;      /* 仅在 ic_23d_xB_out <= 0 时，用于通过质量守恒反推外部 xB_out 的目标体积分数 */
+    P->ic_vf_target_phi = -1.0;      /* 必须由外部物理输入提供 */
     P->ic_phi_num_seeds = 1;               // 种子数量：与CUDA版保持一致
-    P->ic_phi_iface_w = 3.0;               // 相场 φ 的界面宽度（以 dx 为单位）
+    P->ic_phi_iface_w = -1.0;              // 必须由外部物理输入提供
     P->ic_xB_width_factor = 1.0;           // xB 界面宽度相对于 φ 界面宽度的比例
     P->ic_phi_seed_radius = 10.0;            // 初始化时由 initialize_fields 反求并写回的等效种子半径
+    P->ic_xB_eq_matrix = -1.0;
+    P->mu0_compound = -1.0;
 
     // 破对称 / 多初值测试相关初始化默认值（保持旧行为完全不变）
     P->init_shape_mode    = -1;   // legacy: 按旧逻辑决定 Rx,Ry,Rz
@@ -1093,8 +1275,8 @@ static void params_default(PFParams *P) {
 
     // 物理量标定默认值（请按你的体系修改）
     // 若 elastic_gel_is_dimless=1，则 gel_hat * w_phys -> J/m^3，其中 w_phys=12*gamma/lambda_sm
-    P->gamma_Jm2 = 0.2;          // J/m^2
-    P->lambda_sm_m = 6.0e-10;        // m
+    P->gamma_Jm2 = -1.0;          // J/m^2
+    P->lambda_sm_m = -1.0;        // m
     P->elastic_gel_is_dimless = 1;
     
     // === 摩尔体积设置（用于弹性 bulk 惩罚诊断：Delta_mu_el = E_el_bulk_Jm3 * Vm_alpha_0_phys_m3mol）===
@@ -1103,7 +1285,7 @@ static void params_default(PFParams *P) {
     //   - 下方的 Vm_alpha_0_phys_m3mol 是有量纲摩尔体积（单位：m^3/mol），专门用于弹性 bulk 惩罚诊断
     //   - 计算公式：Delta_mu_el (J/mol) = E_el_bulk_Jm3 (J/m^3) * Vm_alpha_0_phys_m3mol (m^3/mol)
     // 默认值（需修改为实际值）：
-    P->Vm_alpha_0_phys_m3mol = 4.215e-5;  // 例如：10 cm^3/mol = 10^-5 m^3/mol（典型金属/合金值）
+    P->Vm_alpha_0_phys_m3mol = -1.0;
    
     // =======================================================================================================
     P->oneD_test_mode = 0;       /* =0：关闭 1D slab，使用 2D 圆形种子 IC；=1：启用 1D slab 测试模式 */
@@ -1116,160 +1298,21 @@ static void params_default(PFParams *P) {
     P->elastic_enabled = 1;      // 默认启用弹性计算（0/1）
     P->elastic_iter_max = 20;     // 默认迭代1次（可根据需要调整）
     // 无量纲弹性 shift 能量密度（加在 delta_mu 上）；仅在 elastic_enabled=1 时生效
-    P->elastic_shift_dimless = 0.0;
-    // P->elastic_shift_dimless = 5.45338697e-02;
+    P->elastic_shift_dimless = -1.0;
 
-       // dx=0.1nm gamma=0.05------------
-       P->S_11 = 1.040e+02;
-       P->S_12 = 6.000e+00;
-       P->S_13 = 6.000e+00;
-       P->S_14 = 0.0; P->S_15 = 0.0; P->S_16 = 0.0;
-       
-       P->S_22 = 1.040e+02;
-       P->S_23 = 6.000e+00;
-       P->S_24 = 0.0; P->S_25 = 0.0; P->S_26 = 0.0;
-       
-       P->S_33 = 1.040e+02;
-       P->S_34 = 0.0; P->S_35 = 0.0; P->S_36 = 0.0;
-       
-       P->S_44 = 1.400e+01;
-       P->S_45 = 0.0; P->S_46 = 0.0;
-       
-       P->S_55 = 1.400e+01;
-       P->S_56 = 0.0;
-       
-       P->S_66 = 1.400e+01;
-       // dx=0.1nm gamma=0.05------------
+    P->S_11 = P->S_12 = P->S_13 = P->S_14 = P->S_15 = P->S_16 = -1.0;
+    P->S_22 = P->S_23 = P->S_24 = P->S_25 = P->S_26 = -1.0;
+    P->S_33 = P->S_34 = P->S_35 = P->S_36 = -1.0;
+    P->S_44 = P->S_45 = P->S_46 = -1.0;
+    P->S_55 = P->S_56 = -1.0;
+    P->S_66 = -1.0;
 
-
-    // dx=0.1nm gamma=0.2------------
-    // P->S_11 = 1.733e+01;
-    // P->S_12 = 1.000e+00;
-    // P->S_13 = 1.000e+00;
-    // P->S_14 = 0.0; P->S_15 = 0.0; P->S_16 = 0.0;
-    
-    // P->S_22 = 1.733e+01;
-    // P->S_23 = 1.000e+00;
-    // P->S_24 = 0.0; P->S_25 = 0.0; P->S_26 = 0.0;
-    
-    // P->S_33 = 1.733e+01;
-    // P->S_34 = 0.0; P->S_35 = 0.0; P->S_36 = 0.0;
-    
-    // P->S_44 = 2.333e+00;
-    // P->S_45 = 0.0; P->S_46 = 0.0;
-    
-    // P->S_55 = 2.333e+00;
-    // P->S_56 = 0.0;
-    
-    // P->S_66 = 2.333e+00;
-
-    // dx=0.1nm gamma=0.2------------
-
-    // dx=1nm ------------
-    // P->S_11 = 1.733e+02;
-    // P->S_12 = 1.000e+01;
-    // P->S_13 = 1.000e+01;
-    // P->S_14 = 0.0; P->S_15 = 0.0; P->S_16 = 0.0;
-    
-    // P->S_22 = 1.733e+02;
-    // P->S_23 = 1.000e+01;
-    // P->S_24 = 0.0; P->S_25 = 0.0; P->S_26 = 0.0;
-    
-    // P->S_33 = 1.733e+02;
-    // P->S_34 = 0.0; P->S_35 = 0.0; P->S_36 = 0.0;
-    
-    // P->S_44 = 2.333e+01;
-    // P->S_45 = 0.0; P->S_46 = 0.0;
-    
-    // P->S_55 = 2.333e+01;
-    // P->S_56 = 0.0;
-    
-    // P->S_66 = 2.333e+01;
-    // dx=1nm gamma=0.2------------
-
-
-    // S_p参数（弹性常数perturbation，21个独立分量）- 默认全为0 
-    // Ag2Te
-
-    // dx=0.1 nm gamma=0.05------------
-    // S_p parameters = C_precipitate - C_matrix
-    // Ag2Te - PbTe
-
-    P->S_p_11 = -2.400e+01;
-    P->S_p_12 =  3.100e+01;
-    P->S_p_13 =  4.300e+01;
-    P->S_p_14 =  0.0;
-    P->S_p_15 =  4.000e+00;
-    P->S_p_16 =  0.0;
-
-    P->S_p_22 = -3.600e+01;
-    P->S_p_23 =  3.400e+01;
-    P->S_p_24 =  0.0;
-    P->S_p_25 =  2.000e+00;
-    P->S_p_26 =  0.0;
-
-    P->S_p_33 = -1.400e+01;
-    P->S_p_34 =  0.0;
-    P->S_p_35 =  4.000e+00;
-    P->S_p_36 =  0.0;
-
-    P->S_p_44 =  2.000e+00;
-    P->S_p_45 =  0.0;
-    P->S_p_46 =  1.000e+00;
-
-    P->S_p_55 = -4.000e+00;
-    P->S_p_56 =  0.0;
-
-    P->S_p_66 = -2.000e+00;
-    // dx=0.1 nm gamma=0.05------------
-
-    // dx=0.1 nm gamma=0.2------------
-    // P->S_p_11 = -4.000e+00;
-    // P->S_p_12 = 5.167e+00;
-    // P->S_p_13 = 7.167e+00; 
-    // P->S_p_14 = 0.0;
-    // P->S_p_15 = 6.667e-01;
-    // P->S_p_16 = 0.0;
-    // P->S_p_22 = -6.000e+00;
-    // P->S_p_23 = 5.667e+00;
-    // P->S_p_24 = 0.0;
-    // P->S_p_25 = 3.333e-01;
-    // P->S_p_26 = 0.0;
-    // P->S_p_33 = -2.330e+00; 
-    // P->S_p_34 = 0.0;
-    // P->S_p_35 = 6.667e-01;
-    // P->S_p_36 = 0.0;
-    // P->S_p_44 = 3.340e-01;
-    // P->S_p_45 = 0.0;
-    // P->S_p_46 = 1.667e-01;
-    // P->S_p_55 = -6.660e-01;
-    // P->S_p_56 = 0.0;
-    // P->S_p_66 = -3.330e-01;
-    // dx=0.1 nm gamma=0.2------------
-
-    // dx=1.0 nm gamma=0.2------------
-    // P->S_p_11 = -4.000e+01;
-    // P->S_p_12 = 5.167e+01;
-    // P->S_p_13 = 7.167e+01; 
-    // P->S_p_14 = 0.0;
-    // P->S_p_15 = 6.667e+00;
-    // P->S_p_16 = 0.0;
-    // P->S_p_22 = -6.000e+01;
-    // P->S_p_23 = 5.667e+01;
-    // P->S_p_24 = 0.0;
-    // P->S_p_25 = 3.333e+00;
-    // P->S_p_26 = 0.0;
-    // P->S_p_33 = -2.330e+01;
-    // P->S_p_34 = 0.0;
-    // P->S_p_35 = 6.667e+00;
-    // P->S_p_36 = 0.0;
-    // P->S_p_44 = 3.340e+00;
-    // P->S_p_45 = 0.0;
-    // P->S_p_46 = 1.667e+00;
-    // P->S_p_55 = -6.660e+00;
-    // P->S_p_56 = 0.0;
-    // P->S_p_66 = -3.330e+00;
-    // dx=1.0 nm gamma=0.2------------
+    P->S_p_11 = P->S_p_12 = P->S_p_13 = P->S_p_14 = P->S_p_15 = P->S_p_16 = -1.0;
+    P->S_p_22 = P->S_p_23 = P->S_p_24 = P->S_p_25 = P->S_p_26 = -1.0;
+    P->S_p_33 = P->S_p_34 = P->S_p_35 = P->S_p_36 = -1.0;
+    P->S_p_44 = P->S_p_45 = P->S_p_46 = -1.0;
+    P->S_p_55 = P->S_p_56 = -1.0;
+    P->S_p_66 = -1.0;
     
     // E0参数（外部应变，6个分量）- 默认全为0
     P->E0_xx = 0.0;
@@ -1280,24 +1323,15 @@ static void params_default(PFParams *P) {
     P->E0_xy = 0.0;
 
     // stress-free transformation strain eps^00_ij：默认全0
-    P->eps_xx00 = 0.046;
-    P->eps_yy00 = -0.022;
-    P->eps_zz00 = -0.017;
-    P->eps_yz00 = 0.0;
-    P->eps_xz00 = 0.0;
-    P->eps_xy00 = 0.0;
+    P->eps_xx00 = -1.0;
+    P->eps_yy00 = -1.0;
+    P->eps_zz00 = -1.0;
+    P->eps_yz00 = -1.0;
+    P->eps_xz00 = -1.0;
+    P->eps_xy00 = -1.0;
     
-    // 各向同性化学膨胀参数：默认按 epsilon_star_default / v_B 设定
-    P->eps_iso_over_vB = 0.00233 / P->v_B;
-    
-    // P->eps_iso_over_vB = 0.000233 / P->v_B;
-    // P->eps_iso_over_vB = 0.00 / P->v_B;
-    
-    // 根据当前温度刷新热力学量（包括 x_B,eq）
-    pfparams_refresh_thermo(P);
-
-    // 以矩阵平衡成分 xB_eq 作为化学膨胀参考成分 xB_ref_for_eps_c
-    P->xB_ref_for_eps_c = P->ic_xB_eq_matrix;
+    P->eps_iso_over_vB = -1.0;
+    P->xB_ref_for_eps_c = -1.0;
 
     // ============================================================
     // Energy minimization mode defaults (phi-only / full-model)
@@ -1661,6 +1695,201 @@ static inline const char* get_flag_value(int argc, char **argv, int *i, const ch
     return NULL;
 }
 
+static void trim_inplace(char *s) {
+    if (!s) return;
+    char *start = s;
+    while (*start && isspace((unsigned char)*start)) start++;
+    if (start != s) {
+        memmove(s, start, strlen(start) + 1);
+    }
+    size_t len = strlen(s);
+    while (len > 0 && isspace((unsigned char)s[len - 1])) {
+        s[--len] = '\0';
+    }
+}
+
+static int parse_double_value(const char *text, double *out) {
+    if (!text || !out) return 0;
+    while (*text && isspace((unsigned char)*text)) text++;
+    if (*text == '\0') return 0;
+    char *end = NULL;
+    double value = strtod(text, &end);
+    if (end == text) return 0;
+    while (*end && isspace((unsigned char)*end)) end++;
+    if (*end != '\0') return 0;
+    *out = value;
+    return 1;
+}
+
+static int parse_int_value(const char *text, int *out) {
+    if (!text || !out) return 0;
+    while (*text && isspace((unsigned char)*text)) text++;
+    if (*text == '\0') return 0;
+    char *end = NULL;
+    long value = strtol(text, &end, 10);
+    if (end == text) return 0;
+    while (*end && isspace((unsigned char)*end)) end++;
+    if (*end != '\0') return 0;
+    *out = (int)value;
+    return 1;
+}
+
+static int apply_pfparams_override_key(PFParams *P, const char *key, const char *value, const char *path, int line_no) {
+    if (!P || !key || !value) return -1;
+
+#define TRY_SET_DOUBLE(name, field) \
+    if (strcmp((key), (name)) == 0) { \
+        double parsed = 0.0; \
+        if (!parse_double_value((value), &parsed)) { \
+            fprintf(stderr, "[fatal] %s:%d invalid numeric value for %s: %s\n", \
+                    (path ? path : "<pf-param-file>"), (line_no), (name), (value)); \
+            return -1; \
+        } \
+        P->field = parsed; \
+        return 1; \
+    }
+
+#define TRY_SET_INT(name, field) \
+    if (strcmp((key), (name)) == 0) { \
+        int parsed = 0; \
+        if (!parse_int_value((value), &parsed)) { \
+            fprintf(stderr, "[fatal] %s:%d invalid integer value for %s: %s\n", \
+                    (path ? path : "<pf-param-file>"), (line_no), (name), (value)); \
+            return -1; \
+        } \
+        P->field = parsed; \
+        return 1; \
+    }
+
+    TRY_SET_DOUBLE("W", W);
+    TRY_SET_DOUBLE("dx", dx);
+    TRY_SET_DOUBLE("dy", dy);
+    TRY_SET_DOUBLE("dz", dz);
+    TRY_SET_DOUBLE("kappa_phi", kappa_phi);
+    TRY_SET_DOUBLE("L_phi", L_phi);
+    TRY_SET_DOUBLE("D_alpha", D_alpha);
+    TRY_SET_DOUBLE("D_compound", D_compound);
+    TRY_SET_DOUBLE("temperature_C", temperature_C);
+    TRY_SET_DOUBLE("mu_reference_scale", mu_reference_scale);
+    TRY_SET_DOUBLE("v_A", v_A);
+    TRY_SET_DOUBLE("v_B", v_B);
+    TRY_SET_DOUBLE("Vm_compound", Vm_compound);
+    TRY_SET_DOUBLE("Vm_alpha_0", Vm_alpha_0);
+    TRY_SET_DOUBLE("dVm_alpha_dxB", dVm_alpha_dxB);
+    TRY_SET_DOUBLE("ic_vf_init_phi", ic_vf_init_phi);
+    TRY_SET_DOUBLE("ic_vf_target_phi", ic_vf_target_phi);
+    TRY_SET_DOUBLE("ic_phi_iface_w", ic_phi_iface_w);
+    TRY_SET_DOUBLE("gamma_Jm2", gamma_Jm2);
+    TRY_SET_DOUBLE("lambda_sm_m", lambda_sm_m);
+    TRY_SET_DOUBLE("Vm_alpha_0_phys_m3mol", Vm_alpha_0_phys_m3mol);
+    TRY_SET_DOUBLE("elastic_shift_dimless", elastic_shift_dimless);
+    TRY_SET_DOUBLE("eps_iso_over_vB", eps_iso_over_vB);
+    TRY_SET_DOUBLE("eps_xx00", eps_xx00);
+    TRY_SET_DOUBLE("eps_yy00", eps_yy00);
+    TRY_SET_DOUBLE("eps_zz00", eps_zz00);
+    TRY_SET_DOUBLE("eps_yz00", eps_yz00);
+    TRY_SET_DOUBLE("eps_xz00", eps_xz00);
+    TRY_SET_DOUBLE("eps_xy00", eps_xy00);
+
+    TRY_SET_DOUBLE("S_11", S_11);   TRY_SET_DOUBLE("S_12", S_12);
+    TRY_SET_DOUBLE("S_13", S_13);   TRY_SET_DOUBLE("S_14", S_14);
+    TRY_SET_DOUBLE("S_15", S_15);   TRY_SET_DOUBLE("S_16", S_16);
+    TRY_SET_DOUBLE("S_22", S_22);   TRY_SET_DOUBLE("S_23", S_23);
+    TRY_SET_DOUBLE("S_24", S_24);   TRY_SET_DOUBLE("S_25", S_25);
+    TRY_SET_DOUBLE("S_26", S_26);   TRY_SET_DOUBLE("S_33", S_33);
+    TRY_SET_DOUBLE("S_34", S_34);   TRY_SET_DOUBLE("S_35", S_35);
+    TRY_SET_DOUBLE("S_36", S_36);   TRY_SET_DOUBLE("S_44", S_44);
+    TRY_SET_DOUBLE("S_45", S_45);   TRY_SET_DOUBLE("S_46", S_46);
+    TRY_SET_DOUBLE("S_55", S_55);   TRY_SET_DOUBLE("S_56", S_56);
+    TRY_SET_DOUBLE("S_66", S_66);
+
+    TRY_SET_DOUBLE("S_p_11", S_p_11); TRY_SET_DOUBLE("S_p_12", S_p_12);
+    TRY_SET_DOUBLE("S_p_13", S_p_13); TRY_SET_DOUBLE("S_p_14", S_p_14);
+    TRY_SET_DOUBLE("S_p_15", S_p_15); TRY_SET_DOUBLE("S_p_16", S_p_16);
+    TRY_SET_DOUBLE("S_p_22", S_p_22); TRY_SET_DOUBLE("S_p_23", S_p_23);
+    TRY_SET_DOUBLE("S_p_24", S_p_24); TRY_SET_DOUBLE("S_p_25", S_p_25);
+    TRY_SET_DOUBLE("S_p_26", S_p_26); TRY_SET_DOUBLE("S_p_33", S_p_33);
+    TRY_SET_DOUBLE("S_p_34", S_p_34); TRY_SET_DOUBLE("S_p_35", S_p_35);
+    TRY_SET_DOUBLE("S_p_36", S_p_36); TRY_SET_DOUBLE("S_p_44", S_p_44);
+    TRY_SET_DOUBLE("S_p_45", S_p_45); TRY_SET_DOUBLE("S_p_46", S_p_46);
+    TRY_SET_DOUBLE("S_p_55", S_p_55); TRY_SET_DOUBLE("S_p_56", S_p_56);
+    TRY_SET_DOUBLE("S_p_66", S_p_66);
+
+    TRY_SET_INT("elastic_enabled", elastic_enabled);
+    TRY_SET_INT("elastic_iter_max", elastic_iter_max);
+    TRY_SET_INT("diag_vtk_enabled", diag_vtk_enabled);
+    TRY_SET_INT("diag_elastic_bulk_penalty_enabled", diag_elastic_bulk_penalty_enabled);
+    TRY_SET_INT("mode", mode);
+    TRY_SET_INT("minimize_full_model", minimize_full_model);
+
+    if (strcmp(key, "init_case_tag") == 0) {
+        strncpy(P->init_case_tag, value, sizeof(P->init_case_tag) - 1);
+        P->init_case_tag[sizeof(P->init_case_tag) - 1] = '\0';
+        return 1;
+    }
+
+#undef TRY_SET_DOUBLE
+#undef TRY_SET_INT
+
+    return 0;
+}
+
+static int load_pfparams_override_file(PFParams *P, const char *path) {
+    if (!P || !path || path[0] == '\0') return 0;
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        fprintf(stderr, "[fatal] Could not open pf-param file: %s\n", path);
+        return 0;
+    }
+
+    char line[2048];
+    int line_no = 0;
+    int applied = 0;
+    PFParamOverridePresence presence;
+    memset(&presence, 0, sizeof(presence));
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        line_no++;
+        char *comment = strchr(line, '#');
+        if (comment) *comment = '\0';
+        trim_inplace(line);
+        if (line[0] == '\0') continue;
+
+        char *sep = strchr(line, '=');
+        if (!sep) {
+            fprintf(stderr, "[fatal] %s:%d expected key=value format\n", path, line_no);
+            fclose(fp);
+            return 0;
+        }
+        *sep = '\0';
+        char key[512];
+        char value[1536];
+        strncpy(key, line, sizeof(key) - 1);
+        key[sizeof(key) - 1] = '\0';
+        strncpy(value, sep + 1, sizeof(value) - 1);
+        value[sizeof(value) - 1] = '\0';
+        trim_inplace(key);
+        trim_inplace(value);
+
+        int rc = apply_pfparams_override_key(P, key, value, path, line_no);
+        if (rc < 0) {
+            fclose(fp);
+            return 0;
+        }
+        if (rc == 0) {
+            fprintf(stderr, "[warn] %s:%d unknown key ignored: %s\n", path, line_no, key);
+            continue;
+        }
+        mark_pfparams_presence(&presence, key);
+        applied++;
+    }
+    fclose(fp);
+    if (!validate_required_pfparams_presence(&presence, path)) {
+        return 0;
+    }
+    printf("[pf-param-file] loaded %d override(s) from %s\n", applied, path);
+    return 1;
+}
+
 int main(int argc, char **argv) {
     // 立即刷新输出，确保能看到调试信息
     setbuf(stdout, NULL);
@@ -1672,6 +1901,34 @@ int main(int argc, char **argv) {
     PFParams P;
     params_default(&P);
 
+    int wants_help = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            wants_help = 1;
+            break;
+        }
+    }
+
+    const char *pf_param_file = NULL;
+    for (int i = 1; i < argc; ++i) {
+        const char *v = get_flag_value(argc, argv, &i, "--pf-param-file");
+        if (v != NULL) {
+            pf_param_file = v;
+        }
+    }
+    if (!wants_help && pf_param_file == NULL) {
+        fprintf(stderr,
+                "[fatal] 物理参数不再使用 main_cuda 内置默认值。请通过 --pf-param-file <path> 提供完整物理输入。\n");
+        fprintf(stderr,
+                "        可先运行: python3 Unit_Psedobinary.py --input-json physical_inputs.example.json --output-pf-param-file /tmp/generated_pf.params\n");
+        return 2;
+    }
+    if (pf_param_file != NULL) {
+        if (!load_pfparams_override_file(&P, pf_param_file)) {
+            return 2;
+        }
+    }
+
     if (argc >= 2 && argv[1][0] != '-') { P.Nx = atoi(argv[1]); }
     if (argc >= 3 && argv[2][0] != '-') { P.Ny = atoi(argv[2]); }
     if (argc >= 4 && argv[3][0] != '-') { P.Nz = atoi(argv[3]); }
@@ -1682,8 +1939,6 @@ int main(int argc, char **argv) {
     if (argc >= 9 && argv[8][0] != '-') { P.elastic_enabled = atoi(argv[8]); }  // 弹性功能开关（0/1）
     // 诊断开关（VTK / 弹性 bulk 惩罚）不再通过命令行控制，统一在 params_default 中设置
     
-    pfparams_refresh_thermo(&P);
-
     // ----------------------------
     // 预扫描 init-test-id 和 init-case-tag（在详细 flag 解析前）
     // ----------------------------
@@ -1709,6 +1964,7 @@ int main(int argc, char **argv) {
             printf("  ./main_cuda Nx Ny Nz dt nsteps out_every csv_out_every elastic_enabled(0/1)\n");
             printf("\nFlags (optional):\n");
             printf("  --mode=dynamics|minimize\n");
+            printf("  --pf-param-file <path>  required: load complete physical PF inputs (key=value)\n");
             printf("  --minimize-max-iter <n>\n");
             printf("  --minimize-dt <dt>\n");
             printf("  --eta-lambda-vol <value>   lambda_vol under-relaxation 阻尼系数 (default: 0.2, range: [0,1])\n");
@@ -1746,6 +2002,10 @@ int main(int argc, char **argv) {
         if ((v = get_flag_value(argc, argv, &i, "--mode")) != NULL) {
             if (strcmp(v, "minimize") == 0) P.mode = 1;
             else P.mode = 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-param-file")) != NULL) {
+            (void)v;
             continue;
         }
         // 注意：--minimize-full-model / --minimize-full 是“布尔开关”而非带数值参数的选项，
@@ -1903,6 +2163,10 @@ int main(int argc, char **argv) {
 
     // 在解析完所有可选参数（包括温度等热力学参数）之后，刷新热力学量。
     pfparams_refresh_thermo(&P);
+    P.xB_ref_for_eps_c = P.ic_xB_eq_matrix;
+    if (!validate_physical_params_ready(&P)) {
+        return 2;
+    }
 
     if (P.mode == 1) {
         P.nsteps = P.minimize_max_iter;
@@ -1912,6 +2176,11 @@ int main(int argc, char **argv) {
     if (P.Nx <= 0 || P.Ny <= 0 || P.Nz <= 0) {
         fprintf(stderr, "[fatal] Invalid grid size: Nx=%d Ny=%d Nz=%d. All dimensions must be > 0.\n",
                 P.Nx, P.Ny, P.Nz);
+        return 2;
+    }
+    if (P.dx <= 0.0 || P.dy <= 0.0 || P.dz <= 0.0) {
+        fprintf(stderr, "[fatal] Invalid spatial spacing: dx=%.6e dy=%.6e dz=%.6e. All must be > 0.\n",
+                P.dx, P.dy, P.dz);
         return 2;
     }
     if (P.dt <= 0.0) {
@@ -1955,6 +2224,13 @@ int main(int argc, char **argv) {
     {
         double temperature_K = P.temperature_C + 273.15;
         char grid_buf[64];
+        const double dx_phys_m = P.dx * 1.0e-9;
+        const double dy_phys_m = P.dy * 1.0e-9;
+        const double dz_phys_m = P.dz * 1.0e-9;
+        const double Lx_phys_m = P.Nx * dx_phys_m;
+        const double Ly_phys_m = P.Ny * dy_phys_m;
+        const double Lz_phys_m = P.Nz * dz_phys_m;
+        const double lambda_over_dx = (dx_phys_m > 0.0) ? (P.lambda_sm_m / dx_phys_m) : 0.0;
         const char *mode_label =
             (P.mode == 0) ? "dynamics"
                           : (P.minimize_full_model
@@ -1964,7 +2240,24 @@ int main(int argc, char **argv) {
 
         log_section_header("Run Configuration");
         log_kv_text("mode", "%s", mode_label);
+        if (pf_param_file != NULL) {
+            log_kv_text("pf_param_file", "%s", pf_param_file);
+        }
         log_kv_text("grid", "%s", grid_buf);
+        log_kv_text("dx / dy / dz", "%.6f / %.6f / %.6f", P.dx, P.dy, P.dz);
+        log_kv_text("cell_size_phys_nm", "%.6f / %.6f / %.6f",
+                    dx_phys_m * 1.0e9, dy_phys_m * 1.0e9, dz_phys_m * 1.0e9);
+        log_kv_text("system_size_phys_nm", "%.6f / %.6f / %.6f",
+                    Lx_phys_m * 1.0e9, Ly_phys_m * 1.0e9, Lz_phys_m * 1.0e9);
+        log_kv_text("system_size_phys_m", "%.6e / %.6e / %.6e",
+                    Lx_phys_m, Ly_phys_m, Lz_phys_m);
+        log_kv_text("lambda_sm_nm", "%.6f", P.lambda_sm_m * 1.0e9);
+        log_kv_text("lambda_sm/dx", "%.6f", lambda_over_dx);
+        if (lambda_over_dx <= 4.0) {
+            fprintf(stderr,
+                    "[warn] 界面分辨率不足: lambda_sm/dx = %.6f <= 4.000000，建议减小 dx 或增大 lambda_sm。\n",
+                    lambda_over_dx);
+        }
         log_kv_text("steps", "%d", P.nsteps);
         log_kv_text("dt", "%.6e", P.dt);
         log_kv_text("out_every", "%d", P.out_every);

@@ -68,8 +68,12 @@ for TID in "${CASE_LIST[@]}"; do
   echo "case_tag = ${CASE_TAG}"
   echo "-----------------------------------------------------"
 
+  PF_PARAM_FILE="$(site_generate_pf_param_file "slurm_min_init_${CASE_TAG}_T${TEMP_C}")"
+  echo "PF_PARAM = ${PF_PARAM_FILE}"
+
   set -x
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
+    --pf-param-file "${PF_PARAM_FILE}" \
     --mode=minimize \
     --minimize-full-model \
     --minimize-max-iter "${NSTEPS}" \
@@ -78,7 +82,6 @@ for TID in "${CASE_LIST[@]}"; do
     --radius "${RADIUS}" \
     --elastic "${ELASTIC}" \
     --ic-23d-xB-out "${XB_OUT}" \
-    --temperature-C "${TEMP_C}" \
     --init-test-id "${TID}" \
     --init-case-tag "${CASE_TAG}" \
     --minimize-rms-dphi-threshold "${MIN_RMS_DPHI_THRESHOLD}" \

@@ -62,8 +62,13 @@ echo "  Case tag: ${CASE_TAG}"
 echo "=========================================="
 echo ""
 
+PF_PARAM_FILE="$(site_generate_pf_param_file "rotate_oblate_${CASE_TAG}_T${TEMP_C}")"
+echo "PF_PARAM = ${PF_PARAM_FILE}"
+echo ""
+
 set -x
 ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
+  --pf-param-file "${PF_PARAM_FILE}" \
   --mode=minimize \
   --minimize-full-model \
   --minimize-max-iter "${NSTEPS}" \
@@ -72,7 +77,6 @@ set -x
   --radius "${RADIUS}" \
   --elastic "${ELASTIC}" \
   --ic-23d-xB-out "${XB_OUT}" \
-  --temperature-C "${TEMP_C}" \
   --init-shape ellipsoid \
   --init-axis-ratio-rx "${OBLATE_RX}" \
   --init-axis-ratio-ry "${OBLATE_RY}" \

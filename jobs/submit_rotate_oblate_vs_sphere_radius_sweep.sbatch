@@ -82,9 +82,13 @@ run_case() {
   echo "  radius=${radius}, shape=${shape_mode}"
   echo "-----------------------------------------------------"
 
+  PF_PARAM_FILE="$(site_generate_pf_param_file "slurm_${case_tag}_T${TEMP_C}")"
+  echo "PF_PARAM = ${PF_PARAM_FILE}"
+
   if [[ "$shape_mode" == "rotate_oblate" ]]; then
     set -x
     ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
+      --pf-param-file "${PF_PARAM_FILE}" \
       --mode=minimize \
       --minimize-full-model \
       --minimize-max-iter "${NSTEPS}" \
@@ -93,7 +97,6 @@ run_case() {
       --radius "${radius}" \
       --elastic "${ELASTIC}" \
       --ic-23d-xB-out "${XB_OUT}" \
-      --temperature-C "${TEMP_C}" \
       --init-shape ellipsoid \
       --init-axis-ratio-rx "${OBLATE_RX}" \
       --init-axis-ratio-ry "${OBLATE_RY}" \
@@ -115,6 +118,7 @@ run_case() {
   elif [[ "$shape_mode" == "sphere" ]]; then
     set -x
     ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
+      --pf-param-file "${PF_PARAM_FILE}" \
       --mode=minimize \
       --minimize-full-model \
       --minimize-max-iter "${NSTEPS}" \
@@ -123,7 +127,6 @@ run_case() {
       --radius "${radius}" \
       --elastic "${ELASTIC}" \
       --ic-23d-xB-out "${XB_OUT}" \
-      --temperature-C "${TEMP_C}" \
       --init-shape sphere \
       --init-case-tag "${case_tag}" \
       --minimize-rms-dphi-threshold "${MIN_RMS_DPHI_THRESHOLD}" \

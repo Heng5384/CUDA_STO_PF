@@ -56,7 +56,160 @@ site_try_enable_modules() {
 
 site_prepare_job_dirs() {
   mkdir -p "${PROJECT_ROOT}/jobs/logs"
+  mkdir -p "${PROJECT_ROOT}/jobs/generated"
   mkdir -p "${PROJECT_ROOT}/Results"
+}
+
+site_resolve_physical_input_json() {
+  local default_json="${PROJECT_ROOT}/physical_inputs.example.json"
+  local path="${PHYSICAL_INPUT_JSON:-$default_json}"
+  if [[ ! -f "$path" ]]; then
+    echo "[fatal] Physical input JSON not found: $path" >&2
+    return 20
+  fi
+  printf '%s\n' "$path"
+}
+
+site_make_safe_tag() {
+  local raw="${1:-run}"
+  raw="${raw// /_}"
+  raw="${raw//\//_}"
+  raw="${raw//:/_}"
+  raw="${raw//=/__}"
+  printf '%s\n' "$raw"
+}
+
+site_generate_pf_param_file() {
+  local tag="${1:-run}"
+  local safe_tag
+  safe_tag="$(site_make_safe_tag "$tag")"
+  local base_json
+  base_json="$(site_resolve_physical_input_json)" || return $?
+
+  local env_keys=(
+    PHYSICAL_INPUT_JSON
+    PHYSICAL_OVERRIDE_JSON
+    PHYSICAL_OVERRIDE_FILE
+    TEMP_C
+    PHYS_TEMPERATURE_C
+    DX_M
+    PHYS_DX_M
+    GAMMA_JM2
+    PHYS_GAMMA_JM2
+    LAMBDA_SM_M
+    PHYS_LAMBDA_SM_M
+    V_A
+    PHYS_V_A
+    V_B
+    PHYS_V_B
+    VM_COMPOUND
+    PHYS_VM_COMPOUND
+    VM_ALPHA_0
+    PHYS_VM_ALPHA_0
+    D_RATIO
+    PHYS_D_RATIO
+    VF_INIT
+    PHYS_VF_INIT
+    VF_TARGET
+    PHYS_VF_TARGET
+    L_REF_FACTOR
+    PHYS_L_REF_FACTOR
+    GEL_SHIFT_JM3
+    PHYS_GEL_SHIFT_JM3
+    EPS_ISO
+    PHYS_EPS_ISO
+  )
+  local env_key
+  for env_key in "${env_keys[@]}"; do
+    if [[ "${!env_key+x}" == "x" ]]; then
+      export "${env_key}"
+    fi
+  done
+
+  site_prepare_job_dirs
+
+  local input_json="${PROJECT_ROOT}/jobs/generated/physical_inputs_${safe_tag}.json"
+  local payload_json="${PROJECT_ROOT}/jobs/generated/pf_payload_${safe_tag}.json"
+  local param_file="${PROJECT_ROOT}/jobs/generated/pf_params_${safe_tag}.params"
+
+  BASE_PHYSICAL_JSON="$base_json" OUTPUT_PHYSICAL_JSON="$input_json" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+base_path = Path(os.environ["BASE_PHYSICAL_JSON"])
+out_path = Path(os.environ["OUTPUT_PHYSICAL_JSON"])
+
+with base_path.open("r", encoding="utf-8") as f:
+    data = json.load(f)
+
+data = {k: v for k, v in data.items() if not k.startswith("_")}
+
+env_map = {
+    "TEMP_C": ("temperature_C", float),
+    "PHYS_TEMPERATURE_C": ("temperature_C", float),
+    "DX_M": ("dx", float),
+    "PHYS_DX_M": ("dx", float),
+    "GAMMA_JM2": ("gamma", float),
+    "PHYS_GAMMA_JM2": ("gamma", float),
+    "LAMBDA_SM_M": ("lambda_sm", float),
+    "PHYS_LAMBDA_SM_M": ("lambda_sm", float),
+    "V_A": ("v_A", float),
+    "PHYS_V_A": ("v_A", float),
+    "V_B": ("v_B", float),
+    "PHYS_V_B": ("v_B", float),
+    "VM_COMPOUND": ("Vm_compound", float),
+    "PHYS_VM_COMPOUND": ("Vm_compound", float),
+    "VM_ALPHA_0": ("Vm_alpha_0", float),
+    "PHYS_VM_ALPHA_0": ("Vm_alpha_0", float),
+    "D_RATIO": ("D_ratio", float),
+    "PHYS_D_RATIO": ("D_ratio", float),
+    "VF_INIT": ("vf_init", float),
+    "PHYS_VF_INIT": ("vf_init", float),
+    "VF_TARGET": ("vf_target", float),
+    "PHYS_VF_TARGET": ("vf_target", float),
+    "L_REF_FACTOR": ("L_ref_factor", float),
+    "PHYS_L_REF_FACTOR": ("L_ref_factor", float),
+    "GEL_SHIFT_JM3": ("gel_shift_Jm3", float),
+    "PHYS_GEL_SHIFT_JM3": ("gel_shift_Jm3", float),
+    "EPS_ISO": ("eps_iso", float),
+    "PHYS_EPS_ISO": ("eps_iso", float),
+}
+
+for env_key, (json_key, caster) in env_map.items():
+    value = os.environ.get(env_key)
+    if value is None or value == "":
+        continue
+    data[json_key] = caster(value)
+
+override_json = os.environ.get("PHYSICAL_OVERRIDE_JSON")
+if override_json:
+    extra = json.loads(override_json)
+    if not isinstance(extra, dict):
+        raise SystemExit("PHYSICAL_OVERRIDE_JSON must be a JSON object")
+    data.update(extra)
+
+override_file = os.environ.get("PHYSICAL_OVERRIDE_FILE")
+if override_file:
+    with open(override_file, "r", encoding="utf-8") as f:
+        extra = json.load(f)
+    if not isinstance(extra, dict):
+        raise SystemExit("PHYSICAL_OVERRIDE_FILE must contain a JSON object")
+    data.update(extra)
+
+out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+PY
+
+  python3 "${PROJECT_ROOT}/Unit_Psedobinary.py" \
+    --input-json "$input_json" \
+    --output-json "$payload_json" \
+    --output-pf-param-file "$param_file" \
+    --no-summary >&2
+
+  echo "[site-env] physical_input_json=${input_json}" >&2
+  echo "[site-env] pf_payload_json=${payload_json}" >&2
+  echo "[site-env] pf_param_file=${param_file}" >&2
+  printf '%s\n' "$param_file"
 }
 
 site_print_env_banner() {

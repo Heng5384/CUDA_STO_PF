@@ -79,8 +79,12 @@ for RADIUS in ${RADII}; do
   echo "运行 radius = ${RADIUS}"
   echo "====================================================="
 
+  PF_PARAM_FILE="$(site_generate_pf_param_file "slurm_caseb_radius_${RADIUS}_T${TEMP_C}")"
+  echo "PF_PARAM = ${PF_PARAM_FILE}"
+
   set -x
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
+    --pf-param-file "${PF_PARAM_FILE}" \
     --mode=minimize \
     --minimize-full-model \
     --minimize-max-iter "${NSTEPS}" \
@@ -89,7 +93,6 @@ for RADIUS in ${RADII}; do
     --radius "${RADIUS}" \
     --elastic "${ELASTIC}" \
     --ic-23d-xB-out "${XB_OUT}" \
-    --temperature-C "${TEMP_C}" \
     --minimize-rms-dphi-threshold "${MIN_RMS_DPHI_THRESHOLD}" \
     --minimize-rms-dY-threshold "${MIN_RMS_DY_THRESHOLD}" \
     --minimize-energy-diff-rel-threshold "${MIN_ENERGY_DIFF_REL_THRESHOLD}" \
