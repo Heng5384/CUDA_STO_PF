@@ -1,11 +1,11 @@
 # CUDA相场模拟Makefile
 NVCC = nvcc
-CUDA_ROOT ?= /usr/local/cuda
+CUDA_ROOT ?= /usr/local/cuda-12.9
 
 # 编译选项
-# 默认架构：A100 为 sm_80；请按你的 GPU 调整
-# 例如：RTX 5080 (compute capability 12.0) -> CUDA_ARCH=sm_120
-CUDA_ARCH ?= sm_80
+# 默认架构：RTX 5080 (compute capability 12.0) -> sm_120
+# 如需兼容其它 GPU，可在命令行覆盖 CUDA_ARCH
+CUDA_ARCH ?= sm_120
 # 屏蔽 gcc/clang 的 format-truncation 噪声警告（snprintf 生成文件名路径处常见）
 NVCCFLAGS = -arch=$(CUDA_ARCH) -O3 -std=c++14 --expt-relaxed-constexpr -Xcompiler -Wno-format-truncation
 INCLUDES = -I$(CUDA_ROOT)/include
@@ -34,8 +34,8 @@ help:
 	@echo "  make test_circle          # smoke test + summary plot helper"
 	@echo ""
 	@echo "Variables:"
-	@echo "  CUDA_ROOT=/usr/local/cuda # CUDA toolkit path (must contain include/ and lib64/)"
-	@echo "  CUDA_ARCH=sm_80           # GPU arch, e.g. sm_120 for RTX 5080"
+	@echo "  CUDA_ROOT=/usr/local/cuda-12.9 # CUDA toolkit path (must contain include/ and lib64/)"
+	@echo "  CUDA_ARCH=sm_120              # GPU arch, e.g. sm_120 for RTX 5080"
 
 # 主程序
 $(BIN_MAIN): $(SRC_MAIN) $(HDR)

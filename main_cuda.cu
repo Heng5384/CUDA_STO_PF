@@ -1909,6 +1909,40 @@ int main(int argc, char **argv) {
         P.dt = P.minimize_dt;
     }
 
+    if (P.Nx <= 0 || P.Ny <= 0 || P.Nz <= 0) {
+        fprintf(stderr, "[fatal] Invalid grid size: Nx=%d Ny=%d Nz=%d. All dimensions must be > 0.\n",
+                P.Nx, P.Ny, P.Nz);
+        return 2;
+    }
+    if (P.dt <= 0.0) {
+        fprintf(stderr, "[fatal] Invalid dt=%.6e. Time step must be > 0.\n", P.dt);
+        return 2;
+    }
+    if (P.nsteps <= 0) {
+        fprintf(stderr, "[fatal] Invalid nsteps=%d. Total step count must be > 0.\n", P.nsteps);
+        return 2;
+    }
+    if (P.out_every <= 0) {
+        fprintf(stderr, "[fatal] Invalid out_every=%d. VTK output interval must be > 0.\n", P.out_every);
+        return 2;
+    }
+    if (P.csv_out_every <= 0) {
+        fprintf(stderr, "[fatal] Invalid csv_out_every=%d. CSV output interval must be > 0.\n", P.csv_out_every);
+        return 2;
+    }
+    if (P.mode == 1) {
+        if (P.minimize_max_iter <= 0) {
+            fprintf(stderr, "[fatal] Invalid minimize_max_iter=%d. It must be > 0.\n", P.minimize_max_iter);
+            return 2;
+        }
+        if (P.minimize_dt <= 0.0) {
+            fprintf(stderr, "[fatal] Invalid minimize_dt=%.6e. It must be > 0.\n", P.minimize_dt);
+            return 2;
+        }
+    }
+
+    P.elastic_enabled = P.elastic_enabled ? 1 : 0;
+
     if (P.out_every > P.nsteps) {
         fprintf(stderr, "[warn] 输出间隔 (%d) 大于总时间步数 (%d)，将调整为最后一步输出\n", P.out_every, P.nsteps);
         P.out_every = P.nsteps;
