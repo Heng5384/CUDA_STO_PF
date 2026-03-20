@@ -14,8 +14,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --mem=0
-#SBATCH --output=logs/rotate_vs_sphere_radius_sweep_%j.out
-#SBATCH --error=logs/rotate_vs_sphere_radius_sweep_%j.err
+#SBATCH --output=jobs/logs/rotate_vs_sphere_radius_sweep_%j.out
+#SBATCH --error=jobs/logs/rotate_vs_sphere_radius_sweep_%j.err
 
 set -euo pipefail
 

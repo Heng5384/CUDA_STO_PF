@@ -66,7 +66,7 @@ site_print_env_banner() {
 }
 
 site_prepare_cuda_env() {
-  export CUDA_ARCH="${CUDA_ARCH:-sm_80}"
+  export CUDA_ARCH="${CUDA_ARCH:-sm_120}"
 
   local mode="server"
   if site_in_slurm; then
@@ -74,7 +74,7 @@ site_prepare_cuda_env() {
     site_try_enable_modules
     if [[ "${SITE_SKIP_MODULE_LOAD:-0}" != "1" ]] && command -v module >/dev/null 2>&1; then
       module purge >/dev/null 2>&1 || true
-      module load "${CUDA_MODULE:-cuda/cuda-12.8}"
+      module load "${CUDA_MODULE:-cuda/cuda-12.9}"
     fi
     if [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
       echo "[fatal] CUDA_VISIBLE_DEVICES is unset. This usually means you did not get a GPU allocation." >&2
@@ -100,9 +100,9 @@ site_prepare_cuda_env() {
     if site_in_slurm; then
       candidates=(
         "${CUDA_ROOT:-}"
-        /usr/local/cuda-12.8
-        /usr/local/cuda
         /usr/local/cuda-12.9
+        /usr/local/cuda
+        /usr/local/cuda-12.8
         /usr/local/cuda-12
         /opt/cuda
       )
