@@ -39,6 +39,8 @@ set -euo pipefail
 # ------------------------------------------------------------
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/jobs/_site_env.sh" ]]; then
   SCRIPT_DIR="${SLURM_SUBMIT_DIR}/jobs"
+elif [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/_site_env.sh" ]]; then
+  SCRIPT_DIR="${SLURM_SUBMIT_DIR}"
 else
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
