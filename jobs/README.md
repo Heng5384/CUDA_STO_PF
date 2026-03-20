@@ -13,6 +13,7 @@
 - `run_minimize_rotated_oblate_local.sh`: 本地跑旋转扁椭球初始核的单案例
 - `submit_minimize_init_cases.sbatch`: Slurm 上提交固定半径的多初值最小化
 - `submit_minimize_caseb_elastic_radius_sweep.sbatch`: Slurm 上提交 Case B 半径扫描
+- `submit_minimize_fullmodel_radius_sweep_512_uvip.sbatch`: Slurm 上提交 512^3、400C、xB_out=0.03 的 full-model 半径扫描
 - `submit_rotate_oblate_vs_sphere_radius_sweep.sbatch`: Slurm 上提交旋转扁椭球与球形对照扫描
 
 标准模板：

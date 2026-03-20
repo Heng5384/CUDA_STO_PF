@@ -24,9 +24,9 @@
     "C_tensor_PbTe_GPa": "GPa",
     "C_tensor_Ag2Te_GPa": "GPa"
   },
-  "gamma": 0.05,
-  "lambda_sm": 6e-10,
-  "dx": 1e-09,
+  "gamma": 0.02,
+  "lambda_sm": 6e-9,
+  "dx": 1e-9,
   "v_A": 0.0,
   "v_B": 1.0,
   "temperature_C": 380.0,
