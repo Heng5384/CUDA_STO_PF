@@ -1,0 +1,6 @@
+.DS_Store
+Results/
+main_cuda
+test_memory_ledger
+jobs/logs/*.out
+jobs/logs/*.err

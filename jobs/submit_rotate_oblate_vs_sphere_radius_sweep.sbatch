@@ -1,5 +1,11 @@
-#!/bin/bash
-#SBATCH --job-name=cuda_rotate_r5_10
+#!/usr/bin/env bash
+# 作用：
+# 在 Slurm 上比较两类初始核：
+# 1. 沿预测方向旋转的 oblate 椭球
+# 2. 对照组球形初始核
+# 并对半径列表做批量扫描。
+
+#SBATCH --job-name=rotate_vs_sphere_sweep
 #SBATCH --partition=gpu_uvip
 #SBATCH --qos=gpu_uvip
 #SBATCH --nodes=1
@@ -8,29 +14,24 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --mem=0
-#SBATCH --output=logs/run_rotate_radius_sweep_%j.out
-#SBATCH --error=logs/run_rotate_radius_sweep_%j.err
+#SBATCH --output=logs/rotate_vs_sphere_radius_sweep_%j.out
+#SBATCH --error=logs/rotate_vs_sphere_radius_sweep_%j.err
 
 set -euo pipefail
 
-SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-source "${SCRIPT_DIR}/scripts/lib/site_env.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/_site_env.sh"
 site_setup_project_root "${SCRIPT_DIR}"
+cd "${PROJECT_ROOT}"
 site_print_env_banner
 site_build_main_cuda
 
-# ============================================================
-# 网格与输出：沿用 run_py_rotate.sh
-# ============================================================
 NX=${NX:-400}
 NY=${NY:-400}
 NZ=${NZ:-400}
 OUT_EVERY=${OUT_EVERY:-5000}
 CSV_OUT_EVERY=${CSV_OUT_EVERY:-10}
 
-# ============================================================
-# Minimization 参数：沿用 run_py_rotate.sh
-# ============================================================
 NSTEPS=${NSTEPS:-30000}
 MIN_DT=${MIN_DT:-1e-1}
 MIN_RMS_DPHI_THRESHOLD=${MIN_RMS_DPHI_THRESHOLD:-5e-5}
@@ -44,32 +45,22 @@ MIN_DT_SAFETY_LIMIT=${MIN_DT_SAFETY_LIMIT:-1e-6}
 ETA_LAMBDA_VOL=${ETA_LAMBDA_VOL:-0.9}
 POST_PROJ_ITERS=${POST_PROJ_ITERS:-1}
 
-# ============================================================
-# 物理参数：沿用 run_py_rotate.sh
-# ============================================================
 V0=${V0:-0.0}
 ELASTIC=${ELASTIC:-1}
 XB_OUT=${XB_OUT:-0.03}
 TEMP_C=${TEMP_C:-380.0}
 
-# ============================================================
-# rotate case：沿用 run_py_rotate.sh 的预测方向和扁椭球比例
-# ============================================================
 PRED_THETA=${PRED_THETA:-101}
 PRED_PHI=${PRED_PHI:-39}
 OBLATE_RX=${OBLATE_RX:-1.25}
 OBLATE_RY=${OBLATE_RY:-1.25}
 OBLATE_RZ=${OBLATE_RZ:-0.70}
 
-# ============================================================
-# 半径扫描：5 到 10（含端点）
-# 如需覆盖，可在提交前设置：R_LIST="5 6 7 8 9 10"
-# ============================================================
 R_LIST=${R_LIST:-"5 6 7 8 9 10"}
 
 echo ""
 echo "====================================================="
-echo "Rotate + Sphere 半径扫描开始"
+echo "Rotate-oblate vs sphere 半径扫描开始"
 echo "  Grid: ${NX} x ${NY} x ${NZ}"
 echo "  Radius list: ${R_LIST}"
 echo "  Rotate theta/phi: ${PRED_THETA}/${PRED_PHI}"
@@ -152,8 +143,8 @@ run_case() {
 }
 
 for RADIUS in ${R_LIST}; do
-  run_case "${RADIUS}" rotate_oblate "rotate_oblate_r${RADIUS}_pred_256"
-  run_case "${RADIUS}" sphere        "sphere_r${RADIUS}_256"
+  run_case "${RADIUS}" rotate_oblate "rotate_oblate_r${RADIUS}"
+  run_case "${RADIUS}" sphere "sphere_r${RADIUS}"
 done
 
 echo "====================================================="
