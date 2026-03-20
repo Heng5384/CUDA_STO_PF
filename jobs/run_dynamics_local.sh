@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 作用：
-# 在本地或交互式 GPU 环境中运行 dynamics 模式。
-# 适合快速 smoke test、参数调试，以及用现成二进制直接复跑。
+# 标准化脚本：本地单案例模板实例（dynamics）
+#
+# 用途：
+# - 在本地或交互式 GPU 环境中运行 dynamics 模式
+# - 适合快速 smoke test、参数调试，以及复跑现成二进制
+#
+# 可复制修改：
+# - 改帮助信息
+# - 改默认参数区
+# - 改 PF 参数 tag 与 main_cuda flags
 
+# ------------------------------------------------------------
+# A. 启动与项目定位
+# ------------------------------------------------------------
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_site_env.sh"
 site_setup_project_root "$SCRIPT_DIR"
@@ -51,6 +61,9 @@ EOF
   exit 0
 fi
 
+# ------------------------------------------------------------
+# B. 编译函数
+# ------------------------------------------------------------
 do_build() {
   if ! site_prepare_cuda_env; then
     if [[ -x ./main_cuda ]]; then
@@ -82,6 +95,9 @@ if [[ $# -ne 8 ]]; then
   exit 2
 fi
 
+# ------------------------------------------------------------
+# C. 参数区
+# ------------------------------------------------------------
 NX="$1"
 NY="$2"
 NZ="$3"
@@ -137,6 +153,9 @@ done
 
 export LD_LIBRARY_PATH="$CUDA_RT_LIB:$CUFFT_LIB:$NVJITLINK_LIB:${LD_LIBRARY_PATH:-}"
 
+# ------------------------------------------------------------
+# D. 生成 PF 参数并执行
+# ------------------------------------------------------------
 echo "[info] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<not set>}"
 echo "[info] CUDA_ROOT=${CUDA_ROOT:-<not set>}"
 echo "[info] CUDA_ARCH=${CUDA_ARCH:-<not set>}"

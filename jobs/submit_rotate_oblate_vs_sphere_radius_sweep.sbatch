@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# 作用：
-# 在 Slurm 上比较两类初始核：
-# 1. 沿预测方向旋转的 oblate 椭球
-# 2. 对照组球形初始核
-# 并对半径列表做批量扫描。
+# 标准化脚本：Slurm 多形状半径扫描模板实例
+#
+# 用途：
+# - 在 Slurm 上比较 rotate-oblate 与 sphere 两类初始核
+# - 并对半径列表做批量扫描
+#
+# 可复制修改：
+# - 改 #SBATCH 资源区
+# - 改默认参数区
+# - 改 run_case() 中的 shape 分支
 
 #SBATCH --job-name=rotate_vs_sphere_sweep
 #SBATCH --partition=gpu_uvip
@@ -19,6 +24,9 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------
+# A. 启动与项目定位
+# ------------------------------------------------------------
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/jobs/_site_env.sh" ]]; then
   SCRIPT_DIR="${SLURM_SUBMIT_DIR}/jobs"
 else
@@ -30,6 +38,9 @@ cd "${PROJECT_ROOT}"
 site_print_env_banner
 site_build_main_cuda
 
+# ------------------------------------------------------------
+# B. 默认参数区
+# ------------------------------------------------------------
 NX=${NX:-400}
 NY=${NY:-400}
 NZ=${NZ:-400}
@@ -38,7 +49,7 @@ CSV_OUT_EVERY=${CSV_OUT_EVERY:-10}
 
 NSTEPS=${NSTEPS:-30000}
 MIN_DT=${MIN_DT:-1e-1}
-MIN_RMS_DPHI_THRESHOLD=${MIN_RMS_DPHI_THRESHOLD:-5e-5}
+MIN_RMS_DPHI_THRESHOLD=${MIN_RMS_DPHI_THRESHOLD:-1e-5}
 MIN_RMS_DY_THRESHOLD=${MIN_RMS_DY_THRESHOLD:-1e-5}
 MIN_ENERGY_DIFF_REL_THRESHOLD=${MIN_ENERGY_DIFF_REL_THRESHOLD:-1e-8}
 MIN_RMS_RES_FOR_ENERGY_PLATEAU=${MIN_RMS_RES_FOR_ENERGY_PLATEAU:-1e-4}
@@ -72,6 +83,9 @@ echo "  Rotate axis ratio: rx=${OBLATE_RX}, ry=${OBLATE_RY}, rz=${OBLATE_RZ}"
 echo "====================================================="
 echo ""
 
+# ------------------------------------------------------------
+# C. 单 case 执行函数
+# ------------------------------------------------------------
 run_case() {
   local radius="$1"
   local shape_mode="$2"
@@ -86,6 +100,9 @@ run_case() {
   echo "PF_PARAM = ${PF_PARAM_FILE}"
 
   if [[ "$shape_mode" == "rotate_oblate" ]]; then
+    # --------------------------------------------------------
+    # D1. rotate_oblate 分支
+    # --------------------------------------------------------
     set -x
     ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
       --pf-param-file "${PF_PARAM_FILE}" \
@@ -116,6 +133,9 @@ run_case() {
       --minimize-post-projection-iters "${POST_PROJ_ITERS}"
     set +x
   elif [[ "$shape_mode" == "sphere" ]]; then
+    # --------------------------------------------------------
+    # D2. sphere 分支
+    # --------------------------------------------------------
     set -x
     ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
       --pf-param-file "${PF_PARAM_FILE}" \
@@ -149,6 +169,9 @@ run_case() {
   echo ""
 }
 
+# ------------------------------------------------------------
+# E. 循环执行
+# ------------------------------------------------------------
 for RADIUS in ${R_LIST}; do
   run_case "${RADIUS}" rotate_oblate "rotate_oblate_r${RADIUS}"
   run_case "${RADIUS}" sphere "sphere_r${RADIUS}"

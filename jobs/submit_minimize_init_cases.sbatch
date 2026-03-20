@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
-# 作用：
-# 在 Slurm 上提交多初值最小化测试。
-# 默认使用一块 GPU，针对固定 radius 跑多组 init-test-id。
+# 标准化脚本：Slurm 多 case 最小化模板实例
+#
+# 用途：
+# - 在 Slurm 上提交多初值最小化测试
+# - 针对固定 radius 跑多组 init-test-id
+#
+# 可复制修改：
+# - 改 #SBATCH 资源区
+# - 改默认参数区
+# - 改循环体里的 CASE_TAG / main_cuda flags
 
 #SBATCH --job-name=min_init_cases
 #SBATCH --partition=gpu_uvip
@@ -17,6 +24,9 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------
+# A. 启动与项目定位
+# ------------------------------------------------------------
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/jobs/_site_env.sh" ]]; then
   SCRIPT_DIR="${SLURM_SUBMIT_DIR}/jobs"
 else
@@ -28,6 +38,9 @@ cd "${PROJECT_ROOT}"
 site_print_env_banner
 site_build_main_cuda
 
+# ------------------------------------------------------------
+# B. 默认参数区
+# ------------------------------------------------------------
 NX=${NX:-512}
 NY=${NY:-512}
 NZ=${NZ:-512}
@@ -60,6 +73,9 @@ echo "====================================================="
 echo "固定 radius = ${RADIUS}，开始 Slurm 多初值测试"
 echo "====================================================="
 
+# ------------------------------------------------------------
+# C. 循环执行
+# ------------------------------------------------------------
 for TID in "${CASE_LIST[@]}"; do
   CASE_TAG="test_${TID}"
 
@@ -71,6 +87,9 @@ for TID in "${CASE_LIST[@]}"; do
   PF_PARAM_FILE="$(site_generate_pf_param_file "slurm_min_init_${CASE_TAG}_T${TEMP_C}")"
   echo "PF_PARAM = ${PF_PARAM_FILE}"
 
+  # ----------------------------------------------------------
+  # D. main_cuda 调用
+  # ----------------------------------------------------------
   set -x
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
     --pf-param-file "${PF_PARAM_FILE}" \
@@ -85,6 +104,7 @@ for TID in "${CASE_LIST[@]}"; do
     --init-test-id "${TID}" \
     --init-case-tag "${CASE_TAG}" \
     --minimize-rms-dphi-threshold "${MIN_RMS_DPHI_THRESHOLD}" \
+    --minimize-rms-dY-threshold "${MIN_RMS_DY_THRESHOLD}" \
     --minimize-energy-diff-rel-threshold "${MIN_ENERGY_DIFF_REL_THRESHOLD}" \
     --minimize-rms-res-for-energy-plateau "${MIN_RMS_RES_FOR_ENERGY_PLATEAU}" \
     --minimize-convergence-steps "${MIN_CONVERGENCE_STEPS}" \

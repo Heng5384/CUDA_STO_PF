@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 作用：
-# 本地执行 Case B 弹性最小化的多初值测试。
-# 与通用初值测试脚本相比，这个脚本保留了该实验使用的默认参数。
+# 标准化脚本：本地多 case 最小化模板实例（Case B 弹性版）
+#
+# 用途：
+# - 本地执行 Case B 弹性最小化的多初值测试
+# - 保留该实验使用的默认参数
+#
+# 可复制修改：
+# - 改默认参数区
+# - 改 CASE_LIST 与 EXTRA_ARGS 分支
+# - 改 main_cuda flags 形成新功能脚本
 
+# ------------------------------------------------------------
+# A. 启动与项目定位
+# ------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/_site_env.sh"
 site_setup_project_root "${SCRIPT_DIR}"
@@ -13,6 +23,9 @@ cd "${PROJECT_ROOT}"
 site_print_env_banner
 site_build_main_cuda
 
+# ------------------------------------------------------------
+# B. 默认参数区
+# ------------------------------------------------------------
 NX=${NX:-256}
 NY=${NY:-256}
 NZ=${NZ:-256}
@@ -53,6 +66,9 @@ echo "  Case list: ${CASE_LIST}"
 echo "=========================================="
 echo ""
 
+# ------------------------------------------------------------
+# C. 循环执行
+# ------------------------------------------------------------
 for CASE in ${CASE_LIST}; do
   echo "-----------------------------------------------------"
   echo "Running case: ${CASE}"
@@ -99,6 +115,9 @@ for CASE in ${CASE_LIST}; do
   echo "PF_PARAM = ${PF_PARAM_FILE}"
   echo ""
 
+  # ----------------------------------------------------------
+  # D. main_cuda 调用
+  # ----------------------------------------------------------
   set -x
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
     --pf-param-file "${PF_PARAM_FILE}" \
@@ -113,6 +132,7 @@ for CASE in ${CASE_LIST}; do
     ${EXTRA_ARGS} \
     --init-case-tag "${CASE_TAG}" \
     --minimize-rms-dphi-threshold "${MIN_RMS_DPHI_THRESHOLD}" \
+    --minimize-rms-dY-threshold "${MIN_RMS_DY_THRESHOLD}" \
     --minimize-energy-diff-rel-threshold "${MIN_ENERGY_DIFF_REL_THRESHOLD}" \
     --minimize-rms-res-for-energy-plateau "${MIN_RMS_RES_FOR_ENERGY_PLATEAU}" \
     --minimize-convergence-steps "${MIN_CONVERGENCE_STEPS}" \

@@ -15,6 +15,34 @@
 - `submit_minimize_caseb_elastic_radius_sweep.sbatch`: Slurm 上提交 Case B 半径扫描
 - `submit_rotate_oblate_vs_sphere_radius_sweep.sbatch`: Slurm 上提交旋转扁椭球与球形对照扫描
 
+标准模板：
+
+- `template_run_local_single.sh`: 本地单案例模板
+- `template_run_local_loop.sh`: 本地循环模板
+- `template_submit_slurm_single.sbatch`: Slurm 单作业模板
+- `template_submit_slurm_loop.sbatch`: Slurm 循环/扫描模板
+
+推荐复制方式：
+
+- 想新建本地单案例脚本：从 `template_run_local_single.sh` 复制
+- 想新建本地 sweep/case-loop 脚本：从 `template_run_local_loop.sh` 复制
+- 想新建单个 sbatch 提交入口：从 `template_submit_slurm_single.sbatch` 复制
+- 想新建 radius/temperature/case 扫描脚本：从 `template_submit_slurm_loop.sbatch` 复制
+
+标准章节顺序：
+
+- `A. 启动与项目定位`
+- `B. 默认参数区`
+- `C. 生成 PF 参数文件` 或 `C. 循环执行`
+- `D. main_cuda 调用`
+
+也就是说，后续无论人还是 AI 改脚本，优先只改：
+
+- `#SBATCH` 资源区
+- 默认参数区
+- 循环变量区
+- `main_cuda` 命令区
+
 规范约定：
 
 - 所有模拟结果都写到仓库根目录下的 `Results/`

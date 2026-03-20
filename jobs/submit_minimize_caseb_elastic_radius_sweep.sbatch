@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# 作用：
-# 在 Slurm 上扫描 Case B 弹性最小化的半径参数。
-# 每个 radius 跑一次 minimize full-model，用于批量比较能量和形貌。
+# 标准化脚本：Slurm 半径扫描模板实例
+#
+# 用途：
+# - 在 Slurm 上扫描 Case B 弹性最小化的半径参数
+# - 每个 radius 跑一次 minimize full-model
+#
+# 可复制修改：
+# - 改 #SBATCH 资源区
+# - 改默认参数区
+# - 改循环变量生成逻辑
+# - 改 main_cuda flags
 
 #SBATCH --job-name=min_caseb_radius_sweep
 #SBATCH --partition=gpu_vip_24h
@@ -17,6 +25,9 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------
+# A. 启动与项目定位
+# ------------------------------------------------------------
 if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/jobs/_site_env.sh" ]]; then
   SCRIPT_DIR="${SLURM_SUBMIT_DIR}/jobs"
 else
@@ -28,6 +39,9 @@ cd "${PROJECT_ROOT}"
 site_print_env_banner
 site_build_main_cuda
 
+# ------------------------------------------------------------
+# B. 默认参数区
+# ------------------------------------------------------------
 NX=${NX:-512}
 NY=${NY:-512}
 NZ=${NZ:-512}
@@ -74,6 +88,9 @@ print(" ".join(vals))
 PYEOF
 )
 
+# ------------------------------------------------------------
+# C. 循环执行
+# ------------------------------------------------------------
 for RADIUS in ${RADII}; do
   echo "====================================================="
   echo "运行 radius = ${RADIUS}"
@@ -82,6 +99,9 @@ for RADIUS in ${RADII}; do
   PF_PARAM_FILE="$(site_generate_pf_param_file "slurm_caseb_radius_${RADIUS}_T${TEMP_C}")"
   echo "PF_PARAM = ${PF_PARAM_FILE}"
 
+  # ----------------------------------------------------------
+  # D. main_cuda 调用
+  # ----------------------------------------------------------
   set -x
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}" \
     --pf-param-file "${PF_PARAM_FILE}" \
