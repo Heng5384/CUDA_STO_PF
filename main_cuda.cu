@@ -3709,7 +3709,17 @@ int main(int argc, char **argv) {
             
             float elapsed_ms = 0;
             CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, start_event, stop_event));
-            float avg_time_per_step = elapsed_ms / (P.nsteps - 1);
+            const int timed_step_begin = 1;
+            const int timed_step_end = P.nsteps;
+            const int timed_steps = (timed_step_end >= timed_step_begin)
+                ? (timed_step_end - timed_step_begin + 1)
+                : 0;
+            float avg_time_per_step = (timed_steps > 0)
+                ? (elapsed_ms / (float)timed_steps)
+                : 0.0f;
+            double throughput_mpts = (avg_time_per_step > 0.0f)
+                ? ((double)total_r / (double)avg_time_per_step * 1e-3)
+                : 0.0;
             
             // 获取显存使用情况
             size_t free_mem, total_mem;
@@ -3718,10 +3728,10 @@ int main(int argc, char **argv) {
             
             printf("\n========================================\n");
             printf("性能统计（精确计时）:\n");
-            printf("  总计算时间: %.6f ms (steps %d-%d)\n", elapsed_ms, 1, P.nsteps-1);
+            printf("  总计算时间: %.6f ms (steps %d-%d)\n", elapsed_ms, timed_step_begin, timed_step_end);
             printf("  平均每步: %.6f ms\n", avg_time_per_step);
             printf("  网格大小: %dx%dx%d = %d points\n", P.Nx, P.Ny, P.Nz, total_r);
-            printf("  吞吐量: %.2f M points/s\n", (double)total_r / avg_time_per_step * 1e-3);
+            printf("  吞吐量: %.2f M points/s\n", throughput_mpts);
             printf("\n显存使用情况:\n");
             printf("  已使用: %.2f GB (%.2f%%)\n", 
                    used_mem / (1024.0*1024.0*1024.0),
