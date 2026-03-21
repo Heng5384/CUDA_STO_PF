@@ -50,7 +50,7 @@
 - Slurm 日志统一写到 `jobs/logs/`
 - 本地 `run_*.sh` 脚本无论从仓库根目录还是 `jobs/` 目录启动，都能自动定位项目根目录
 - `submit_*.sbatch` 现在支持从仓库根目录或 `jobs/` 目录提交
-- 仍然建议从仓库根目录提交，例如 `sbatch jobs/submit_minimize_init_cases.sbatch`，以保证 `#SBATCH --output/--error` 相对路径与约定一致
+- `submit_*.sbatch` 会在运行时自动把 stdout/stderr 重定向到 `${PROJECT_ROOT}/jobs/logs/`，不再依赖提交目录解释相对路径
 
 物理参数覆盖流程：
 

@@ -20,8 +20,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 #SBATCH --mem=0
-#SBATCH --output=jobs/logs/minimize_caseb_radius_sweep_%j.out
-#SBATCH --error=jobs/logs/minimize_caseb_radius_sweep_%j.err
+#SBATCH --output=/dev/null
+#SBATCH --error=/dev/null
 
 set -euo pipefail
 
@@ -38,6 +38,7 @@ fi
 source "${SCRIPT_DIR}/_site_env.sh"
 site_setup_project_root "${SCRIPT_DIR}"
 cd "${PROJECT_ROOT}"
+site_redirect_slurm_logs "minimize_caseb_radius_sweep"
 site_print_env_banner
 site_build_main_cuda
 

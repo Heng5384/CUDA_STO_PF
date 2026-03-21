@@ -3,4 +3,5 @@ Results/
 main_cuda
 test_memory_ledger
 jobs/logs/
+jobs/jobs/logs/
 jobs/generated/

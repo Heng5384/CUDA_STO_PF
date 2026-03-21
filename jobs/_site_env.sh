@@ -60,6 +60,31 @@ site_prepare_job_dirs() {
   mkdir -p "${PROJECT_ROOT}/Results"
 }
 
+site_redirect_slurm_logs() {
+  if ! site_in_slurm; then
+    return 0
+  fi
+
+  if [[ "${SITE_SLURM_LOG_REDIRECTED:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  local log_tag="${1:-${SLURM_JOB_NAME:-slurm_job}}"
+  local safe_tag
+  safe_tag="$(site_make_safe_tag "$log_tag")"
+
+  site_prepare_job_dirs
+
+  local stdout_log="${PROJECT_ROOT}/jobs/logs/${safe_tag}_${SLURM_JOB_ID}.out"
+  local stderr_log="${PROJECT_ROOT}/jobs/logs/${safe_tag}_${SLURM_JOB_ID}.err"
+
+  export SITE_SLURM_STDOUT_LOG="${stdout_log}"
+  export SITE_SLURM_STDERR_LOG="${stderr_log}"
+  export SITE_SLURM_LOG_REDIRECTED=1
+
+  exec >>"${stdout_log}" 2>>"${stderr_log}"
+}
+
 site_resolve_physical_input_json() {
   local default_json="${PROJECT_ROOT}/physical_inputs.example.json"
   local path="${PHYSICAL_INPUT_JSON:-$default_json}"
@@ -215,6 +240,10 @@ PY
 site_print_env_banner() {
   echo "SLURM_JOB_ID=${SLURM_JOB_ID:-<unset>}"
   echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
+  if [[ -n "${SITE_SLURM_STDOUT_LOG:-}" || -n "${SITE_SLURM_STDERR_LOG:-}" ]]; then
+    echo "SITE_SLURM_STDOUT_LOG=${SITE_SLURM_STDOUT_LOG:-<unset>}"
+    echo "SITE_SLURM_STDERR_LOG=${SITE_SLURM_STDERR_LOG:-<unset>}" >&2
+  fi
   command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi || true
 }
 
