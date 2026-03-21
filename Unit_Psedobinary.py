@@ -183,6 +183,7 @@ class PhysicalInputs:
     gamma: float
     lambda_sm: float
     dx: float
+    dt: float
     v_A: float
     v_B: float
     temperature_C: float
@@ -257,6 +258,7 @@ EXAMPLE_INPUT_UNITS = {
     "gamma": "J/m^2",
     "lambda_sm": "m",
     "dx": "m",
+    "dt": "dimensionless code time step",
     "v_A": "dimensionless stoichiometric coefficient",
     "v_B": "dimensionless stoichiometric coefficient",
     "temperature_C": "degC",
@@ -282,6 +284,7 @@ USER_PHYSICAL_INPUTS = PhysicalInputs(
     gamma=0.05,                      # J/m^2
     lambda_sm=6.0e-10,               # m
     dx=1.0e-9,                      # m
+    dt=1.0e-2,                      # code time step
     v_A=0.0,                        # 反应式 PbTe -> Ag2Te (A=0, B=1)
     v_B=1.0,                        # 纯 Ag2Te 析出相的 x_B = 1.0
     temperature_C=380.0,            # °C
@@ -599,10 +602,16 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
     if abs(inputs.v_B) < 1e-30:
         raise ValueError("v_B 不能为 0，否则无法计算 eps_iso_over_vB = eps_iso / v_B")
     eps_iso_over_vB = inputs.eps_iso / inputs.v_B
+    T_K = inputs.temperature_C + 273.15
+    D_alpha_phys = D_Ag_in_PbTe_m2_per_s(T_K)
+    L_ref = inputs.L_ref_factor * inputs.lambda_sm
+    t_real_unit = L_ref ** 2 / D_alpha_phys
     overrides: Dict[str, float] = {
         "dx": inputs.dx / 1.0e-9,
         "dy": inputs.dx / 1.0e-9,
         "dz": inputs.dx / 1.0e-9,
+        "dt": inputs.dt,
+        "t_real_unit": t_real_unit,
         "temperature_C": inputs.temperature_C,
         "mu_reference_scale": pfset.mu_reference,
         "W": pfset.W,
@@ -753,6 +762,7 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
                 "lambda_sm_m": inputs.lambda_sm,
                 "dx_m": inputs.dx,
                 "dx_main_cuda": inputs.dx / 1.0e-9,
+                "dt_code": inputs.dt,
                 "eps_iso": inputs.eps_iso,
                 "eps_iso_over_vB": inputs.eps_iso / inputs.v_B if abs(inputs.v_B) > 1e-30 else float("inf"),
                 "mu_reference_J_per_mol": pfset.mu_reference,
@@ -868,6 +878,7 @@ def run_from_config() -> None:
         print(f"lambda_sm      (m)       : {inputs.lambda_sm:.6e}")
         print(f"dx             (m)       : {inputs.dx:.6e}")
         print(f"dx             (nm)      : {inputs.dx * 1.0e9:.6e}")
+        print(f"dt             (code)    : {inputs.dt:.6e}")
         print(f"eps_iso        (-)       : {inputs.eps_iso:.6e}")
         print(f"Vm_alpha_0     (m^3/mol) : {inputs.Vm_alpha_0:.6e}")
         print(f"Vm_compound    (m^3/mol) : {inputs.Vm_compound:.6e}")
@@ -894,7 +905,7 @@ def run_from_config() -> None:
         if args.output_pf_param_file:
             print(f"参数文件路径            : {args.output_pf_param_file}")
         for key in [
-            "dx", "temperature_C", "mu_reference_scale", "kappa_phi", "L_phi",
+            "dt", "dx", "t_real_unit", "temperature_C", "mu_reference_scale", "kappa_phi", "L_phi",
             "D_alpha", "D_compound", "Vm_compound", "dVm_alpha_dxB",
             "eps_iso_over_vB",
             "elastic_shift_dimless", "eps_xx00", "eps_yy00", "eps_zz00"

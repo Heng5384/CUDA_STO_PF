@@ -111,7 +111,9 @@ static void log_kv_text(const char *key, const char *fmt, ...) {
 }
 
 typedef struct {
+    int have_dt;
     int have_dx, have_dy, have_dz;
+    int have_t_real_unit;
     int have_temperature_C, have_mu_reference_scale;
     int have_W, have_kappa_phi, have_L_phi;
     int have_D_alpha, have_D_compound;
@@ -146,9 +148,11 @@ static int voigt21_suffix_index(const char *suffix) {
 
 static void mark_pfparams_presence(PFParamOverridePresence *presence, const char *key) {
     if (!presence || !key) return;
+    if (strcmp(key, "dt") == 0) { presence->have_dt = 1; return; }
     if (strcmp(key, "dx") == 0) { presence->have_dx = 1; return; }
     if (strcmp(key, "dy") == 0) { presence->have_dy = 1; return; }
     if (strcmp(key, "dz") == 0) { presence->have_dz = 1; return; }
+    if (strcmp(key, "t_real_unit") == 0) { presence->have_t_real_unit = 1; return; }
     if (strcmp(key, "temperature_C") == 0) { presence->have_temperature_C = 1; return; }
     if (strcmp(key, "mu_reference_scale") == 0) { presence->have_mu_reference_scale = 1; return; }
     if (strcmp(key, "W") == 0) { presence->have_W = 1; return; }
@@ -199,9 +203,11 @@ static int validate_required_pfparams_presence(const PFParamOverridePresence *pr
         } \
     } while (0)
 
+    REQUIRE_ONE(have_dt, "dt");
     REQUIRE_ONE(have_dx, "dx");
     REQUIRE_ONE(have_dy, "dy");
     REQUIRE_ONE(have_dz, "dz");
+    REQUIRE_ONE(have_t_real_unit, "t_real_unit");
     REQUIRE_ONE(have_temperature_C, "temperature_C");
     REQUIRE_ONE(have_mu_reference_scale, "mu_reference_scale");
     REQUIRE_ONE(have_W, "W");
@@ -260,9 +266,11 @@ static int validate_physical_params_ready(const PFParams *P) {
         } \
     } while (0)
 
+    REQUIRE_POSITIVE(dt, "dt");
     REQUIRE_POSITIVE(dx, "dx");
     REQUIRE_POSITIVE(dy, "dy");
     REQUIRE_POSITIVE(dz, "dz");
+    REQUIRE_POSITIVE(t_real_unit, "t_real_unit");
     REQUIRE_POSITIVE(W, "W");
     REQUIRE_POSITIVE(kappa_phi, "kappa_phi");
     REQUIRE_POSITIVE(L_phi, "L_phi");
@@ -1213,7 +1221,7 @@ static void params_default(PFParams *P) {
     P->Nx = 400; P->Ny = 400; P->Nz = 400;
     P->dx = P->dy = P->dz = -1.0;
     P->dt = 1.0e-2;
-    P->t_real_unit = 1.114792e+00;
+    P->t_real_unit = -1.0;
     P->nsteps = 10;
     P->out_every = 10;
     P->csv_out_every = 1;  // CSV输出间隔，默认为每个时间步
@@ -1762,9 +1770,11 @@ static int apply_pfparams_override_key(PFParams *P, const char *key, const char 
     }
 
     TRY_SET_DOUBLE("W", W);
+    TRY_SET_DOUBLE("dt", dt);
     TRY_SET_DOUBLE("dx", dx);
     TRY_SET_DOUBLE("dy", dy);
     TRY_SET_DOUBLE("dz", dz);
+    TRY_SET_DOUBLE("t_real_unit", t_real_unit);
     TRY_SET_DOUBLE("kappa_phi", kappa_phi);
     TRY_SET_DOUBLE("L_phi", L_phi);
     TRY_SET_DOUBLE("D_alpha", D_alpha);
@@ -1923,12 +1933,6 @@ int main(int argc, char **argv) {
                 "        可先运行: python3 Unit_Psedobinary.py --input-json physical_inputs.example.json --output-pf-param-file /tmp/generated_pf.params\n");
         return 2;
     }
-    if (pf_param_file != NULL) {
-        if (!load_pfparams_override_file(&P, pf_param_file)) {
-            return 2;
-        }
-    }
-
     if (argc >= 2 && argv[1][0] != '-') { P.Nx = atoi(argv[1]); }
     if (argc >= 3 && argv[2][0] != '-') { P.Ny = atoi(argv[2]); }
     if (argc >= 4 && argv[3][0] != '-') { P.Nz = atoi(argv[3]); }
@@ -1937,6 +1941,13 @@ int main(int argc, char **argv) {
     if (argc >= 7 && argv[6][0] != '-') { P.out_every = atoi(argv[6]); }
     if (argc >= 8 && argv[7][0] != '-') { P.csv_out_every = atoi(argv[7]); }  // CSV输出间隔参数
     if (argc >= 9 && argv[8][0] != '-') { P.elastic_enabled = atoi(argv[8]); }  // 弹性功能开关（0/1）
+    if (pf_param_file != NULL) {
+        if (!load_pfparams_override_file(&P, pf_param_file)) {
+            return 2;
+        }
+        // 物理输入文件中的 dt 作为默认时间步；若后续显式给出 --minimize-dt，仍允许覆盖。
+        P.minimize_dt = P.dt;
+    }
     // 诊断开关（VTK / 弹性 bulk 惩罚）不再通过命令行控制，统一在 params_default 中设置
     
     // ----------------------------
@@ -1962,6 +1973,7 @@ int main(int argc, char **argv) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             printf("Usage (positional, legacy):\n");
             printf("  ./main_cuda Nx Ny Nz dt nsteps out_every csv_out_every elastic_enabled(0/1)\n");
+            printf("    注: dt 位置参数仅作 legacy 回退；若 --pf-param-file 中提供 dt，则以参数文件为准。\n");
             printf("\nFlags (optional):\n");
             printf("  --mode=dynamics|minimize\n");
             printf("  --pf-param-file <path>  required: load complete physical PF inputs (key=value)\n");
@@ -2251,6 +2263,7 @@ int main(int argc, char **argv) {
                     Lx_phys_m * 1.0e9, Ly_phys_m * 1.0e9, Lz_phys_m * 1.0e9);
         log_kv_text("system_size_phys_m", "%.6e / %.6e / %.6e",
                     Lx_phys_m, Ly_phys_m, Lz_phys_m);
+        log_kv_text("t_real_unit_s", "%.6e", P.t_real_unit);
         log_kv_text("lambda_sm_nm", "%.6f", P.lambda_sm_m * 1.0e9);
         log_kv_text("lambda_sm/dx", "%.6f", lambda_over_dx);
         if (lambda_over_dx <= 4.0) {
