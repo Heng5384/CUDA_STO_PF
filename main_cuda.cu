@@ -125,6 +125,103 @@ static int build_continue_case_pf_param_path(const char *continue_phi_vtk_path,
     return 1;
 }
 
+static int derive_continue_output_root(const char *continue_phi_vtk_path,
+                                       char *out,
+                                       size_t out_size) {
+    char tmp[4096];
+    char *slash = NULL;
+
+    if (!continue_phi_vtk_path || continue_phi_vtk_path[0] == '\0' || !out || out_size == 0) {
+        return 0;
+    }
+    snprintf(tmp, sizeof(tmp), "%s", continue_phi_vtk_path);
+    slash = strrchr(tmp, '/');
+    if (!slash) return 0;
+    *slash = '\0'; // case_output_dir
+    slash = strrchr(tmp, '/');
+    if (!slash) return 0;
+    *slash = '\0'; // output_root
+    snprintf(out, out_size, "%s", tmp);
+    return 1;
+}
+
+static int derive_continue_case_output_dir(const char *continue_phi_vtk_path,
+                                           char *out,
+                                           size_t out_size) {
+    char tmp[4096];
+    char *slash = NULL;
+
+    if (!continue_phi_vtk_path || continue_phi_vtk_path[0] == '\0' || !out || out_size == 0) {
+        return 0;
+    }
+    snprintf(tmp, sizeof(tmp), "%s", continue_phi_vtk_path);
+    slash = strrchr(tmp, '/');
+    if (!slash) return 0;
+    *slash = '\0';
+    snprintf(out, out_size, "%s", tmp);
+    return 1;
+}
+
+static void path_basename_copy(const char *path, char *out, size_t out_size) {
+    const char *base = NULL;
+    if (!out || out_size == 0) return;
+    out[0] = '\0';
+    if (!path || path[0] == '\0') return;
+    base = strrchr(path, '/');
+    base = base ? (base + 1) : path;
+    snprintf(out, out_size, "%s", base);
+}
+
+static int file_exists_nonempty(const char *path) {
+    struct stat st;
+    if (!path || path[0] == '\0') return 0;
+    if (stat(path, &st) != 0) return 0;
+    return (st.st_size > 0) ? 1 : 0;
+}
+
+static int read_last_vf_csv_state(const char *path, int *last_step, double *last_t_code, double *last_t_real) {
+    FILE *fp = NULL;
+    char line[4096];
+    int found = 0;
+    int step = 0;
+    double t_code = 0.0, t_real = 0.0;
+
+    if (!path) return 0;
+    fp = fopen(path, "r");
+    if (!fp) return 0;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (!isdigit((unsigned char)line[0]) && line[0] != '-') continue;
+        if (sscanf(line, "%d,%lf,%lf", &step, &t_code, &t_real) == 3) {
+            found = 1;
+            if (last_step) *last_step = step;
+            if (last_t_code) *last_t_code = t_code;
+            if (last_t_real) *last_t_real = t_real;
+        }
+    }
+    fclose(fp);
+    return found;
+}
+
+static int read_last_energy_iter(const char *path, int *last_iter) {
+    FILE *fp = NULL;
+    char line[4096];
+    int found = 0;
+    int iter = 0;
+
+    if (!path) return 0;
+    fp = fopen(path, "r");
+    if (!fp) return 0;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (!isdigit((unsigned char)line[0]) && line[0] != '-') continue;
+        if (sscanf(line, "%d,", &iter) == 1) {
+            found = 1;
+            if (last_iter) *last_iter = iter;
+        }
+    }
+    fclose(fp);
+    return found;
+}
+
 static double wall_time_sec_monotonic(void) {
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
@@ -2576,22 +2673,27 @@ int main(int argc, char **argv) {
     char run_dir_name[256];
     char output_dir[4096];
     char output_pf_input_file[4096];
-    if (P.diag_elastic_bulk_penalty_enabled || P.mode == 1) {
-        snprintf(run_dir_name, sizeof(run_dir_name),
-                 "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_r%.2f_xB%.3f",
-                 out_prefix, P.temperature_C,
-                 P.Nx, P.Ny, P.Nz, P.dt, P.nsteps,
-                 P.ic_phi_seed_radius, P.ic_23d_xB_out);
-    } else {
-        snprintf(run_dir_name, sizeof(run_dir_name),
-                 "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_xB%.3f",
-                 out_prefix, P.temperature_C,
-                 P.Nx, P.Ny, P.Nz, P.dt, P.nsteps,
-                 P.ic_23d_xB_out);
-    }
     mkdir(results_root, 0755);
-    snprintf(output_dir, sizeof(output_dir), "%s/%s", results_root, run_dir_name);
-    mkdir(output_dir, 0755);
+    if (P.minimize_continue_from_vtk &&
+        derive_continue_output_root(P.continue_phi_vtk_path, output_dir, sizeof(output_dir))) {
+        mkdir(output_dir, 0755);
+    } else {
+        if (P.diag_elastic_bulk_penalty_enabled || P.mode == 1) {
+            snprintf(run_dir_name, sizeof(run_dir_name),
+                     "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_r%.2f_xB%.3f",
+                     out_prefix, P.temperature_C,
+                     P.Nx, P.Ny, P.Nz, P.dt, P.nsteps,
+                     P.ic_phi_seed_radius, P.ic_23d_xB_out);
+        } else {
+            snprintf(run_dir_name, sizeof(run_dir_name),
+                     "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_xB%.3f",
+                     out_prefix, P.temperature_C,
+                     P.Nx, P.Ny, P.Nz, P.dt, P.nsteps,
+                     P.ic_23d_xB_out);
+        }
+        snprintf(output_dir, sizeof(output_dir), "%s/%s", results_root, run_dir_name);
+        mkdir(output_dir, 0755);
+    }
     snprintf(output_pf_input_file, sizeof(output_pf_input_file), "%s/pf_input.params", output_dir);
     if (effective_pf_param_file[0] != '\0') {
         if (!copy_text_file(effective_pf_param_file, output_pf_input_file)) {
@@ -2621,8 +2723,16 @@ int main(int argc, char **argv) {
     // 路径/文件名缓冲区统一放大，避免 snprintf 潜在截断导致的 -Wformat-truncation 警告
     char case_output_dir[4096];
     char case_pf_input_file[4096];
-    snprintf(case_output_dir, sizeof(case_output_dir), "%s/%s", output_dir, P.init_case_tag);
-    mkdir(case_output_dir, 0755);
+    char source_case_tag[256];
+    if (P.minimize_continue_from_vtk &&
+        derive_continue_case_output_dir(P.continue_phi_vtk_path, case_output_dir, sizeof(case_output_dir))) {
+        mkdir(case_output_dir, 0755);
+        path_basename_copy(case_output_dir, source_case_tag, sizeof(source_case_tag));
+    } else {
+        snprintf(case_output_dir, sizeof(case_output_dir), "%s/%s", output_dir, P.init_case_tag);
+        mkdir(case_output_dir, 0755);
+        snprintf(source_case_tag, sizeof(source_case_tag), "%s", P.init_case_tag);
+    }
     snprintf(case_pf_input_file, sizeof(case_pf_input_file), "%s/pf_input.params", case_output_dir);
     if (effective_pf_param_file[0] != '\0') {
         if (!copy_text_file(effective_pf_param_file, case_pf_input_file)) {
@@ -2638,6 +2748,7 @@ int main(int argc, char **argv) {
         snprintf(vtk_case_tag_buf, sizeof(vtk_case_tag_buf), "case_%d", P.init_test_id);
         vtk_case_tag = vtk_case_tag_buf;
     }
+    const char *csv_case_tag = P.minimize_continue_from_vtk ? source_case_tag : vtk_case_tag;
 
     log_section_header("Output Layout");
     log_kv_text("output_root", "%s", output_dir);
@@ -2663,13 +2774,22 @@ int main(int argc, char **argv) {
     // 创建CSV文件：dynamics 用 vf_precip_vs_time.csv，minimize 用 energy_minimize.csv
     FILE *csv_fp = NULL;
     FILE *energy_fp = NULL; // minimize mode energy log
+    int csv_step_offset = 0;
+    double csv_time_offset = 0.0;
+    double csv_real_time_offset = 0.0;
+    int energy_iter_offset = 0;
     if (P.mode == 0 || (P.mode == 1 && P.minimize_full_model == 1)) {
         char csv_path[4096];
-        snprintf(csv_path, sizeof(csv_path), "%s/vf_precip_vs_time_%s.csv", case_output_dir, vtk_case_tag);
-        csv_fp = fopen(csv_path, "w");
+        int append_existing_csv = 0;
+        snprintf(csv_path, sizeof(csv_path), "%s/vf_precip_vs_time_%s.csv", case_output_dir, csv_case_tag);
+        if (P.minimize_continue_from_vtk && file_exists_nonempty(csv_path)) {
+            append_existing_csv = 1;
+            read_last_vf_csv_state(csv_path, &csv_step_offset, &csv_time_offset, &csv_real_time_offset);
+        }
+        csv_fp = fopen(csv_path, append_existing_csv ? "a" : "w");
         if (!csv_fp) {
             fprintf(stderr, "[warn] 无法创建CSV文件 %s\n", csv_path);
-        } else {
+        } else if (!append_existing_csv) {
             if (P.diag_elastic_bulk_penalty_enabled) {
                 fprintf(csv_fp, "step,t_code,t_real_s,vf_precip,R_avg,sum_h,sum_gel,E_el_bulk_hat,E_el_bulk_Jm3,Delta_mu_el_Jmol\n");
             } else {
@@ -2777,12 +2897,17 @@ int main(int argc, char **argv) {
     // minimize 模式能量 CSV（放在 baseline 计算之后，便于在 header 中记录 xB_ref）
     if (P.mode == 1) {
         char epath[4096];
+        int append_existing_energy = 0;
         snprintf(epath, sizeof(epath), "%s/energy_minimize_T%.0f_r%.2f_xB%.3f_%s.csv",
-                 case_output_dir, P.temperature_C, P.ic_phi_seed_radius, P.ic_23d_xB_out, vtk_case_tag);
-        energy_fp = fopen(epath, "w");
+                 case_output_dir, P.temperature_C, P.ic_phi_seed_radius, P.ic_23d_xB_out, csv_case_tag);
+        if (P.minimize_continue_from_vtk && file_exists_nonempty(epath)) {
+            append_existing_energy = 1;
+            read_last_energy_iter(epath, &energy_iter_offset);
+        }
+        energy_fp = fopen(epath, append_existing_energy ? "a" : "w");
         if (!energy_fp) {
             fprintf(stderr, "[warn] cannot open energy csv %s\n", epath);
-        } else {
+        } else if (!append_existing_energy) {
             // Minimization energy log (excess-free-energy + CNT-based summaries):
             // iter,dt,mean_h,V0,lambda,
             // F_surf_hat,F_el_hat,F_chem_excess_hat,F_total_excess_hat,
@@ -3305,7 +3430,7 @@ int main(int argc, char **argv) {
     el_bulk_diag.valid = 0;
     int el_bulk_diag_ran = 0;
 
-    if (csv_fp && !need_delay_step0_csv) {
+    if (csv_fp && !need_delay_step0_csv && !P.minimize_continue_from_vtk) {
         if (P.diag_elastic_bulk_penalty_enabled) {
             fprintf(csv_fp, "%d,%.8f,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e\n",
                     0, 0.0, 0.0, step0_vf_precip, step0_R_avg,
@@ -3632,7 +3757,7 @@ int main(int argc, char **argv) {
                 }
 
                 // 若之前延迟写入 step=0 CSV，则此时补写（包含诊断列）
-                if (need_delay_step0_csv && csv_fp) {
+                if (need_delay_step0_csv && csv_fp && !P.minimize_continue_from_vtk) {
                     double sum_h_csv = el_bulk_diag.valid ? el_bulk_diag.sum_h : NAN;
                     double sum_gel_csv = el_bulk_diag.valid ? el_bulk_diag.sum_gel : NAN;
                     double E_hat_csv = el_bulk_diag.valid ? el_bulk_diag.E_el_bulk_hat : NAN;
@@ -4231,7 +4356,7 @@ int main(int argc, char **argv) {
                         "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,"
                         "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%d,"
                         "%.8e,%.8e,%.8e,%.8e\n",
-                        step,
+                        step + energy_iter_offset,
                         dt_phi,
                         (isfinite(mean_h_now) ? mean_h_now : NAN),
                         (isfinite(V0_target) ? V0_target : NAN),
@@ -4452,13 +4577,13 @@ int main(int argc, char **argv) {
                     double E_hat_csv = (el_bulk_diag_ran && el_bulk_diag.valid) ? el_bulk_diag.E_el_bulk_hat : NAN;
                     double E_Jm3_csv = (el_bulk_diag_ran && el_bulk_diag.valid) ? el_bulk_diag.E_el_bulk_Jm3 : NAN;
                     double dmu_csv = (el_bulk_diag_ran && el_bulk_diag.valid) ? el_bulk_diag.Delta_mu_el_Jmol : NAN;
-                    fprintf(csv_fp, "%d,%.8f,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e\n",
-                            step, current_time, t_real, vf_precip, R_avg,
-                            sum_h_csv, sum_gel_csv, E_hat_csv, E_Jm3_csv, dmu_csv);
-                } else {
-                    fprintf(csv_fp, "%d,%.8f,%.8e,%.8e,%.8e\n",
-                            step, current_time, t_real, vf_precip, R_avg);
-                }
+                fprintf(csv_fp, "%d,%.8f,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e\n",
+                        step + csv_step_offset, current_time + csv_time_offset, t_real + csv_real_time_offset, vf_precip, R_avg,
+                        sum_h_csv, sum_gel_csv, E_hat_csv, E_Jm3_csv, dmu_csv);
+            } else {
+                fprintf(csv_fp, "%d,%.8f,%.8e,%.8e,%.8e\n",
+                        step + csv_step_offset, current_time + csv_time_offset, t_real + csv_real_time_offset, vf_precip, R_avg);
+            }
                 fflush(csv_fp);
             }
         }
@@ -4787,11 +4912,11 @@ int main(int argc, char **argv) {
                 double E_Jm3_csv = (el_bulk_diag_ran && el_bulk_diag.valid) ? el_bulk_diag.E_el_bulk_Jm3 : NAN;
                 double dmu_csv = (el_bulk_diag_ran && el_bulk_diag.valid) ? el_bulk_diag.Delta_mu_el_Jmol : NAN;
                 fprintf(csv_fp, "%d,%.8f,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e\n",
-                        final_step, current_time, t_real, vf_precip, R_avg,
+                        final_step + csv_step_offset, current_time + csv_time_offset, t_real + csv_real_time_offset, vf_precip, R_avg,
                         sum_h_csv, sum_gel_csv, E_hat_csv, E_Jm3_csv, dmu_csv);
             } else {
                 fprintf(csv_fp, "%d,%.8f,%.8e,%.8e,%.8e\n",
-                        final_step, current_time, t_real, vf_precip, R_avg);
+                        final_step + csv_step_offset, current_time + csv_time_offset, t_real + csv_real_time_offset, vf_precip, R_avg);
             }
             fflush(csv_fp);
         }
