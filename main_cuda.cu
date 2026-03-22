@@ -77,6 +77,54 @@ static void build_case_vtk_path(char *out, size_t out_size,
     }
 }
 
+static int copy_text_file(const char *src, const char *dst) {
+    FILE *fin = NULL;
+    FILE *fout = NULL;
+    char buffer[8192];
+    size_t nread = 0;
+
+    if (!src || !dst || src[0] == '\0' || dst[0] == '\0') return 0;
+    if (strcmp(src, dst) == 0) return 1;
+    fin = fopen(src, "rb");
+    if (!fin) return 0;
+    fout = fopen(dst, "wb");
+    if (!fout) {
+        fclose(fin);
+        return 0;
+    }
+
+    while ((nread = fread(buffer, 1, sizeof(buffer), fin)) > 0) {
+        if (fwrite(buffer, 1, nread, fout) != nread) {
+            fclose(fin);
+            fclose(fout);
+            return 0;
+        }
+    }
+
+    fclose(fin);
+    fclose(fout);
+    return 1;
+}
+
+static int build_continue_case_pf_param_path(const char *continue_phi_vtk_path,
+                                             char *out,
+                                             size_t out_size) {
+    char tmp[4096];
+    char *slash = NULL;
+
+    if (!continue_phi_vtk_path || continue_phi_vtk_path[0] == '\0' || !out || out_size == 0) {
+        return 0;
+    }
+    snprintf(tmp, sizeof(tmp), "%s", continue_phi_vtk_path);
+    slash = strrchr(tmp, '/');
+    if (!slash) {
+        return 0;
+    }
+    *slash = '\0';
+    snprintf(out, out_size, "%s/pf_input.params", tmp);
+    return 1;
+}
+
 static double wall_time_sec_monotonic(void) {
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
@@ -571,6 +619,11 @@ __global__ void apply_phi_noise_kernel(double *phi_r,
 
 // forward decl: used in initialize_fields_cuda / initialize_phi_only_cuda
 static void build_seed_rotation_from_normal(double theta_deg, double phi_deg, double R[9]);
+static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_t out_size);
+static int rebuild_full_model_composition_from_phi(double *phi_r, double *Y_r, double *xB_r, double *xBtot_r,
+                                                   const PFParams *P, int total_size, int emit_logs);
+static int load_continue_fields_from_vtk(double *phi_r, double *Y_r, double *xB_r, double *xBtot_r,
+                                         const PFParams *P, int total_size);
 
 static void compute_seed_axes_from_radius(const PFParams *P, double R, int is3D,
                                           double *Rx, double *Ry, double *Rz) {
@@ -599,6 +652,158 @@ static void compute_seed_axes_from_radius(const PFParams *P, double R, int is3D,
         *Ry = R;
         *Rz = R * arz / scale;
     }
+}
+
+static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_t out_size) {
+    int max_continue_idx = 0;
+    const char *p = vtk_path;
+
+    if (!out || out_size == 0) return;
+    out[0] = '\0';
+
+    if (!vtk_path || vtk_path[0] == '\0') {
+        snprintf(out, out_size, "continue_1");
+        return;
+    }
+
+    while ((p = strstr(p, "continue_")) != NULL) {
+        const char *digits = p + (int)strlen("continue_");
+        if (*digits >= '0' && *digits <= '9') {
+            int value = 0;
+            while (*digits >= '0' && *digits <= '9') {
+                value = value * 10 + (*digits - '0');
+                ++digits;
+            }
+            if (value > max_continue_idx) {
+                max_continue_idx = value;
+            }
+        }
+        ++p;
+    }
+
+    snprintf(out, out_size, "continue_%d", max_continue_idx + 1);
+}
+
+static int rebuild_full_model_composition_from_phi(double *phi_r, double *Y_r, double *xB_r, double *xBtot_r,
+                                                   const PFParams *P, int total_size, int emit_logs) {
+    const double Ntot = (double)P->Nx * (double)P->Ny * (double)P->Nz;
+    const double xB_eq = P->ic_xB_eq_matrix;
+    const double vf_target = fmin(0.999, fmax(1e-6, P->ic_vf_target_phi));
+    const double vB_frac = P->v_B;
+    double sum_h = 0.0;
+    double sum_h2 = 0.0;
+
+    for (int i = 0; i < total_size; ++i) {
+        double phi = clamp01(phi_r[i]);
+        double h = h_of_phi(phi);
+        phi_r[i] = phi;
+        sum_h += h;
+        sum_h2 += h * h;
+    }
+
+    double mean_h = sum_h / Ntot;
+    double mean_h2 = sum_h2 / Ntot;
+    double xBtot_target = vB_frac * vf_target + (1.0 - vf_target) * xB_eq;
+    double A = 1.0 - 2.0 * mean_h + mean_h2;
+    double B = mean_h - mean_h2;
+    double C = vB_frac * mean_h;
+    double xB_out;
+
+    if (P->ic_23d_xB_out > 0.0) {
+        xB_out = clamp_eps(P->ic_23d_xB_out, P->xB_eps);
+    } else {
+        if (fabs(A) < 1e-12) {
+            double denom = 1.0 - mean_h;
+            if (denom < 1e-12) denom = 1e-12;
+            xB_out = ((vf_target - mean_h) * vB_frac +
+                      (1.0 - vf_target) * xB_eq) / denom;
+        } else {
+            xB_out = (xBtot_target - B * xB_eq - C) / A;
+        }
+        xB_out = clamp_eps(xB_out, P->xB_eps);
+    }
+
+    double sum_xB = 0.0;
+    double sum_xBtot = 0.0;
+    for (int i = 0; i < total_size; ++i) {
+        double h = h_of_phi(phi_r[i]);
+        double xB = (1.0 - h) * xB_out + h * xB_eq;
+        xB = clamp_eps(xB, P->xB_eps);
+        xB_r[i] = xB;
+        Y_r[i] = logit_from_fraction(xB, P->xB_eps, P->Y_clip);
+        xBtot_r[i] = (1.0 - h) * xB + vB_frac * h;
+        sum_xB += xB;
+        sum_xBtot += xBtot_r[i];
+    }
+
+    if (emit_logs) {
+        double theory_xB_tot = (P->ic_23d_xB_out > 0.0)
+            ? (vB_frac * mean_h + (1.0 - mean_h) * xB_out)
+            : xBtot_target;
+        log_section_header("Continuation Composition");
+        log_kv_text("xB_source", "%s",
+                    (P->ic_23d_xB_out > 0.0) ? "rebuild from phi + ic_23d_xB_out"
+                                             : "rebuild from phi + vf_target");
+        log_kv_text("vf_init_eff=<h>", "%.6f", mean_h);
+        log_kv_text("<h^2>", "%.6f", mean_h2);
+        log_kv_text("vf_target", "%.6f", vf_target);
+        log_kv_text("xB_eq", "%.6f", xB_eq);
+        log_kv_text("xB_out", "%.6e (ic_23d_xB_out=%.6e)", xB_out, P->ic_23d_xB_out);
+        log_kv_text("<xB>", "%.6f", sum_xB / Ntot);
+        log_kv_text("<xB_tot>", "%.6f", sum_xBtot / Ntot);
+        log_kv_text("theory_target", "%.8f", theory_xB_tot);
+        log_kv_text("mass_balance_diff", "%.2e", (sum_xBtot / Ntot) - theory_xB_tot);
+    }
+
+    return 1;
+}
+
+static int load_continue_fields_from_vtk(double *phi_r, double *Y_r, double *xB_r, double *xBtot_r,
+                                         const PFParams *P, int total_size) {
+    (void)total_size;
+    if (!read_vtk_ascii_to_host(P->continue_phi_vtk_path, P->Nx, P->Ny, P->Nz, phi_r, "phi")) {
+        return 0;
+    }
+
+    if (P->minimize_full_model) {
+        int xB_loaded_from_vtk = 0;
+        if (P->continue_xB_vtk_path[0] != '\0') {
+            struct stat st;
+            if (stat(P->continue_xB_vtk_path, &st) == 0) {
+                if (!read_vtk_ascii_to_host(P->continue_xB_vtk_path, P->Nx, P->Ny, P->Nz, xB_r, "xB")) {
+                    return 0;
+                }
+                xB_loaded_from_vtk = 1;
+            } else {
+                fprintf(stderr,
+                        "[warn] continuation xB VTK 不存在或不可读，将按 init 逻辑从 phi 重建 xB/Y: %s\n",
+                        P->continue_xB_vtk_path);
+            }
+        }
+
+        if (xB_loaded_from_vtk) {
+            for (int i = 0; i < total_size; ++i) {
+                double phi = clamp01(phi_r[i]);
+                double h = h_of_phi(phi);
+                double xB = clamp_eps(xB_r[i], P->xB_eps);
+                phi_r[i] = phi;
+                xB_r[i] = xB;
+                Y_r[i] = logit_from_fraction(xB, P->xB_eps, P->Y_clip);
+                xBtot_r[i] = (1.0 - h) * xB + P->v_B * h;
+            }
+        } else {
+            rebuild_full_model_composition_from_phi(phi_r, Y_r, xB_r, xBtot_r, P, total_size, 1);
+        }
+    } else {
+        for (int i = 0; i < total_size; ++i) {
+            phi_r[i] = clamp01(phi_r[i]);
+            Y_r[i] = 0.0;
+            xB_r[i] = 0.0;
+            xBtot_r[i] = 0.0;
+        }
+    }
+
+    return 1;
 }
 
 // 初始化 phi / xB / Y （弥散界面质量严格守恒版本）
@@ -1362,6 +1567,9 @@ static void params_default(PFParams *P) {
     P->eta_lambda_vol = 0.2; // lambda_vol under-relaxation 阻尼系数，默认 0.2
     P->minimize_xB_max_safe = 0.07; // minimize: pre-thermo xB 上限（硬裁剪），防止热力学核看到过大的 xB
     P->minimize_post_projection_iters = 1;   // 后投影修正子步数，默认 1
+    P->minimize_continue_from_vtk = 0;
+    P->continue_phi_vtk_path[0] = '\0';
+    P->continue_xB_vtk_path[0] = '\0';
 
     // 初始化 case 标签默认置空，后续根据 init_test_id / 其它 flag 自动生成
     P->init_case_tag[0] = '\0';
@@ -1920,10 +2128,17 @@ int main(int argc, char **argv) {
     }
 
     const char *pf_param_file = NULL;
+    char continue_phi_vtk_pre_scan[4096] = {0};
+    char effective_pf_param_file[4096] = {0};
+    char continue_case_pf_param_file[4096] = {0};
     for (int i = 1; i < argc; ++i) {
         const char *v = get_flag_value(argc, argv, &i, "--pf-param-file");
         if (v != NULL) {
             pf_param_file = v;
+        }
+        v = get_flag_value(argc, argv, &i, "--continue-phi-vtk");
+        if (v != NULL) {
+            snprintf(continue_phi_vtk_pre_scan, sizeof(continue_phi_vtk_pre_scan), "%s", v);
         }
     }
     if (!wants_help && pf_param_file == NULL) {
@@ -1942,11 +2157,29 @@ int main(int argc, char **argv) {
     if (argc >= 8 && argv[7][0] != '-') { P.csv_out_every = atoi(argv[7]); }  // CSV输出间隔参数
     if (argc >= 9 && argv[8][0] != '-') { P.elastic_enabled = atoi(argv[8]); }  // 弹性功能开关（0/1）
     if (pf_param_file != NULL) {
-        if (!load_pfparams_override_file(&P, pf_param_file)) {
+        snprintf(effective_pf_param_file, sizeof(effective_pf_param_file), "%s", pf_param_file);
+        if (!load_pfparams_override_file(&P, effective_pf_param_file)) {
             return 2;
         }
         // 物理输入文件中的 dt 作为默认时间步；若后续显式给出 --minimize-dt，仍允许覆盖。
         P.minimize_dt = P.dt;
+    }
+    if (continue_phi_vtk_pre_scan[0] != '\0' &&
+        build_continue_case_pf_param_path(continue_phi_vtk_pre_scan,
+                                          continue_case_pf_param_file,
+                                          sizeof(continue_case_pf_param_file))) {
+        struct stat st;
+        if (stat(continue_case_pf_param_file, &st) == 0) {
+            if (!load_pfparams_override_file(&P, continue_case_pf_param_file)) {
+                return 2;
+            }
+            snprintf(effective_pf_param_file, sizeof(effective_pf_param_file), "%s", continue_case_pf_param_file);
+            P.minimize_dt = P.dt;
+            printf("[continue-param] loaded stored PF params from %s\n", continue_case_pf_param_file);
+        } else {
+            printf("[continue-param] no stored PF params next to continue VTK, fallback to %s\n",
+                   effective_pf_param_file);
+        }
     }
     // 诊断开关（VTK / 弹性 bulk 惩罚）不再通过命令行控制，统一在 params_default 中设置
     
@@ -1975,7 +2208,7 @@ int main(int argc, char **argv) {
             printf("  ./main_cuda Nx Ny Nz dt nsteps out_every csv_out_every elastic_enabled(0/1)\n");
             printf("    注: dt 位置参数仅作 legacy 回退；若 --pf-param-file 中提供 dt，则以参数文件为准。\n");
             printf("\nFlags (optional):\n");
-            printf("  --mode=dynamics|minimize\n");
+            printf("  --mode=dynamics|minimize|minimize-continue\n");
             printf("  --pf-param-file <path>  required: load complete physical PF inputs (key=value)\n");
             printf("  --minimize-max-iter <n>\n");
             printf("  --minimize-dt <dt>\n");
@@ -2002,6 +2235,9 @@ int main(int argc, char **argv) {
             printf("  --init-phi-noise-amp <val>\n");
             printf("  --init-phi-noise-seed <int>\n");
             printf("  --init-test-id <int>    preset index for batch tests (0..7, <0 to disable)\n");
+            printf("  --continue-phi-vtk <path>  continuation: load phi from ASCII VTK and continue minimize\n");
+            printf("  --continue-xB-vtk <path>   continuation(full-model): optional xB ASCII VTK; if missing, rebuild xB/Y from phi via init logic\n");
+            printf("                               若 VTK 同目录存在 pf_input.params，则 continue 会优先使用该参数快照\n");
             printf("\nMinimize 最小可运行示例（小网格，无弹性）：\n");
             printf("  ./main_cuda 32 32 32 0.05 100 10 10 0 --mode=minimize --minimize-max-iter 200 --minimize-dt 0.05\n");
             printf("Minimize 带弹性、指定 V0：\n");
@@ -2013,6 +2249,10 @@ int main(int argc, char **argv) {
         const char *v = NULL;
         if ((v = get_flag_value(argc, argv, &i, "--mode")) != NULL) {
             if (strcmp(v, "minimize") == 0) P.mode = 1;
+            else if (strcmp(v, "minimize-continue") == 0) {
+                P.mode = 1;
+                P.minimize_continue_from_vtk = 1;
+            }
             else P.mode = 0;
             continue;
         }
@@ -2034,6 +2274,17 @@ int main(int argc, char **argv) {
         }
         if ((v = get_flag_value(argc, argv, &i, "--minimize-dt")) != NULL) {
             P.minimize_dt = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--continue-phi-vtk")) != NULL) {
+            strncpy(P.continue_phi_vtk_path, v, sizeof(P.continue_phi_vtk_path) - 1);
+            P.continue_phi_vtk_path[sizeof(P.continue_phi_vtk_path) - 1] = '\0';
+            P.minimize_continue_from_vtk = 1;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--continue-xB-vtk")) != NULL) {
+            strncpy(P.continue_xB_vtk_path, v, sizeof(P.continue_xB_vtk_path) - 1);
+            P.continue_xB_vtk_path[sizeof(P.continue_xB_vtk_path) - 1] = '\0';
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i, "--V0")) != NULL) {
@@ -2184,6 +2435,16 @@ int main(int argc, char **argv) {
         P.nsteps = P.minimize_max_iter;
         P.dt = P.minimize_dt;
     }
+    if (P.minimize_continue_from_vtk) {
+        if (P.mode != 1) {
+            fprintf(stderr, "[fatal] continuation 仅支持 minimize 模式。请使用 --mode=minimize-continue 或 --mode=minimize。\n");
+            return 2;
+        }
+        if (P.continue_phi_vtk_path[0] == '\0') {
+            fprintf(stderr, "[fatal] continuation 缺少 --continue-phi-vtk <path>。\n");
+            return 2;
+        }
+    }
 
     if (P.Nx <= 0 || P.Ny <= 0 || P.Nz <= 0) {
         fprintf(stderr, "[fatal] Invalid grid size: Nx=%d Ny=%d Nz=%d. All dimensions must be > 0.\n",
@@ -2252,8 +2513,8 @@ int main(int argc, char **argv) {
 
         log_section_header("Run Configuration");
         log_kv_text("mode", "%s", mode_label);
-        if (pf_param_file != NULL) {
-            log_kv_text("pf_param_file", "%s", pf_param_file);
+        if (effective_pf_param_file[0] != '\0') {
+            log_kv_text("pf_param_file", "%s", effective_pf_param_file);
         }
         log_kv_text("grid", "%s", grid_buf);
         log_kv_text("dx / dy / dz", "%.6f / %.6f / %.6f", P.dx, P.dy, P.dz);
@@ -2314,6 +2575,7 @@ int main(int argc, char **argv) {
     const char *results_root = "Results";
     char run_dir_name[256];
     char output_dir[4096];
+    char output_pf_input_file[4096];
     if (P.diag_elastic_bulk_penalty_enabled || P.mode == 1) {
         snprintf(run_dir_name, sizeof(run_dir_name),
                  "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_r%.2f_xB%.3f",
@@ -2330,8 +2592,18 @@ int main(int argc, char **argv) {
     mkdir(results_root, 0755);
     snprintf(output_dir, sizeof(output_dir), "%s/%s", results_root, run_dir_name);
     mkdir(output_dir, 0755);
+    snprintf(output_pf_input_file, sizeof(output_pf_input_file), "%s/pf_input.params", output_dir);
+    if (effective_pf_param_file[0] != '\0') {
+        if (!copy_text_file(effective_pf_param_file, output_pf_input_file)) {
+            fprintf(stderr, "[warn] 无法将 PF 参数快照复制到结果根目录: %s -> %s\n",
+                    effective_pf_param_file, output_pf_input_file);
+        }
+    }
 
     // 若用户未指定 init_case_tag，则根据初始化参数自动生成一个简洁标签
+    if (P.init_case_tag[0] == '\0' && P.minimize_continue_from_vtk) {
+        derive_next_continue_case_tag(P.continue_phi_vtk_path, P.init_case_tag, sizeof(P.init_case_tag));
+    }
     if (P.init_case_tag[0] == '\0') {
         const char *shape_str = "legacy";
         if (P.init_shape_mode == 0) shape_str = "sphere";
@@ -2348,8 +2620,16 @@ int main(int argc, char **argv) {
     // 为当前 case 创建子目录：output_dir/init_case_tag
     // 路径/文件名缓冲区统一放大，避免 snprintf 潜在截断导致的 -Wformat-truncation 警告
     char case_output_dir[4096];
+    char case_pf_input_file[4096];
     snprintf(case_output_dir, sizeof(case_output_dir), "%s/%s", output_dir, P.init_case_tag);
     mkdir(case_output_dir, 0755);
+    snprintf(case_pf_input_file, sizeof(case_pf_input_file), "%s/pf_input.params", case_output_dir);
+    if (effective_pf_param_file[0] != '\0') {
+        if (!copy_text_file(effective_pf_param_file, case_pf_input_file)) {
+            fprintf(stderr, "[warn] 无法将 PF 参数快照复制到结果目录: %s -> %s\n",
+                    effective_pf_param_file, case_pf_input_file);
+        }
+    }
 
     // 统一用于 VTK 文件名后缀（优先 init_case_tag；若为空则回退 case_<init_test_id>）
     char vtk_case_tag_buf[128];
@@ -2361,11 +2641,23 @@ int main(int argc, char **argv) {
 
     log_section_header("Output Layout");
     log_kv_text("output_root", "%s", output_dir);
+    if (effective_pf_param_file[0] != '\0') {
+        log_kv_text("output_pf_input", "%s", output_pf_input_file);
+    }
     log_kv_text("init_case_tag", "%s", P.init_case_tag);
     log_kv_text("case_output_dir", "%s", case_output_dir);
+    if (effective_pf_param_file[0] != '\0') {
+        log_kv_text("case_pf_input", "%s", case_pf_input_file);
+    }
     log_kv_text("vtk_mode", "%s", (P.mode == 0) ? "dynamic (no case suffix)" : "minimize (with case suffix)");
     if (P.mode != 0) {
         log_kv_text("vtk_filename_suffix", "%s", vtk_case_tag);
+    }
+    if (P.minimize_continue_from_vtk) {
+        log_kv_text("continue_phi_vtk", "%s", P.continue_phi_vtk_path);
+        if (P.continue_xB_vtk_path[0] != '\0') {
+            log_kv_text("continue_xB_vtk", "%s", P.continue_xB_vtk_path);
+        }
     }
     
     // 创建CSV文件：dynamics 用 vf_precip_vs_time.csv，minimize 用 energy_minimize.csv
@@ -2410,7 +2702,20 @@ int main(int argc, char **argv) {
     // 优化：不再分配d_diag_stats，使用直接归约函数节省显存
     
     // 初始化场
-    if (P.mode == 1 && P.minimize_full_model == 0) {
+    if (P.minimize_continue_from_vtk) {
+        log_section_header("Initialization");
+        if (P.minimize_full_model && P.continue_xB_vtk_path[0] != '\0') {
+            log_kv_text("path", "%s", "continue from phi/xB VTK");
+        } else if (P.minimize_full_model) {
+            log_kv_text("path", "%s", "continue from phi VTK + rebuilt xB/Y");
+        } else {
+            log_kv_text("path", "%s", "continue from phi VTK");
+        }
+        fflush(stdout);
+        if (!load_continue_fields_from_vtk(h_phi_r, h_Y_r, h_xB_r, h_xBtot_r, &P, total_r)) {
+            return 2;
+        }
+    } else if (P.mode == 1 && P.minimize_full_model == 0) {
         // 旧行为：phi-only minimize，不初始化xB/Y
         log_section_header("Initialization");
         log_kv_text("path", "phi-only minimize");
@@ -2526,6 +2831,15 @@ int main(int argc, char **argv) {
         int ret3 = write_vtk_cuda(d_temp, P.Nx, P.Ny, P.Nz, "xB", 0, filename);
         if (!ret3) {
             fprintf(stderr, "ERROR: Failed to write initial xB VTK file: %s\n", filename);
+        }
+    } else if (P.mode == 1 && P.minimize_full_model == 1) {
+        CUDA_CHECK(cudaMemcpy(d_temp, h_xB_r, size_r, cudaMemcpyHostToDevice));
+        build_case_vtk_path(filename, sizeof(filename), output_dir, case_output_dir, "xB", VTK_NAME_INIT, 0, vtk_case_tag, P.mode);
+        int ret3 = write_vtk_cuda(d_temp, P.Nx, P.Ny, P.Nz, "xB", 0, filename);
+        if (!ret3) {
+            fprintf(stderr, "ERROR: Failed to write initial xB VTK file: %s\n", filename);
+        } else {
+            printf("写出初始化 xB vtk: %s\n", filename);
         }
     }
 
@@ -4309,7 +4623,7 @@ int main(int argc, char **argv) {
         }
     }
     
-    // minimize 模式：在收敛/退出后额外输出一次 final VTK（最小改动：只输出 phi）
+    // minimize 模式：在收敛/退出后额外输出 final VTK
     if (P.mode == 1) {
         build_case_vtk_path(filename, sizeof(filename),
                             output_dir, case_output_dir,
@@ -4319,6 +4633,18 @@ int main(int argc, char **argv) {
             fprintf(stderr, "ERROR: Failed to write phi VTK file (final): %s\n", filename);
         } else {
             printf("写出 final vtk: %s\n", filename);
+        }
+
+        if (P.minimize_full_model == 1) {
+            build_case_vtk_path(filename, sizeof(filename),
+                                output_dir, case_output_dir,
+                                "xB", VTK_NAME_FINAL, 0, vtk_case_tag, 1);
+            int ret_xB_final = write_vtk_cuda(d_xB_r, P.Nx, P.Ny, P.Nz, "xB", P.nsteps, filename);
+            if (!ret_xB_final) {
+                fprintf(stderr, "ERROR: Failed to write xB VTK file (final): %s\n", filename);
+            } else {
+                printf("写出 final xB vtk: %s\n", filename);
+            }
         }
     }
 

@@ -20,15 +20,19 @@
 
 - `template_run_local_single.sh`: 本地单案例模板
 - `template_run_local_loop.sh`: 本地循环模板
+- `template_run_local_continue.sh`: 本地 continue 模板
 - `template_submit_slurm_single.sbatch`: Slurm 单作业模板
 - `template_submit_slurm_loop.sbatch`: Slurm 循环/扫描模板
+- `template_submit_slurm_continue.sbatch`: Slurm continue 模板
 
 推荐复制方式：
 
 - 想新建本地单案例脚本：从 `template_run_local_single.sh` 复制
 - 想新建本地 sweep/case-loop 脚本：从 `template_run_local_loop.sh` 复制
+- 想新建本地 continue 脚本：从 `template_run_local_continue.sh` 复制
 - 想新建单个 sbatch 提交入口：从 `template_submit_slurm_single.sbatch` 复制
 - 想新建 radius/temperature/case 扫描脚本：从 `template_submit_slurm_loop.sbatch` 复制
+- 想新建 continue 提交脚本：从 `template_submit_slurm_continue.sbatch` 复制
 
 标准章节顺序：
 
@@ -68,6 +72,16 @@
 - `VF_INIT` -> `vf_init`
 - `VF_TARGET` -> `vf_target`
 - `EPS_ISO` -> `eps_iso`
+
+continue 运行补充约定：
+
+- 当前只支持 `minimize-continue`，还没有 `dynamics-continue`
+- 每个结果目录现在会额外保存：
+  - `output_root/pf_input.params`
+  - `case_output_dir/pf_input.params`
+- continue 时如果 `--continue-phi-vtk` 所在目录下存在 `pf_input.params`，程序会优先使用这份参数快照
+- 如果该目录下没有 `pf_input.params`，则回退到脚本传入的 `--pf-param-file`
+- full-model continue 若未提供 `--continue-xB-vtk`，程序会按初始化阶段同样的质量守恒逻辑从 `phi` 重建 `xB/Y`
 
 如果需要一次覆盖多项复杂字段，可用：
 

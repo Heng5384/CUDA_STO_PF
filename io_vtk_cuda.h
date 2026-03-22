@@ -107,5 +107,93 @@ static inline int write_vtk_cuda(const double *d_field,
     return 1;
 }
 
-#endif // IO_VTK_CUDA_H
+static inline int read_vtk_ascii_to_host(const char *fname,
+                                         int expected_Nx, int expected_Ny, int expected_Nz,
+                                         double *h_field,
+                                         const char *field_label)
+{
+    FILE *fp = fopen(fname, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "ERROR: Cannot open VTK file %s for reading (errno: %d)\n", fname, errno);
+        return 0;
+    }
 
+    char line[4096];
+    int vtk_Nx = -1, vtk_Ny = -1, vtk_Nz = -1;
+    int found_dimensions = 0;
+    int found_lookup = 0;
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (!found_dimensions && strncmp(line, "DIMENSIONS", 10) == 0) {
+            if (sscanf(line, "DIMENSIONS %d %d %d", &vtk_Nx, &vtk_Ny, &vtk_Nz) == 3) {
+                found_dimensions = 1;
+            }
+            continue;
+        }
+        if (strncmp(line, "LOOKUP_TABLE", 12) == 0) {
+            found_lookup = 1;
+            break;
+        }
+    }
+
+    if (!found_dimensions || !found_lookup) {
+        fprintf(stderr, "ERROR: Invalid VTK file %s: missing DIMENSIONS or LOOKUP_TABLE header\n", fname);
+        fclose(fp);
+        return 0;
+    }
+
+    int file_is_2d = (vtk_Ny == 1 && expected_Ny == 2);
+    if (!(vtk_Nx == expected_Nx &&
+          vtk_Nz == expected_Nz &&
+          (vtk_Ny == expected_Ny || file_is_2d))) {
+        fprintf(stderr,
+                "ERROR: VTK grid mismatch for %s (%s): file=%dx%dx%d expected=%dx%dx%d\n",
+                fname, (field_label ? field_label : "field"),
+                vtk_Nx, vtk_Ny, vtk_Nz,
+                expected_Nx, expected_Ny, expected_Nz);
+        fclose(fp);
+        return 0;
+    }
+
+    size_t total_expected = (size_t)expected_Nx * (size_t)expected_Ny * (size_t)expected_Nz;
+    for (size_t idx = 0; idx < total_expected; ++idx) {
+        h_field[idx] = 0.0;
+    }
+
+    if (file_is_2d) {
+        for (int k = 0; k < expected_Nz; ++k) {
+            for (int i = 0; i < expected_Nx; ++i) {
+                double value = 0.0;
+                if (fscanf(fp, "%lf", &value) != 1) {
+                    fprintf(stderr, "ERROR: Unexpected EOF while reading 2D VTK data from %s\n", fname);
+                    fclose(fp);
+                    return 0;
+                }
+                for (int j = 0; j < expected_Ny; ++j) {
+                    int idx_gpu = i * (expected_Ny * expected_Nz) + j * expected_Nz + k;
+                    h_field[idx_gpu] = value;
+                }
+            }
+        }
+    } else {
+        for (int k = 0; k < expected_Nz; ++k) {
+            for (int j = 0; j < expected_Ny; ++j) {
+                for (int i = 0; i < expected_Nx; ++i) {
+                    double value = 0.0;
+                    if (fscanf(fp, "%lf", &value) != 1) {
+                        fprintf(stderr, "ERROR: Unexpected EOF while reading VTK data from %s\n", fname);
+                        fclose(fp);
+                        return 0;
+                    }
+                    int idx_gpu = i * (expected_Ny * expected_Nz) + j * expected_Nz + k;
+                    h_field[idx_gpu] = value;
+                }
+            }
+        }
+    }
+
+    fclose(fp);
+    return 1;
+}
+
+#endif // IO_VTK_CUDA_H

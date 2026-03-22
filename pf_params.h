@@ -164,10 +164,12 @@ typedef struct {
     double eta_lambda_vol;                    // lambda_vol under-relaxation 阻尼系数 (default: 0.2, range: [0,1])
     double minimize_xB_max_safe;              // minimize 模式下热力学调用前的 xB 上限（pre-thermo clamp, default: 0.07）
     int    minimize_post_projection_iters;    // 后投影修正子步数 (default: 1, n>=0)，抑制 vol 慢漂
+    int    minimize_continue_from_vtk;        // =1 时从已有 VTK 场恢复，而非重新初始化
+    char   continue_phi_vtk_path[4096];       // continuation: 必需的 phi VTK 路径
+    char   continue_xB_vtk_path[4096];        // continuation(full-model): 可选 xB VTK 路径
 
     // 当前初始化 case 的标签，用于结果子目录命名
     char   init_case_tag[256];
 } PFParams;
 
 #endif // PF_PARAMS_H
-
