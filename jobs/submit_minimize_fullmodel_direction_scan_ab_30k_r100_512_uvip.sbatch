@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 标准化脚本：Slurm 双方向 + 球核扫描模板实例（512^3, uvip, minimize full-model）
+# 标准化脚本：Slurm 双方向 + 球核扫描模板实例（512^3, vip_24h, minimize full-model）
 #
 # 用途：
-# - 在 gpu_uvip 队列上提交 512x512x512 的 minimize full-model 扫描
+# - 在 gpu_vip_24h 队列上提交 512x512x512 的 minimize full-model 扫描
 # - 固定 radius=100，扫描 2 个给定 normal 方向 + 1 个球核对照
 # - 默认物理与运行参数：
 #   TEMP_C=400
@@ -19,13 +19,13 @@
 #   sphere: isotropic seed, radius=100
 
 #SBATCH --job-name=min_full_ab30k
-#SBATCH --partition=gpu_uvip
-#SBATCH --qos=gpu_uvip
+#SBATCH --partition=gpu_vip_24h
+#SBATCH --qos=gpu_vip_24h
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --gres=gpu:1
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=0
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null
@@ -85,7 +85,7 @@ OBLATE_RZ=${OBLATE_RZ:-0.60}
 echo "====================================================="
 echo "512^3 minimize full-model 双方向 + 球核扫描"
 echo "  Grid: ${NX} x ${NY} x ${NZ}"
-echo "  Queue: gpu_uvip"
+echo "  Queue: gpu_vip_24h"
 echo "  TEMP_C: ${TEMP_C}"
 echo "  XB_OUT: ${XB_OUT}"
 echo "  ELASTIC: ${ELASTIC}"
