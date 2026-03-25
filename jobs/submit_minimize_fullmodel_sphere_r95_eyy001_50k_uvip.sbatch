@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 专用脚本：gpu_uvip 上提交 95nm 球核 + y 轴 0.01 外加应变的 minimize full-model
+# 专用脚本：gpu_vip_24h 上提交 95nm 球核 + y 轴 0.01 外加应变的 minimize full-model
 #
 # 用途：
-# - 在 gpu_uvip 队列上提交 512x512x512 的 sphere 初值 full-model minimize
+# - 在 gpu_vip_24h 队列上提交 512x512x512 的 sphere 初值 full-model minimize
 # - 固定 radius=95
 # - 固定外加应变：E0_yy=0.01，其余 E0 分量为 0
 # - 默认物理与运行参数：
@@ -12,8 +12,8 @@
 #   NSTEPS=50000
 
 #SBATCH --job-name=sph95_eyy_50k
-#SBATCH --partition=gpu_uvip
-#SBATCH --qos=gpu_uvip
+#SBATCH --partition=gpu_vip_24h
+#SBATCH --qos=gpu_vip_24h
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
@@ -38,7 +38,7 @@ fi
 source "${SCRIPT_DIR}/_site_env.sh"
 site_setup_project_root "${SCRIPT_DIR}"
 cd "${PROJECT_ROOT}"
-site_redirect_slurm_logs "sph95_eyy_50k_uvip"
+site_redirect_slurm_logs "sph95_eyy_50k_vip24h"
 site_print_env_banner
 site_build_main_cuda
 
@@ -82,7 +82,7 @@ E0_XY=${E0_XY:-0.0}
 echo "====================================================="
 echo "512^3 minimize full-model sphere + y-axis strain"
 echo "  Grid: ${NX} x ${NY} x ${NZ}"
-echo "  Queue: gpu_uvip"
+echo "  Queue: gpu_vip_24h"
 echo "  TEMP_C: ${TEMP_C}"
 echo "  XB_OUT: ${XB_OUT}"
 echo "  ELASTIC: ${ELASTIC}"
