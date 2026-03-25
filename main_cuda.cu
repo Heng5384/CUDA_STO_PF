@@ -2105,6 +2105,12 @@ static int apply_pfparams_override_key(PFParams *P, const char *key, const char 
     TRY_SET_DOUBLE("eps_yz00", eps_yz00);
     TRY_SET_DOUBLE("eps_xz00", eps_xz00);
     TRY_SET_DOUBLE("eps_xy00", eps_xy00);
+    TRY_SET_DOUBLE("E0_xx", E0_xx);
+    TRY_SET_DOUBLE("E0_yy", E0_yy);
+    TRY_SET_DOUBLE("E0_zz", E0_zz);
+    TRY_SET_DOUBLE("E0_yz", E0_yz);
+    TRY_SET_DOUBLE("E0_xz", E0_xz);
+    TRY_SET_DOUBLE("E0_xy", E0_xy);
 
     TRY_SET_DOUBLE("S_11", S_11);   TRY_SET_DOUBLE("S_12", S_12);
     TRY_SET_DOUBLE("S_13", S_13);   TRY_SET_DOUBLE("S_14", S_14);
