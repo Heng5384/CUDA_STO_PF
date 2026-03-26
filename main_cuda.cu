@@ -16,6 +16,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <cuComplex.h>
+#include <vector>
+#include <array>
+#include <algorithm>
+#include <limits>
 
 #include "cuda_common.h"
 #include "pf_params.h"
@@ -74,6 +78,28 @@ static void build_case_vtk_path(char *out, size_t out_size,
         } else {
             snprintf(out, out_size, "%s/%s_%d_%s.vtk", case_output_dir, field, step, tag);
         }
+    }
+}
+
+static void build_case_summary_path(char *out, size_t out_size,
+                                    const char *output_dir,
+                                    const char *case_output_dir,
+                                    const char *case_tag,
+                                    int mode) {
+    const char *tag = (case_tag && case_tag[0] != '\0') ? case_tag : "case_unknown";
+    if (!out || out_size == 0) return;
+    if (mode == 0) {
+        if (!output_dir) {
+            out[0] = '\0';
+            return;
+        }
+        snprintf(out, out_size, "%s/summary.txt", output_dir);
+    } else {
+        if (!case_output_dir) {
+            out[0] = '\0';
+            return;
+        }
+        snprintf(out, out_size, "%s/summary_%s.txt", case_output_dir, tag);
     }
 }
 
@@ -253,6 +279,600 @@ static void log_kv_text(const char *key, const char *fmt, ...) {
     vsnprintf(value, sizeof(value), fmt, ap);
     va_end(ap);
     printf("  %-24s : %s\n", key ? key : "item", value);
+}
+
+typedef struct {
+    int valid;
+    int component_count;
+    int chosen_component;
+    size_t voxel_count;
+    size_t boundary_voxel_count;
+    double threshold;
+    double center[3];
+    double full_axes[3];
+    double bbox_lengths[3];
+    double principal_axes[3][3];  // [long/mid/short][x/y/z]
+    double face_points[6][3];
+    double face_normals[6][3];
+    int face_valid[6];
+} NucleusGeometrySummary;
+
+typedef struct {
+    int enabled;
+    int write_each_step;
+    int print_each_step;
+    int calls;
+    int valid_calls;
+    double total_wall_s;
+} GeometrySummaryRuntime;
+
+static void compute_nucleus_dimensions_gpu(const double *d_phi_r,
+                                           int Nx, int Ny, int Nz,
+                                           double dx, double dy, double dz,
+                                           int *d_bbox_mins, int *d_bbox_maxs,
+                                           double *d_boundary_sum,
+                                           unsigned long long *d_boundary_count,
+                                           double *Len_x, double *Len_y, double *Len_z);
+
+static inline int host_index_xyz(int x, int y, int z, int Ny, int Nz) {
+    return (x * Ny + y) * Nz + z;
+}
+
+static inline void host_decode_index(int idx, int Ny, int Nz, int *x, int *y, int *z) {
+    *z = idx % Nz;
+    idx /= Nz;
+    *y = idx % Ny;
+    idx /= Ny;
+    *x = idx;
+}
+
+static inline double host_clamp01(double v) {
+    if (v < 0.0) return 0.0;
+    if (v > 1.0) return 1.0;
+    return v;
+}
+
+static inline double host_dot3(const double a[3], const double b[3]) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+static inline double host_norm3(const double v[3]) {
+    return sqrt(host_dot3(v, v));
+}
+
+static inline void host_normalize3(double v[3]) {
+    double n = host_norm3(v);
+    if (n < 1.0e-30) return;
+    v[0] /= n;
+    v[1] /= n;
+    v[2] /= n;
+}
+
+static inline void host_cross3(const double a[3], const double b[3], double out[3]) {
+    out[0] = a[1] * b[2] - a[2] * b[1];
+    out[1] = a[2] * b[0] - a[0] * b[2];
+    out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+static inline double host_angle_deg_abs(const double a[3], const double b[3]) {
+    double aa[3] = {a[0], a[1], a[2]};
+    double bb[3] = {b[0], b[1], b[2]};
+    host_normalize3(aa);
+    host_normalize3(bb);
+    double c = fabs(host_dot3(aa, bb));
+    if (c > 1.0) c = 1.0;
+    return acos(c) * (180.0 / M_PI);
+}
+
+static void canonicalize_axis_sign(double axis[3]) {
+    int max_abs_idx = 0;
+    double max_abs_val = fabs(axis[0]);
+    for (int i = 1; i < 3; ++i) {
+        double v = fabs(axis[i]);
+        if (v > max_abs_val) {
+            max_abs_val = v;
+            max_abs_idx = i;
+        }
+    }
+    if (axis[max_abs_idx] < 0.0) {
+        axis[0] = -axis[0];
+        axis[1] = -axis[1];
+        axis[2] = -axis[2];
+    }
+}
+
+static void jacobi_eigen_symm3(const double cov_in[3][3], double eigvals[3], double eigvecs[3][3]) {
+    double a[3][3];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            a[i][j] = cov_in[i][j];
+            eigvecs[i][j] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+
+    for (int iter = 0; iter < 32; ++iter) {
+        int p = 0, q = 1;
+        double max_offdiag = fabs(a[0][1]);
+        for (int i = 0; i < 3; ++i) {
+            for (int j = i + 1; j < 3; ++j) {
+                double v = fabs(a[i][j]);
+                if (v > max_offdiag) {
+                    max_offdiag = v;
+                    p = i;
+                    q = j;
+                }
+            }
+        }
+        if (max_offdiag < 1.0e-12) break;
+
+        double app = a[p][p];
+        double aqq = a[q][q];
+        double apq = a[p][q];
+        double tau = (aqq - app) / (2.0 * apq);
+        double t = ((tau >= 0.0) ? 1.0 : -1.0) / (fabs(tau) + sqrt(1.0 + tau * tau));
+        double c = 1.0 / sqrt(1.0 + t * t);
+        double s = t * c;
+
+        a[p][p] = app - t * apq;
+        a[q][q] = aqq + t * apq;
+        a[p][q] = 0.0;
+        a[q][p] = 0.0;
+
+        for (int k = 0; k < 3; ++k) {
+            if (k == p || k == q) continue;
+            double aik = a[k][p];
+            double akq = a[k][q];
+            a[k][p] = c * aik - s * akq;
+            a[p][k] = a[k][p];
+            a[k][q] = s * aik + c * akq;
+            a[q][k] = a[k][q];
+        }
+
+        for (int k = 0; k < 3; ++k) {
+            double vip = eigvecs[k][p];
+            double viq = eigvecs[k][q];
+            eigvecs[k][p] = c * vip - s * viq;
+            eigvecs[k][q] = s * vip + c * viq;
+        }
+    }
+
+    eigvals[0] = a[0][0];
+    eigvals[1] = a[1][1];
+    eigvals[2] = a[2][2];
+}
+
+static int compute_nucleus_geometry_summary_host(const double *h_phi,
+                                                 int Nx, int Ny, int Nz,
+                                                 double dx, double dy, double dz,
+                                                 double threshold,
+                                                 double bbox_len_x,
+                                                 double bbox_len_y,
+                                                 double bbox_len_z,
+                                                 NucleusGeometrySummary *summary) {
+    if (!h_phi || !summary) return 0;
+
+    const size_t total_size = (size_t)Nx * (size_t)Ny * (size_t)Nz;
+    const unsigned char FLAG_MASK = 1u << 0;
+    const unsigned char FLAG_VISITED = 1u << 1;
+    const unsigned char FLAG_SELECTED = 1u << 2;
+
+    memset(summary, 0, sizeof(*summary));
+    summary->threshold = threshold;
+    summary->bbox_lengths[0] = bbox_len_x;
+    summary->bbox_lengths[1] = bbox_len_y;
+    summary->bbox_lengths[2] = bbox_len_z;
+
+    std::vector<unsigned char> state(total_size, 0u);
+    size_t masked_count = 0;
+    for (size_t idx = 0; idx < total_size; ++idx) {
+        if (host_clamp01(h_phi[idx]) > threshold) {
+            state[idx] |= FLAG_MASK;
+            masked_count++;
+        }
+    }
+    if (masked_count == 0) return 0;
+
+    std::vector<int> largest_component;
+    std::vector<int> component;
+    largest_component.reserve(4096);
+    component.reserve(4096);
+
+    int component_count = 0;
+    int chosen_component = 0;
+    for (size_t seed = 0; seed < total_size; ++seed) {
+        if (!(state[seed] & FLAG_MASK) || (state[seed] & FLAG_VISITED)) continue;
+        component_count++;
+        component.clear();
+        component.push_back((int)seed);
+        state[seed] |= FLAG_VISITED;
+
+        size_t head = 0;
+        while (head < component.size()) {
+            int idx = component[head++];
+            int x = 0, y = 0, z = 0;
+            host_decode_index(idx, Ny, Nz, &x, &y, &z);
+            for (int dx_n = -1; dx_n <= 1; ++dx_n) {
+                int xn = x + dx_n;
+                if (xn < 0 || xn >= Nx) continue;
+                for (int dy_n = -1; dy_n <= 1; ++dy_n) {
+                    int yn = y + dy_n;
+                    if (yn < 0 || yn >= Ny) continue;
+                    for (int dz_n = -1; dz_n <= 1; ++dz_n) {
+                        int zn = z + dz_n;
+                        if (zn < 0 || zn >= Nz) continue;
+                        if (dx_n == 0 && dy_n == 0 && dz_n == 0) continue;
+                        int nidx = host_index_xyz(xn, yn, zn, Ny, Nz);
+                        if (!(state[nidx] & FLAG_MASK) || (state[nidx] & FLAG_VISITED)) continue;
+                        state[nidx] |= FLAG_VISITED;
+                        component.push_back(nidx);
+                    }
+                }
+            }
+        }
+
+        if (component.size() > largest_component.size()) {
+            largest_component = component;
+            chosen_component = component_count;
+        }
+    }
+
+    if (largest_component.empty()) return 0;
+    for (int idx : largest_component) state[(size_t)idx] |= FLAG_SELECTED;
+
+    summary->component_count = component_count;
+    summary->chosen_component = chosen_component;
+    summary->voxel_count = largest_component.size();
+
+    double center[3] = {0.0, 0.0, 0.0};
+    for (int idx : largest_component) {
+        int x = 0, y = 0, z = 0;
+        host_decode_index(idx, Ny, Nz, &x, &y, &z);
+        center[0] += (double)x * dx;
+        center[1] += (double)y * dy;
+        center[2] += (double)z * dz;
+    }
+    double inv_count = 1.0 / (double)largest_component.size();
+    center[0] *= inv_count;
+    center[1] *= inv_count;
+    center[2] *= inv_count;
+    summary->center[0] = center[0];
+    summary->center[1] = center[1];
+    summary->center[2] = center[2];
+
+    double cov[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+    for (int idx : largest_component) {
+        int x = 0, y = 0, z = 0;
+        host_decode_index(idx, Ny, Nz, &x, &y, &z);
+        double r[3] = {(double)x * dx - center[0], (double)y * dy - center[1], (double)z * dz - center[2]};
+        cov[0][0] += r[0] * r[0];
+        cov[0][1] += r[0] * r[1];
+        cov[0][2] += r[0] * r[2];
+        cov[1][1] += r[1] * r[1];
+        cov[1][2] += r[1] * r[2];
+        cov[2][2] += r[2] * r[2];
+    }
+    for (int i = 0; i < 3; ++i) {
+        for (int j = i; j < 3; ++j) {
+            cov[i][j] *= inv_count;
+            cov[j][i] = cov[i][j];
+        }
+    }
+
+    double eigvals_raw[3] = {0.0, 0.0, 0.0};
+    double eigvecs_raw[3][3];
+    jacobi_eigen_symm3(cov, eigvals_raw, eigvecs_raw);
+
+    int order[3] = {0, 1, 2};
+    std::sort(order, order + 3, [&](int a, int b) {
+        return eigvals_raw[a] > eigvals_raw[b];
+    });
+
+    for (int axis = 0; axis < 3; ++axis) {
+        int src = order[axis];
+        double v[3] = {eigvecs_raw[0][src], eigvecs_raw[1][src], eigvecs_raw[2][src]};
+        host_normalize3(v);
+        canonicalize_axis_sign(v);
+        summary->principal_axes[axis][0] = v[0];
+        summary->principal_axes[axis][1] = v[1];
+        summary->principal_axes[axis][2] = v[2];
+        summary->full_axes[axis] = 2.0 * sqrt(fmax(5.0 * eigvals_raw[src], 0.0));
+    }
+
+    std::vector<std::array<double, 3>> boundary_points;
+    std::vector<std::array<double, 3>> boundary_normals;
+    boundary_points.reserve(largest_component.size() / 4 + 16);
+    boundary_normals.reserve(largest_component.size() / 4 + 16);
+
+    auto sample_phi = [&](int x, int y, int z) -> double {
+        return h_phi[(size_t)host_index_xyz(x, y, z, Ny, Nz)];
+    };
+
+    for (int idx : largest_component) {
+        int x = 0, y = 0, z = 0;
+        host_decode_index(idx, Ny, Nz, &x, &y, &z);
+
+        int is_boundary = 0;
+        const int nb[6][3] = {
+            {-1,  0,  0}, {1, 0, 0},
+            { 0, -1,  0}, {0, 1, 0},
+            { 0,  0, -1}, {0, 0, 1}
+        };
+        for (int k = 0; k < 6; ++k) {
+            int xn = x + nb[k][0];
+            int yn = y + nb[k][1];
+            int zn = z + nb[k][2];
+            if (xn < 0 || xn >= Nx || yn < 0 || yn >= Ny || zn < 0 || zn >= Nz) {
+                is_boundary = 1;
+                break;
+            }
+            int nidx = host_index_xyz(xn, yn, zn, Ny, Nz);
+            if (!(state[(size_t)nidx] & FLAG_SELECTED)) {
+                is_boundary = 1;
+                break;
+            }
+        }
+        if (!is_boundary) continue;
+
+        double gx = 0.0, gy = 0.0, gz = 0.0;
+        if (Nx > 1) {
+            if (x == 0) gx = (sample_phi(x + 1, y, z) - sample_phi(x, y, z)) / dx;
+            else if (x == Nx - 1) gx = (sample_phi(x, y, z) - sample_phi(x - 1, y, z)) / dx;
+            else gx = (sample_phi(x + 1, y, z) - sample_phi(x - 1, y, z)) / (2.0 * dx);
+        }
+        if (Ny > 1) {
+            if (y == 0) gy = (sample_phi(x, y + 1, z) - sample_phi(x, y, z)) / dy;
+            else if (y == Ny - 1) gy = (sample_phi(x, y, z) - sample_phi(x, y - 1, z)) / dy;
+            else gy = (sample_phi(x, y + 1, z) - sample_phi(x, y - 1, z)) / (2.0 * dy);
+        }
+        if (Nz > 1) {
+            if (z == 0) gz = (sample_phi(x, y, z + 1) - sample_phi(x, y, z)) / dz;
+            else if (z == Nz - 1) gz = (sample_phi(x, y, z) - sample_phi(x, y, z - 1)) / dz;
+            else gz = (sample_phi(x, y, z + 1) - sample_phi(x, y, z - 1)) / (2.0 * dz);
+        }
+
+        double normal[3] = {-gx, -gy, -gz};
+        if (host_norm3(normal) < 1.0e-14) continue;
+        host_normalize3(normal);
+
+        boundary_points.push_back({(double)x * dx, (double)y * dy, (double)z * dz});
+        boundary_normals.push_back({normal[0], normal[1], normal[2]});
+    }
+
+    summary->boundary_voxel_count = boundary_points.size();
+    if (boundary_points.empty()) return 0;
+
+    const int face_axis_ids[6] = {0, 0, 1, 1, 2, 2};
+    const int face_signs[6] = {+1, -1, +1, -1, +1, -1};
+    const double face_thickness_frac = 0.10;
+    const double face_radius_frac = 0.35;
+
+    for (int face = 0; face < 6; ++face) {
+        const int axis_id = face_axis_ids[face];
+        const int face_sign = face_signs[face];
+        double q_ext = (face_sign > 0) ? -std::numeric_limits<double>::infinity()
+                                       :  std::numeric_limits<double>::infinity();
+        std::vector<int> axial_candidates;
+        axial_candidates.reserve(boundary_points.size());
+
+        for (size_t i = 0; i < boundary_points.size(); ++i) {
+            double rel[3] = {
+                boundary_points[i][0] - center[0],
+                boundary_points[i][1] - center[1],
+                boundary_points[i][2] - center[2]
+            };
+            double q_axis = host_dot3(rel, summary->principal_axes[axis_id]);
+            if (face_sign > 0) q_ext = fmax(q_ext, q_axis);
+            else q_ext = fmin(q_ext, q_axis);
+        }
+
+        double r_ref = face_radius_frac * fmin(summary->full_axes[(axis_id + 1) % 3],
+                                               summary->full_axes[(axis_id + 2) % 3]);
+        std::vector<int> selected;
+        selected.reserve(boundary_points.size());
+        for (size_t i = 0; i < boundary_points.size(); ++i) {
+            double rel[3] = {
+                boundary_points[i][0] - center[0],
+                boundary_points[i][1] - center[1],
+                boundary_points[i][2] - center[2]
+            };
+            double q[3] = {
+                host_dot3(rel, summary->principal_axes[0]),
+                host_dot3(rel, summary->principal_axes[1]),
+                host_dot3(rel, summary->principal_axes[2])
+            };
+            int sel_axis = (face_sign > 0)
+                ? (q[axis_id] > (q_ext - face_thickness_frac * summary->full_axes[axis_id]))
+                : (q[axis_id] < (q_ext + face_thickness_frac * summary->full_axes[axis_id]));
+            double transverse = sqrt(q[(axis_id + 1) % 3] * q[(axis_id + 1) % 3] +
+                                     q[(axis_id + 2) % 3] * q[(axis_id + 2) % 3]);
+            if (sel_axis) axial_candidates.push_back((int)i);
+            if (sel_axis && transverse < r_ref) selected.push_back((int)i);
+        }
+        if (selected.size() < 20) selected = axial_candidates;
+        if (selected.size() < 5) continue;
+
+        double mean_point[3] = {0.0, 0.0, 0.0};
+        double mean_normal[3] = {0.0, 0.0, 0.0};
+        for (int idx_sel : selected) {
+            mean_point[0] += boundary_points[(size_t)idx_sel][0];
+            mean_point[1] += boundary_points[(size_t)idx_sel][1];
+            mean_point[2] += boundary_points[(size_t)idx_sel][2];
+            mean_normal[0] += boundary_normals[(size_t)idx_sel][0];
+            mean_normal[1] += boundary_normals[(size_t)idx_sel][1];
+            mean_normal[2] += boundary_normals[(size_t)idx_sel][2];
+        }
+        double inv_sel = 1.0 / (double)selected.size();
+        mean_point[0] *= inv_sel;
+        mean_point[1] *= inv_sel;
+        mean_point[2] *= inv_sel;
+        mean_normal[0] *= inv_sel;
+        mean_normal[1] *= inv_sel;
+        mean_normal[2] *= inv_sel;
+        if (host_norm3(mean_normal) < 1.0e-14) continue;
+        host_normalize3(mean_normal);
+
+        summary->face_valid[face] = 1;
+        summary->face_points[face][0] = mean_point[0];
+        summary->face_points[face][1] = mean_point[1];
+        summary->face_points[face][2] = mean_point[2];
+        summary->face_normals[face][0] = mean_normal[0];
+        summary->face_normals[face][1] = mean_normal[1];
+        summary->face_normals[face][2] = mean_normal[2];
+    }
+
+    summary->valid = 1;
+    return 1;
+}
+
+static int write_nucleus_geometry_summary(const char *summary_path,
+                                         const NucleusGeometrySummary *summary,
+                                         const PFParams *P,
+                                         const char *phi_vtk_path) {
+    static const char *const face_names[6] = {
+        "+long face", "-long face",
+        "+mid face", "-mid face",
+        "+short face", "-short face"
+    };
+    static const double ref_axes[3][3] = {
+        {1.0, 0.0, 0.0},
+        {0.0, 1.0, 0.0},
+        {0.0, 0.0, 1.0}
+    };
+    static const char *const ref_axis_names[3] = {"x", "y", "z"};
+
+    if (!summary_path || !summary || !summary->valid) return 0;
+
+    FILE *fp = fopen(summary_path, "w");
+    if (!fp) {
+        fprintf(stderr, "ERROR: Failed to create summary file: %s\n", summary_path);
+        return 0;
+    }
+
+    fprintf(fp, "==================== Analysis Summary ====================\n");
+    fprintf(fp, "summary_file              : %s\n", summary_path);
+    if (phi_vtk_path && phi_vtk_path[0] != '\0') {
+        fprintf(fp, "phi_vtk_file              : %s\n", phi_vtk_path);
+    }
+    fprintf(fp, "mode                      : %s\n", (P && P->mode == 0) ? "dynamic" : "minimize");
+    fprintf(fp, "grid_dimensions           : (%d, %d, %d)\n", P ? P->Nx : 0, P ? P->Ny : 0, P ? P->Nz : 0);
+    fprintf(fp, "spacing_sim_units         : (%.6f, %.6f, %.6f)\n", P ? P->dx : 0.0, P ? P->dy : 0.0, P ? P->dz : 0.0);
+    fprintf(fp, "threshold_mode            : phi > %.3f\n", summary->threshold);
+    fprintf(fp, "connected_components      : %d\n", summary->component_count);
+    fprintf(fp, "chosen_component          : %d\n", summary->chosen_component);
+    fprintf(fp, "voxel_count               : %zu\n", summary->voxel_count);
+    fprintf(fp, "boundary_voxel_count      : %zu\n", summary->boundary_voxel_count);
+    fprintf(fp, "center_of_mass            : [%.6f, %.6f, %.6f]\n",
+            summary->center[0], summary->center[1], summary->center[2]);
+    fprintf(fp, "bbox_length_xyz           : [%.6f, %.6f, %.6f]\n",
+            summary->bbox_lengths[0], summary->bbox_lengths[1], summary->bbox_lengths[2]);
+    fprintf(fp, "\n--- Principal axes (unit vectors) ---\n");
+    fprintf(fp, "long_axis                 : [%.6f, %.6f, %.6f]\n",
+            summary->principal_axes[0][0], summary->principal_axes[0][1], summary->principal_axes[0][2]);
+    fprintf(fp, "mid_axis                  : [%.6f, %.6f, %.6f]\n",
+            summary->principal_axes[1][0], summary->principal_axes[1][1], summary->principal_axes[1][2]);
+    fprintf(fp, "short_axis                : [%.6f, %.6f, %.6f]\n",
+            summary->principal_axes[2][0], summary->principal_axes[2][1], summary->principal_axes[2][2]);
+
+    fprintf(fp, "\n--- Principal lengths (covariance estimate) ---\n");
+    fprintf(fp, "L1_long                   : %.6e\n", summary->full_axes[0]);
+    fprintf(fp, "L2_mid                    : %.6e\n", summary->full_axes[1]);
+    fprintf(fp, "L3_short                  : %.6e\n", summary->full_axes[2]);
+    fprintf(fp, "L1/L3                     : %.6f\n",
+            (summary->full_axes[2] > 0.0) ? (summary->full_axes[0] / summary->full_axes[2]) : 0.0);
+    fprintf(fp, "L2/L3                     : %.6f\n",
+            (summary->full_axes[2] > 0.0) ? (summary->full_axes[1] / summary->full_axes[2]) : 0.0);
+    fprintf(fp, "L1/L2                     : %.6f\n",
+            (summary->full_axes[1] > 0.0) ? (summary->full_axes[0] / summary->full_axes[1]) : 0.0);
+
+    fprintf(fp, "\n--- Axis angles (deg, abs dot) ---\n");
+    for (int axis = 0; axis < 3; ++axis) {
+        const char *axis_name = (axis == 0) ? "long" : ((axis == 1) ? "mid" : "short");
+        for (int ref = 0; ref < 3; ++ref) {
+            fprintf(fp, "%s_vs_%s                 : %.3f\n",
+                    axis_name, ref_axis_names[ref],
+                    host_angle_deg_abs(summary->principal_axes[axis], ref_axes[ref]));
+        }
+    }
+
+    fprintf(fp, "\n==================== Representative Face Normals ====================\n");
+    for (int face = 0; face < 6; ++face) {
+        fprintf(fp, "\n%s\n", face_names[face]);
+        if (!summary->face_valid[face]) {
+            fprintf(fp, "  [warning] not enough boundary points selected.\n");
+            continue;
+        }
+        fprintf(fp, "  mean point              : [%.6f, %.6f, %.6f]\n",
+                summary->face_points[face][0], summary->face_points[face][1], summary->face_points[face][2]);
+        fprintf(fp, "  mean normal             : [%.6f, %.6f, %.6f]\n",
+                summary->face_normals[face][0], summary->face_normals[face][1], summary->face_normals[face][2]);
+        fprintf(fp, "  angle with x            : %.3f\n",
+                host_angle_deg_abs(summary->face_normals[face], ref_axes[0]));
+        fprintf(fp, "  angle with y            : %.3f\n",
+                host_angle_deg_abs(summary->face_normals[face], ref_axes[1]));
+        fprintf(fp, "  angle with z            : %.3f\n",
+                host_angle_deg_abs(summary->face_normals[face], ref_axes[2]));
+        fprintf(fp, "  angle with long axis    : %.3f\n",
+                host_angle_deg_abs(summary->face_normals[face], summary->principal_axes[0]));
+        fprintf(fp, "  angle with mid axis     : %.3f\n",
+                host_angle_deg_abs(summary->face_normals[face], summary->principal_axes[1]));
+        fprintf(fp, "  angle with short axis   : %.3f\n",
+                host_angle_deg_abs(summary->face_normals[face], summary->principal_axes[2]));
+    }
+
+    fclose(fp);
+    return 1;
+}
+
+static int env_flag_enabled(const char *name) {
+    const char *value = getenv(name);
+    if (!value || value[0] == '\0') return 0;
+    if (strcmp(value, "0") == 0) return 0;
+    if (strcmp(value, "false") == 0 || strcmp(value, "FALSE") == 0) return 0;
+    if (strcmp(value, "no") == 0 || strcmp(value, "NO") == 0) return 0;
+    return 1;
+}
+
+static int compute_geometry_summary_from_device(const PFParams *P,
+                                                const double *d_phi_r,
+                                                double *h_phi_r,
+                                                size_t size_r,
+                                                int *d_bbox_mins,
+                                                int *d_bbox_maxs,
+                                                double *d_boundary_sum,
+                                                unsigned long long *d_boundary_count,
+                                                const char *summary_path,
+                                                const char *phi_vtk_path,
+                                                GeometrySummaryRuntime *runtime) {
+    if (!P || !d_phi_r || !h_phi_r) return 0;
+
+    const double t0 = wall_time_sec_monotonic();
+
+    CUDA_CHECK(cudaMemcpy(h_phi_r, d_phi_r, size_r, cudaMemcpyDeviceToHost));
+
+    double Len_x = 0.0, Len_y = 0.0, Len_z = 0.0;
+    compute_nucleus_dimensions_gpu(d_phi_r, P->Nx, P->Ny, P->Nz,
+                                   P->dx, P->dy, P->dz,
+                                   d_bbox_mins, d_bbox_maxs,
+                                   d_boundary_sum, d_boundary_count,
+                                   &Len_x, &Len_y, &Len_z);
+
+    NucleusGeometrySummary geometry_summary;
+    int ok = compute_nucleus_geometry_summary_host(h_phi_r, P->Nx, P->Ny, P->Nz,
+                                                   P->dx, P->dy, P->dz,
+                                                   0.5, Len_x, Len_y, Len_z,
+                                                   &geometry_summary);
+    if (ok && summary_path && summary_path[0] != '\0') {
+        ok = write_nucleus_geometry_summary(summary_path, &geometry_summary, P, phi_vtk_path);
+    }
+
+    const double t1 = wall_time_sec_monotonic();
+    if (runtime) {
+        runtime->calls += 1;
+        runtime->total_wall_s += (t1 - t0);
+        if (ok) runtime->valid_calls += 1;
+    }
+
+    return ok;
 }
 
 typedef struct {
@@ -3450,6 +4070,12 @@ int main(int argc, char **argv) {
     cudaEvent_t start_event, stop_event;
     CUDA_CHECK(cudaEventCreate(&start_event));
     CUDA_CHECK(cudaEventCreate(&stop_event));
+
+    GeometrySummaryRuntime geometry_summary_runtime;
+    memset(&geometry_summary_runtime, 0, sizeof(geometry_summary_runtime));
+    geometry_summary_runtime.enabled = env_flag_enabled("GEOMETRY_SUMMARY_EVERY_STEP");
+    geometry_summary_runtime.write_each_step = env_flag_enabled("GEOMETRY_SUMMARY_WRITE_EACH_STEP");
+    geometry_summary_runtime.print_each_step = env_flag_enabled("GEOMETRY_SUMMARY_PRINT_EACH_STEP");
     
     printf("\n开始时间推进...\n");
     printf("========================================\n");
@@ -3467,6 +4093,7 @@ int main(int argc, char **argv) {
     // lambda_vol: 跨迭代的状态量，用于抗过冲方案
     double lambda_vol = 0.0;
     int steps_completed = 0;
+    const double step_loop_wall_t0 = wall_time_sec_monotonic();
 
     for (int step = 1; step <= nsteps_run; step++) {
         steps_completed = step;
@@ -4310,14 +4937,6 @@ int main(int argc, char **argv) {
         //    因此必须放在 Y 半隐式更新 (2.13~2.15) 之后。
         // -----------------------------------------------------------------
         if (P.mode == 1) {
-            // 计算析出相尺寸（用于CSV输出）：在 GPU 上按 h(phi)=0.5 的等值面做边界诊断，只回传少量标量
-            double Len_x = 0.0, Len_y = 0.0, Len_z = 0.0;
-            compute_nucleus_dimensions_gpu(d_phi_r, P.Nx, P.Ny, P.Nz,
-                                           P.dx, P.dy, P.dz,
-                                           d_bbox_mins, d_bbox_maxs,
-                                           d_boundary_sum, d_boundary_count,
-                                           &Len_x, &Len_y, &Len_z);
-            
             // 计算相对能量变化率（基于 excess 自由能，用于平台判据）
             double energy_diff_rel = NAN;
             if (isfinite(F_total_prev_step) && isfinite(F_total_excess_hat)) {
@@ -4744,7 +5363,53 @@ int main(int argc, char **argv) {
             P.nsteps = step;
             break;
         }
+
+        if (geometry_summary_runtime.enabled) {
+            char step_summary_path[4096] = {0};
+            char step_phi_path[4096] = {0};
+            if (geometry_summary_runtime.write_each_step) {
+                const char *summary_root = (P.mode == 1) ? case_output_dir : output_dir;
+                const char *tag = (vtk_case_tag[0] != '\0') ? vtk_case_tag : "case_unknown";
+                snprintf(step_summary_path, sizeof(step_summary_path),
+                         "%s/summary_step_%05d_%s.txt", summary_root, step, tag);
+                snprintf(step_phi_path, sizeof(step_phi_path),
+                         "%s/phi_step_%05d_%s.vtk", summary_root, step, tag);
+            }
+
+            int ok = compute_geometry_summary_from_device(&P,
+                                                          d_phi_r, h_phi_r, size_r,
+                                                          d_bbox_mins, d_bbox_maxs,
+                                                          d_boundary_sum, d_boundary_count,
+                                                          geometry_summary_runtime.write_each_step ? step_summary_path : NULL,
+                                                          geometry_summary_runtime.write_each_step ? step_phi_path : NULL,
+                                                          &geometry_summary_runtime);
+            if (geometry_summary_runtime.print_each_step) {
+                printf("[geometry-summary] step=%05d status=%s wall_time=%.6f s calls=%d\n",
+                       step, ok ? "ok" : "skipped",
+                       geometry_summary_runtime.total_wall_s / fmax(geometry_summary_runtime.calls, 1),
+                       geometry_summary_runtime.calls);
+            }
+        }
     }
+    const double step_loop_wall_elapsed = wall_time_sec_monotonic() - step_loop_wall_t0;
+
+    printf("\n========================================\n");
+    printf("步进墙钟统计:\n");
+    printf("  总步进墙钟时间: %.6f s\n", step_loop_wall_elapsed);
+    printf("  平均每步墙钟时间: %.6f s\n",
+           (steps_completed > 0) ? (step_loop_wall_elapsed / (double)steps_completed) : 0.0);
+    if (geometry_summary_runtime.calls > 0) {
+        printf("  geometry summary 调用次数: %d\n", geometry_summary_runtime.calls);
+        printf("  geometry summary 有效次数: %d\n", geometry_summary_runtime.valid_calls);
+        printf("  geometry summary 累计耗时: %.6f s\n", geometry_summary_runtime.total_wall_s);
+        printf("  geometry summary 平均耗时: %.6f s\n",
+               geometry_summary_runtime.total_wall_s / (double)geometry_summary_runtime.calls);
+        printf("  geometry summary 占步进时间比例: %.2f%%\n",
+               (step_loop_wall_elapsed > 0.0)
+                   ? (100.0 * geometry_summary_runtime.total_wall_s / step_loop_wall_elapsed)
+                   : 0.0);
+    }
+    printf("========================================\n");
     
     // minimize 模式：在收敛/退出后额外输出 final VTK
     if (P.mode == 1) {
@@ -4917,6 +5582,44 @@ int main(int argc, char **argv) {
                         final_step + csv_step_offset, current_time + csv_time_offset, t_real + csv_real_time_offset, vf_precip, R_avg);
             }
             fflush(csv_fp);
+        }
+    }
+
+    {
+        char geometry_phi_vtk_path[4096] = {0};
+        char geometry_summary_path[4096] = {0};
+        int should_write_geometry_summary = 0;
+
+        if (P.mode == 1) {
+            build_case_vtk_path(geometry_phi_vtk_path, sizeof(geometry_phi_vtk_path),
+                                output_dir, case_output_dir,
+                                "phi", VTK_NAME_FINAL, 0, vtk_case_tag, 1);
+            build_case_summary_path(geometry_summary_path, sizeof(geometry_summary_path),
+                                    output_dir, case_output_dir, vtk_case_tag, 1);
+            should_write_geometry_summary = 1;
+        } else if (P.mode == 0) {
+            int final_output_step = P.nsteps / P.out_every;
+            if (P.nsteps % P.out_every != 0) final_output_step += 1;
+            build_case_vtk_path(geometry_phi_vtk_path, sizeof(geometry_phi_vtk_path),
+                                output_dir, case_output_dir,
+                                "phi", VTK_NAME_STEP, final_output_step, vtk_case_tag, 0);
+            build_case_summary_path(geometry_summary_path, sizeof(geometry_summary_path),
+                                    output_dir, case_output_dir, vtk_case_tag, 0);
+            should_write_geometry_summary = 1;
+        }
+
+        if (should_write_geometry_summary && geometry_summary_path[0] != '\0') {
+            if (compute_geometry_summary_from_device(&P,
+                                                    d_phi_r, h_phi_r, size_r,
+                                                    d_bbox_mins, d_bbox_maxs,
+                                                    d_boundary_sum, d_boundary_count,
+                                                    geometry_summary_path,
+                                                    geometry_phi_vtk_path,
+                                                    NULL)) {
+                printf("写出 geometry summary: %s\n", geometry_summary_path);
+            } else {
+                fprintf(stderr, "[warn] geometry summary skipped: no valid nucleus component found.\n");
+            }
         }
     }
     
