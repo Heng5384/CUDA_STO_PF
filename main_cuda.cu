@@ -2919,15 +2919,13 @@ int main(int argc, char **argv) {
             // F_surf_hat,F_el_hat,F_chem_excess_hat,F_total_excess_hat,
             // F_chem_CNT_hat,F_total_CNT_hat,
             // total_interface_sum,total_el_core_sum,
-            // rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,post_proj_iters_used,
-            // Len_x,Len_y,Len_z,Len_x_Len_z
+            // rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,post_proj_iters_used
             fprintf(energy_fp,
                     "iter,dt,mean_h,V0,lambda,"
                     "F_surf_hat,F_el_hat,F_chem_excess_hat,F_total_excess_hat,"
                     "F_chem_CNT_hat,F_total_CNT_hat,"
                     "total_interface_sum,total_el_core_sum,"
-                    "rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,post_proj_iters_used,"
-                    "Len_x,Len_y,Len_z,Len_x_Len_z\n");
+                    "rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,post_proj_iters_used\n");
             fflush(energy_fp);
         }
     }
@@ -4356,12 +4354,10 @@ int main(int argc, char **argv) {
 
             // 记录 energy_minimize.csv（基于 excess 自由能 + CNT 汇总）
             if (energy_fp) {
-                double Len_x_Len_z = (Len_z > 1e-12) ? (Len_x / Len_z) : NAN;
                 fprintf(energy_fp,
                         "%d,%.8e,%.8e,%.8e,%.8e,"
                         "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,"
-                        "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%d,"
-                        "%.8e,%.8e,%.8e,%.8e\n",
+                        "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%d\n",
                         step + energy_iter_offset,
                         dt_phi,
                         (isfinite(mean_h_now) ? mean_h_now : NAN),
@@ -4379,11 +4375,7 @@ int main(int argc, char **argv) {
                         (isfinite(rms_dY)   ? rms_dY   : NAN),
                         (isfinite(energy_diff_rel) ? energy_diff_rel : NAN),
                         (isfinite(vol_err_rel) ? vol_err_rel : NAN),
-                        P.minimize_post_projection_iters,
-                        (isfinite(Len_x) ? Len_x : NAN),
-                        (isfinite(Len_y) ? Len_y : NAN),
-                        (isfinite(Len_z) ? Len_z : NAN),
-                        (isfinite(Len_x_Len_z) ? Len_x_Len_z : NAN));
+                        P.minimize_post_projection_iters);
                 fflush(energy_fp);
             }
 
