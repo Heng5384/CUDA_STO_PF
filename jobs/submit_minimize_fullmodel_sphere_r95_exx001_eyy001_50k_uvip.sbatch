@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# 专用脚本：gpu_uvip 上提交 400^3、r=30 球核 + x 轴 0.01 外加应变的 minimize full-model
+# 专用脚本：gpu_uvip 上提交 95nm 球核 + x/y 双轴 0.01 外加应变的 minimize full-model
 #
 # 用途：
-# - 在 gpu_uvip 队列上提交 400x400x400 的 sphere 初值 full-model minimize
-# - 固定 radius=30
-# - 固定外加应变：E0_xx=0.01，其余 E0 分量为 0
-# - 体积误差上限：5e-2
+# - 在 gpu_uvip 队列上提交 512x512x512 的 sphere 初值 full-model minimize
+# - 固定 radius=95
+# - 固定外加应变：E0_xx=0.01, E0_yy=0.01，其余 E0 分量为 0
 # - 默认物理与运行参数：
 #   TEMP_C=400
 #   XB_OUT=0.03
 #   ELASTIC=1
 #   NSTEPS=50000
 
-#SBATCH --job-name=sph30_exx_50k
+#SBATCH --job-name=sph95_exxeyy_50k
 #SBATCH --partition=gpu_uvip
 #SBATCH --qos=gpu_uvip
 #SBATCH --nodes=1
@@ -39,16 +38,16 @@ fi
 source "${SCRIPT_DIR}/_site_env.sh"
 site_setup_project_root "${SCRIPT_DIR}"
 cd "${PROJECT_ROOT}"
-site_redirect_slurm_logs "sph30_exx_50k_400_uvip"
+site_redirect_slurm_logs "sph95_exxeyy_50k_uvip"
 site_print_env_banner
 site_build_main_cuda
 
 # ------------------------------------------------------------
 # B. 默认参数区
 # ------------------------------------------------------------
-NX=${NX:-400}
-NY=${NY:-400}
-NZ=${NZ:-400}
+NX=${NX:-512}
+NY=${NY:-512}
+NZ=${NZ:-512}
 
 NSTEPS=${NSTEPS:-50000}
 MIN_DT=${MIN_DT:-1e-1}
@@ -70,18 +69,18 @@ V0=${V0:-0.0}
 ELASTIC=${ELASTIC:-1}
 XB_OUT=${XB_OUT:-0.03}
 TEMP_C=${TEMP_C:-400.0}
-RADIUS=${RADIUS:-30}
-CASE_TAG=${CASE_TAG:-sphere_r30_exx001}
+RADIUS=${RADIUS:-95}
+CASE_TAG=${CASE_TAG:-sphere_r95_exx001_eyy001}
 
 E0_XX=${E0_XX:-0.01}
-E0_YY=${E0_YY:-0.0}
+E0_YY=${E0_YY:-0.01}
 E0_ZZ=${E0_ZZ:-0.0}
 E0_YZ=${E0_YZ:-0.0}
 E0_XZ=${E0_XZ:-0.0}
 E0_XY=${E0_XY:-0.0}
 
 echo "====================================================="
-echo "400^3 minimize full-model sphere + x-axis strain"
+echo "512^3 minimize full-model sphere + x/y-axis strain"
 echo "  Grid: ${NX} x ${NY} x ${NZ}"
 echo "  Queue: gpu_uvip"
 echo "  TEMP_C: ${TEMP_C}"
@@ -90,8 +89,7 @@ echo "  ELASTIC: ${ELASTIC}"
 echo "  Radius: ${RADIUS}"
 echo "  Init shape: sphere"
 echo "  NSTEPS: ${NSTEPS}"
-echo "  Applied strain: E0_xx=${E0_XX}"
-echo "  vol_err_rel_threshold: ${MIN_VOL_ERR_REL_THRESHOLD}"
+echo "  Applied strain: E0_xx=${E0_XX}, E0_yy=${E0_YY}"
 echo "  Case tag: ${CASE_TAG}"
 echo "====================================================="
 
