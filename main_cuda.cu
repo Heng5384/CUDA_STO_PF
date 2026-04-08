@@ -1371,6 +1371,39 @@ static void compute_seed_axes_from_radius(const PFParams *P, double R, int is3D,
     }
 }
 
+static double compute_effective_vf_target(const PFParams *P) {
+    const int N_seeds = (P->ic_phi_num_seeds > 0) ? P->ic_phi_num_seeds : 1;
+    const int is3D = (P->Ny > 2);
+    const double Lx = P->Nx * P->dx;
+    const double Ly = P->Ny * P->dy;
+    const double Lz = P->Nz * P->dz;
+
+    double vf_target = fmin(0.999, fmax(1e-6, P->ic_vf_target_phi));
+    if (!(P->ic_phi_seed_radius > 0.0)) {
+        return vf_target;
+    }
+
+    double Rx = 0.0, Ry = 0.0, Rz = 0.0;
+    compute_seed_axes_from_radius(P, P->ic_phi_seed_radius, is3D, &Rx, &Ry, &Rz);
+
+    double target_fraction = vf_target;
+    if (is3D) {
+        const double seed_volume = (4.0 * M_PI / 3.0) * Rx * Ry * Rz;
+        const double box_volume = Lx * Ly * Lz;
+        if (box_volume > 0.0) {
+            target_fraction = ((double)N_seeds * seed_volume) / box_volume;
+        }
+    } else {
+        const double seed_area = M_PI * Rx * Rz;
+        const double box_area = Lx * Lz;
+        if (box_area > 0.0) {
+            target_fraction = ((double)N_seeds * seed_area) / box_area;
+        }
+    }
+
+    return fmin(0.999, fmax(1e-6, target_fraction));
+}
+
 static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_t out_size) {
     int max_continue_idx = 0;
     const char *p = vtk_path;
@@ -1405,7 +1438,7 @@ static int rebuild_full_model_composition_from_phi(double *phi_r, double *Y_r, d
                                                    const PFParams *P, int total_size, int emit_logs) {
     const double Ntot = (double)P->Nx * (double)P->Ny * (double)P->Nz;
     const double xB_eq = P->ic_xB_eq_matrix;
-    const double vf_target = fmin(0.999, fmax(1e-6, P->ic_vf_target_phi));
+    const double vf_target = compute_effective_vf_target(P);
     const double vB_frac = P->v_B;
     double sum_h = 0.0;
     double sum_h2 = 0.0;
@@ -1460,10 +1493,15 @@ static int rebuild_full_model_composition_from_phi(double *phi_r, double *Y_r, d
         log_section_header("Continuation Composition");
         log_kv_text("xB_source", "%s",
                     (P->ic_23d_xB_out > 0.0) ? "rebuild from phi + ic_23d_xB_out"
-                                             : "rebuild from phi + vf_target");
+                                             : ((P->ic_phi_seed_radius > 0.0)
+                                                ? "rebuild from phi + seed_radius_target"
+                                                : "rebuild from phi + vf_target"));
         log_kv_text("vf_init_eff=<h>", "%.6f", mean_h);
         log_kv_text("<h^2>", "%.6f", mean_h2);
         log_kv_text("vf_target", "%.6f", vf_target);
+        if (P->ic_phi_seed_radius > 0.0) {
+            log_kv_text("vf_target_source", "seed radius %.6f", P->ic_phi_seed_radius);
+        }
         log_kv_text("xB_eq", "%.6f", xB_eq);
         log_kv_text("xB_out", "%.6e (ic_23d_xB_out=%.6e)", xB_out, P->ic_23d_xB_out);
         log_kv_text("<xB>", "%.6f", sum_xB / Ntot);
@@ -1693,7 +1731,7 @@ void initialize_fields_cuda(double *phi_r, double *Y_r, double *xB_r, const PFPa
 
     // ========= D2) 按 diffuse-interface 质量守恒求 xB_out =========
     double xB_eq     = P->ic_xB_eq_matrix;          // α 相平衡 B 含量
-    double vf_target = fmin(0.999, fmax(1e-6, P->ic_vf_target_phi));
+    double vf_target = compute_effective_vf_target(P);
     double vB_frac   = P->v_B;                     // 化合物相 B 含量（摩尔分数）
     double xB_out;
 
@@ -1795,6 +1833,9 @@ void initialize_fields_cuda(double *phi_r, double *Y_r, double *xB_r, const PFPa
     log_kv_text("vf_init_eff=<h>", "%.6f", mean_h);
     log_kv_text("<h^2>", "%.6f", mean_h2);
     log_kv_text("vf_target", "%.6f", vf_target);
+    if (P->ic_phi_seed_radius > 0.0) {
+        log_kv_text("vf_target_source", "seed radius %.6f", P->ic_phi_seed_radius);
+    }
     log_kv_text("vB_frac", "%.6f", vB_frac);
     log_kv_text("xB_eq", "%.6f", xB_eq);
     log_kv_text("xB_out", "%.6e (ic_23d_xB_out=%.6e)", xB_out, P->ic_23d_xB_out);
@@ -2854,6 +2895,12 @@ int main(int argc, char **argv) {
     char continue_phi_vtk_pre_scan[4096] = {0};
     char effective_pf_param_file[4096] = {0};
     char continue_case_pf_param_file[4096] = {0};
+
+    // Optional: interpret radius in physical nm and convert to internal length units later,
+    // after we can infer (dx_phys_m_run, unit_to_m_run) from PF inputs.
+    int has_radius_phys_nm = 0;
+    double radius_phys_nm = 0.0;
+
     for (int i = 1; i < argc; ++i) {
         const char *v = get_flag_value(argc, argv, &i, "--pf-param-file");
         if (v != NULL) {
@@ -2942,7 +2989,8 @@ int main(int argc, char **argv) {
             printf("  --minimize-post-projection-iters <n>  后投影修正子步数 (default: 1, n>=0)\n");
             printf("  --temperature-C <val>   物理温度（摄氏度），默认 380.0\n");
             printf("  --V0 <val>              target <h(phi)>; if <=0 use initial mean_h\n");
-            printf("  --radius <val>          seed radius for initialization (default: 10.0)\n");
+            printf("  --radius <val>          seed radius in internal length units (same units as P.dx)\n");
+            printf("  --radius-phys-nm <nm>   seed radius in physical nm (converted using dx_phys inferred from lambda_sm_m/(2*ic_phi_iface_w))\n");
             printf("  --minimize-resample-elastic-every N   true residual diagnostic interval; N<=0 disables\n");
             printf("  --elastic 0|1           override elastic (0=off, 1=on)\n");
             printf("\nInitialization (symmetry-breaking tests):\n");
@@ -3064,6 +3112,11 @@ int main(int argc, char **argv) {
             int iters = atoi(v);
             if (iters < 0) iters = 0;
             P.minimize_post_projection_iters = iters;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--radius-phys-nm")) != NULL) {
+            has_radius_phys_nm = 1;
+            radius_phys_nm = atof(v);
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i, "--radius")) != NULL) {
@@ -3220,9 +3273,13 @@ int main(int argc, char **argv) {
     {
         double temperature_K = P.temperature_C + 273.15;
         char grid_buf[64];
-        const double dx_phys_m = P.dx * 1.0e-9;
-        const double dy_phys_m = P.dy * 1.0e-9;
-        const double dz_phys_m = P.dz * 1.0e-9;
+        // NOTE: In this codebase, P.dx/P.dy/P.dz are typically *grid units* (often 1.0),
+        // while the physical spacing is provided via (lambda_sm_m, ic_phi_iface_w) where:
+        //   ic_phi_iface_w = (lambda_sm / dx_phys) / 2
+        // So infer dx_phys from that relation for correct physical reporting and naming.
+        const double dx_phys_m = (P.ic_phi_iface_w > 1e-30) ? (P.lambda_sm_m / (2.0 * P.ic_phi_iface_w)) : (P.dx * 1.0e-9);
+        const double dy_phys_m = (P.ic_phi_iface_w > 1e-30) ? (P.lambda_sm_m / (2.0 * P.ic_phi_iface_w)) : (P.dy * 1.0e-9);
+        const double dz_phys_m = (P.ic_phi_iface_w > 1e-30) ? (P.lambda_sm_m / (2.0 * P.ic_phi_iface_w)) : (P.dz * 1.0e-9);
         const double Lx_phys_m = P.Nx * dx_phys_m;
         const double Ly_phys_m = P.Ny * dy_phys_m;
         const double Lz_phys_m = P.Nz * dz_phys_m;
@@ -3240,7 +3297,7 @@ int main(int argc, char **argv) {
             log_kv_text("pf_param_file", "%s", effective_pf_param_file);
         }
         log_kv_text("grid", "%s", grid_buf);
-        log_kv_text("dx / dy / dz", "%.6f / %.6f / %.6f", P.dx, P.dy, P.dz);
+        log_kv_text("dx / dy / dz (grid)", "%.6f / %.6f / %.6f", P.dx, P.dy, P.dz);
         log_kv_text("cell_size_phys_nm", "%.6f / %.6f / %.6f",
                     dx_phys_m * 1.0e9, dy_phys_m * 1.0e9, dz_phys_m * 1.0e9);
         log_kv_text("system_size_phys_nm", "%.6f / %.6f / %.6f",
@@ -3299,17 +3356,94 @@ int main(int argc, char **argv) {
     char run_dir_name[256];
     char output_dir[4096];
     char output_pf_input_file[4096];
+    // For naming: infer the physical dx (m) from (lambda_sm_m, ic_phi_iface_w) when available.
+    // Then convert "internal length units" (the same units used by P.dx and --radius) into meters.
+    const double dx_phys_m_run = (P.ic_phi_iface_w > 1e-30)
+                                     ? (P.lambda_sm_m / (2.0 * P.ic_phi_iface_w))
+                                     : (P.dx * 1.0e-9);
+    const double unit_to_m_run = (fabs(P.dx) > 1e-30) ? (dx_phys_m_run / P.dx) : 1.0e-9;
+
+    // Apply --radius-phys-nm if present.
+    if (has_radius_phys_nm) {
+        if (radius_phys_nm <= 0.0) {
+            fprintf(stderr, "[fatal] --radius-phys-nm must be > 0, got %.6f\n", radius_phys_nm);
+            return 2;
+        }
+        if (unit_to_m_run <= 0.0) {
+            fprintf(stderr, "[fatal] invalid unit_to_m_run=%.6e, cannot convert physical radius.\n", unit_to_m_run);
+            return 2;
+        }
+        // Convert physical nm -> internal length units.
+        P.ic_phi_seed_radius = (radius_phys_nm * 1.0e-9) / unit_to_m_run;
+    }
+
+    // ============================================================
+    // Consistency diagnostics: interface width / length scaling
+    // ============================================================
+    if (P.ic_phi_iface_w > 1e-30) {
+        const double ic = P.ic_phi_iface_w;
+        // From Unit_Psedobinary.py conversion:
+        // kappa_phi = (1.5*gamma*lambda) / ( (12*gamma/lambda) * dx_phys^2 ) = 0.125*(lambda/dx_phys)^2
+        // and dx_phys = lambda / (2*ic) => kappa_phi_expected = 0.5 * ic^2
+        const double kappa_expected = 0.5 * ic * ic;
+        const double denom = fabs(kappa_expected) > 1e-30 ? fabs(kappa_expected) : 1.0;
+        const double rel = fabs(P.kappa_phi - kappa_expected) / denom;
+        log_section_header("Interface-Width Consistency (Diagnostics)");
+        log_kv_text("dx_internal", "%.6g", P.dx);
+        log_kv_text("dx_phys_nm(inferred)", "%.6f", dx_phys_m_run * 1.0e9);
+        log_kv_text("unit_to_nm(internal->phys)", "%.6e", unit_to_m_run * 1.0e9);
+        log_kv_text("ic_phi_iface_w(grids_halfwidth)", "%.6f", ic);
+        log_kv_text("interface_width_grids(2*ic)", "%.6f", 2.0 * ic);
+        log_kv_text("interface_width_nm(2*ic*dx_phys)", "%.6f", (2.0 * ic) * (dx_phys_m_run * 1.0e9));
+        log_kv_text("kappa_phi_loaded", "%.8e", P.kappa_phi);
+        log_kv_text("kappa_phi_expected_from_ic(0.5*ic^2)", "%.8e", kappa_expected);
+        log_kv_text("kappa_phi_rel_error", "%.3e", rel);
+        if (rel > 5e-3) {
+            fprintf(stderr,
+                    "[warn] kappa_phi appears inconsistent with ic_phi_iface_w. "
+                    "This can cause the equilibrium interface width to differ from the seeded width.\n");
+            fprintf(stderr,
+                    "       loaded kappa_phi=%.8e, expected ~ %.8e (rel_err=%.3e). "
+                    "Check dx/lambda_sm_m/ic_phi_iface_w consistency and regenerate pf_input.params.\n",
+                    P.kappa_phi, kappa_expected, rel);
+        }
+
+        // Seed sharpness diagnostic: if R is too small compared to w, phi center cannot reach ~1.
+        if (P.ic_phi_seed_radius > 0.0 && P.dx > 0.0) {
+            const double w_init = ic * P.dx;
+            if (w_init > 1e-30) {
+                const double R_over_w = P.ic_phi_seed_radius / w_init;
+                const double phi_center = 0.5 * (1.0 + tanh(R_over_w));
+                log_kv_text("seed_R_internal", "%.6g", P.ic_phi_seed_radius);
+                log_kv_text("seed_w_init_internal(ic*dx)", "%.6g", w_init);
+                log_kv_text("seed_R_over_w", "%.6g", R_over_w);
+                log_kv_text("seed_phi_center_ideal(0.5*(1+tanh(R/w)))", "%.6f", phi_center);
+                if (phi_center < 0.95) {
+                    fprintf(stderr,
+                            "[warn] Seed radius is not large compared to interface width: "
+                            "phi_center_ideal=%.3f (<0.95). This often indicates a radius-unit mismatch "
+                            "(physical nm vs internal units) or too-small R.\n",
+                            phi_center);
+                }
+            }
+        }
+        fflush(stdout);
+    }
     mkdir(results_root, 0755);
     if (P.minimize_continue_from_vtk &&
         derive_continue_output_root(P.continue_phi_vtk_path, output_dir, sizeof(output_dir))) {
         mkdir(output_dir, 0755);
     } else {
         if (P.diag_elastic_bulk_penalty_enabled || P.mode == 1) {
+            // Name run directory with *physical* seed radius (nm).
+            // Note: --radius is interpreted in the same internal length unit as P.dx (typically nm),
+            // so convert via unit_to_m_run to get a consistent physical nm label.
+            double R_phys_nm = P.ic_phi_seed_radius * unit_to_m_run * 1.0e9;
             snprintf(run_dir_name, sizeof(run_dir_name),
-                     "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_r%.2f_xB%.3f",
+                     "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_r%.3fnm_xB%.3f",
                      out_prefix, P.temperature_C,
                      P.Nx, P.Ny, P.Nz, P.dt, P.nsteps,
-                     P.ic_phi_seed_radius, P.ic_23d_xB_out);
+                     R_phys_nm, P.ic_23d_xB_out);
         } else {
             snprintf(run_dir_name, sizeof(run_dir_name),
                      "%s_T%.0f_cuda_%dx%dx%d_dt%.3g_steps%d_xB%.3f",
@@ -3320,11 +3454,14 @@ int main(int argc, char **argv) {
         snprintf(output_dir, sizeof(output_dir), "%s/%s", results_root, run_dir_name);
         mkdir(output_dir, 0755);
     }
-    snprintf(output_pf_input_file, sizeof(output_pf_input_file), "%s/pf_input.params", output_dir);
-    if (effective_pf_param_file[0] != '\0') {
-        if (!copy_text_file(effective_pf_param_file, output_pf_input_file)) {
-            fprintf(stderr, "[warn] 无法将 PF 参数快照复制到结果根目录: %s -> %s\n",
-                    effective_pf_param_file, output_pf_input_file);
+    output_pf_input_file[0] = '\0';
+    if (P.mode == 0) {
+        snprintf(output_pf_input_file, sizeof(output_pf_input_file), "%s/pf_input.params", output_dir);
+        if (effective_pf_param_file[0] != '\0') {
+            if (!copy_text_file(effective_pf_param_file, output_pf_input_file)) {
+                fprintf(stderr, "[warn] 无法将 PF 参数快照复制到结果根目录: %s -> %s\n",
+                        effective_pf_param_file, output_pf_input_file);
+            }
         }
     }
 
@@ -3378,7 +3515,7 @@ int main(int argc, char **argv) {
 
     log_section_header("Output Layout");
     log_kv_text("output_root", "%s", output_dir);
-    if (effective_pf_param_file[0] != '\0') {
+    if (effective_pf_param_file[0] != '\0' && output_pf_input_file[0] != '\0') {
         log_kv_text("output_pf_input", "%s", output_pf_input_file);
     }
     log_kv_text("init_case_tag", "%s", P.init_case_tag);
@@ -4419,7 +4556,11 @@ int main(int argc, char **argv) {
             F_total_prev_step = prev_F_total;
             mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r); // <h(phi)>
             if (step == 1 && V0_target <= 0.0) {
-                V0_target = mean_h_now; // lock to initial volume fraction
+                if (P.ic_phi_seed_radius > 0.0) {
+                    V0_target = compute_effective_vf_target(&P);
+                } else {
+                    V0_target = mean_h_now; // lock to initial volume fraction
+                }
             }
 
             // 表面能 = 梯度能 + 双井能（合并输出）
@@ -4929,6 +5070,32 @@ int main(int argc, char **argv) {
         // minimize 模式：用当前 φ（可能经后投影）重算 mean_h，保证 vol_err_rel/CSV 为最终体积
         if (P.mode == 1 && P.minimize_post_projection_iters == 0) {
             mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r);
+        }
+
+        // -----------------------------------------------------------------
+        // 6.6) 体积分数投影（minimize 模式）：显式将 <h(phi)> 投影回 V0_target
+        //
+        // 说明：
+        // - 上面的 lambda_vol 计算不显式包含 V0_target，本质上不能保证 <h> 精确回到目标体积分数；
+        // - 对于小核子（V0 很小）会表现为 vol_err_rel 长时间偏大，导致无法触发停止条件；
+        // - 这里使用一阶修正：phi <- phi + lambda_correct * h'(phi)
+        //   其中 lambda_correct = (V0_target - <h>) / <(h')^2>
+        // - 该 kernel 已在 cuda_kernels.cu 中实现（apply_volume_projection_kernel）。
+        // -----------------------------------------------------------------
+        if (P.mode == 1) {
+            const double vol_tiny = 1e-30;
+            if (V0_target > vol_tiny && isfinite(mean_h_now)) {
+                double vol_err = V0_target - mean_h_now;
+                if (fabs(vol_err) > 1e-14) {
+                    launch_compute_hprime_sq_values_kernel(d_phi_r, d_energy_tmp, total_r);
+                    double sum_hp2_proj = gpu_reduce_sum(d_energy_tmp, total_r);
+                    double mean_hp2_proj = sum_hp2_proj / (double)total_r;
+                    double lambda_correct = (mean_hp2_proj > 1e-30) ? (vol_err / mean_hp2_proj) : 0.0;
+                    launch_apply_volume_projection_kernel(d_phi_r, lambda_correct, total_r);
+                    // 投影后重算 mean_h，供后续收敛/CSV 使用
+                    mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r);
+                }
+            }
         }
         
         // -----------------------------------------------------------------

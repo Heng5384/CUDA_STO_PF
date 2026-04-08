@@ -99,6 +99,12 @@ def _drop_none(obj):
     return obj
 
 
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    if abs(denominator) <= 1e-30:
+        return float("inf")
+    return numerator / denominator
+
+
 def _validate_rotation_matrix(name: str, rotation: List[List[float]], tol: float = 1e-8) -> None:
     _validate_matrix_shape(name, rotation, 3, 3)
     rt_r = _matmul3(_transpose3(rotation), rotation)
@@ -155,18 +161,36 @@ def tensor3_to_voigt_strain(tensor: List[List[float]]) -> Dict[str, float]:
     }
 
 
+def resolve_pf_dx(inputs: "PhysicalInputs") -> float:
+    if inputs.pf_dx is not None:
+        return inputs.pf_dx
+    return inputs.dx
+
+
 def build_quality_checks(inputs: "PhysicalInputs") -> Dict[str, object]:
-    lambda_over_dx = inputs.lambda_sm / inputs.dx if inputs.dx > 0.0 else float("inf")
+    pf_dx = resolve_pf_dx(inputs)
+    lambda_over_pf_dx = inputs.lambda_sm / pf_dx if pf_dx > 0.0 else float("inf")
     warnings: List[str] = []
 
-    if lambda_over_dx <= 4.0:
+    if lambda_over_pf_dx <= 4.0:
         warnings.append(
-            f"界面分辨率不足: lambda_sm/dx = {lambda_over_dx:.3f} <= 4，建议减小 dx 或增大 lambda_sm。"
+            f"界面分辨率不足: lambda_sm/pf_dx = {lambda_over_pf_dx:.3f} <= 4，建议减小 pf_dx 或增大 lambda_sm。"
+        )
+
+    if inputs.phys_dx_ref is not None and inputs.phys_dx_ref > 0.0:
+        refinement_ratio = _safe_ratio(inputs.phys_dx_ref, pf_dx)
+        warnings.append(
+            f"双dx说明: phys_dx_ref = {inputs.phys_dx_ref:.3e} m, pf_dx = {pf_dx:.3e} m, refinement = {refinement_ratio:.3f}x"
         )
 
     return {
-        "lambda_over_dx": lambda_over_dx,
-        "interface_resolution_ok": (lambda_over_dx > 4.0),
+        "pf_dx_m": pf_dx,
+        "phys_dx_ref_m": inputs.phys_dx_ref,
+        "lambda_over_pf_dx": lambda_over_pf_dx,
+        "refinement_ratio_phys_over_pf": (
+            _safe_ratio(inputs.phys_dx_ref, pf_dx) if inputs.phys_dx_ref is not None else None
+        ),
+        "interface_resolution_ok": (lambda_over_pf_dx > 4.0),
         "warnings": warnings,
     }
 
@@ -189,6 +213,8 @@ class PhysicalInputs:
     temperature_C: float
     Vm_compound: float
     Vm_alpha_0: float
+    pf_dx: float = None
+    phys_dx_ref: float = None
     D_ratio: float = 0.1
     vf_init: float = 0.05
     vf_target: float = 0.20
@@ -257,7 +283,9 @@ RUNTIME_GAP_FIELDS = [
 EXAMPLE_INPUT_UNITS = {
     "gamma": "J/m^2",
     "lambda_sm": "m",
-    "dx": "m",
+    "dx": "m (legacy alias of pf_dx; kept for backward compatibility)",
+    "pf_dx": "m (actual physical spacing of one PF grid cell; used in nondimensionalization and main_cuda dx/dy/dz)",
+    "phys_dx_ref": "m (optional coarse physical reference spacing; bookkeeping only, not used in nondimensionalization)",
     "dt": "dimensionless code time step",
     "v_A": "dimensionless stoichiometric coefficient",
     "v_B": "dimensionless stoichiometric coefficient",
@@ -283,7 +311,9 @@ EXAMPLE_INPUT_UNITS = {
 USER_PHYSICAL_INPUTS = PhysicalInputs(
     gamma=0.05,                      # J/m^2
     lambda_sm=6.0e-10,               # m
-    dx=1.0e-9,                      # m
+    dx=1.0e-10,                      # m (legacy alias; keep equal to pf_dx)
+    pf_dx=1.0e-10,                   # m (actual PF grid spacing)
+    phys_dx_ref=1.0e-9,              # m (optional coarse physical reference spacing)
     dt=1.0e-2,                      # code time step
     v_A=0.0,                        # 反应式 PbTe -> Ag2Te (A=0, B=1)
     v_B=1.0,                        # 纯 Ag2Te 析出相的 x_B = 1.0
@@ -492,6 +522,7 @@ class PFParamConverter:
 
     def convert(self, inputs: PhysicalInputs) -> PFParamSet:
         T_K = inputs.temperature_C + 273.15
+        pf_dx = resolve_pf_dx(inputs)
 
         # 1) 界面参数
         w, kappa, W_code = compute_interface_params(inputs.gamma, inputs.lambda_sm)
@@ -527,13 +558,13 @@ class PFParamConverter:
         L_ref = inputs.L_ref_factor * inputs.lambda_sm
         t0_diff = L_ref ** 2 / D_alpha_phys
 
-        kappa_code = kappa / (w * inputs.dx ** 2)
-        D_alpha_code = D_alpha_phys * t0_diff / (inputs.dx ** 2)
-        D_comp_code = D_comp_phys * t0_diff / (inputs.dx ** 2)
+        kappa_code = kappa / (w * pf_dx ** 2)
+        D_alpha_code = D_alpha_phys * t0_diff / (pf_dx ** 2)
+        D_comp_code = D_comp_phys * t0_diff / (pf_dx ** 2)
         L_phi_code = L_xi * w * t0_diff
 
         mu_reference = w / c_tot_phys
-        ic_phi_iface_w = (inputs.lambda_sm / inputs.dx) / 2.0
+        ic_phi_iface_w = (inputs.lambda_sm / pf_dx) / 2.0
 
         # Vm
         Vm_comp_hat = inputs.Vm_compound / inputs.Vm_alpha_0
@@ -598,6 +629,7 @@ def _voigt_independent_components(matrix: List[List[float]]) -> Dict[str, float]
 
 
 def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict[str, float]:
+    pf_dx = resolve_pf_dx(inputs)
     eigenstrain_voigt = tensor3_to_voigt_strain(resolve_eigenstrain_tensor(inputs))
     if abs(inputs.v_B) < 1e-30:
         raise ValueError("v_B 不能为 0，否则无法计算 eps_iso_over_vB = eps_iso / v_B")
@@ -607,9 +639,9 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
     L_ref = inputs.L_ref_factor * inputs.lambda_sm
     t_real_unit = L_ref ** 2 / D_alpha_phys
     overrides: Dict[str, float] = {
-        "dx": inputs.dx / 1.0e-9,
-        "dy": inputs.dx / 1.0e-9,
-        "dz": inputs.dx / 1.0e-9,
+        "dx": pf_dx / 1.0e-9,
+        "dy": pf_dx / 1.0e-9,
+        "dz": pf_dx / 1.0e-9,
         "dt": inputs.dt,
         "t_real_unit": t_real_unit,
         "temperature_C": inputs.temperature_C,
@@ -677,6 +709,9 @@ def write_main_cuda_override_file(path: str, overrides: Dict[str, float]) -> Non
 def write_example_input_json(path: str) -> None:
     payload = _drop_none(asdict(USER_PHYSICAL_INPUTS))
     payload["_notes"] = {
+        "dx": "兼容旧接口保留；若同时提供 pf_dx，脚本一律用 pf_dx 做无量纲化与 main_cuda dx/dy/dz。",
+        "pf_dx": "PF 真正单个网格对应的物理长度。若每 1 nm 用 10 个网格解析，这里应填 1e-10。",
+        "phys_dx_ref": "可选的粗物理参考长度，仅用于记录与人工对照，不参与无量纲化。",
         "eigenstrain_rotation_matrix": "单位矩阵表示无旋转；主应变方向与模拟坐标系一致。",
         "eigenstrain_tensor_priority": "若同时提供 eigenstrain_tensor 和 eigenstrain_principal，脚本优先使用 eigenstrain_tensor。",
         "eps_iso": "脚本会自动换算为 main_cuda 需要的 eps_iso_over_vB = eps_iso / v_B。",
@@ -693,6 +728,7 @@ def write_example_input_json(path: str) -> None:
 def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
     converter = PFParamConverter()
     pfset = converter.convert(inputs)
+    pf_dx = resolve_pf_dx(inputs)
     main_cuda_overrides = build_main_cuda_overrides(inputs, pfset)
     eigenstrain_tensor = resolve_eigenstrain_tensor(inputs)
     eigenstrain_voigt = tensor3_to_voigt_strain(eigenstrain_tensor)
@@ -744,7 +780,7 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
         rc_hat_over_dx = float("inf")
     else:
         rc_hat_over_lambda = 1.0 / (6.0 * abs(hat_delta_mu_r))
-        rc_hat_over_dx = (inputs.lambda_sm / inputs.dx) * rc_hat_over_lambda
+        rc_hat_over_dx = (inputs.lambda_sm / pf_dx) * rc_hat_over_lambda
 
     payload = {
         "pf_params": pfset.to_pfparams_dict(),
@@ -760,8 +796,10 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
             "scales": {
                 "w_physical_J_per_m3": w_phys,
                 "lambda_sm_m": inputs.lambda_sm,
-                "dx_m": inputs.dx,
-                "dx_main_cuda": inputs.dx / 1.0e-9,
+                "dx_m_legacy": inputs.dx,
+                "pf_dx_m": pf_dx,
+                "phys_dx_ref_m": inputs.phys_dx_ref,
+                "dx_main_cuda": pf_dx / 1.0e-9,
                 "dt_code": inputs.dt,
                 "eps_iso": inputs.eps_iso,
                 "eps_iso_over_vB": inputs.eps_iso / inputs.v_B if abs(inputs.v_B) > 1e-30 else float("inf"),
@@ -788,17 +826,17 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
                 "Delta_mu_r_farfield_J_per_mol": delta_mu_r_inf,
                 "DeltaG_v_no_vol_J_per_m3": DeltaG_v_no_vol,
                 "rc_no_vol_m": rc_no_vol,
-                "rc_no_vol_over_dx": rc_no_vol / inputs.dx,
+                "rc_no_vol_over_pf_dx": rc_no_vol / pf_dx,
                 "rc_no_vol_over_lambda": rc_no_vol / inputs.lambda_sm,
                 "DeltaVm_eff_farfield_m3_per_mol": DeltaVm_eff,
                 "mu_tot_farfield_J_per_mol": mu_tot_inf,
                 "DeltaG_v_with_vol_J_per_m3": DeltaG_v_with_vol,
                 "rc_with_vol_m": rc_with_vol,
-                "rc_with_vol_over_dx": rc_with_vol / inputs.dx,
+                "rc_with_vol_over_pf_dx": rc_with_vol / pf_dx,
                 "rc_with_vol_over_lambda": rc_with_vol / inputs.lambda_sm,
                 "hat_delta_mu_r_farfield": hat_delta_mu_r,
                 "rc_hat_over_lambda": rc_hat_over_lambda,
-                "rc_hat_over_dx": rc_hat_over_dx,
+                "rc_hat_over_pf_dx": rc_hat_over_dx,
             },
             "quality_checks": quality_checks,
             "inputs_C_tensor_PbTe_GPa": inputs.C_tensor_PbTe_GPa,
@@ -876,8 +914,12 @@ def run_from_config() -> None:
         print("\n--- 真实物理参数（带单位） ---")
         print(f"gamma          (J/m^2)   : {inputs.gamma:.6e}")
         print(f"lambda_sm      (m)       : {inputs.lambda_sm:.6e}")
-        print(f"dx             (m)       : {inputs.dx:.6e}")
-        print(f"dx             (nm)      : {inputs.dx * 1.0e9:.6e}")
+        print(f"dx_legacy      (m)       : {inputs.dx:.6e}")
+        print(f"pf_dx          (m)       : {scales['pf_dx_m']:.6e}")
+        print(f"pf_dx          (nm)      : {scales['pf_dx_m'] * 1.0e9:.6e}")
+        if scales["phys_dx_ref_m"] is not None:
+            print(f"phys_dx_ref    (m)       : {scales['phys_dx_ref_m']:.6e}")
+            print(f"phys_dx_ref    (nm)      : {scales['phys_dx_ref_m'] * 1.0e9:.6e}")
         print(f"dt             (code)    : {inputs.dt:.6e}")
         print(f"eps_iso        (-)       : {inputs.eps_iso:.6e}")
         print(f"Vm_alpha_0     (m^3/mol) : {inputs.Vm_alpha_0:.6e}")
@@ -890,7 +932,9 @@ def run_from_config() -> None:
         print(f"D_ratio=Dc/Da  (-)       : {D_phys['D_ratio_Dcomp_over_Dalpha']:.3e}")
         print(f"L_ref          (m)       : {L_ref:.6e}")
         print(f"L_ref/lambda_sm         : {L_factor:.3f}")
-        print(f"lambda_sm/dx            : {quality['lambda_over_dx']:.6f}")
+        print(f"lambda_sm/pf_dx         : {quality['lambda_over_pf_dx']:.6f}")
+        if quality["refinement_ratio_phys_over_pf"] is not None:
+            print(f"phys_dx_ref/pf_dx       : {quality['refinement_ratio_phys_over_pf']:.6f}")
         print(f"t_hat = 1.0 对应 t_phys : {t0:.6e} s")
 
         print("\n--- 无量纲 PFParams 输出 ---")
@@ -961,7 +1005,7 @@ def run_from_config() -> None:
         print("\n[无体积差] ΔG_v = c_inf * Δμ_r")
         print(f"DeltaG_v_no_vol (J/m^3) : {crit['DeltaG_v_no_vol_J_per_m3']:.6e}")
         print(f"r_c_no_vol (m)          : {crit['rc_no_vol_m']:.6e}")
-        print(f"r_c_no_vol / dx         : {crit['rc_no_vol_over_dx']:.6e}")
+        print(f"r_c_no_vol / pf_dx      : {crit['rc_no_vol_over_pf_dx']:.6e}")
         print(f"r_c_no_vol / lambda_sm  : {crit['rc_no_vol_over_lambda']:.6e}")
 
         print("\n[考虑体积差] ΔG_v = c_inf Δμ_r - c_inf^2 μ_tot ΔV_eff")
@@ -969,14 +1013,14 @@ def run_from_config() -> None:
         print(f"mu_tot_farfield (J/mol) : {crit['mu_tot_farfield_J_per_mol']:.6e}")
         print(f"DeltaG_v_with_vol (J/m^3): {crit['DeltaG_v_with_vol_J_per_m3']:.6e}")
         print(f"r_c_with_vol (m)        : {crit['rc_with_vol_m']:.6e}")
-        print(f"r_c_with_vol / dx       : {crit['rc_with_vol_over_dx']:.6e}")
+        print(f"r_c_with_vol / pf_dx    : {crit['rc_with_vol_over_pf_dx']:.6e}")
         print(f"r_c_with_vol / lambda_sm: {crit['rc_with_vol_over_lambda']:.6e}")
 
         print("\n[无量纲验证] 由 hat{Δμ_r} 得到的 Rc")
         print(f"hat_delta_mu_r_farfield : {crit['hat_delta_mu_r_farfield']:.6e}")
         print(f"r_c_hat / lambda_sm     : {crit['rc_hat_over_lambda']:.6e}")
-        print(f"r_c_hat / dx            : {crit['rc_hat_over_dx']:.6e}")
-        print(f"(对比) r_c_no_vol / dx  : {crit['rc_no_vol_over_dx']:.6e}")
+        print(f"r_c_hat / pf_dx         : {crit['rc_hat_over_pf_dx']:.6e}")
+        print(f"(对比) r_c_no_vol / pf_dx: {crit['rc_no_vol_over_pf_dx']:.6e}")
 
         # 弹性常数输入与无量纲化结果 (适配 6x6 矩阵)
         print("\n--- 弹性常数 (Extracting Diagonals from 6x6 Tensor) ---")

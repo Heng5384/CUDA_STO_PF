@@ -119,6 +119,8 @@ site_generate_pf_param_file() {
     PHYS_TEMPERATURE_C
     DX_M
     PHYS_DX_M
+    PF_DX_M
+    PHYS_DX_REF_M
     GAMMA_JM2
     PHYS_GAMMA_JM2
     LAMBDA_SM_M
@@ -175,6 +177,8 @@ env_map = {
     "PHYS_TEMPERATURE_C": ("temperature_C", float),
     "DX_M": ("dx", float),
     "PHYS_DX_M": ("dx", float),
+    "PF_DX_M": ("pf_dx", float),
+    "PHYS_DX_REF_M": ("phys_dx_ref", float),
     "GAMMA_JM2": ("gamma", float),
     "PHYS_GAMMA_JM2": ("gamma", float),
     "LAMBDA_SM_M": ("lambda_sm", float),

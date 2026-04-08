@@ -1,5 +1,8 @@
 {
   "_notes": {
+    "dx": "兼容旧接口保留；若同时提供 pf_dx，脚本一律用 pf_dx 做无量纲化与 main_cuda dx/dy/dz。",
+    "pf_dx": "PF 真正单个网格对应的物理长度。若每 1 nm 用 10 个网格解析，这里应填 1e-10。",
+    "phys_dx_ref": "可选的粗物理参考长度，仅用于记录与人工对照，不参与无量纲化。",
     "eigenstrain_rotation_matrix": "单位矩阵表示无旋转；主应变方向与模拟坐标系一致。",
     "eigenstrain_tensor_priority": "若同时提供 eigenstrain_tensor 和 eigenstrain_principal，脚本优先使用 eigenstrain_tensor。",
     "eps_iso": "脚本会自动换算为 main_cuda 需要的 eps_iso_over_vB = eps_iso / v_B。"
@@ -7,7 +10,9 @@
   "_units": {
     "gamma": "J/m^2",
     "lambda_sm": "m",
-    "dx": "m",
+    "dx": "m (legacy alias of pf_dx; kept for backward compatibility)",
+    "pf_dx": "m (actual physical spacing of one PF grid cell; used in nondimensionalization and main_cuda dx/dy/dz)",
+    "phys_dx_ref": "m (optional coarse physical reference spacing; bookkeeping only, not used in nondimensionalization)",
     "dt": "dimensionless code time step",
     "v_A": "dimensionless stoichiometric coefficient",
     "v_B": "dimensionless stoichiometric coefficient",
@@ -27,7 +32,9 @@
   },
   "gamma": 0.2,
   "lambda_sm": 6e-9,
-  "dx": 1e-9,
+  "dx": 1e-10,
+  "pf_dx": 1e-10,
+  "phys_dx_ref": 1e-9,
   "dt": 0.01,
   "v_A": 0.0,
   "v_B": 1.0,
