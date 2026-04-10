@@ -3382,10 +3382,12 @@ int main(int argc, char **argv) {
     // ============================================================
     if (P.ic_phi_iface_w > 1e-30) {
         const double ic = P.ic_phi_iface_w;
-        // From Unit_Psedobinary.py conversion:
-        // kappa_phi = (1.5*gamma*lambda) / ( (12*gamma/lambda) * dx_phys^2 ) = 0.125*(lambda/dx_phys)^2
-        // and dx_phys = lambda / (2*ic) => kappa_phi_expected = 0.5 * ic^2
-        const double kappa_expected = 0.5 * ic * ic;
+        // Strict dual-dx interpretation:
+        // - ic_phi_iface_w is set by the PF discretization width: ic = lambda_sm / (2 * pf_dx)
+        // - P.dx is the solver-space spacing normalized by phys_dx_ref: P.dx = pf_dx / phys_dx_ref
+        // - kappa_phi remains calibrated on phys_dx_ref, so the consistent expectation is
+        //   kappa_phi = 0.5 * (lambda_sm / (2*phys_dx_ref))^2 = 0.5 * (ic * P.dx)^2
+        const double kappa_expected = 0.5 * (ic * P.dx) * (ic * P.dx);
         const double denom = fabs(kappa_expected) > 1e-30 ? fabs(kappa_expected) : 1.0;
         const double rel = fabs(P.kappa_phi - kappa_expected) / denom;
         log_section_header("Interface-Width Consistency (Diagnostics)");
@@ -3396,7 +3398,7 @@ int main(int argc, char **argv) {
         log_kv_text("interface_width_grids(2*ic)", "%.6f", 2.0 * ic);
         log_kv_text("interface_width_nm(2*ic*dx_phys)", "%.6f", (2.0 * ic) * (dx_phys_m_run * 1.0e9));
         log_kv_text("kappa_phi_loaded", "%.8e", P.kappa_phi);
-        log_kv_text("kappa_phi_expected_from_ic(0.5*ic^2)", "%.8e", kappa_expected);
+        log_kv_text("kappa_phi_expected_from_ic(0.5*(ic*dx)^2)", "%.8e", kappa_expected);
         log_kv_text("kappa_phi_rel_error", "%.3e", rel);
         if (rel > 5e-3) {
             fprintf(stderr,

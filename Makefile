@@ -52,7 +52,7 @@ test: $(BIN_TEST)
 
 test_circle: test
 	@echo "生成测试摘要图..."
-	@python3 plot_kirsch_comparison.py
+	@python3 tools/analysis/plot_kirsch_comparison.py
 
 clean:
 	rm -f $(BIN_MAIN) $(BIN_TEST) *.o
