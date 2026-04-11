@@ -2,7 +2,7 @@
 # 标准模板：Slurm continue 提交脚本
 #
 # 用途：
-# - 适合从已有 VTK 结果继续跑 minimize
+# - 适合从已有 VTK 结果继续跑 minimize / dynamics
 # - full-model 下优先使用结果目录中的 pf_input.params
 # - 如果结果目录没有 pf_input.params，则回退到当前脚本生成的 fallback PF 参数
 
@@ -52,6 +52,7 @@ ELASTIC=${ELASTIC:-0}
 MINIMIZE_FULL_MODEL=${MINIMIZE_FULL_MODEL:-1}
 MIN_RMS_DPHI_THRESHOLD=${MIN_RMS_DPHI_THRESHOLD:-1e-5}
 MIN_RMS_DY_THRESHOLD=${MIN_RMS_DY_THRESHOLD:-1e-5}
+MODE=${MODE:-dynamics-continue}
 
 CONTINUE_PHI_VTK=${CONTINUE_PHI_VTK:-}
 CONTINUE_XB_VTK=${CONTINUE_XB_VTK:-}
@@ -77,10 +78,10 @@ echo "FALLBACK_PF_PARAM=${PF_PARAM_FILE}"
 CMD=(
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}"
   --pf-param-file "${PF_PARAM_FILE}"
-  --mode=minimize-continue
+  --mode="${MODE}"
   --minimize-max-iter "${NSTEPS}"
   --minimize-dt "${MIN_DT}"
-  --radius "${RADIUS}"
+  --radius-phys-nm "${RADIUS}"
   --ic-23d-xB-out "${XB_OUT}"
   --continue-phi-vtk "${CONTINUE_PHI_VTK}"
   --minimize-rms-dphi-threshold "${MIN_RMS_DPHI_THRESHOLD}"

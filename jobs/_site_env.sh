@@ -115,6 +115,7 @@ site_generate_pf_param_file() {
     PHYSICAL_INPUT_JSON
     PHYSICAL_OVERRIDE_JSON
     PHYSICAL_OVERRIDE_FILE
+    DT
     TEMP_C
     PHYS_TEMPERATURE_C
     DX_M
@@ -173,6 +174,7 @@ with base_path.open("r", encoding="utf-8") as f:
 data = {k: v for k, v in data.items() if not k.startswith("_")}
 
 env_map = {
+    "DT": ("dt", float),
     "TEMP_C": ("temperature_C", float),
     "PHYS_TEMPERATURE_C": ("temperature_C", float),
     "DX_M": ("dx", float),

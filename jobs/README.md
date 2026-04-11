@@ -75,13 +75,15 @@
 
 continue 运行补充约定：
 
-- 当前只支持 `minimize-continue`，还没有 `dynamics-continue`
+- 现在支持 `minimize-continue` 和 `dynamics-continue`
 - 每个结果目录现在会额外保存：
   - `output_root/pf_input.params`
   - `case_output_dir/pf_input.params`
 - continue 时如果 `--continue-phi-vtk` 所在目录下存在 `pf_input.params`，程序会优先使用这份参数快照
 - 如果该目录下没有 `pf_input.params`，则回退到脚本传入的 `--pf-param-file`
 - full-model continue 若未提供 `--continue-xB-vtk`，程序会按初始化阶段同样的质量守恒逻辑从 `phi` 重建 `xB/Y`
+- `--mode=dynamics-continue` 适合“读取临界核的 `phi_final/xB_final` 后继续跑动态生长”的场景；
+  `--mode=minimize-continue` 适合从已收敛的场继续做能量最小化
 
 如果需要一次覆盖多项复杂字段，可用：
 

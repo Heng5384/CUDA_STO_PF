@@ -75,6 +75,7 @@ MIN_CONVERGENCE_STEPS=${MIN_CONVERGENCE_STEPS:-100}
 MIN_DT_SAFETY_LIMIT=${MIN_DT_SAFETY_LIMIT:-1e-6}
 ETA_LAMBDA_VOL=${ETA_LAMBDA_VOL:-0.9}
 POST_PROJ_ITERS=${POST_PROJ_ITERS:-1}
+MODE=${MODE:-dynamics-continue}
 
 TEMP_C=${TEMP_C:-400.0}
 XB_OUT=${XB_OUT:-0.03}
@@ -113,7 +114,7 @@ echo "FALLBACK_PF_PARAM=${PF_PARAM_FILE}"
 CMD=(
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${MIN_DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}"
   --pf-param-file "${PF_PARAM_FILE}"
-  --mode=minimize-continue
+  --mode="${MODE}"
   --minimize-full-model
   --minimize-max-iter "${NSTEPS}"
   --minimize-dt "${MIN_DT}"

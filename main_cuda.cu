@@ -34,6 +34,8 @@ typedef enum {
     VTK_NAME_FINAL = 2
 } VtkNameKind;
 
+static int g_dynamic_outputs_use_case_dir = 0;
+
 // 统一生成 VTK 输出路径（按模式分离）
 // - dynamic(mode=0): 输出到 output_dir，文件名不带 case
 // - minimize(mode=1): 输出到 case_output_dir，文件名带 case_tag
@@ -53,17 +55,18 @@ static void build_case_vtk_path(char *out, size_t out_size,
     }
 
     if (mode == 0) {
-        // dynamic: no case suffix, use output_dir
-        if (!output_dir) {
+        const int use_case_dir = g_dynamic_outputs_use_case_dir && case_output_dir && case_output_dir[0] != '\0';
+        const char *base_dir = use_case_dir ? case_output_dir : output_dir;
+        if (!base_dir) {
             out[0] = '\0';
             return;
         }
         if (kind == VTK_NAME_INIT) {
-            snprintf(out, out_size, "%s/%s_init.vtk", output_dir, field);
+            snprintf(out, out_size, "%s/%s_init.vtk", base_dir, field);
         } else if (kind == VTK_NAME_FINAL) {
-            snprintf(out, out_size, "%s/%s_final.vtk", output_dir, field);
+            snprintf(out, out_size, "%s/%s_final.vtk", base_dir, field);
         } else {
-            snprintf(out, out_size, "%s/%s_%d.vtk", output_dir, field, step);
+            snprintf(out, out_size, "%s/%s_%d.vtk", base_dir, field, step);
         }
     } else {
         // minimize: with case suffix, use case_output_dir
@@ -89,11 +92,13 @@ static void build_case_summary_path(char *out, size_t out_size,
     const char *tag = (case_tag && case_tag[0] != '\0') ? case_tag : "case_unknown";
     if (!out || out_size == 0) return;
     if (mode == 0) {
-        if (!output_dir) {
+        const int use_case_dir = g_dynamic_outputs_use_case_dir && case_output_dir && case_output_dir[0] != '\0';
+        const char *base_dir = use_case_dir ? case_output_dir : output_dir;
+        if (!base_dir) {
             out[0] = '\0';
             return;
         }
-        snprintf(out, out_size, "%s/summary.txt", output_dir);
+        snprintf(out, out_size, "%s/summary.txt", base_dir);
     } else {
         if (!case_output_dir) {
             out[0] = '\0';
@@ -1336,7 +1341,7 @@ __global__ void apply_phi_noise_kernel(double *phi_r,
 
 // forward decl: used in initialize_fields_cuda / initialize_phi_only_cuda
 static void build_seed_rotation_from_normal(double theta_deg, double phi_deg, double R[9]);
-static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_t out_size);
+static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_t out_size, int mode);
 static int rebuild_full_model_composition_from_phi(double *phi_r, double *Y_r, double *xB_r, double *xBtot_r,
                                                    const PFParams *P, int total_size, int emit_logs);
 static int load_continue_fields_from_vtk(double *phi_r, double *Y_r, double *xB_r, double *xBtot_r,
@@ -1404,20 +1409,21 @@ static double compute_effective_vf_target(const PFParams *P) {
     return fmin(0.999, fmax(1e-6, target_fraction));
 }
 
-static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_t out_size) {
+static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_t out_size, int mode) {
     int max_continue_idx = 0;
     const char *p = vtk_path;
+    const char *prefix = (mode == 0) ? "continue_dyn_" : "continue_min_";
 
     if (!out || out_size == 0) return;
     out[0] = '\0';
 
     if (!vtk_path || vtk_path[0] == '\0') {
-        snprintf(out, out_size, "continue_1");
+        snprintf(out, out_size, "%s1", prefix);
         return;
     }
 
-    while ((p = strstr(p, "continue_")) != NULL) {
-        const char *digits = p + (int)strlen("continue_");
+    while ((p = strstr(p, prefix)) != NULL) {
+        const char *digits = p + (int)strlen(prefix);
         if (*digits >= '0' && *digits <= '9') {
             int value = 0;
             while (*digits >= '0' && *digits <= '9') {
@@ -1431,7 +1437,7 @@ static void derive_next_continue_case_tag(const char *vtk_path, char *out, size_
         ++p;
     }
 
-    snprintf(out, out_size, "continue_%d", max_continue_idx + 1);
+    snprintf(out, out_size, "%s%d", prefix, max_continue_idx + 1);
 }
 
 static int rebuild_full_model_composition_from_phi(double *phi_r, double *Y_r, double *xB_r, double *xBtot_r,
@@ -2940,12 +2946,17 @@ int main(int argc, char **argv) {
                                           sizeof(continue_case_pf_param_file))) {
         struct stat st;
         if (stat(continue_case_pf_param_file, &st) == 0) {
-            if (!load_pfparams_override_file(&P, continue_case_pf_param_file)) {
-                return 2;
+            if (pf_param_file == NULL) {
+                if (!load_pfparams_override_file(&P, continue_case_pf_param_file)) {
+                    return 2;
+                }
+                snprintf(effective_pf_param_file, sizeof(effective_pf_param_file), "%s", continue_case_pf_param_file);
+                P.minimize_dt = P.dt;
+                printf("[continue-param] loaded stored PF params from %s\n", continue_case_pf_param_file);
+            } else {
+                printf("[continue-param] explicit --pf-param-file takes precedence; ignoring stored PF params at %s\n",
+                       continue_case_pf_param_file);
             }
-            snprintf(effective_pf_param_file, sizeof(effective_pf_param_file), "%s", continue_case_pf_param_file);
-            P.minimize_dt = P.dt;
-            printf("[continue-param] loaded stored PF params from %s\n", continue_case_pf_param_file);
         } else {
             printf("[continue-param] no stored PF params next to continue VTK, fallback to %s\n",
                    effective_pf_param_file);
@@ -2978,7 +2989,7 @@ int main(int argc, char **argv) {
             printf("  ./main_cuda Nx Ny Nz dt nsteps out_every csv_out_every elastic_enabled(0/1)\n");
             printf("    注: dt 位置参数仅作 legacy 回退；若 --pf-param-file 中提供 dt，则以参数文件为准。\n");
             printf("\nFlags (optional):\n");
-            printf("  --mode=dynamics|minimize|minimize-continue\n");
+            printf("  --mode=dynamics|dynamics-continue|minimize|minimize-continue\n");
             printf("  --pf-param-file <path>  required: load complete physical PF inputs (key=value)\n");
             printf("  --minimize-max-iter <n>\n");
             printf("  --minimize-dt <dt>\n");
@@ -3023,6 +3034,9 @@ int main(int argc, char **argv) {
             else if (strcmp(v, "minimize-continue") == 0) {
                 P.mode = 1;
                 P.minimize_continue_from_vtk = 1;
+            }
+            else if (strcmp(v, "dynamics-continue") == 0) {
+                P.mode = 0;
             }
             else P.mode = 0;
             continue;
@@ -3212,8 +3226,8 @@ int main(int argc, char **argv) {
         P.dt = P.minimize_dt;
     }
     if (P.minimize_continue_from_vtk) {
-        if (P.mode != 1) {
-            fprintf(stderr, "[fatal] continuation 仅支持 minimize 模式。请使用 --mode=minimize-continue 或 --mode=minimize。\n");
+        if (P.mode != 0 && P.mode != 1) {
+            fprintf(stderr, "[fatal] continuation 仅支持 dynamics/minimize 模式。请使用 --mode=dynamics-continue、--mode=minimize-continue 或 --mode=minimize。\n");
             return 2;
         }
         if (P.continue_phi_vtk_path[0] == '\0') {
@@ -3285,10 +3299,11 @@ int main(int argc, char **argv) {
         const double Lz_phys_m = P.Nz * dz_phys_m;
         const double lambda_over_dx = (dx_phys_m > 0.0) ? (P.lambda_sm_m / dx_phys_m) : 0.0;
         const char *mode_label =
-            (P.mode == 0) ? "dynamics"
-                          : (P.minimize_full_model
-                                ? "minimize (full-model: chem+diffusion+volume)"
-                                : "minimize (phi-only)");
+            (P.mode == 0)
+                ? (P.minimize_continue_from_vtk ? "dynamics-continue" : "dynamics")
+                : (P.minimize_full_model
+                       ? "minimize (full-model: chem+diffusion+volume)"
+                       : "minimize (phi-only)");
         snprintf(grid_buf, sizeof(grid_buf), "%dx%dx%d", P.Nx, P.Ny, P.Nz);
 
         log_section_header("Run Configuration");
@@ -3457,7 +3472,7 @@ int main(int argc, char **argv) {
         mkdir(output_dir, 0755);
     }
     output_pf_input_file[0] = '\0';
-    if (P.mode == 0) {
+    if (P.mode == 0 && !P.minimize_continue_from_vtk) {
         snprintf(output_pf_input_file, sizeof(output_pf_input_file), "%s/pf_input.params", output_dir);
         if (effective_pf_param_file[0] != '\0') {
             if (!copy_text_file(effective_pf_param_file, output_pf_input_file)) {
@@ -3469,7 +3484,7 @@ int main(int argc, char **argv) {
 
     // 若用户未指定 init_case_tag，则根据初始化参数自动生成一个简洁标签
     if (P.init_case_tag[0] == '\0' && P.minimize_continue_from_vtk) {
-        derive_next_continue_case_tag(P.continue_phi_vtk_path, P.init_case_tag, sizeof(P.init_case_tag));
+        derive_next_continue_case_tag(P.continue_phi_vtk_path, P.init_case_tag, sizeof(P.init_case_tag), P.mode);
     }
     if (P.init_case_tag[0] == '\0') {
         const char *shape_str = "legacy";
@@ -3489,10 +3504,20 @@ int main(int argc, char **argv) {
     char case_output_dir[4096];
     char case_pf_input_file[4096];
     char source_case_tag[256];
-    if (P.minimize_continue_from_vtk &&
-        derive_continue_case_output_dir(P.continue_phi_vtk_path, case_output_dir, sizeof(case_output_dir))) {
+    if (P.minimize_continue_from_vtk) {
+        char source_case_output_dir[4096];
+        source_case_output_dir[0] = '\0';
+        if (derive_continue_case_output_dir(P.continue_phi_vtk_path,
+                                            source_case_output_dir,
+                                            sizeof(source_case_output_dir))) {
+            path_basename_copy(source_case_output_dir, source_case_tag, sizeof(source_case_tag));
+        } else {
+            snprintf(source_case_tag, sizeof(source_case_tag), "%s", P.init_case_tag);
+        }
+        // For continue runs, keep a dedicated subdirectory under the resolved output root
+        // so that dynamic outputs do not pollute the original discrete-case directory.
+        snprintf(case_output_dir, sizeof(case_output_dir), "%s/%s", output_dir, P.init_case_tag);
         mkdir(case_output_dir, 0755);
-        path_basename_copy(case_output_dir, source_case_tag, sizeof(source_case_tag));
     } else {
         snprintf(case_output_dir, sizeof(case_output_dir), "%s/%s", output_dir, P.init_case_tag);
         mkdir(case_output_dir, 0755);
@@ -3514,6 +3539,7 @@ int main(int argc, char **argv) {
         vtk_case_tag = vtk_case_tag_buf;
     }
     const char *csv_case_tag = P.minimize_continue_from_vtk ? source_case_tag : vtk_case_tag;
+    g_dynamic_outputs_use_case_dir = (P.mode == 0 && P.minimize_continue_from_vtk) ? 1 : 0;
 
     log_section_header("Output Layout");
     log_kv_text("output_root", "%s", output_dir);
@@ -3525,7 +3551,10 @@ int main(int argc, char **argv) {
     if (effective_pf_param_file[0] != '\0') {
         log_kv_text("case_pf_input", "%s", case_pf_input_file);
     }
-    log_kv_text("vtk_mode", "%s", (P.mode == 0) ? "dynamic (no case suffix)" : "minimize (with case suffix)");
+        log_kv_text("vtk_mode", "%s",
+                    (P.mode == 0)
+                        ? (P.minimize_continue_from_vtk ? "dynamic-continue (with case suffix)" : "dynamic (no case suffix)")
+                        : "minimize (with case suffix)");
     if (P.mode != 0) {
         log_kv_text("vtk_filename_suffix", "%s", vtk_case_tag);
     }
@@ -5880,7 +5909,10 @@ int main(int argc, char **argv) {
     int hh = 0, mm = 0, ss = 0;
     format_hms(wall_elapsed, &hh, &mm, &ss);
     log_section_header("Run Summary");
-    log_kv_text("mode", "%s", (P.mode == 0 ? "dynamic" : "minimize"));
+    log_kv_text("mode", "%s",
+                (P.mode == 0)
+                    ? (P.minimize_continue_from_vtk ? "dynamic-continue" : "dynamic")
+                    : "minimize");
     log_kv_text("steps_completed", "%d", steps_completed);
     log_kv_text("wall_time_s", "%.3f", wall_elapsed);
     log_kv_text("wall_time_hms", "%02d:%02d:%02d", hh, mm, ss);

@@ -4,7 +4,7 @@ set -euo pipefail
 # 标准模板：本地/交互式 GPU 的 continue 运行脚本
 #
 # 用途：
-# - 适合从某个已有 VTK 结果继续跑 minimize
+# - 适合从某个已有 VTK 结果继续跑 minimize / dynamics
 # - full-model 下如果不给 CONTINUE_XB_VTK，会自动按结果目录内的 pf_input.params
 #   与当前物理参数逻辑，从 phi 重建 xB/Y
 #
@@ -46,6 +46,7 @@ ELASTIC=${ELASTIC:-0}
 MINIMIZE_FULL_MODEL=${MINIMIZE_FULL_MODEL:-1}
 MIN_RMS_DPHI_THRESHOLD=${MIN_RMS_DPHI_THRESHOLD:-1e-5}
 MIN_RMS_DY_THRESHOLD=${MIN_RMS_DY_THRESHOLD:-1e-5}
+MODE=${MODE:-dynamics-continue}
 
 CONTINUE_PHI_VTK=${CONTINUE_PHI_VTK:-}
 CONTINUE_XB_VTK=${CONTINUE_XB_VTK:-}
@@ -75,10 +76,10 @@ echo "[info] fallback_pf_param_file=${PF_PARAM_FILE}"
 CMD=(
   ./main_cuda "${NX}" "${NY}" "${NZ}" "${DT}" "${NSTEPS}" "${OUT_EVERY}" "${CSV_OUT_EVERY}" "${ELASTIC}"
   --pf-param-file "${PF_PARAM_FILE}"
-  --mode=minimize-continue
+  --mode="${MODE}"
   --minimize-max-iter "${NSTEPS}"
   --minimize-dt "${DT}"
-  --radius "${RADIUS}"
+  --radius-phys-nm "${RADIUS}"
   --ic-23d-xB-out "${XB_OUT}"
   --continue-phi-vtk "${CONTINUE_PHI_VTK}"
   --minimize-rms-dphi-threshold "${MIN_RMS_DPHI_THRESHOLD}"
