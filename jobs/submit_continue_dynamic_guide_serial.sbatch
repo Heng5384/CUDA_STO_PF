@@ -60,6 +60,22 @@ for idx, row in enumerate(rows):
 PY
 )"
 
+continue_case_complete() {
+  local run_root="${PROJECT_ROOT}/${output_root_rel}"
+  local continue_dir="${run_root}/continue_dyn_1"
+  local final_phi="${continue_dir}/phi_${nsteps}.vtk"
+  local final_xb="${continue_dir}/xB_${nsteps}.vtk"
+  local summary_txt="${continue_dir}/summary.txt"
+
+  if [[ -f "${summary_txt}" ]]; then
+    return 0
+  fi
+  if [[ -f "${final_phi}" && -f "${final_xb}" ]]; then
+    return 0
+  fi
+  return 1
+}
+
 generate_continue_pf_param_file() {
   local row_idx="$1"
   local source_summary_path="${continue_source_summary_path}"
@@ -105,6 +121,11 @@ run_case() {
   local row_idx="$1"
   local exports_block="$2"
   eval "${exports_block}"
+
+  if continue_case_complete; then
+    echo "[skip] row=${row_idx} base=${base_case_tag} continue_dyn_1 already complete"
+    return 0
+  fi
 
   export CUDA_STO_RESULTS_ROOT="${PROJECT_ROOT}/${raw_results_root_rel}"
   mkdir -p "${CUDA_STO_RESULTS_ROOT}"

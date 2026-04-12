@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Serial CNT scan job: read a single guide CSV and run all scan points sequentially.
+# Serial continue-minimize job: read a single continue guide CSV and run all continue cases sequentially.
 #
 # Required env:
-#   GUIDE_CSV   path to guide_cnt_scan.csv
-#
-# Optional env overrides:
-#   MANIFEST_NAME / JOB_TAG
+#   GUIDE_CSV   path to guide_continue_dynamic.csv (reused as continue source guide)
 
-#SBATCH --job-name=cnt_scan_serial
+#SBATCH --job-name=continue_min_serial
 #SBATCH --partition=gpu_uvip
 #SBATCH --qos=gpu_uvip
 #SBATCH --nodes=1
@@ -37,7 +34,7 @@ source "${SCRIPT_DIR}/_site_env.sh"
 site_setup_project_root "${SCRIPT_DIR}"
 cd "${PROJECT_ROOT}"
 
-MANIFEST_NAME=${MANIFEST_NAME:-cnt_scan_serial}
+MANIFEST_NAME=${MANIFEST_NAME:-continue_min_serial}
 
 site_redirect_slurm_logs "${MANIFEST_NAME}"
 site_print_env_banner
@@ -63,33 +60,65 @@ for idx, row in enumerate(rows):
 PY
 )"
 
-pick_existing_result() {
-  local preferred="$1"
-  local glob_pattern="$2"
-  local matches=()
-  if [[ -f "${preferred}" ]]; then
-    printf '%s\n' "${preferred}"
+continue_case_complete() {
+  local run_root="${PROJECT_ROOT}/${output_root_rel}"
+  local continue_dir="${run_root}/continue_min_1"
+  local final_phi="${continue_dir}/phi_final_continue_min_1.vtk"
+  local final_xb="${continue_dir}/xB_final_continue_min_1.vtk"
+  local summary_txt="${continue_dir}/summary_continue_min_1.txt"
+  local energy_csv="${continue_dir}/energy_minimize_continue_min_1.csv"
+
+  if [[ -f "${summary_txt}" ]]; then
     return 0
   fi
-  shopt -s nullglob
-  matches=(${glob_pattern})
-  shopt -u nullglob
-  if (( ${#matches[@]} > 0 )); then
-    printf '%s\n' "${matches[0]}"
+  if [[ -f "${energy_csv}" && -f "${final_phi}" ]]; then
+    return 0
+  fi
+  if [[ -f "${energy_csv}" && -f "${final_phi}" && -f "${final_xb}" ]]; then
     return 0
   fi
   return 1
 }
 
-cnt_case_complete() {
-  local case_dir="${PROJECT_ROOT}/${case_dir_rel}"
-  local energy_csv=""
-  local phi_final=""
+generate_continue_pf_param_file() {
+  local row_idx="$1"
+  local source_summary_path="${continue_source_summary_path}"
+  local source_dir
+  local source_pf
+  local safe_tag
+  local out_pf
 
-  energy_csv="$(pick_existing_result "${PROJECT_ROOT}/${energy_csv_rel}" "${case_dir}"/energy_minimize_*.csv || true)"
-  phi_final="$(pick_existing_result "${PROJECT_ROOT}/${phi_final_rel}" "${case_dir}"/phi_final_*.vtk || true)"
+  source_dir="$(dirname "${source_summary_path}")"
+  source_pf="${source_dir}/pf_input.params"
+  if [[ ! -f "${source_pf}" ]]; then
+    echo "[fatal] source pf_input.params not found: ${source_pf}" >&2
+    return 2
+  fi
 
-  [[ -n "${energy_csv}" && -f "${energy_csv}" && -n "${phi_final}" && -f "${phi_final}" ]]
+  safe_tag="$(site_make_safe_tag "${MANIFEST_NAME}_${row_idx}_${base_case_tag}")"
+  out_pf="${PROJECT_ROOT}/jobs/generated/pf_params_${safe_tag}.params"
+  python3 - "${source_pf}" "${out_pf}" "${dt}" <<'PY'
+import sys
+from pathlib import Path
+
+source_pf = Path(sys.argv[1])
+out_pf = Path(sys.argv[2])
+dt_value = float(sys.argv[3])
+
+lines = source_pf.read_text(encoding="utf-8").splitlines()
+updated = []
+replaced = False
+for line in lines:
+    if line.startswith("dt="):
+        updated.append(f"dt={dt_value:.16e}")
+        replaced = True
+    else:
+        updated.append(line)
+if not replaced:
+    updated.append(f"dt={dt_value:.16e}")
+out_pf.write_text("\n".join(updated) + "\n", encoding="utf-8")
+PY
+  printf '%s\n' "${out_pf}"
 }
 
 run_case() {
@@ -97,29 +126,28 @@ run_case() {
   local exports_block="$2"
   eval "${exports_block}"
 
-  if cnt_case_complete; then
-    echo "[skip] row=${row_idx} case=${case_tag} already complete"
+  if continue_case_complete; then
+    echo "[skip] row=${row_idx} base=${base_case_tag} continue_min_1 already complete"
     return 0
   fi
 
-  export PHYSICAL_INPUT_JSON="${physical_input_json_rel}"
-  export DT="${dt}"
   export CUDA_STO_RESULTS_ROOT="${PROJECT_ROOT}/${raw_results_root_rel}"
   mkdir -p "${CUDA_STO_RESULTS_ROOT}"
-  PF_PARAM_FILE="$(site_generate_pf_param_file "${case_tag}")"
-  echo "[info] row=${row_idx} case=${case_tag} radius_nm=${radius_nm} pf_param=${PF_PARAM_FILE}"
+  PF_PARAM_FILE="$(generate_continue_pf_param_file "${row_idx}")"
+  echo "[info] row=${row_idx} base=${base_case_tag} start_radius_nm=${start_radius_nm} source_radius_nm=${source_radius_nm}"
 
   CMD=(
     ./main_cuda "${nx}" "${ny}" "${nz}" "${dt}" "${nsteps}" "${out_every}" "${csv_out_every}" "${elastic}"
     --pf-param-file "${PF_PARAM_FILE}"
-    --mode=minimize
+    --mode=minimize-continue
     --minimize-full-model
     --minimize-max-iter "${nsteps}"
     --minimize-dt "${dt}"
-    --radius-phys-nm "${radius_nm}"
+    --radius-phys-nm "${start_radius_nm}"
     --elastic "${elastic}"
     --ic-23d-xB-out "${xB_out}"
-    --init-case-tag "${case_tag}"
+    --continue-phi-vtk "${continue_phi_vtk}"
+    --continue-xB-vtk "${continue_xb_vtk}"
     --minimize-rms-dphi-threshold "1e-5"
     --minimize-rms-dY-threshold "1e-5"
     --minimize-energy-diff-rel-threshold "1e-7"

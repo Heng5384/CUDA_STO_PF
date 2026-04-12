@@ -15,6 +15,7 @@ Standardized CNT workflow entry points:
 - `python3 tools/analysis/summarize_cnt_scan_from_guide.py ...`
 - `python3 tools/analysis/prepare_continue_dynamic_guide.py ...`
 - `python3 tools/analysis/summarize_continue_from_guide.py ...`
+- `python3 tools/analysis/report_guide_progress.py ...`
 
 Workflow documentation:
 
