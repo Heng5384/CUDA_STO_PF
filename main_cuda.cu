@@ -3367,7 +3367,15 @@ int main(int argc, char **argv) {
     // 创建输出目录
     // 约定：弹性关闭 -> ch 开头；弹性开启 -> chel 开头
     const char *out_prefix = P.elastic_enabled ? "chel" : "ch";
-    const char *results_root = "Results";
+    char results_root[4096];
+    {
+        const char *results_root_env = getenv("CUDA_STO_RESULTS_ROOT");
+        if (results_root_env && results_root_env[0] != '\0') {
+            snprintf(results_root, sizeof(results_root), "%s", results_root_env);
+        } else {
+            snprintf(results_root, sizeof(results_root), "%s", "Results");
+        }
+    }
     char run_dir_name[256];
     char output_dir[4096];
     char output_pf_input_file[4096];

@@ -31,7 +31,26 @@ def _radius_from_voxels(voxel_count: int, dx_nm: float) -> float:
     return ((3.0 * volume_nm3) / (4.0 * math.pi)) ** (1.0 / 3.0)
 
 
-def _derived_summary_path(row: dict[str, str], results_root: Path) -> Path:
+def _continue_dir_name(mode: str) -> str:
+    mode = (mode or "").strip().lower()
+    if mode == "minimize-continue":
+        return "continue_min_1"
+    return "continue_dyn_1"
+
+
+def _resolve_repo_style_path(raw: str | None, results_root: Path) -> Path | None:
+    if not raw:
+        return None
+    p = Path(raw)
+    if p.is_absolute():
+        return p
+    parts = p.parts
+    if parts and parts[0] == "Results":
+        return results_root / Path(*parts[1:])
+    return results_root.parent / p
+
+
+def _summary_candidates(row: dict[str, str], results_root: Path) -> list[Path]:
     radius = _parse_float(row.get("START_RADIUS_NM"))
     if radius is None:
         raise ValueError("row lacks START_RADIUS_NM")
@@ -45,7 +64,21 @@ def _derived_summary_path(row: dict[str, str], results_root: Path) -> Path:
     base = row["BASE_CASE_TAG"]
     outer = f"chel_T{int(round(temp_c))}_cuda_{nx}x{ny}x{nz}_dt{dt:g}_steps{steps}_r{radius:.3f}nm_xB{xb:.3f}"
     case_dir = f"{base}_r{radius:.6f}".replace(".", "p")
-    return results_root / outer / case_dir / f"summary_{case_dir}.txt"
+    continue_dir = _continue_dir_name(row.get("MODE", ""))
+    run_root = results_root / outer
+    source_summary = _resolve_repo_style_path(row.get("CONTINUE_SOURCE_SUMMARY_PATH"), results_root)
+    if source_summary is None:
+        source_summary = _resolve_repo_style_path(row.get("SUMMARY_PATH"), results_root)
+    if source_summary is not None:
+        try:
+            run_root = source_summary.parent.parent
+        except IndexError:
+            pass
+    return [
+        run_root / continue_dir / "summary.txt",
+        run_root / continue_dir / f"summary_{continue_dir}.txt",
+        run_root / case_dir / f"summary_{case_dir}.txt",
+    ]
 
 
 def main() -> int:
@@ -65,7 +98,8 @@ def main() -> int:
         start_radius = _parse_float(row.get("START_RADIUS_NM"))
         if start_radius is None:
             continue
-        summary_path = _derived_summary_path(row, results_root)
+        candidates = _summary_candidates(row, results_root)
+        summary_path = next((p for p in candidates if p.exists()), candidates[0])
         summary_data = {}
         if summary_path.exists():
             summary_data = parse_summary_file(summary_path)

@@ -1,279 +1,354 @@
-# Critical Radius And Continue-Dynamics Workflow
+# CNT 临界半径与 Continue-Dynamic 标准工作流
 
-这份文档总结当前仓库里一条完整、可复用的流程：
+这套流程的目标是把一次完整任务规范成一组固定步骤：
 
-1. 用 Schur 预测脚本先估算不同外部应变下的临界半径。
-2. 生成每个 case 的半径扫描 `case_*.csv`。
-3. 用 Slurm 脚本在 cluster 上做 PF constraint/minimize 扫描，得到 PF 版本的临界半径。
-4. 用 summary/energy 自动汇总脚本提取：
-   - 离散峰位 `rc_cnt_nm`
-   - 局部三次/四次拟合峰位 `rc_cnt_fit_nm`
-   - 峰值对应形貌 summary
-5. 再基于这张总表，为每个 case 自动生成 `dynamics-continue` 任务：
-   - 不再直接用峰位 case 的 VTK
-   - 而是读取“比峰位更大的下一个离散半径 case”的 `phi_final/xB_final`
-   - 再提交到 `24h` 和 `uvip` 两个队列继续跑核子生长
+1. 先做 Schur 预测，生成一份引导表。
+2. 用一条串行 sbatch 直接读取引导表，完成整批 PF 临界半径扫描。
+3. 扫描结束后，用同一份引导表生成 CNT 临界半径汇总。
+4. 再根据临界半径汇总，自动生成 continue dynamic 引导表。
+5. 用一条串行 sbatch 读取 continue 引导表，继续跑核子生长。
+6. 最后对 continue 结果做统一汇总。
 
-下面所有命令默认从仓库根目录运行：
+这套流程只要求你调整两个物理输入：
 
-`/Users/heng/Documents/GitHub/CUDA_STO_PF`
+- `temperature_C`
+- `xB_out`
 
-cluster 对应目录是：
+其余的路径组织、输入表、汇总表和 continue 输入选择都按统一约定自动处理。
 
-`/data/home/luozhiheng/CUDA_STO_PF`
+## 目录约定
 
-## 1. 用 Schur 脚本预测临界半径
+每一个大任务都放在：
+
+```text
+Results/workflows/T400_xB0p030/
+```
+
+目录结构固定为：
+
+```text
+Results/workflows/T400_xB0p030/
+├── input/
+│   ├── physical_inputs.json
+│   ├── workflow_meta.json
+│   ├── schur_rc_predictions.csv
+│   ├── guide_cnt_scan.csv
+│   └── guide_continue_dynamic.csv
+├── raw/
+│   └── chel_T.../cntcon_.../
+├── cnt_scan/
+│   └── current_results_master_table_fitted.csv
+├── continue_dynamic/
+│   └── growth_summary.csv
+└── summaries/
+```
+
+说明：
+
+- `input/` 只放引导 CSV 和工作流配置。
+- `raw/` 放主程序实际输出的原始结果。
+- `cnt_scan/` 放临界半径汇总。
+- `continue_dynamic/` 放 continue 生长汇总。
+
+这样不同温度、不同 `xB_out` 的任务天然分开，不会混在一个目录里。
+
+## 关键脚本
+
+### 1. 建立工作流目录并生成引导表
 
 脚本：
 
-- [`compute_schur_rc_predictions.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/compute_schur_rc_predictions.py)
+- [`setup_cnt_workflow.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/setup_cnt_workflow.py)
 
 作用：
 
-- 在 strictref 语义下计算 `exx / eyy / exx+eyy` 外载对应的 Schur 预测临界半径
-- 同时输出每个 case 对应的 `case_*.csv`
+- 读取基础物理输入 JSON。
+- 覆盖指定的温度和 `xB_out`。
+- 计算 Schur 预测临界半径。
+- 生成：
+  - `input/physical_inputs.json`
+  - `input/workflow_meta.json`
+  - `input/schur_rc_predictions.csv`
+  - `input/guide_cnt_scan.csv`
 
-典型命令：
+### 2. 读取 CNT 扫描引导表并串行提交
+
+脚本：
+
+- [`submit_cnt_guide_serial.sbatch`](/Users/heng/Documents/GitHub/CUDA_STO_PF/jobs/submit_cnt_guide_serial.sbatch)
+
+作用：
+
+- 读取一份 `guide_cnt_scan.csv`
+- 串行跑完整批 CNT 半径扫描
+- 不拆很多子任务
+- 只提交到一个队列
+
+### 3. 从引导表和原始结果生成 CNT 汇总
+
+脚本：
+
+- [`summarize_cnt_scan_from_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_cnt_scan_from_guide.py)
+
+作用：
+
+- 仍然读取 `guide_cnt_scan.csv`
+- 自动扫描对应 `raw/` 里的结果
+- 提取：
+  - `rc_schur_nm`
+  - `rc_cnt_nm`
+  - `rc_cnt_fit_nm`
+  - `F_CNT_peak_hat`
+  - 峰值对应形貌 summary
+
+输出：
+
+- `cnt_scan/current_results_master_table_fitted.csv`
+
+### 4. 从 CNT 汇总生成 continue dynamic 引导表
+
+脚本：
+
+- [`prepare_continue_dynamic_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/prepare_continue_dynamic_guide.py)
+
+作用：
+
+- 读取：
+  - `cnt_scan/current_results_master_table_fitted.csv`
+  - `input/guide_cnt_scan.csv`
+- 按规则选择 continue 初始核子：
+  - 不是直接用拟合峰位
+  - 也不是只改半径标签
+  - 而是选取“**大于离散峰位指定偏移量**”的离散半径 case
+  - 读取那个 case 的：
+    - `phi_final_*.vtk`
+    - `xB_final_*.vtk`
+
+输出：
+
+- `input/guide_continue_dynamic.csv`
+
+### 5. 读取 continue 引导表并串行提交
+
+脚本：
+
+- [`submit_continue_dynamic_guide_serial.sbatch`](/Users/heng/Documents/GitHub/CUDA_STO_PF/jobs/submit_continue_dynamic_guide_serial.sbatch)
+
+作用：
+
+- 读取一份 `guide_continue_dynamic.csv`
+- 串行跑完整批 `dynamics-continue`
+- 只提交到一个队列
+
+说明：
+
+- continue 时会以源 case 的 `pf_input.params` 为底
+- 只覆盖：
+  - `dt`
+- 其余 continue 物理参数保持不变
+
+### 6. continue 生长汇总
+
+脚本：
+
+- [`summarize_continue_from_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_continue_from_guide.py)
+
+作用：
+
+- 读取 `guide_continue_dynamic.csv`
+- 扫描对应 continue 结果
+- 汇总：
+  - `start_radius_nm`
+  - `grown_equiv_radius_nm`
+  - `delta_growth_nm`
+  - `voxel_count`
+  - `L1/L2/L3`
+  - `L1_over_L3`
+
+输出：
+
+- `continue_dynamic/growth_summary.csv`
+
+## 单队列使用方式
+
+这套流程不再拆成两个队列。
+
+你只需要手动选择一个队列，例如：
+
+- `gpu_uvip / gpu_uvip`
+或
+- `gpu_vip_24h / gpu_vip_24h`
+
+提交时直接用：
 
 ```bash
-python3 tools/analysis/compute_schur_rc_predictions.py \
-  --input-json physical_inputs.example.json \
-  --output-dir Results_scan/constraint_cnt_strictref_test_T400_x0_0p03 \
-  --xB-out 0.03 \
+sbatch -p gpu_uvip --qos=gpu_uvip jobs/submit_cnt_guide_serial.sbatch
+```
+
+或者：
+
+```bash
+sbatch -p gpu_vip_24h --qos=gpu_vip_24h jobs/submit_cnt_guide_serial.sbatch
+```
+
+continue 也是同样的单队列提法。
+
+## 推荐参数约定
+
+默认使用：
+
+- 网格：`400,400,400`
+- CNT 扫描步数：`30000`
+- CNT 扫描 `dt`：`0.1`
+- CNT 扫描输出间隔：`250`
+- continue dynamic 步数：`5000`
+- continue dynamic `dt`：`0.1`
+- continue dynamic 输出间隔：`2500`
+- continue 起始半径规则：
+  - `rc_cnt_nm + 0.1 nm`
+
+如果后续需要改，可以通过脚本参数显式覆盖。
+
+## 最短命令清单
+
+下面这套命令假设：
+
+- 仓库根目录：
+  - `/data/home/luozhiheng/CUDA_STO_PF`
+- 温度：
+  - `400`
+- `xB_out`：
+  - `0.03`
+- 队列：
+  - `gpu_uvip`
+
+### A. 建立工作流目录并生成 CNT 引导表
+
+```bash
+cd /data/home/luozhiheng/CUDA_STO_PF
+
+python3 tools/analysis/setup_cnt_workflow.py \
+  --temp-c 400 \
+  --xb-out 0.03 \
+  --lambda-sm-nm 0.5 \
+  --base-json physical_inputs.example.json \
+  --workflow-root Results/workflows \
+  --grid 400,400,400 \
+  --dt 0.1 \
+  --steps 30000 \
+  --out-every 250 \
+  --csv-out-every 10 \
   --window-nm 0.5 \
-  --step-nm 0.1 \
-  --strains 0,0.0025,0.005,0.0075,0.01 \
-  --modes exx,eyy,exx_eyy
+  --step-nm 0.1
+```
+
+这一步会生成：
+
+```text
+Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv
+```
+
+### B. 用 guide_cnt_scan.csv 提交整批 CNT 扫描
+
+```bash
+cd /data/home/luozhiheng/CUDA_STO_PF
+
+GUIDE_CSV=/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+sbatch -p gpu_uvip --qos=gpu_uvip jobs/submit_cnt_guide_serial.sbatch
+```
+
+raw 结果会自动写到：
+
+```text
+Results/workflows/T400_xB0p030/raw/
+```
+
+### C. 生成 CNT 临界半径汇总
+
+```bash
+cd /data/home/luozhiheng/CUDA_STO_PF
+
+python3 tools/analysis/summarize_cnt_scan_from_guide.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+  --repo-root /data/home/luozhiheng/CUDA_STO_PF
 ```
 
 输出：
 
-- `schur_rc_predictions.csv`
-- 一系列 `case_*.csv`
-
-例如：
-
-- `Results_scan/constraint_cnt_strictref_test_T400_x0_0p03/case_exx_s0p01_L5.csv`
-- `Results_scan/constraint_cnt_strictref_test_T400_x0_0p03/case_eyy_sm0p005_L5.csv`
-
-## 2. 用 Slurm 在 cluster 上做 PF 临界半径扫描
-
-PF constraint/minimize 扫描当前使用的 cluster 脚本是：
-
-- `/data/home/luozhiheng/CUDA_STO_PF/jobs/submit_constraint_cnt_case_sweep.sbatch`
-
-说明：
-
-- 一条 Slurm array task 对应一个 `base_case_tag`
-- 该脚本会在 `rc_schur_nm ± window_nm` 的窗口内，用 `step_nm` 做离散半径扫描
-- 每个离散半径点都会运行一次 full-model minimize
-- 当前这一步的结果会写入 `Results/chel_.../cntcon_.../`
-
-单个 case 的提交示例：
-
-```bash
-ssh uvip-cluster '
-cd /data/home/luozhiheng/CUDA_STO_PF &&
-sbatch --array=0-0 jobs/submit_constraint_cnt_case_sweep.sbatch \
-  /data/home/luozhiheng/CUDA_STO_PF/Results_scan/constraint_cnt_strictref_test_T400_x0_0p03/case_exx_s0p01_L5.csv
-'
+```text
+Results/workflows/T400_xB0p030/cnt_scan/current_results_master_table_fitted.csv
 ```
 
-一整批 case 的思路：
-
-- `case_*.csv`：适合一个 mode/strain 一组地提交
-- `cases_batch_*.csv`：适合按优先级或正负载分批提交
-
-这一步结束后，每个离散半径点都会在 `Results/` 下形成一个 case 子目录，例如：
-
-- `/data/home/luozhiheng/CUDA_STO_PF/Results/chel_T400_cuda_400x400x400_dt0.1_steps30000_r2.464nm_xB0.030/cntcon_T400_xB0p030_strictref_exx_s000_r2p464406`
-
-其中通常包含：
-
-- `energy_minimize_*.csv`
-- `phi_final_*.vtk`
-- `xB_final_*.vtk`
-- `summary_*.txt`
-
-## 3. 汇总 PF 临界半径与峰值形貌
-
-汇总脚本：
-
-- [`analyze_cnt_peak_table.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/analyze_cnt_peak_table.py)
-
-作用：
-
-- 读取一整个 case 目录下的离散半径扫描结果
-- 从 `energy_minimize_*.csv` 中提取 `F_total_CNT_hat`
-- 先取离散峰值 `rc_cnt_nm`
-- 再在峰值附近做局部 cubic/quartic 拟合，得到 `rc_cnt_fit_nm`
-- 读取峰值对应的 `summary_*.txt`
-- 把形貌信息也并到总表中
-
-典型命令：
+### D. 根据 CNT 汇总生成 continue dynamic 引导表
 
 ```bash
-python3 tools/analysis/analyze_cnt_peak_table.py \
-  --case-dir Results_scan/constraint_cnt_strictref_test_T400_x0_0p03 \
-  --results-root /data/home/luozhiheng/CUDA_STO_PF \
-  --output Results_scan/constraint_cnt_strictref_test_T400_x0_0p03/current_results_master_table_fitted.csv
-```
+cd /data/home/luozhiheng/CUDA_STO_PF
 
-输出总表：
-
-- `current_results_master_table_fitted.csv`
-
-这个表里已经包含：
-
-- `rc_schur_nm`
-- `rc_cnt_nm`
-- `rc_cnt_fit_nm`
-- `F_CNT_peak_hat`
-- `summary_path`
-- `L1/L2/L3`
-- `L1_over_L3`
-- 主轴方向与法向信息
-
-## 4. 从总表自动生成 continue-dynamics 任务
-
-脚本：
-
-- [`prepare_dynamics_continue_from_summary.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/prepare_dynamics_continue_from_summary.py)
-- [`submit_dynamics_continue_batch.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/submit_dynamics_continue_batch.py)
-
-### 4.1 单个 case 生成 continue 命令
-
-可以先对某一行做检查：
-
-```bash
-python3 tools/analysis/prepare_dynamics_continue_from_summary.py \
-  --csv Results_scan/constraint_cnt_strictref_test_T400_x0_0p03/current_results_master_table_fitted.csv \
-  --case-tag cntcon_T400_xB0p030_strictref_exx_s000 \
-  --emit manifest \
-  --template sbatch
-```
-
-这一步会做的事情：
-
-- 读取 `current_results_master_table_fitted.csv`
-- 找到该 case 的离散峰位 `rc_cnt_nm`
-- 不再用峰位 case 自己的 `phi_final/xB_final`
-- 而是去找“下一个更大的离散半径 case”的：
-  - `phi_final_*.vtk`
-  - `xB_final_*.vtk`
-
-也就是说，continue 的真实初始场是：
-
-- **更大离散半径 case 的最终核子场**
-
-而不是：
-
-- 峰位 case 的最终场 + 只改半径标签
-
-### 4.2 整批提交 continue dynamics
-
-批量提交脚本：
-
-- [`submit_dynamics_continue_batch.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/submit_dynamics_continue_batch.py)
-
-典型命令：
-
-```bash
-ssh uvip-cluster '
-cd /data/home/luozhiheng/CUDA_STO_PF &&
-python3 tools/analysis/submit_dynamics_continue_batch.py \
-  --csv /data/home/luozhiheng/CUDA_STO_PF/Results_scan/constraint_cnt_strictref_test_T400_x0_0p03/current_results_master_table_fitted.csv \
-  --results-root /data/home/luozhiheng/CUDA_STO_PF \
-  --extra-steps 5000 \
-  --radius-mode supercritical \
+python3 tools/analysis/prepare_continue_dynamic_guide.py \
+  --summary-csv Results/workflows/T400_xB0p030/cnt_scan/current_results_master_table_fitted.csv \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+  --repo-root /data/home/luozhiheng/CUDA_STO_PF \
   --radius-offset-nm 0.1 \
-  --start-queue 24h
-'
+  --dt 0.1 \
+  --steps 5000 \
+  --out-every 2500 \
+  --csv-out-every 10
 ```
 
-这会自动：
+输出：
 
-- 把完成的 case 分配到 `gpu_vip_24h` 和 `gpu_uvip`
-- 为两个队列分别写 manifest：
-  - `gpu_vip_24h_dynamics_continue_manifest.csv`
-  - `gpu_uvip_dynamics_continue_manifest.csv`
-- 自动提交两个串行 Slurm job
+```text
+Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv
+```
 
-当前 continue 使用的 Slurm 模板：
+### E. 用 guide_continue_dynamic.csv 提交整批 continue dynamic
 
-- [`submit_continue_manifest_serial.sbatch`](/Users/heng/Documents/GitHub/CUDA_STO_PF/jobs/submit_continue_manifest_serial.sbatch)
+```bash
+cd /data/home/luozhiheng/CUDA_STO_PF
 
-## 5. continue dynamic 与 minimize continue 的目录命名
+GUIDE_CSV=/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+sbatch -p gpu_uvip --qos=gpu_uvip jobs/submit_continue_dynamic_guide_serial.sbatch
+```
 
-当前已经统一成：
+continue 结果会落到：
 
-- `dynamics-continue`
-  - `continue_dyn_1`
-  - `continue_dyn_2`
-- `minimize-continue`
-  - `continue_min_1`
-  - `continue_min_2`
+```text
+Results/workflows/T400_xB0p030/raw/.../continue_dyn_1/
+```
 
-这样两类 continue 结果不会再混在一起。
+### F. 生成 continue 生长汇总
 
-同时，continue 的输出也不再写在 run-root 根目录，而是统一写进子目录。
+```bash
+cd /data/home/luozhiheng/CUDA_STO_PF
+
+python3 tools/analysis/summarize_continue_from_guide.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+  --repo-root /data/home/luozhiheng/CUDA_STO_PF
+```
+
+输出：
+
+```text
+Results/workflows/T400_xB0p030/continue_dynamic/growth_summary.csv
+```
+
+## 实际操作原则
+
+后续人工操作时，建议主要改这两个输入：
+
+- `--temp-c`
+- `--xb-out`
+
+如果需要切换界面宽度，再额外改：
+
+- `--lambda-sm-nm`
 
 例如：
 
-- 原始离散 PF case：
-  - `.../chel_T400_..._r2.936nm_xB0.030/cntcon_T400_..._r2p935828/`
-- continue dynamic：
-  - `.../chel_T400_..._r2.936nm_xB0.030/continue_dyn_1/`
+- `T400_xB0p030`
+- `T450_xB0p025`
+- `T500_xB0p040`
 
-所以原始离散扫描结果和 continue 生长结果是分开的。
+每次都重复同一套命令，结果会自动进入不同 workflow 子目录。
 
-## 6. continue 完成后再做生长汇总
-
-continue 生长后汇总脚本：
-
-- [`summarize_dynamics_continue_growth.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_dynamics_continue_growth.py)
-
-这一步可以把：
-
-- `start_radius_nm`
-- `grown_equiv_radius_nm`
-- `delta_growth_nm`
-- `L1/L2/L3`
-- `L1_over_L3`
-
-汇成新的 continue 生长总表。
-
-## 7. 推荐的实际执行顺序
-
-建议按这个顺序跑：
-
-1. 本地运行 `compute_schur_rc_predictions.py`
-2. 得到 `case_*.csv`
-3. 在 cluster 上用 `submit_constraint_cnt_case_sweep.sbatch` 做 PF 临界半径扫描
-4. 本地或 cluster 上运行 `analyze_cnt_peak_table.py`
-5. 生成 `current_results_master_table_fitted.csv`
-6. 用 `submit_dynamics_continue_batch.py` 自动生成并提交 continue dynamic
-7. 跑完后再用 `summarize_dynamics_continue_growth.py` 做 continue 生长汇总
-
-## 8. 当前这一版 workflow 的关键约定
-
-当前版本最重要的约定有两条：
-
-1. `dynamics-continue` 不是从拟合峰位生成新核子
-
-因为拟合峰位 `rc_cnt_fit_nm` 没有对应的独立 VTK，所以 continue 初始场不能直接来自拟合峰位。
-
-2. `dynamics-continue` 用的是“比离散峰位更大的下一个离散 case”
-
-也就是：
-
-- 先用 PF 扫描找到 `rc_cnt_nm`
-- 再选择扫描窗口里**下一个更大的离散半径点**
-- 用那个 case 的 `phi_final/xB_final` 继续跑动力学生长
-
-这个做法的优点是：
-
-- 初始场是真实存在的 PF 收敛场
-- 不是只改标签
-- 更适合测试“临界之后是否长大”
-
+这样后续读取、汇总、继续生长、比较不同温度和不同 `xB` 时都不会混乱。
