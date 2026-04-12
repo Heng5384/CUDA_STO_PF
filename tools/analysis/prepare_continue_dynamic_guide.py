@@ -32,6 +32,7 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=5000, help="continue dynamic steps")
     parser.add_argument("--out-every", type=int, default=2500, help="continue dynamic VTK output interval")
     parser.add_argument("--csv-out-every", type=int, default=10, help="continue dynamic CSV output interval")
+    parser.add_argument("--allow-no-peak", action="store_true", help="also allow complete_no_peak_in_window rows for smoke validation")
     parser.add_argument("--output", type=Path, default=None, help="output guide csv")
     args = parser.parse_args()
 
@@ -55,7 +56,10 @@ def main() -> int:
 
     out_rows: list[dict[str, object]] = []
     for row in summary_rows:
-        if row.get("status") != "complete_peak_found":
+        allowed_status = {"complete_peak_found"}
+        if args.allow_no_peak:
+            allowed_status.add("complete_no_peak_in_window")
+        if row.get("status") not in allowed_status:
             continue
         base = row["base_case_tag"]
         rc_cnt = float(row["rc_cnt_nm"])
