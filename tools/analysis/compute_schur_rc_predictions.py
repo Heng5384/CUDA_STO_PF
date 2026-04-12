@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Iterable
 
 import numpy as np
-from scipy.optimize import fsolve
 
 
 R_GAS = 8.314462618
@@ -131,14 +130,35 @@ def mu_Ag2Te_matrix(T: float, x: float) -> float:
 
 
 def get_chemical_driving_force_Jm3(T_K: float, x0: float, Vm_compound: float) -> tuple[float, float]:
-    def eq_func(x_in):
-        x = x_in.item() if hasattr(x_in, "item") else x_in
+    def eq_func(x: float) -> float:
         if x <= 1e-10:
             return 1e5
         return R_GAS * T_K * math.log(x) + L_pseudobinary(T_K) * (1.0 - x) ** 2
 
-    guess = math.exp(-L_pseudobinary(T_K) / (R_GAS * T_K))
-    x_eq = fsolve(eq_func, guess).item()
+    lo = 1.0e-12
+    hi = 1.0 - 1.0e-9
+    f_lo = eq_func(lo)
+    f_hi = eq_func(hi)
+    if f_lo == 0.0:
+        x_eq = lo
+    elif f_hi == 0.0:
+        x_eq = hi
+    elif f_lo * f_hi > 0.0:
+        raise RuntimeError("failed to bracket matrix equilibrium composition")
+    else:
+        for _ in range(200):
+            mid = 0.5 * (lo + hi)
+            f_mid = eq_func(mid)
+            if abs(f_mid) < 1.0e-14:
+                lo = hi = mid
+                break
+            if f_lo * f_mid <= 0.0:
+                hi = mid
+                f_hi = f_mid
+            else:
+                lo = mid
+                f_lo = f_mid
+        x_eq = 0.5 * (lo + hi)
     d_mu = mu_Ag2Te_matrix(T_K, x0) - mu_Ag2Te_matrix(T_K, x_eq)
     return d_mu / Vm_compound, x_eq
 
