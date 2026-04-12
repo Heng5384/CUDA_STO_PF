@@ -188,6 +188,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 - 串行跑完整批 CNT 半径扫描
 - 不拆很多子任务
 - 只提交到一个队列
+- 如果同一份 guide 被重复提交，会自动跳过已经完成的 case，只继续未完成部分
 
 ### 3. 从引导表和原始结果生成 CNT 汇总
 
@@ -244,6 +245,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 - 读取一份 `guide_continue_dynamic.csv`
 - 串行跑完整批 `dynamics-continue`
 - 只提交到一个队列
+- 如果同一份 guide 被重复提交，会自动跳过已经完成的 continue case，只继续未完成部分
 
 说明：
 
@@ -251,6 +253,15 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 - 只覆盖：
   - `dt`
 - 其余 continue 物理参数保持不变
+
+如果需要跑 `minimize-continue`，对应脚本是：
+
+- [`submit_continue_minimize_guide_serial.sbatch`](/Users/heng/Documents/GitHub/CUDA_STO_PF/jobs/submit_continue_minimize_guide_serial.sbatch)
+
+它和 `dynamics-continue` 一样，也支持：
+
+- 重复提交同一份 guide 时自动跳过已完成 row
+- 只继续未完成部分
 
 ### 6. continue 生长汇总
 
@@ -273,6 +284,113 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 输出：
 
 - `continue_dynamic/growth_summary.csv`
+
+### 7. guide 进度检查与断点续跑
+
+脚本：
+
+- [`report_guide_progress.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/report_guide_progress.py)
+
+作用：
+
+- 读取一份 guide CSV
+- 检查每一行对应结果是否已经完成
+- 输出一张进度表
+- 可选地再导出一份只包含未完成 row 的 `pending-only guide`
+
+支持三种 guide 类型：
+
+- `cnt`
+- `continue-dynamic`
+- `continue-minimize`
+
+#### 推荐理解方式
+
+这套 workflow 的“续跑”机制有两层：
+
+1. **最简单模式**
+- 直接重复提交原始 guide
+- sbatch 脚本会自动跳过已完成 row
+- 只继续未完成 row
+
+2. **显式检查模式**
+- 先用 `report_guide_progress.py` 生成进度表
+- 再导出一份 `pending-only guide`
+- 然后只提交这份 pending guide
+
+两种方式都可以。
+
+#### CNT 扫描进度检查
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/report_guide_progress.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+  --repo-root "${REPO_ROOT}" \
+  --guide-type cnt \
+  --pending-guide-output Results/workflows/T400_xB0p030/input/guide_cnt_scan_pending.csv
+```
+
+输出：
+
+- `guide_cnt_scan_progress.csv`
+- `guide_cnt_scan_pending.csv`
+
+#### continue dynamic 进度检查
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/report_guide_progress.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+  --repo-root "${REPO_ROOT}" \
+  --guide-type continue-dynamic \
+  --pending-guide-output Results/workflows/T400_xB0p030/input/guide_continue_dynamic_pending.csv
+```
+
+#### continue minimize 进度检查
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/report_guide_progress.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+  --repo-root "${REPO_ROOT}" \
+  --guide-type continue-minimize \
+  --pending-guide-output Results/workflows/T400_xB0p030/input/guide_continue_minimize_pending.csv
+```
+
+#### 什么叫“已完成”
+
+CNT 扫描：
+
+- 已有 `energy_minimize_*.csv`
+- 且已有 `phi_final_*.vtk`
+
+continue dynamic：
+
+- 已有 `continue_dyn_1/summary.txt`
+- 或已有最终步的 `phi_<nsteps>.vtk` 和 `xB_<nsteps>.vtk`
+
+continue minimize：
+
+- 已有 `continue_min_1/summary_continue_min_1.txt`
+- 或已有 `energy_minimize_continue_min_1.csv` 和 `phi_final_continue_min_1.vtk`
+
+#### 什么时候用 pending-only guide
+
+如果你只是想继续跑完当前任务，最省事的是：
+
+- 直接重新提交原 guide
+
+如果你想：
+
+- 明确知道还剩哪些 row
+- 只提交没完成的部分
+- 保存一份可审计的“待续跑清单”
+
+那就先生成 `pending-only guide` 再提交。
 
 ## 单队列使用方式
 
