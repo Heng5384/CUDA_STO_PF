@@ -87,6 +87,7 @@ def main() -> int:
                 "strain": source_row["strain"],
                 "T_C": source_row["T_C"],
                 "xB_out": source_row["xB_out"],
+                "raw_results_root_rel": source_row["raw_results_root_rel"],
                 "nx": source_row["nx"],
                 "ny": source_row["ny"],
                 "nz": source_row["nz"],
