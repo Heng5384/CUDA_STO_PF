@@ -140,6 +140,10 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 而不是流程 Python 脚本。
 
+如果对方还没有这个私有仓库的访问权限，先看：
+
+- [`cluster_git_access_guide.md`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/cluster_git_access_guide.md)
+
 ## 关键脚本
 
 ### 1. 建立工作流目录并生成引导表
@@ -345,7 +349,7 @@ python3 tools/analysis/setup_cnt_workflow.py \
   --base-json physical_inputs.example.json \
   --workflow-root Results/workflows \
   --grid 400,400,400 \
-  --dt 0.01 \
+  --dt 0.025 \
   --steps 30000 \
   --out-every 2500 \
   --csv-out-every 10 \
