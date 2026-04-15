@@ -463,11 +463,11 @@ cd "${REPO_ROOT}"
 python3 tools/analysis/setup_cnt_workflow.py \
   --temp-c 400 \
   --xb-out 0.03 \
-  --lambda-sm-nm 0.5 \
+  --lambda-sm-nm 0.6 \
   --base-json physical_inputs.example.json \
   --workflow-root Results/workflows \
   --grid 400,400,400 \
-  --dt 0.025 \
+  --dt 0.01 \
   --steps 30000 \
   --out-every 2500 \
   --csv-out-every 10 \
