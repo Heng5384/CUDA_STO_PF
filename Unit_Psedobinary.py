@@ -247,6 +247,14 @@ class PhysicalInputs:
     C_tensor_PbTe_GPa: List[List[float]] = None
     C_tensor_Ag2Te_GPa: List[List[float]] = None
 
+    # 外部均匀应变（模拟坐标系，Voigt 顺序）
+    E0_xx: float = 0.0
+    E0_yy: float = 0.0
+    E0_zz: float = 0.0
+    E0_yz: float = 0.0
+    E0_xz: float = 0.0
+    E0_xy: float = 0.0
+
 
 @dataclass
 class PFParamSet:
@@ -682,6 +690,12 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
         "eps_yz00": eigenstrain_voigt["eps_yz00"],
         "eps_xz00": eigenstrain_voigt["eps_xz00"],
         "eps_xy00": eigenstrain_voigt["eps_xy00"],
+        "E0_xx": inputs.E0_xx,
+        "E0_yy": inputs.E0_yy,
+        "E0_zz": inputs.E0_zz,
+        "E0_yz": inputs.E0_yz,
+        "E0_xz": inputs.E0_xz,
+        "E0_xy": inputs.E0_xy,
     }
 
     matrix_components = _voigt_independent_components(pfset.C_tensor_matrix_hat)

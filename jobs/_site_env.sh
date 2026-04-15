@@ -146,6 +146,18 @@ site_generate_pf_param_file() {
     PHYS_GEL_SHIFT_JM3
     EPS_ISO
     PHYS_EPS_ISO
+    E0_XX
+    E0_YY
+    E0_ZZ
+    E0_YZ
+    E0_XZ
+    E0_XY
+    E0_xx
+    E0_yy
+    E0_zz
+    E0_yz
+    E0_xz
+    E0_xy
   )
   local env_key
   for env_key in "${env_keys[@]}"; do
@@ -205,6 +217,18 @@ env_map = {
     "PHYS_GEL_SHIFT_JM3": ("gel_shift_Jm3", float),
     "EPS_ISO": ("eps_iso", float),
     "PHYS_EPS_ISO": ("eps_iso", float),
+    "E0_XX": ("E0_xx", float),
+    "E0_YY": ("E0_yy", float),
+    "E0_ZZ": ("E0_zz", float),
+    "E0_YZ": ("E0_yz", float),
+    "E0_XZ": ("E0_xz", float),
+    "E0_XY": ("E0_xy", float),
+    "E0_xx": ("E0_xx", float),
+    "E0_yy": ("E0_yy", float),
+    "E0_zz": ("E0_zz", float),
+    "E0_yz": ("E0_yz", float),
+    "E0_xz": ("E0_xz", float),
+    "E0_xy": ("E0_xy", float),
 }
 
 for env_key, (json_key, caster) in env_map.items():
