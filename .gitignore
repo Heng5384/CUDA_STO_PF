@@ -1,5 +1,6 @@
 .DS_Store
 Results/
+Results_scan/
 main_cuda
 test_memory_ledger
 jobs/logs/
