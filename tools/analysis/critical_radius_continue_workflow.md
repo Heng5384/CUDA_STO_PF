@@ -467,7 +467,7 @@ python3 tools/analysis/setup_cnt_workflow.py \
   --base-json physical_inputs.example.json \
   --workflow-root Results/workflows \
   --grid 400,400,400 \
-  --dt 0.01 \
+  --dt 0.03 \
   --steps 30000 \
   --out-every 2500 \
   --csv-out-every 10 \

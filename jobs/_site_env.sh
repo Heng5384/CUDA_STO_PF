@@ -296,7 +296,9 @@ site_prepare_cuda_env() {
     site_try_enable_modules
     if [[ "${SITE_SKIP_MODULE_LOAD:-0}" != "1" ]] && command -v module >/dev/null 2>&1; then
       module purge >/dev/null 2>&1 || true
-      module load "${CUDA_MODULE:-cuda/cuda-12.9}"
+      if ! module load "${CUDA_MODULE:-cuda/cuda-12.9}"; then
+        echo "[warn] Failed to load CUDA module '${CUDA_MODULE:-cuda/cuda-12.9}'. Falling back to nvcc auto-detection." >&2
+      fi
     fi
     if [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
       echo "[fatal] CUDA_VISIBLE_DEVICES is unset. This usually means you did not get a GPU allocation." >&2

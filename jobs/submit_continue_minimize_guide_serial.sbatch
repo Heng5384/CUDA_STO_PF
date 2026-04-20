@@ -147,7 +147,6 @@ run_case() {
     --elastic "${elastic}"
     --ic-23d-xB-out "${xB_out}"
     --continue-phi-vtk "${continue_phi_vtk}"
-    --continue-xB-vtk "${continue_xb_vtk}"
     --minimize-rms-dphi-threshold "1e-5"
     --minimize-rms-dY-threshold "1e-5"
     --minimize-energy-diff-rel-threshold "1e-7"
@@ -159,6 +158,11 @@ run_case() {
     --eta-lambda-vol "0.9"
     --minimize-post-projection-iters "1"
   )
+  if [[ -n "${continue_xb_vtk:-}" ]]; then
+    CMD+=(--continue-xB-vtk "${continue_xb_vtk}")
+  else
+    echo "[info] row=${row_idx} base=${base_case_tag} continue_xB_vtk missing -> rebuild xB from phi in full-model minimize"
+  fi
   set -x
   "${CMD[@]}"
   set +x

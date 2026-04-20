@@ -1526,7 +1526,9 @@ static int load_continue_fields_from_vtk(double *phi_r, double *Y_r, double *xB_
         return 0;
     }
 
-    if (P->minimize_full_model) {
+    const int need_composition_fields = (P->mode == 0) || P->minimize_full_model;
+
+    if (need_composition_fields) {
         int xB_loaded_from_vtk = 0;
         if (P->continue_xB_vtk_path[0] != '\0') {
             struct stat st;
@@ -3368,13 +3370,11 @@ int main(int argc, char **argv) {
     // 约定：弹性关闭 -> ch 开头；弹性开启 -> chel 开头
     const char *out_prefix = P.elastic_enabled ? "chel" : "ch";
     char results_root[4096];
-    {
-        const char *results_root_env = getenv("CUDA_STO_RESULTS_ROOT");
-        if (results_root_env && results_root_env[0] != '\0') {
-            snprintf(results_root, sizeof(results_root), "%s", results_root_env);
-        } else {
-            snprintf(results_root, sizeof(results_root), "%s", "Results");
-        }
+    const char *results_root_env = getenv("CUDA_STO_RESULTS_ROOT");
+    if (results_root_env && results_root_env[0] != '\0') {
+        snprintf(results_root, sizeof(results_root), "%s", results_root_env);
+    } else {
+        snprintf(results_root, sizeof(results_root), "%s", "Results");
     }
     char run_dir_name[256];
     char output_dir[4096];
@@ -3455,8 +3455,28 @@ int main(int argc, char **argv) {
         fflush(stdout);
     }
     mkdir(results_root, 0755);
-    if (P.minimize_continue_from_vtk &&
-        derive_continue_output_root(P.continue_phi_vtk_path, output_dir, sizeof(output_dir))) {
+    if (P.minimize_continue_from_vtk) {
+        char source_output_root[4096];
+        char source_output_root_base[256];
+        source_output_root[0] = '\0';
+        source_output_root_base[0] = '\0';
+
+        if (derive_continue_output_root(P.continue_phi_vtk_path,
+                                        source_output_root,
+                                        sizeof(source_output_root))) {
+            path_basename_copy(source_output_root,
+                               source_output_root_base,
+                               sizeof(source_output_root_base));
+        }
+
+        if (results_root_env && results_root_env[0] != '\0' &&
+            source_output_root_base[0] != '\0') {
+            snprintf(output_dir, sizeof(output_dir), "%s/%s", results_root, source_output_root_base);
+        } else if (source_output_root[0] != '\0') {
+            snprintf(output_dir, sizeof(output_dir), "%s", source_output_root);
+        } else {
+            snprintf(output_dir, sizeof(output_dir), "%s", results_root);
+        }
         mkdir(output_dir, 0755);
     } else {
         if (P.diag_elastic_bulk_penalty_enabled || P.mode == 1) {
@@ -3626,9 +3646,9 @@ int main(int argc, char **argv) {
     // 初始化场
     if (P.minimize_continue_from_vtk) {
         log_section_header("Initialization");
-        if (P.minimize_full_model && P.continue_xB_vtk_path[0] != '\0') {
+        if ((P.mode == 0 || P.minimize_full_model) && P.continue_xB_vtk_path[0] != '\0') {
             log_kv_text("path", "%s", "continue from phi/xB VTK");
-        } else if (P.minimize_full_model) {
+        } else if (P.mode == 0 || P.minimize_full_model) {
             log_kv_text("path", "%s", "continue from phi VTK + rebuilt xB/Y");
         } else {
             log_kv_text("path", "%s", "continue from phi VTK");
