@@ -562,9 +562,9 @@ python3 tools/analysis/prepare_continue_dynamic_guide.py \
   --repo-root "${REPO_ROOT}" \
   --fit-radius-margin-nm 0.055 \
   --radius-offset-nm 0.1 \
-  --dt 0.1 \
-  --steps 5000 \
-  --out-every 2500 \
+  --dt 0.05 \
+  --steps 1500 \
+  --out-every 1500 \
   --csv-out-every 10
 ```
 
