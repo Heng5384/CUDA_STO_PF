@@ -46,7 +46,7 @@ def main() -> int:
     parser.add_argument("--guide-csv", type=Path, required=True, help="guide_cnt_scan.csv")
     parser.add_argument("--repo-root", "--results-root", dest="repo_root", type=Path, default=Path("."), help="repo root containing Results/")
     parser.add_argument("--radius-offset-nm", type=float, default=0.1, help="legacy fallback: nominal discrete radius margin above rc_cnt_nm when no fitted/actual-radius match is available")
-    parser.add_argument("--actual-radius-margin-nm", type=float, default=0.1, help="require source actual equivalent radius >= rc_cnt_fit_nm + margin")
+    parser.add_argument("--fit-radius-margin-nm", type=float, default=0.055, help="require source nominal discrete radius >= rc_cnt_fit_nm + margin")
     parser.add_argument("--dx-nm", type=float, default=0.1, help="grid spacing used to convert voxel_count to equivalent radius")
     parser.add_argument("--dt", type=float, default=0.1, help="continue dynamic dt")
     parser.add_argument("--steps", type=int, default=5000, help="continue dynamic steps")
@@ -88,20 +88,19 @@ def main() -> int:
         base = row["base_case_tag"]
         rc_cnt = float(row["rc_cnt_nm"])
         rc_cnt_fit = float(row["rc_cnt_fit_nm"]) if row.get("rc_cnt_fit_nm") else None
-        target_actual_radius = None
+        target_fit_radius = None
         if rc_cnt_fit is not None:
-            target_actual_radius = rc_cnt_fit + max(args.actual_radius_margin_nm, 0.0)
+            target_fit_radius = rc_cnt_fit + max(args.fit_radius_margin_nm, 0.0)
         target_nominal_radius = rc_cnt + max(args.radius_offset_nm, 0.0)
         candidates = guide_by_base.get(base, [])
         source_row = None
         start_radius_source = ""
         for candidate in candidates:
-            actual_radius = candidate.get("_source_equiv_radius_nm")
-            if target_actual_radius is None or actual_radius is None:
+            if target_fit_radius is None:
                 continue
-            if float(actual_radius) >= target_actual_radius - 1e-9:
+            if float(candidate["radius_nm"]) >= target_fit_radius - 1e-9:
                 source_row = candidate
-                start_radius_source = f"first_source_equiv_radius_ge_rc_cnt_fit_plus_{args.actual_radius_margin_nm:g}nm"
+                start_radius_source = f"first_discrete_radius_ge_rc_cnt_fit_plus_{args.fit_radius_margin_nm:g}nm"
                 break
         if source_row is None:
             for candidate in candidates:
@@ -119,11 +118,7 @@ def main() -> int:
         xb_vtk = _resolve_repo_path(repo_root, source_row["xb_final_rel"])
         summary_path = _resolve_repo_path(repo_root, source_row["summary_rel"])
         source_equiv_radius = source_row.get("_source_equiv_radius_nm")
-        start_radius_nm = (
-            f"{float(source_equiv_radius):.6f}"
-            if source_equiv_radius is not None
-            else f"{float(source_row['radius_nm']):.6f}"
-        )
+        start_radius_nm = f"{float(source_row['radius_nm']):.6f}"
 
         out_rows.append(
             {
@@ -150,7 +145,7 @@ def main() -> int:
                 "source_case_tag": source_row["case_tag"],
                 "source_radius_nm": source_row["radius_nm"],
                 "source_equiv_radius_nm": f"{float(source_equiv_radius):.6f}" if source_equiv_radius is not None else "",
-                "selection_target_actual_radius_nm": f"{target_actual_radius:.6f}" if target_actual_radius is not None else "",
+                "selection_target_fit_radius_nm": f"{target_fit_radius:.6f}" if target_fit_radius is not None else "",
                 "source_summary_rel": source_row["summary_rel"],
                 "source_phi_final_rel": source_row["phi_final_rel"],
                 "source_xb_final_rel": source_row["xb_final_rel"],
