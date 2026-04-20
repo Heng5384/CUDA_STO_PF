@@ -48,30 +48,29 @@ def main() -> int:
         grown_radius = None
         if isinstance(voxel_count, int):
             grown_radius = voxel_count_to_radius_nm(voxel_count, args.dx_nm)
-        records.append(
-            {
-                "workflow_name": row["workflow_name"],
-                "base_case_tag": row["base_case_tag"],
-                "mode": row["mode"],
-                "strain": float(row["strain"]),
-                "T_C": float(row["T_C"]),
-                "xB_out": float(row["xB_out"]),
-                "rc_schur_nm": float(row["rc_schur_nm"]),
-                "rc_cnt_nm": float(row["rc_cnt_nm"]),
-                "rc_cnt_fit_nm": float(row["rc_cnt_fit_nm"]) if row["rc_cnt_fit_nm"] else None,
-                "source_radius_nm": float(row["source_radius_nm"]),
-                "start_radius_nm": float(row["start_radius_nm"]),
-                "summary_path": str(summary_path),
-                "summary_exists": int(summary_path.exists()),
-                "voxel_count": voxel_count if isinstance(voxel_count, int) else None,
-                "grown_equiv_radius_nm": grown_radius,
-                "delta_growth_nm": (grown_radius - float(row["start_radius_nm"])) if grown_radius is not None else None,
-                "L1_long": summary_data.get("L1_long"),
-                "L2_mid": summary_data.get("L2_mid"),
-                "L3_short": summary_data.get("L3_short"),
-                "L1_over_L3": summary_data.get("L1_over_L3"),
-            }
-        )
+        record = {
+            "workflow_name": row["workflow_name"],
+            "base_case_tag": row["base_case_tag"],
+            "mode": row["mode"],
+            "strain": float(row["strain"]),
+            "T_C": float(row["T_C"]),
+            "xB_out": float(row["xB_out"]),
+            "rc_schur_nm": float(row["rc_schur_nm"]),
+            "rc_cnt_nm": float(row["rc_cnt_nm"]),
+            "rc_cnt_fit_nm": float(row["rc_cnt_fit_nm"]) if row["rc_cnt_fit_nm"] else None,
+            "source_radius_nm": float(row["source_radius_nm"]),
+            "start_radius_nm": float(row["start_radius_nm"]),
+            "summary_path": str(summary_path),
+            "summary_exists": int(summary_path.exists()),
+            "voxel_count": voxel_count if isinstance(voxel_count, int) else None,
+            "grown_equiv_radius_nm": grown_radius,
+            "delta_growth_nm": (grown_radius - float(row["start_radius_nm"])) if grown_radius is not None else None,
+        }
+        for key, value in summary_data.items():
+            if key == "summary_path":
+                continue
+            record[key] = value
+        records.append(record)
 
     with output.open("w", newline="", encoding="utf-8") as f:
         if records:

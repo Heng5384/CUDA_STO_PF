@@ -107,7 +107,7 @@ def main() -> int:
         grown_radius = None
         if isinstance(voxel_count, int):
             grown_radius = _radius_from_voxels(voxel_count, args.dx_nm)
-        records.append({
+        record = {
             "base_case_tag": row.get("BASE_CASE_TAG", ""),
             "queue_name": row.get("QUEUE_NAME", ""),
             "strain": row.get("STRAIN", ""),
@@ -117,12 +117,13 @@ def main() -> int:
             "voxel_count": voxel_count if isinstance(voxel_count, int) else None,
             "grown_equiv_radius_nm": grown_radius,
             "delta_growth_nm": (grown_radius - start_radius) if grown_radius is not None else None,
-            "L1_long": summary_data.get("L1_long"),
-            "L2_mid": summary_data.get("L2_mid"),
-            "L3_short": summary_data.get("L3_short"),
-            "L1_over_L3": summary_data.get("L1_over_L3"),
             "status": row.get("STATUS", ""),
-        })
+        }
+        for key, value in summary_data.items():
+            if key == "summary_path":
+                continue
+            record[key] = value
+        records.append(record)
 
     out_path = args.output.expanduser().resolve() if args.output else manifest.parent / "dynamics_continue_growth_summary.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
