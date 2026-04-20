@@ -268,6 +268,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 脚本：
 
 - [`summarize_continue_from_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_continue_from_guide.py)
+- [`summarize_continue_dynamic_from_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_continue_dynamic_from_guide.py)
 
 作用：
 
@@ -284,6 +285,44 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 输出：
 
 - `continue_dynamic/growth_summary.csv`
+
+说明：
+
+- `summarize_continue_dynamic_from_guide.py` 是更明确的别名入口
+- 它和 `summarize_continue_from_guide.py` 读取的是同一份 `guide_continue_dynamic.csv`
+- 输出也是同一张：
+  - `continue_dynamic/growth_summary.csv`
+
+### 6a. 从 continue dynamic 的 VTK 补生成 `summary.txt`
+
+脚本：
+
+- [`generate_continue_dynamic_geometry_summaries.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/generate_continue_dynamic_geometry_summaries.py)
+
+作用：
+
+- 读取 `guide_continue_dynamic.csv`
+- 对每一条 continue dynamic case：
+  - 找到 `continue_dyn_1` 目录
+  - 优先读取 `phi_<nsteps>.vtk`
+  - 如果最终步 VTK 不存在，就退到目录里最新的 `phi_*.vtk`
+- 直接从 VTK 场重建几何形貌
+- 写回标准位置的：
+  - `continue_dyn_1/summary.txt`
+
+适用场景：
+
+- continue dynamic 已经有 `phi_*.vtk / xB_*.vtk`
+- 但因为旧流程或中断，没有生成 `summary.txt`
+- 想先补齐 `summary.txt`，再跑汇总脚本
+
+注意：
+
+- 这是“补 summary”，不是重新跑模拟
+- 如果某条 case 连 `phi_*.vtk` 都没有，这个脚本会报失败
+- 默认只补缺失的 `summary.txt`
+- 如果要强制重算已有的 `summary.txt`，加：
+  - `--overwrite`
 
 ### 7. guide 进度检查与断点续跑
 
@@ -554,7 +593,7 @@ Results/workflows/T400_xB0p030/raw/.../continue_dyn_1/
 ```bash
 cd "${REPO_ROOT}"
 
-python3 tools/analysis/summarize_continue_from_guide.py \
+python3 tools/analysis/summarize_continue_dynamic_from_guide.py \
   --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
   --repo-root "${REPO_ROOT}"
 ```
@@ -563,6 +602,39 @@ python3 tools/analysis/summarize_continue_from_guide.py \
 
 ```text
 Results/workflows/T400_xB0p030/continue_dynamic/growth_summary.csv
+```
+
+### F1. 如果 continue dynamic 已有 VTK 但缺 `summary.txt`
+
+先补 geometry summary：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/generate_continue_dynamic_geometry_summaries.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+  --repo-root "${REPO_ROOT}"
+```
+
+如果要覆盖已有 `summary.txt`：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/generate_continue_dynamic_geometry_summaries.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+  --repo-root "${REPO_ROOT}" \
+  --overwrite
+```
+
+然后再生成 continue 生长汇总：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/summarize_continue_dynamic_from_guide.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+  --repo-root "${REPO_ROOT}"
 ```
 
 ## 实际操作原则
