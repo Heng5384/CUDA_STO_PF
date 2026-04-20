@@ -560,12 +560,19 @@ python3 tools/analysis/prepare_continue_dynamic_guide.py \
   --summary-csv Results/workflows/T400_xB0p030/cnt_scan/current_results_master_table_fitted.csv \
   --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
   --repo-root "${REPO_ROOT}" \
+  --fit-radius-margin-nm 0.055 \
   --radius-offset-nm 0.1 \
   --dt 0.1 \
   --steps 5000 \
   --out-every 2500 \
   --csv-out-every 10
 ```
+
+说明：
+
+- 当前主准则是 `--fit-radius-margin-nm 0.055`，表示优先选择满足 `source_radius_nm >= rc_cnt_fit_nm + 0.055 nm` 的离散源点。
+- `--radius-offset-nm 0.1` 现在只是回退准则。只有当 `rc_cnt_fit_nm` 不可用，或者按主准则找不到合适离散点时，才会退回使用 `rc_cnt_nm + 0.1 nm`。
+- 如果你的目标是尽量少改已有源点，同时修掉最接近临界、读入后容易回缩的 case，建议保持这组参数不变。
 
 输出：
 
