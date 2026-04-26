@@ -76,6 +76,7 @@ Results/workflows/T400_xB0p030/
 兼容性说明：
 
 - 新流程的标准文件名是 `summary.txt`
+- 新结果只写 `summary.txt`
 - 旧结果里如果还是 `summary_<case_tag>.txt`，现有读取脚本仍然兼容
 
 如果你说：

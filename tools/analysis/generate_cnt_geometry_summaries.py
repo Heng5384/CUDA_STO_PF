@@ -59,7 +59,6 @@ def main() -> int:
     for idx, row in enumerate(rows, start=1):
         case_dir = _resolve_repo_path(repo_root, row["case_dir_rel"])
         summary_path = case_dir / cnt_summary_filename()
-        legacy_summary_path = case_dir / cnt_summary_filename(row.get("case_tag", ""), legacy=True)
         if summary_path.exists() and not args.overwrite:
             skipped += 1
             continue
@@ -81,8 +80,6 @@ def main() -> int:
                 raise RuntimeError("no valid nucleus geometry found above threshold")
 
             _write_summary(summary_path, phi_vtk, geom, "minimize")
-            if legacy_summary_path != summary_path:
-                legacy_summary_path.write_text(summary_path.read_text(encoding="utf-8"), encoding="utf-8")
             built += 1
             print(f"[built] row={idx} base={row['base_case_tag']} case={row['case_tag']} summary={summary_path}")
         except Exception as exc:
