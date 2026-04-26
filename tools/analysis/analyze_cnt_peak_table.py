@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tools.analysis.workflow_utils import cnt_summary_filename
 
 def canon(tag: str) -> str:
     tag = tag.replace("_s010_", "_s0p01_")
@@ -65,14 +66,30 @@ def fit_local_peak(points: list[tuple[float, float]], peak_index: int) -> tuple[
 
 
 def parse_vector(text: str) -> tuple[float, ...]:
-    nums = [float(x.strip()) for x in text.strip().strip("[]").split(",")]
+    cleaned = text.strip().strip("[]()")
+    nums = [float(x.strip()) for x in cleaned.split(",")]
     return tuple(nums)
 
 
 def parse_summary_file(path: Path) -> dict[str, object]:
     data: dict[str, object] = {
         "summary_path": str(path),
+        "phi_vtk_file": None,
+        "mode": None,
+        "grid_nx": None,
+        "grid_ny": None,
+        "grid_nz": None,
+        "spacing_x": None,
+        "spacing_y": None,
+        "spacing_z": None,
+        "threshold_phi": None,
+        "connected_components": None,
+        "chosen_component": None,
         "voxel_count": None,
+        "boundary_voxel_count": None,
+        "center_x": None,
+        "center_y": None,
+        "center_z": None,
         "bbox_x": None,
         "bbox_y": None,
         "bbox_z": None,
@@ -109,6 +126,21 @@ def parse_summary_file(path: Path) -> dict[str, object]:
         "short_face_vs_long_deg": None,
         "short_face_vs_mid_deg": None,
         "short_face_vs_short_deg": None,
+        "long_face_point_x": None,
+        "long_face_point_y": None,
+        "long_face_point_z": None,
+        "long_face_normal_x": None,
+        "long_face_normal_y": None,
+        "long_face_normal_z": None,
+        "mid_face_point_x": None,
+        "mid_face_point_y": None,
+        "mid_face_point_z": None,
+        "mid_face_normal_x": None,
+        "mid_face_normal_y": None,
+        "mid_face_normal_z": None,
+        "short_face_point_x": None,
+        "short_face_point_y": None,
+        "short_face_point_z": None,
     }
     current_face = None
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -123,8 +155,32 @@ def parse_summary_file(path: Path) -> dict[str, object]:
             continue
         key, value = [x.strip() for x in stripped.split(":", 1)]
         try:
-            if key == "voxel_count":
+            if key == "phi_vtk_file":
+                data["phi_vtk_file"] = value
+            elif key == "mode":
+                data["mode"] = value
+            elif key == "grid_dimensions":
+                vx, vy, vz = parse_vector(value)
+                data["grid_nx"], data["grid_ny"], data["grid_nz"] = int(vx), int(vy), int(vz)
+            elif key == "spacing_sim_units":
+                vx, vy, vz = parse_vector(value)
+                data["spacing_x"], data["spacing_y"], data["spacing_z"] = vx, vy, vz
+            elif key == "threshold_mode":
+                try:
+                    data["threshold_phi"] = float(value.split(">")[-1].strip())
+                except Exception:
+                    pass
+            elif key == "connected_components":
+                data["connected_components"] = int(value)
+            elif key == "chosen_component":
+                data["chosen_component"] = int(value)
+            elif key == "voxel_count":
                 data["voxel_count"] = int(value)
+            elif key == "boundary_voxel_count":
+                data["boundary_voxel_count"] = int(value)
+            elif key == "center_of_mass":
+                vx, vy, vz = parse_vector(value)
+                data["center_x"], data["center_y"], data["center_z"] = vx, vy, vz
             elif key == "bbox_length_xyz":
                 vx, vy, vz = parse_vector(value)
                 data["bbox_x"], data["bbox_y"], data["bbox_z"] = vx, vy, vz
@@ -170,6 +226,21 @@ def parse_summary_file(path: Path) -> dict[str, object]:
             elif current_face == "+short face" and key == "mean normal":
                 vx, vy, vz = parse_vector(value)
                 data["short_face_normal_x"], data["short_face_normal_y"], data["short_face_normal_z"] = vx, vy, vz
+            elif current_face == "+long face" and key == "mean point":
+                vx, vy, vz = parse_vector(value)
+                data["long_face_point_x"], data["long_face_point_y"], data["long_face_point_z"] = vx, vy, vz
+            elif current_face == "+long face" and key == "mean normal":
+                vx, vy, vz = parse_vector(value)
+                data["long_face_normal_x"], data["long_face_normal_y"], data["long_face_normal_z"] = vx, vy, vz
+            elif current_face == "+mid face" and key == "mean point":
+                vx, vy, vz = parse_vector(value)
+                data["mid_face_point_x"], data["mid_face_point_y"], data["mid_face_point_z"] = vx, vy, vz
+            elif current_face == "+mid face" and key == "mean normal":
+                vx, vy, vz = parse_vector(value)
+                data["mid_face_normal_x"], data["mid_face_normal_y"], data["mid_face_normal_z"] = vx, vy, vz
+            elif current_face == "+short face" and key == "mean point":
+                vx, vy, vz = parse_vector(value)
+                data["short_face_point_x"], data["short_face_point_y"], data["short_face_point_z"] = vx, vy, vz
             elif current_face == "+short face" and key == "angle with x":
                 data["short_face_angle_x_deg"] = float(value)
             elif current_face == "+short face" and key == "angle with y":
@@ -233,8 +304,9 @@ def main() -> None:
             rows = list(csv.DictReader(f))
         if not rows or "F_total_CNT_hat" not in rows[-1]:
             continue
-        summary_candidates = list(energy_path.parent.glob("summary_*.txt"))
-        summary_path = str(summary_candidates[0]) if summary_candidates else ""
+        summary_candidates = [energy_path.parent / cnt_summary_filename(), *sorted(energy_path.parent.glob("summary*.txt"))]
+        summary_existing = next((p for p in summary_candidates if p.exists()), None)
+        summary_path = str(summary_existing) if summary_existing else ""
         series[base].append((radius_nm, float(rows[-1]["F_total_CNT_hat"])))
         point_info[base][radius_nm] = {
             "summary_path": summary_path,

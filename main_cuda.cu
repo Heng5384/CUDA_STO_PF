@@ -89,23 +89,26 @@ static void build_case_summary_path(char *out, size_t out_size,
                                     const char *case_output_dir,
                                     const char *case_tag,
                                     int mode) {
+    if (!out || out_size == 0) return;
+    const int use_case_dir = (mode != 0) || (g_dynamic_outputs_use_case_dir && case_output_dir && case_output_dir[0] != '\0');
+    const char *base_dir = use_case_dir ? case_output_dir : output_dir;
+    if (!base_dir) {
+        out[0] = '\0';
+        return;
+    }
+    snprintf(out, out_size, "%s/summary.txt", base_dir);
+}
+
+static void build_case_legacy_summary_path(char *out, size_t out_size,
+                                           const char *case_output_dir,
+                                           const char *case_tag) {
     const char *tag = (case_tag && case_tag[0] != '\0') ? case_tag : "case_unknown";
     if (!out || out_size == 0) return;
-    if (mode == 0) {
-        const int use_case_dir = g_dynamic_outputs_use_case_dir && case_output_dir && case_output_dir[0] != '\0';
-        const char *base_dir = use_case_dir ? case_output_dir : output_dir;
-        if (!base_dir) {
-            out[0] = '\0';
-            return;
-        }
-        snprintf(out, out_size, "%s/summary.txt", base_dir);
-    } else {
-        if (!case_output_dir) {
-            out[0] = '\0';
-            return;
-        }
-        snprintf(out, out_size, "%s/summary_%s.txt", case_output_dir, tag);
+    if (!case_output_dir) {
+        out[0] = '\0';
+        return;
     }
+    snprintf(out, out_size, "%s/summary_%s.txt", case_output_dir, tag);
 }
 
 static int copy_text_file(const char *src, const char *dst) {
@@ -5814,6 +5817,7 @@ int main(int argc, char **argv) {
     {
         char geometry_phi_vtk_path[4096] = {0};
         char geometry_summary_path[4096] = {0};
+        char geometry_legacy_summary_path[4096] = {0};
         int should_write_geometry_summary = 0;
 
         if (P.mode == 1) {
@@ -5822,6 +5826,8 @@ int main(int argc, char **argv) {
                                 "phi", VTK_NAME_FINAL, 0, vtk_case_tag, 1);
             build_case_summary_path(geometry_summary_path, sizeof(geometry_summary_path),
                                     output_dir, case_output_dir, vtk_case_tag, 1);
+            build_case_legacy_summary_path(geometry_legacy_summary_path, sizeof(geometry_legacy_summary_path),
+                                           case_output_dir, vtk_case_tag);
             should_write_geometry_summary = 1;
         } else if (P.mode == 0) {
             int final_output_step = P.nsteps / P.out_every;
@@ -5842,6 +5848,14 @@ int main(int argc, char **argv) {
                                                     geometry_summary_path,
                                                     geometry_phi_vtk_path,
                                                     NULL)) {
+                if (P.mode == 1 &&
+                    geometry_legacy_summary_path[0] != '\0' &&
+                    strcmp(geometry_legacy_summary_path, geometry_summary_path) != 0) {
+                    if (!copy_text_file(geometry_summary_path, geometry_legacy_summary_path)) {
+                        fprintf(stderr, "[warn] failed to create legacy geometry summary alias: %s\n",
+                                geometry_legacy_summary_path);
+                    }
+                }
                 printf("写出 geometry summary: %s\n", geometry_summary_path);
             } else {
                 fprintf(stderr, "[warn] geometry summary skipped: no valid nucleus component found.\n");

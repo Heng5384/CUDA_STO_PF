@@ -48,9 +48,75 @@ Results/workflows/T400_xB0p030/
 - `input/` 只放引导 CSV 和工作流配置。
 - `raw/` 放主程序实际输出的原始结果。
 - `cnt_scan/` 放临界半径汇总。
-- `continue_dynamic/` 放 continue 生长汇总。
+- `continue_dynamic/` 放 continue dynamic 生长汇总。
 
 这样不同温度、不同 `xB_out` 的任务天然分开，不会混在一个目录里。
+
+## Summary 体系说明
+
+这套 workflow 里一共有 2 类不同用途的 summary。后续读表、补表、或者做大系统插核子时，先分清这 2 类，基本就不会混。
+
+### 1. 普通 CNT/minimize summary
+
+这一类对应的是：
+
+- `guide_cnt_scan.csv`
+- `raw/.../cntcon_.../summary.txt`
+- `cnt_scan/current_results_master_table_fitted.csv`
+
+含义：
+
+- 每一个离散半径 case 做完普通 PF minimize 后，会落一个 `summary.txt`
+- 然后 `summarize_cnt_scan_from_guide.py` 会读取整批 `summary.txt`
+- 最后汇总成：
+  - `cnt_scan/current_results_master_table_fitted.csv`
+
+这是“普通 CNT 扫描结果”的 summary 体系。
+
+兼容性说明：
+
+- 新流程的标准文件名是 `summary.txt`
+- 旧结果里如果还是 `summary_<case_tag>.txt`，现有读取脚本仍然兼容
+
+如果你说：
+
+- “补普通 minimize 的 summary”
+- “补峰位半径那一批的 summary”
+
+那你指的就是这一类。
+
+### 2. Continue-Dynamic summary
+
+这一类对应的是：
+
+- `guide_continue_dynamic.csv`
+- `raw/.../continue_dyn_1/summary.txt`
+- `continue_dynamic/growth_summary.csv`
+
+含义：
+
+- 先从 CNT 主表生成 `guide_continue_dynamic.csv`
+- 每条 continue dynamic case 跑完后，会在：
+  - `continue_dyn_1/summary.txt`
+  写出 geometry summary
+- 然后 `summarize_continue_dynamic_from_guide.py` 会把它们汇总成：
+  - `continue_dynamic/growth_summary.csv`
+
+这是“动力学生长后的核子”的 summary 体系。
+
+### 最容易混淆的地方
+
+- `cnt_scan/current_results_master_table_fitted.csv`
+  - 来自普通 CNT/minimize
+  - 不是 continue
+
+- `continue_dynamic/growth_summary.csv`
+  - 来自 continue dynamic
+  - 不是普通 CNT 扫描
+
+所以如果你说“补 minimize 的 summary”，最好明确是下面哪一种：
+
+- 普通 CNT/minimize
 
 ## 迁移到别人的 Cluster 账户
 
@@ -254,16 +320,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
   - `dt`
 - 其余 continue 物理参数保持不变
 
-如果需要跑 `minimize-continue`，对应脚本是：
-
-- [`submit_continue_minimize_guide_serial.sbatch`](/Users/heng/Documents/GitHub/CUDA_STO_PF/jobs/submit_continue_minimize_guide_serial.sbatch)
-
-它和 `dynamics-continue` 一样，也支持：
-
-- 重复提交同一份 guide 时自动跳过已完成 row
-- 只继续未完成部分
-
-### 6. continue 生长汇总
+### 6. continue 汇总
 
 脚本：
 
@@ -293,7 +350,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 - 输出也是同一张：
   - `continue_dynamic/growth_summary.csv`
 
-### 6a. 从 continue dynamic 的 VTK 补生成 `summary.txt`
+### 6a. 从 continue 的 VTK 补生成 `summary.txt`
 
 脚本：
 
@@ -324,6 +381,13 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 - 如果要强制重算已有的 `summary.txt`，加：
   - `--overwrite`
 
+说明：
+
+- 这个脚本写出的字段格式与主程序 `main_cuda` 直接输出的 geometry summary 保持一致。
+- 也就是说：
+  - 新跑出来的 case，主程序会直接写 richer summary
+  - 老结果如果缺 summary，或者旧 summary 信息不全，可以用这里的补算脚本回填
+
 ### 7. guide 进度检查与断点续跑
 
 脚本：
@@ -337,11 +401,10 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 - 输出一张进度表
 - 可选地再导出一份只包含未完成 row 的 `pending-only guide`
 
-支持三种 guide 类型：
+支持两种 guide 类型：
 
 - `cnt`
 - `continue-dynamic`
-- `continue-minimize`
 
 #### 推荐理解方式
 
@@ -388,18 +451,6 @@ python3 tools/analysis/report_guide_progress.py \
   --pending-guide-output Results/workflows/T400_xB0p030/input/guide_continue_dynamic_pending.csv
 ```
 
-#### continue minimize 进度检查
-
-```bash
-cd "${REPO_ROOT}"
-
-python3 tools/analysis/report_guide_progress.py \
-  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
-  --repo-root "${REPO_ROOT}" \
-  --guide-type continue-minimize \
-  --pending-guide-output Results/workflows/T400_xB0p030/input/guide_continue_minimize_pending.csv
-```
-
 #### 什么叫“已完成”
 
 CNT 扫描：
@@ -411,11 +462,6 @@ continue dynamic：
 
 - 已有 `continue_dyn_1/summary.txt`
 - 或已有最终步的 `phi_<nsteps>.vtk` 和 `xB_<nsteps>.vtk`
-
-continue minimize：
-
-- 已有 `continue_min_1/summary_continue_min_1.txt`
-- 或已有 `energy_minimize_continue_min_1.csv` 和 `phi_final_continue_min_1.vtk`
 
 #### 什么时候用 pending-only guide
 
@@ -551,6 +597,39 @@ python3 tools/analysis/summarize_cnt_scan_from_guide.py \
 Results/workflows/T400_xB0p030/cnt_scan/current_results_master_table_fitted.csv
 ```
 
+### C1. 如果普通 CNT/minimize 已有 VTK 但缺 `summary.txt`
+
+先补 geometry summary：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/generate_cnt_geometry_summaries.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+  --repo-root "${REPO_ROOT}"
+```
+
+如果要覆盖已有 `summary.txt`：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/generate_cnt_geometry_summaries.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+  --repo-root "${REPO_ROOT}" \
+  --overwrite
+```
+
+然后再刷新 CNT 汇总表：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/summarize_cnt_scan_from_guide.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+  --repo-root "${REPO_ROOT}"
+```
+
 ### D. 根据 CNT 汇总生成 continue dynamic 引导表
 
 ```bash
@@ -595,7 +674,7 @@ continue 结果会落到：
 Results/workflows/T400_xB0p030/raw/.../continue_dyn_1/
 ```
 
-### F. 生成 continue 生长汇总
+### F. 生成 continue dynamic 生长汇总
 
 ```bash
 cd "${REPO_ROOT}"

@@ -11,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.analysis.analyze_cnt_peak_table import parse_summary_file
+from tools.analysis.workflow_utils import continue_summary_rel
 from tools.analysis.workflow_utils import voxel_count_to_radius_nm
 
 
@@ -21,10 +22,32 @@ def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
     return repo_root / p
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Summarize continue dynamic results from a single guide CSV.")
+def _continue_summary_path(row: dict[str, str], repo_root: Path, continue_kind: str) -> Path:
+    if continue_kind == "dynamic":
+        rel = row.get("continue_summary_rel")
+        if rel:
+            return _resolve_repo_path(repo_root, rel)
+        return _resolve_repo_path(repo_root, continue_summary_rel(row["output_root_rel"], "dynamic"))
+
+    rel = row.get("continue_minimize_summary_rel")
+    if rel:
+        preferred = _resolve_repo_path(repo_root, rel)
+        if preferred.exists():
+            return preferred
+    canonical = _resolve_repo_path(repo_root, continue_summary_rel(row["output_root_rel"], "minimize"))
+    if canonical.exists():
+        return canonical
+    return _resolve_repo_path(
+        repo_root,
+        str(Path(row["output_root_rel"]) / "continue_min_1" / "summary_continue_min_1.txt"),
+    )
+
+
+def main(default_continue_kind: str = "dynamic") -> int:
+    parser = argparse.ArgumentParser(description="Summarize continue results from a single guide CSV.")
     parser.add_argument("--guide-csv", type=Path, required=True, help="guide_continue_dynamic.csv")
     parser.add_argument("--repo-root", "--results-root", dest="repo_root", type=Path, default=Path("."), help="repo root containing Results/")
+    parser.add_argument("--continue-kind", choices=("dynamic", "minimize"), default=default_continue_kind, help="which continue result directory/summary naming to use")
     parser.add_argument("--dx-nm", type=float, default=0.1, help="grid spacing for equivalent radius conversion")
     parser.add_argument("--output", type=Path, default=None, help="output growth summary csv")
     args = parser.parse_args()
@@ -32,7 +55,9 @@ def main() -> int:
     guide_csv = args.guide_csv.expanduser().resolve()
     repo_root = args.repo_root.expanduser().resolve()
     workflow_dir = guide_csv.parent.parent
-    output = args.output.expanduser().resolve() if args.output else (workflow_dir / "continue_dynamic" / "growth_summary.csv")
+    default_dir = "continue_dynamic" if args.continue_kind == "dynamic" else "continue_minimize"
+    output_name = "growth_summary.csv" if args.continue_kind == "dynamic" else "minimize_summary.csv"
+    output = args.output.expanduser().resolve() if args.output else (workflow_dir / default_dir / output_name)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with guide_csv.open(newline="", encoding="utf-8") as f:
@@ -40,7 +65,7 @@ def main() -> int:
 
     records: list[dict[str, object]] = []
     for row in rows:
-        summary_path = _resolve_repo_path(repo_root, row["continue_summary_rel"])
+        summary_path = _continue_summary_path(row, repo_root, args.continue_kind)
         summary_data: dict[str, object] = {}
         if summary_path.exists():
             summary_data = parse_summary_file(summary_path)
@@ -52,6 +77,7 @@ def main() -> int:
             "workflow_name": row["workflow_name"],
             "base_case_tag": row["base_case_tag"],
             "mode": row["mode"],
+            "continue_kind": args.continue_kind,
             "strain": float(row["strain"]),
             "T_C": float(row["T_C"]),
             "xB_out": float(row["xB_out"]),
@@ -60,6 +86,7 @@ def main() -> int:
             "rc_cnt_fit_nm": float(row["rc_cnt_fit_nm"]) if row["rc_cnt_fit_nm"] else None,
             "source_radius_nm": float(row["source_radius_nm"]),
             "start_radius_nm": float(row["start_radius_nm"]),
+            "source_equiv_radius_nm": float(row["source_equiv_radius_nm"]) if row.get("source_equiv_radius_nm") else None,
             "summary_path": str(summary_path),
             "summary_exists": int(summary_path.exists()),
             "voxel_count": voxel_count if isinstance(voxel_count, int) else None,

@@ -12,7 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.analysis.analyze_cnt_peak_table import parse_summary_file
-from tools.analysis.workflow_utils import voxel_count_to_radius_nm
+from tools.analysis.workflow_utils import cnt_summary_filename, continue_summary_rel, voxel_count_to_radius_nm
 
 
 def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
@@ -20,10 +20,6 @@ def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
     if p.is_absolute():
         return p
     return repo_root / p
-
-
-def _continue_summary_rel(output_root_rel: str) -> str:
-    return str(Path(output_root_rel) / "continue_dyn_1" / "summary.txt")
 
 
 def _continue_pf_rel(output_root_rel: str) -> str:
@@ -38,6 +34,14 @@ def _source_equiv_radius_nm(summary_path: Path, dx_nm: float) -> float | None:
     if not isinstance(voxel_count, int):
         return None
     return voxel_count_to_radius_nm(voxel_count, dx_nm)
+
+
+def _cnt_summary_path(row: dict[str, str], repo_root: Path) -> Path:
+    case_dir = _resolve_repo_path(repo_root, row["case_dir_rel"])
+    canonical = case_dir / cnt_summary_filename()
+    if canonical.exists():
+        return canonical
+    return _resolve_repo_path(repo_root, row["summary_rel"])
 
 
 def main() -> int:
@@ -73,7 +77,7 @@ def main() -> int:
         guide_by_base[row["base_case_tag"]].append(row)
     for rows in guide_by_base.values():
         for candidate in rows:
-            summary_path = _resolve_repo_path(repo_root, candidate["summary_rel"])
+            summary_path = _cnt_summary_path(candidate, repo_root)
             actual_radius = _source_equiv_radius_nm(summary_path, args.dx_nm)
             candidate["_source_equiv_radius_nm"] = actual_radius
         rows.sort(key=lambda r: float(r["radius_nm"]))
@@ -116,7 +120,7 @@ def main() -> int:
 
         phi_vtk = _resolve_repo_path(repo_root, source_row["phi_final_rel"])
         xb_vtk = _resolve_repo_path(repo_root, source_row["xb_final_rel"])
-        summary_path = _resolve_repo_path(repo_root, source_row["summary_rel"])
+        summary_path = _cnt_summary_path(source_row, repo_root)
         source_equiv_radius = source_row.get("_source_equiv_radius_nm")
         start_radius_nm = f"{float(source_row['radius_nm']):.6f}"
 
@@ -146,10 +150,10 @@ def main() -> int:
                 "source_radius_nm": source_row["radius_nm"],
                 "source_equiv_radius_nm": f"{float(source_equiv_radius):.6f}" if source_equiv_radius is not None else "",
                 "selection_target_fit_radius_nm": f"{target_fit_radius:.6f}" if target_fit_radius is not None else "",
-                "source_summary_rel": source_row["summary_rel"],
+                "source_summary_rel": str(Path(source_row["case_dir_rel"]) / cnt_summary_filename()),
                 "source_phi_final_rel": source_row["phi_final_rel"],
                 "source_xb_final_rel": source_row["xb_final_rel"],
-                "continue_summary_rel": _continue_summary_rel(source_row["output_root_rel"]),
+                "continue_summary_rel": continue_summary_rel(source_row["output_root_rel"], "dynamic"),
                 "continue_pf_input_rel": _continue_pf_rel(source_row["output_root_rel"]),
                 "continue_phi_vtk": str(phi_vtk),
                 "continue_xb_vtk": str(xb_vtk),

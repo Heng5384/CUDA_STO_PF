@@ -14,6 +14,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tools.analysis.workflow_utils import continue_summary_rel
+
 
 def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
     p = Path(rel_or_abs)
@@ -273,7 +275,51 @@ def _compute_geometry(phi: np.ndarray, dx: float, dy: float, dz: float, threshol
     }
 
 
-def _pick_phi_vtk(cont_dir: Path, nsteps: int) -> Path | None:
+def _continue_summary_path(row: dict[str, str], repo_root: Path, continue_kind: str) -> Path:
+    if continue_kind == "dynamic":
+        rel = row.get("continue_summary_rel")
+        if rel:
+            return _resolve_repo_path(repo_root, rel)
+        return _resolve_repo_path(repo_root, continue_summary_rel(row["output_root_rel"], "dynamic"))
+    rel = row.get("continue_minimize_summary_rel")
+    if rel:
+        preferred = _resolve_repo_path(repo_root, rel)
+        if preferred.exists():
+            return preferred
+    canonical = _resolve_repo_path(repo_root, continue_summary_rel(row["output_root_rel"], "minimize"))
+    if canonical.exists():
+        return canonical
+    return _resolve_repo_path(
+        repo_root,
+        str(Path(row["output_root_rel"]) / "continue_min_1" / "summary_continue_min_1.txt"),
+    )
+
+
+def _continue_dir(summary_path: Path, continue_kind: str) -> Path:
+    if continue_kind == "dynamic":
+        return summary_path.parent
+    return summary_path.parent
+
+
+def _pick_phi_vtk(cont_dir: Path, nsteps: int, continue_kind: str) -> Path | None:
+    if continue_kind == "minimize":
+        preferred = cont_dir / "phi_final_continue_min_1.vtk"
+        if preferred.exists():
+            return preferred
+        numeric = []
+        for p in cont_dir.glob("phi_*.vtk"):
+            stem = p.stem
+            if stem == "phi_init":
+                continue
+            suffix = stem.removeprefix("phi_")
+            if suffix.isdigit():
+                numeric.append((int(suffix), p))
+        if numeric:
+            numeric.sort()
+            return numeric[-1][1]
+        init = cont_dir / "phi_init.vtk"
+        return init if init.exists() else None
+
     preferred = cont_dir / f"phi_{nsteps}.vtk"
     if preferred.exists():
         return preferred
@@ -353,10 +399,11 @@ def _write_summary(path: Path, phi_vtk: Path, geom: dict[str, object], mode_labe
             fp.write(f"  angle with short axis   : {_angle_deg_abs(face_normals[i], axes[2]):.3f}\n")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate geometry summary.txt files for continue-dynamic results by reading VTK files from guide_continue_dynamic.csv.")
+def main(default_continue_kind: str = "dynamic") -> int:
+    parser = argparse.ArgumentParser(description="Generate geometry summary.txt files for continue results by reading VTK files from a continue guide.")
     parser.add_argument("--guide-csv", type=Path, required=True, help="guide_continue_dynamic.csv")
     parser.add_argument("--repo-root", "--results-root", dest="repo_root", type=Path, default=Path("."), help="repo root containing Results/")
+    parser.add_argument("--continue-kind", choices=("dynamic", "minimize"), default=default_continue_kind, help="which continue result directory/summary naming to use")
     parser.add_argument("--threshold", type=float, default=0.5, help="phi threshold used for nucleus masking")
     parser.add_argument("--overwrite", action="store_true", help="rebuild summary.txt even if it already exists")
     args = parser.parse_args()
@@ -369,17 +416,17 @@ def main() -> int:
     skipped = 0
     failed = 0
     for idx, row in enumerate(rows, start=1):
-        summary_path = _resolve_repo_path(repo_root, row["continue_summary_rel"])
-        cont_dir = summary_path.parent
+        summary_path = _continue_summary_path(row, repo_root, args.continue_kind)
+        cont_dir = _continue_dir(summary_path, args.continue_kind)
         if summary_path.exists() and not args.overwrite:
             skipped += 1
             continue
 
         try:
             nsteps = int(row["nsteps"])
-            phi_vtk = _pick_phi_vtk(cont_dir, nsteps)
+            phi_vtk = _pick_phi_vtk(cont_dir, nsteps, args.continue_kind)
             if phi_vtk is None or not phi_vtk.exists():
-                raise FileNotFoundError(f"no continue dynamic phi vtk in {cont_dir}")
+                raise FileNotFoundError(f"no continue {args.continue_kind} phi vtk in {cont_dir}")
 
             pf_params = _parse_pf_params(cont_dir / "pf_input.params")
             phi, dims, vtk_spacing = _read_legacy_scalar_vtk(phi_vtk)
@@ -391,12 +438,12 @@ def main() -> int:
             if geom is None:
                 raise RuntimeError("no valid nucleus geometry found above threshold")
 
-            _write_summary(summary_path, phi_vtk, geom, "dynamic")
+            _write_summary(summary_path, phi_vtk, geom, args.continue_kind)
             built += 1
-            print(f"[built] row={idx} base={row['base_case_tag']} summary={summary_path}")
+            print(f"[built] row={idx} kind={args.continue_kind} base={row['base_case_tag']} summary={summary_path}")
         except Exception as exc:
             failed += 1
-            print(f"[failed] row={idx} base={row.get('base_case_tag', '')} error={exc}")
+            print(f"[failed] row={idx} kind={args.continue_kind} base={row.get('base_case_tag', '')} error={exc}")
 
     print(f"built={built}")
     print(f"skipped={skipped}")

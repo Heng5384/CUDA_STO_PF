@@ -4,7 +4,14 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
+import sys
 from typing import Iterable
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.analysis.workflow_utils import cnt_summary_filename, continue_summary_filename
 
 
 def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
@@ -34,8 +41,8 @@ def _cnt_row_status(row: dict[str, str], repo_root: Path) -> tuple[str, dict[str
         sorted(case_dir.glob("phi_final_*.vtk")),
     )
     summary = _pick_existing(
-        _resolve_repo_path(repo_root, row["summary_rel"]),
-        sorted(case_dir.glob("summary_*.txt")),
+        case_dir / cnt_summary_filename(),
+        [_resolve_repo_path(repo_root, row["summary_rel"]), *sorted(case_dir.glob("summary*.txt"))],
     )
     if energy and phi_final:
         return "complete", {
@@ -56,7 +63,10 @@ def _continue_row_status(row: dict[str, str], repo_root: Path, continue_kind: st
     suffix = "continue_dyn_1" if continue_kind == "dynamic" else "continue_min_1"
     run_root = _resolve_repo_path(repo_root, row["output_root_rel"])
     cont_dir = run_root / suffix
-    summary = cont_dir / ("summary.txt" if continue_kind == "dynamic" else "summary_continue_min_1.txt")
+    summary = _pick_existing(
+        cont_dir / continue_summary_filename(continue_kind),
+        [cont_dir / "summary_continue_min_1.txt"] if continue_kind == "minimize" else [],
+    ) or (cont_dir / continue_summary_filename(continue_kind))
     final_phi = cont_dir / (
         f"phi_{row['nsteps']}.vtk" if continue_kind == "dynamic" else "phi_final_continue_min_1.vtk"
     )

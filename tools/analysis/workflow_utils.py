@@ -28,6 +28,7 @@ def ensure_workflow_subdirs(workflow_dir: Path) -> dict[str, Path]:
         "raw": workflow_dir / "raw",
         "cnt_scan": workflow_dir / "cnt_scan",
         "continue_dynamic": workflow_dir / "continue_dynamic",
+        "continue_minimize": workflow_dir / "continue_minimize",
         "summaries": workflow_dir / "summaries",
     }
     for path in subdirs.values():
@@ -72,6 +73,28 @@ def case_dir_name(base_case_tag: str, radius_nm: float) -> str:
     return f"{base_case_tag}_r{radius_case_tag(radius_nm)}"
 
 
+def cnt_summary_filename(case_name: str | None = None, *, legacy: bool = False) -> str:
+    if legacy and case_name:
+        return f"summary_{case_name}.txt"
+    return "summary.txt"
+
+
+def cnt_summary_rel(case_dir_rel: str | Path, case_name: str | None = None, *, legacy: bool = False) -> str:
+    return str(Path(case_dir_rel) / cnt_summary_filename(case_name, legacy=legacy))
+
+
+def continue_dir_name(kind: str = "dynamic") -> str:
+    return "continue_min_1" if kind == "minimize" else "continue_dyn_1"
+
+
+def continue_summary_filename(kind: str = "dynamic") -> str:
+    return "summary.txt"
+
+
+def continue_summary_rel(output_root_rel: str | Path, kind: str = "dynamic") -> str:
+    return str(Path(output_root_rel) / continue_dir_name(kind) / continue_summary_filename(kind))
+
+
 def case_output_rel(
     *,
     results_root_rel: str | Path = "Results",
@@ -103,7 +126,7 @@ def case_output_rel(
     return {
         "output_root_rel": str(root_rel),
         "case_dir_rel": str(case_dir_rel),
-        "summary_rel": str(case_dir_rel / f"summary_{case_name}.txt"),
+        "summary_rel": cnt_summary_rel(case_dir_rel, case_name),
         "energy_csv_rel": str(case_dir_rel / f"energy_minimize_{case_name}.csv"),
         "phi_final_rel": str(case_dir_rel / f"phi_final_{case_name}.vtk"),
         "xb_final_rel": str(case_dir_rel / f"xB_final_{case_name}.vtk"),

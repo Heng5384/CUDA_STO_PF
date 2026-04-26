@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.analysis.analyze_cnt_peak_table import fit_local_peak, parse_summary_file
+from tools.analysis.workflow_utils import cnt_summary_filename
 
 
 def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
@@ -22,6 +23,9 @@ def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
 
 
 def _pick_existing_result(case_dir: Path, preferred: Path, pattern: str) -> Path | None:
+    canonical = case_dir / cnt_summary_filename()
+    if canonical.exists():
+        return canonical
     if preferred.exists():
         return preferred
     matches = sorted(case_dir.glob(pattern))
@@ -71,7 +75,7 @@ def main() -> int:
             radius_nm = float(row["radius_nm"])
             case_dir = _resolve_repo_path(repo_root, row["case_dir_rel"])
             energy_csv = _pick_existing_result(case_dir, _resolve_repo_path(repo_root, row["energy_csv_rel"]), "energy_minimize_*.csv")
-            summary_path = _pick_existing_result(case_dir, _resolve_repo_path(repo_root, row["summary_rel"]), "summary_*.txt")
+            summary_path = _pick_existing_result(case_dir, _resolve_repo_path(repo_root, row["summary_rel"]), "summary*.txt")
             if energy_csv is None:
                 continue
             with energy_csv.open(newline="", encoding="utf-8") as f:

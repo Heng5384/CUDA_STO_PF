@@ -8,6 +8,8 @@ import shlex
 import sys
 from pathlib import Path
 
+from tools.analysis.workflow_utils import cnt_summary_filename
+
 
 DEFAULT_CSV = Path("Results_scan/constraint_cnt_strictref_test_T400_x0_0p03/current_results_master_table_fitted.csv")
 
@@ -117,8 +119,9 @@ def parse_case_metadata(summary_path: Path) -> dict[str, object]:
     Parse metadata from:
       Results_scan/chel_T400_cuda_400x400x400_dt0.1_steps30000_r2.836nm_xB0.030/...
     """
-    out_root = summary_path.parent.parent.name
-    case_dir = summary_path.parent.name
+    case_dir_path = summary_path.parent
+    out_root = case_dir_path.parent.name
+    case_dir = case_dir_path.name
 
     m = re.match(
         r"^(?P<prefix>chel|ch)_T(?P<T>\d+)_cuda_(?P<NX>\d+)x(?P<NY>\d+)x(?P<NZ>\d+)_dt(?P<dt>[0-9.]+)_steps(?P<steps>\d+)_r(?P<radius>[0-9.]+)nm_xB(?P<xb>[0-9.]+)$",
@@ -147,7 +150,7 @@ def parse_case_metadata(summary_path: Path) -> dict[str, object]:
 def derive_continue_files(summary_path: Path, strict: bool = False) -> tuple[Path, Path]:
     case_dir = summary_path.parent
     summary_stem = summary_path.stem
-    case_tag = summary_stem.removeprefix("summary_")
+    case_tag = case_dir.name if summary_stem == "summary" else summary_stem.removeprefix("summary_")
 
     phi_final = case_dir / f"phi_final_{case_tag}.vtk"
     xb_final = case_dir / f"xB_final_{case_tag}.vtk"
@@ -210,7 +213,7 @@ def derive_next_discrete_summary_path(
 
     root_name = re.sub(r"_r[0-9.]+nm_xB", f"_r{next_radius:.3f}nm_xB", root_dir.name)
     case_name = re.sub(r"_r[0-9p]+$", f"_r{next_radius:.6f}".replace(".", "p"), case_dir.name)
-    summary_new = f"summary_{case_name}.txt"
+    summary_new = cnt_summary_filename()
     new_path = root_dir.parent / root_name / case_name / summary_new
     return new_path.resolve(), next_radius
 

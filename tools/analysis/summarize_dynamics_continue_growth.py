@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.analysis.analyze_cnt_peak_table import parse_summary_file
+from tools.analysis.workflow_utils import cnt_summary_filename
 
 
 def _parse_float(value: str | None) -> float | None:
@@ -77,6 +78,7 @@ def _summary_candidates(row: dict[str, str], results_root: Path) -> list[Path]:
     return [
         run_root / continue_dir / "summary.txt",
         run_root / continue_dir / f"summary_{continue_dir}.txt",
+        run_root / case_dir / cnt_summary_filename(),
         run_root / case_dir / f"summary_{case_dir}.txt",
     ]
 
