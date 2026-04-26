@@ -23,13 +23,17 @@ def _resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
 
 
 def _pick_existing_result(case_dir: Path, preferred: Path, pattern: str) -> Path | None:
-    canonical = case_dir / cnt_summary_filename()
-    if canonical.exists():
-        return canonical
     if preferred.exists():
         return preferred
     matches = sorted(case_dir.glob(pattern))
     return matches[0] if matches else None
+
+
+def _pick_cnt_summary(case_dir: Path, preferred: Path) -> Path | None:
+    canonical = case_dir / cnt_summary_filename()
+    if canonical.exists():
+        return canonical
+    return _pick_existing_result(case_dir, preferred, "summary*.txt")
 
 
 def _union_fieldnames(records: list[dict[str, object]]) -> list[str]:
@@ -75,7 +79,7 @@ def main() -> int:
             radius_nm = float(row["radius_nm"])
             case_dir = _resolve_repo_path(repo_root, row["case_dir_rel"])
             energy_csv = _pick_existing_result(case_dir, _resolve_repo_path(repo_root, row["energy_csv_rel"]), "energy_minimize_*.csv")
-            summary_path = _pick_existing_result(case_dir, _resolve_repo_path(repo_root, row["summary_rel"]), "summary*.txt")
+            summary_path = _pick_cnt_summary(case_dir, _resolve_repo_path(repo_root, row["summary_rel"]))
             if energy_csv is None:
                 continue
             with energy_csv.open(newline="", encoding="utf-8") as f:
