@@ -36,6 +36,9 @@ Results/workflows/T400_xB0p030/
 │   └── guide_continue_dynamic.csv
 ├── raw/
 │   └── chel_T.../cntcon_.../
+├── analysis/
+│   ├── nucleation_rate/
+│   └── energy_component_barrier/
 ├── cnt_scan/
 │   └── current_results_master_table_fitted.csv
 ├── continue_dynamic/
@@ -49,8 +52,44 @@ Results/workflows/T400_xB0p030/
 - `raw/` 放主程序实际输出的原始结果。
 - `cnt_scan/` 放临界半径汇总。
 - `continue_dynamic/` 放 continue dynamic 生长汇总。
+- `analysis/` 放基于 workflow 原始结果生成的正式后处理结果。
 
 这样不同温度、不同 `xB_out` 的任务天然分开，不会混在一个目录里。
+
+### workflow 内 `analysis/` 的约定
+
+当前正式约定是：
+
+- workflow 的原始数据仍然留在：
+  - `input/`
+  - `raw/`
+  - `cnt_scan/`
+  - `continue_dynamic/`
+- workflow 的正式分析结果写回：
+  - `Results/workflows/<case>/analysis/nucleation_rate/`
+  - `Results/workflows/<case>/analysis/energy_component_barrier/`
+
+这样做的目的有两个：
+
+- 原始算例与后处理结果在同一个 workflow 下，便于追溯
+- 不再依赖外部临时目录如 `nucleation_rate_outputs_*` 或 `energy_component_audit_*`
+
+### barrier 的正式定义
+
+显式成核率和 barrier 审计现在统一使用 same-strain matrix-only reference-subtracted barrier：
+
+- `F_CNT_peak_hat_excess`
+
+不要把下面这个 absolute 量当作正式 barrier：
+
+- `F_CNT_peak_hat`
+
+如果只是做 diagnostic 对比，可以保留 absolute barrier；但 workflow 的正式分析和后续解释都应以：
+
+- `same-strain matrix-only reference`
+- `F_CNT_peak_hat_excess`
+
+为准。
 
 ## Summary 体系说明
 
@@ -278,6 +317,15 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 - `cnt_scan/current_results_master_table_fitted.csv`
 
+说明：
+
+- 这张表现在会同时保留 absolute peak 和 same-strain-reference-subtracted peak
+- 正式 barrier 应使用：
+  - `F_CNT_peak_hat_excess`
+- 不应再把：
+  - `F_CNT_peak_hat_absolute`
+  当作正式成核 barrier
+
 ### 4. 从 CNT 汇总生成 continue dynamic 引导表
 
 脚本：
@@ -478,6 +526,84 @@ continue dynamic：
 
 那就先生成 `pending-only guide` 再提交。
 
+## 显式成核率与 barrier 审计
+
+当 CNT 扫描和 same-strain matrix-only reference 已经生成后，正式后处理入口在仓库根目录下的：
+
+- [`analysis/compute_explicit_nucleation_rates.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/analysis/compute_explicit_nucleation_rates.py)
+- [`analysis/energy_component_barrier_audit.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/analysis/energy_component_barrier_audit.py)
+
+这两个脚本现在默认把正式结果写回 workflow 内部：
+
+- `Results/workflows/<case>/analysis/nucleation_rate/`
+- `Results/workflows/<case>/analysis/energy_component_barrier/`
+
+### 成核率表
+
+推荐命令：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 analysis/compute_explicit_nucleation_rates.py \
+  --root Results/workflows/T400_xB0p030 \
+  --pattern "cntcon_*" \
+  --diffusivity-mode arrhenius_ag \
+  --theta steady
+```
+
+默认输出：
+
+```text
+Results/workflows/T400_xB0p030/analysis/nucleation_rate/
+```
+
+主要结果包括：
+
+- `current_results_master_table_fitted.csv`
+- `reference_energy.csv`
+- `nucleation_rate_table.csv`
+- `nucleation_rate_table_diagnostic.csv`
+- `reference_energy_audit.csv`
+- `barrier_reference_comparison.csv`
+- `nucleation_rate_metadata.json`
+- `plots/`
+
+注意：
+
+- strict barrier 使用 same-strain-reference-subtracted `F_CNT_peak_hat_excess`
+- `Z_r` fallback 只能用于 diagnostic rate，不是 strict physical rate
+
+### barrier 分项审计
+
+推荐命令：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 analysis/energy_component_barrier_audit.py \
+  --workflow-root Results/workflows/T400_xB0p030 \
+  --repo-root "${REPO_ROOT}"
+```
+
+默认输出：
+
+```text
+Results/workflows/T400_xB0p030/analysis/energy_component_barrier/
+```
+
+主要结果包括：
+
+- `energy_component_barrier_audit.csv`
+- `energy_profile_excess_by_case.csv`
+- `energy_component_barrier_metadata.json`
+- `plots/`
+
+用途：
+
+- 分离 `surface / chemical / elastic / total` 的 excess barrier
+- 判断 barrier 高到底是 surface 主导、elastic 主导，还是 chemical driving force 太弱
+
 ## 单队列使用方式
 
 这套流程不再拆成两个队列。
@@ -598,6 +724,40 @@ python3 tools/analysis/summarize_cnt_scan_from_guide.py \
 Results/workflows/T400_xB0p030/cnt_scan/current_results_master_table_fitted.csv
 ```
 
+### C2. 生成显式成核率正式结果
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 analysis/compute_explicit_nucleation_rates.py \
+  --root Results/workflows/T400_xB0p030 \
+  --pattern "cntcon_*" \
+  --diffusivity-mode arrhenius_ag \
+  --theta steady
+```
+
+输出：
+
+```text
+Results/workflows/T400_xB0p030/analysis/nucleation_rate/
+```
+
+### C3. 生成 barrier 分项审计正式结果
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 analysis/energy_component_barrier_audit.py \
+  --workflow-root Results/workflows/T400_xB0p030 \
+  --repo-root "${REPO_ROOT}"
+```
+
+输出：
+
+```text
+Results/workflows/T400_xB0p030/analysis/energy_component_barrier/
+```
+
 ### C1. 如果普通 CNT/minimize 已有 VTK 但缺 `summary.txt`
 
 先补 geometry summary：
@@ -609,6 +769,23 @@ python3 tools/analysis/generate_cnt_geometry_summaries.py \
   --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
   --repo-root "${REPO_ROOT}"
 ```
+
+如果不是“缺 summary”，而是“要根据已有 VTK 重写 summary.txt”，也是同一个脚本，只是加 `--overwrite`：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/generate_cnt_geometry_summaries.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_cnt_scan.csv \
+  --repo-root "${REPO_ROOT}" \
+  --overwrite
+```
+
+这一步会：
+
+- 读取每个 case 目录里已经存在的 `phi_final_*.vtk`
+- 重新计算几何量
+- 覆盖写回 `summary.txt`
 
 如果要覆盖已有 `summary.txt`：
 
@@ -702,6 +879,23 @@ python3 tools/analysis/generate_continue_dynamic_geometry_summaries.py \
   --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
   --repo-root "${REPO_ROOT}"
 ```
+
+如果不是“缺 summary”，而是“要根据已有 continue VTK 重写 summary.txt”，也是同一个脚本，只是加 `--overwrite`：
+
+```bash
+cd "${REPO_ROOT}"
+
+python3 tools/analysis/generate_continue_dynamic_geometry_summaries.py \
+  --guide-csv Results/workflows/T400_xB0p030/input/guide_continue_dynamic.csv \
+  --repo-root "${REPO_ROOT}" \
+  --overwrite
+```
+
+这一步会：
+
+- 读取每个 `continue_dyn_1/` 目录里已有的最终 `phi` VTK
+- 重新计算几何量
+- 覆盖写回 `continue_dyn_1/summary.txt`
 
 如果要覆盖已有 `summary.txt`：
 

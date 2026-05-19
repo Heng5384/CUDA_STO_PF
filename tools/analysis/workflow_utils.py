@@ -73,6 +73,10 @@ def case_dir_name(base_case_tag: str, radius_nm: float) -> str:
     return f"{base_case_tag}_r{radius_case_tag(radius_nm)}"
 
 
+def reference_case_name(base_case_tag: str) -> str:
+    return f"{base_case_tag}_ref_matrix_only"
+
+
 def cnt_summary_filename(case_name: str | None = None, *, legacy: bool = False) -> str:
     if legacy and case_name:
         return f"summary_{case_name}.txt"
@@ -131,6 +135,46 @@ def case_output_rel(
         "phi_final_rel": str(case_dir_rel / f"phi_final_{case_name}.vtk"),
         "xb_final_rel": str(case_dir_rel / f"xB_final_{case_name}.vtk"),
         "pf_input_rel": str(case_dir_rel / "pf_input.params"),
+    }
+
+
+def reference_case_output_rel(
+    *,
+    results_root_rel: str | Path = "Results",
+    base_case_tag: str,
+    elastic: int,
+    temp_c: float,
+    nx: int,
+    ny: int,
+    nz: int,
+    dt: float,
+    nsteps: int,
+    xb_out: float,
+) -> dict[str, str]:
+    root_rel = case_run_root_rel(
+        results_root_rel=results_root_rel,
+        elastic=elastic,
+        temp_c=temp_c,
+        nx=nx,
+        ny=ny,
+        nz=nz,
+        dt=dt,
+        nsteps=nsteps,
+        radius_nm=0.0,
+        xb_out=xb_out,
+    )
+    case_name = reference_case_name(base_case_tag)
+    case_dir_rel = root_rel / case_name
+    return {
+        "output_root_rel": str(root_rel),
+        "case_dir_rel": str(case_dir_rel),
+        "summary_rel": cnt_summary_rel(case_dir_rel, case_name),
+        "energy_csv_rel": str(case_dir_rel / f"energy_minimize_{case_name}.csv"),
+        "phi_final_rel": str(case_dir_rel / f"phi_final_{case_name}.vtk"),
+        "xb_final_rel": str(case_dir_rel / f"xB_final_{case_name}.vtk"),
+        "pf_input_rel": str(case_dir_rel / "pf_input.params"),
+        "reference_energy_rel": str(case_dir_rel / "reference_energy.csv"),
+        "raw_init_dir_rel": str(case_dir_rel / "init_raw_matrix_only"),
     }
 
 

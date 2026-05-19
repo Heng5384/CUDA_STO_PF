@@ -30,7 +30,7 @@
     "C_tensor_PbTe_GPa": "GPa",
     "C_tensor_Ag2Te_GPa": "GPa"
   },
-  "gamma": 0.2,
+  "gamma": 0.168,
   "lambda_sm": 6e-9,
   "dx": 1e-10,
   "pf_dx": 1e-10,

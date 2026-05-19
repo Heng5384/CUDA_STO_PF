@@ -92,6 +92,95 @@ cnt_case_complete() {
   [[ -n "${energy_csv}" && -f "${energy_csv}" && -n "${phi_final}" && -f "${phi_final}" ]]
 }
 
+write_reference_energy_csv() {
+  local case_dir="${PROJECT_ROOT}/${case_dir_rel}"
+  local energy_csv=""
+  local reference_csv="${PROJECT_ROOT}/${reference_energy_rel}"
+  energy_csv="$(pick_existing_result "${PROJECT_ROOT}/${energy_csv_rel}" "${case_dir}"/energy_minimize_*.csv || true)"
+  if [[ -z "${energy_csv}" ]]; then
+    echo "[warn] reference energy csv missing in ${case_dir}" >&2
+    return 1
+  fi
+  python3 - "${energy_csv}" "${reference_csv}" "${base_case_tag}" "${case_dir}" "${T_C}" "${xB_out}" "${mode}" "${strain}" \
+    "${E0_xx}" "${E0_yy}" "${E0_zz}" "${E0_xy}" "${E0_xz}" "${E0_yz}" "${nx}" "${ny}" "${nz}" "${pf_dx_nm}" "${lambda_sm_nm}" <<'PY'
+import csv, json, math, sys
+from pathlib import Path
+
+energy_csv = Path(sys.argv[1])
+out_csv = Path(sys.argv[2])
+base_case_tag = sys.argv[3]
+case_dir = sys.argv[4]
+T_C = float(sys.argv[5])
+xB_out = float(sys.argv[6])
+mode = sys.argv[7]
+strain = float(sys.argv[8])
+E0_xx, E0_yy, E0_zz, E0_xy, E0_xz, E0_yz = map(float, sys.argv[9:15])
+nx, ny, nz = map(int, sys.argv[15:18])
+dx_nm = float(sys.argv[18])
+lambda_sm_nm = float(sys.argv[19])
+
+rows = list(csv.DictReader(energy_csv.open(newline="", encoding="utf-8")))
+last = rows[-1] if rows else {}
+gamma = float("nan")
+w_phys = float("nan")
+phys_json = energy_csv.parents[3] / "input" / "physical_inputs.json"
+if phys_json.exists():
+    payload = json.loads(phys_json.read_text(encoding="utf-8"))
+    gamma = float(payload.get("gamma", float("nan")))
+    lambda_sm = float(payload.get("lambda_sm", float("nan")))
+    if math.isfinite(gamma) and math.isfinite(lambda_sm) and lambda_sm > 0.0:
+        w_phys = 12.0 * gamma / lambda_sm
+v_box = nx * ny * nz * (dx_nm * 1.0e-9) ** 3
+f_surf = float(last.get("F_surf_hat", "nan"))
+f_chem = float(last.get("F_chem_excess_hat", "nan"))
+f_el = float(last.get("F_el_hat", "nan"))
+f_total = float(last.get("F_total_excess_hat", "nan"))
+mean_h = float(last.get("mean_h", "nan"))
+record = {
+    "base_case_tag": base_case_tag,
+    "case_dir": case_dir,
+    "reference_type": "matrix_only_same_strain",
+    "T_input": T_C,
+    "T_K": T_C + 273.15,
+    "xB0": xB_out,
+    "xB_out": xB_out,
+    "mode": mode,
+    "exx": E0_xx,
+    "eyy": E0_yy,
+    "ezz": E0_zz,
+    "exy": E0_xy,
+    "exz": E0_xz,
+    "eyz": E0_yz,
+    "Nx": nx,
+    "Ny": ny,
+    "Nz": nz,
+    "dx_nm": dx_nm,
+    "dy_nm": dx_nm,
+    "dz_nm": dx_nm,
+    "V_box_m3": v_box,
+    "gamma_Jm2": gamma,
+    "lambda_sm_m": lambda_sm_nm * 1.0e-9,
+    "w_phys_J_m3": w_phys,
+    "F_surf_ref_hat": f_surf,
+    "F_chem_ref_hat": f_chem,
+    "F_el_ref_hat": f_el,
+    "F_total_ref_hat": f_total,
+    "F_total_ref_J": (f_total * w_phys * v_box) if math.isfinite(f_total) and math.isfinite(w_phys) else float("nan"),
+    "mean_phi": 0.0,
+    "mean_h": mean_h,
+    "mean_xB": xB_out,
+    "voxel_count": 0,
+    "status": "complete" if rows else "missing_energy",
+    "warnings": "" if abs(mean_h) < 1.0e-8 else "mean_h_not_close_to_zero",
+}
+out_csv.parent.mkdir(parents=True, exist_ok=True)
+with out_csv.open("w", newline="", encoding="utf-8") as handle:
+    writer = csv.DictWriter(handle, fieldnames=list(record.keys()))
+    writer.writeheader()
+    writer.writerow(record)
+PY
+}
+
 run_case() {
   local row_idx="$1"
   local exports_block="$2"
@@ -109,12 +198,32 @@ run_case() {
   PF_PARAM_FILE="$(site_generate_pf_param_file "${case_tag}")"
   echo "[info] row=${row_idx} case=${case_tag} radius_nm=${radius_nm} pf_param=${PF_PARAM_FILE}"
 
+  local row_type_local="${row_type:-scan_point}"
+  local is_reference_case="0"
+  local minimize_max_iter_local="${nsteps}"
+  local minimize_convergence_steps_local="100"
+  if [[ "${row_type_local}" == "reference" || "${case_tag}" == *_ref_matrix_only ]]; then
+    is_reference_case="1"
+    local raw_init_dir="${PROJECT_ROOT}/${raw_init_dir_rel}"
+    python3 "${PROJECT_ROOT}/tools/analysis/write_uniform_matrix_raw_init.py" \
+      --out-dir "${raw_init_dir}" \
+      --nx "${nx}" \
+      --ny "${ny}" \
+      --nz "${nz}" \
+      --dx-nm "${pf_dx_nm}" \
+      --interface-width-nm "${lambda_sm_nm}" \
+      --xb-out "${xB_out}" >/dev/null
+    minimize_max_iter_local="1"
+    minimize_convergence_steps_local="1"
+  fi
+  echo "[info] row=${row_idx} row_type=${row_type_local} is_reference_case=${is_reference_case} minimize_max_iter=${minimize_max_iter_local} minimize_convergence_steps=${minimize_convergence_steps_local}"
+
   CMD=(
     ./main_cuda "${nx}" "${ny}" "${nz}" "${dt}" "${nsteps}" "${out_every}" "${csv_out_every}" "${elastic}"
     --pf-param-file "${PF_PARAM_FILE}"
     --mode=minimize
     --minimize-full-model
-    --minimize-max-iter "${nsteps}"
+    --minimize-max-iter "${minimize_max_iter_local}"
     --minimize-dt "${dt}"
     --radius-phys-nm "${radius_nm}"
     --elastic "${elastic}"
@@ -124,16 +233,28 @@ run_case() {
     --minimize-rms-dY-threshold "1e-5"
     --minimize-energy-diff-rel-threshold "1e-7"
     --minimize-rms-res-for-energy-plateau "1e-5"
-    --minimize-convergence-steps "100"
+    --minimize-convergence-steps "${minimize_convergence_steps_local}"
     --minimize-dt-safety-limit "1e-6"
     --minimize-rms-res-threshold "1e-4"
     --minimize-vol-err-rel-threshold "3e-2"
     --eta-lambda-vol "0.9"
     --minimize-post-projection-iters "1"
   )
+  if [[ "${is_reference_case}" == "1" ]]; then
+    CMD+=(
+      --init-mode raw_fields
+      --init-phi-raw "${PROJECT_ROOT}/${raw_init_dir_rel}/phi_init.raw"
+      --init-xB-raw "${PROJECT_ROOT}/${raw_init_dir_rel}/xB_init.raw"
+      --init-meta "${PROJECT_ROOT}/${raw_init_dir_rel}/init_meta.json"
+      --radius-phys-nm "0.0"
+    )
+  fi
   set -x
   "${CMD[@]}"
   set +x
+  if [[ "${is_reference_case}" == "1" ]]; then
+    write_reference_energy_csv || echo "[warn] reference_energy.csv post-write failed for ${case_tag}; summary script will reconstruct it from energy_minimize_*.csv" >&2
+  fi
 }
 
 current_idx=""

@@ -74,6 +74,8 @@ def main() -> int:
 
     guide_by_base: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in guide_rows:
+        if row.get("row_type") == "reference":
+            continue
         guide_by_base[row["base_case_tag"]].append(row)
     for rows in guide_by_base.values():
         for candidate in rows:

@@ -27,6 +27,7 @@ from tools.analysis.workflow_utils import (
     build_cnt_prefix,
     case_output_rel,
     ensure_workflow_subdirs,
+    reference_case_output_rel,
     workflow_name,
 )
 
@@ -99,6 +100,7 @@ def main() -> int:
     gamma = float(raw_inputs["gamma"])
     Vm_compound = float(raw_inputs["Vm_compound"])
     pf_dx_nm = float(raw_inputs.get("pf_dx", raw_inputs.get("dx"))) * 1.0e9
+    lambda_sm_nm = float(raw_inputs["lambda_sm"]) * 1.0e9
     e0 = get_principal_eigenstrain(raw_inputs)
     C_precip = np.array(raw_inputs["C_tensor_Ag2Te_GPa"], dtype=float)
     DG_chem, x_eq = get_chemical_driving_force_Jm3(T_K, args.xb_out, Vm_compound)
@@ -154,6 +156,68 @@ def main() -> int:
             }
         )
 
+        ref_path_info = reference_case_output_rel(
+            results_root_rel=raw_results_root_rel,
+            base_case_tag=base_case_tag,
+            elastic=args.elastic,
+            temp_c=args.temp_c,
+            nx=nx,
+            ny=ny,
+            nz=nz,
+            dt=args.dt,
+            nsteps=1,
+            xb_out=args.xb_out,
+        )
+        ref_case_tag = Path(ref_path_info["case_dir_rel"]).name
+        guide_rows.append(
+            {
+                "workflow_name": wf_name,
+                "workflow_dir_rel": str(workflow_dir_rel),
+                "raw_results_root_rel": str(raw_results_root_rel),
+                "physical_input_json_rel": str(physical_json.relative_to(REPO_ROOT)),
+                "base_case_tag": base_case_tag,
+                "case_tag": ref_case_tag,
+                "row_type": "reference",
+                "reference_type": "matrix_only_same_strain",
+                "reference_confidence": "high",
+                "mode": case.mode,
+                "strain": case.strain,
+                "E0_xx": e_ext[0],
+                "E0_yy": e_ext[1],
+                "E0_zz": e_ext[2],
+                "E0_yz": e_ext[3],
+                "E0_xz": e_ext[4],
+                "E0_xy": e_ext[5],
+                "T_C": args.temp_c,
+                "xB_out": args.xb_out,
+                "xB_eq": x_eq,
+                "nx": nx,
+                "ny": ny,
+                "nz": nz,
+                "dt": args.dt,
+                "nsteps": args.steps,
+                "out_every": args.out_every,
+                "csv_out_every": args.csv_out_every,
+                "elastic": args.elastic,
+                "window_nm": args.window_nm,
+                "step_nm": args.step_nm,
+                "radius_index": -1,
+                "radius_nm": 0.0,
+                "rc_schur_nm": rc_nm,
+                "pf_dx_nm": pf_dx_nm,
+                "lambda_sm_nm": lambda_sm_nm,
+                "output_root_rel": ref_path_info["output_root_rel"],
+                "case_dir_rel": ref_path_info["case_dir_rel"],
+                "summary_rel": ref_path_info["summary_rel"],
+                "energy_csv_rel": ref_path_info["energy_csv_rel"],
+                "phi_final_rel": ref_path_info["phi_final_rel"],
+                "xb_final_rel": ref_path_info["xb_final_rel"],
+                "pf_input_rel": ref_path_info["pf_input_rel"],
+                "reference_energy_rel": ref_path_info["reference_energy_rel"],
+                "raw_init_dir_rel": ref_path_info["raw_init_dir_rel"],
+            }
+        )
+
         for radius_index, radius_nm in enumerate(_scan_radii(rc_nm, args.window_nm, args.step_nm)):
             path_info = case_output_rel(
                 results_root_rel=raw_results_root_rel,
@@ -177,6 +241,9 @@ def main() -> int:
                     "physical_input_json_rel": str(physical_json.relative_to(REPO_ROOT)),
                     "base_case_tag": base_case_tag,
                     "case_tag": case_tag,
+                    "row_type": "scan_point",
+                    "reference_type": "",
+                    "reference_confidence": "",
                     "mode": case.mode,
                     "strain": case.strain,
                     "E0_xx": e_ext[0],
@@ -201,6 +268,8 @@ def main() -> int:
                     "radius_index": radius_index,
                     "radius_nm": radius_nm,
                     "rc_schur_nm": rc_nm,
+                    "pf_dx_nm": pf_dx_nm,
+                    "lambda_sm_nm": lambda_sm_nm,
                     "output_root_rel": path_info["output_root_rel"],
                     "case_dir_rel": path_info["case_dir_rel"],
                     "summary_rel": path_info["summary_rel"],

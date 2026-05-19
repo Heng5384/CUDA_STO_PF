@@ -57,6 +57,10 @@ def main() -> int:
     skipped = 0
     failed = 0
     for idx, row in enumerate(rows, start=1):
+        if row.get("row_type") == "reference":
+            skipped += 1
+            print(f"[skip] row={idx} base={row.get('base_case_tag', '')} case={row.get('case_tag', '')} reference row does not have nucleus geometry")
+            continue
         case_dir = _resolve_repo_path(repo_root, row["case_dir_rel"])
         summary_path = case_dir / cnt_summary_filename()
         if summary_path.exists() and not args.overwrite:
