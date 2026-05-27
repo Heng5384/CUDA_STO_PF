@@ -6,3 +6,28 @@ test_memory_ledger
 jobs/logs/
 jobs/jobs/logs/
 jobs/generated/
+
+# 临时调试产物
+.tmp_*/
+.tmp_*.py
+.pycache_tmp/
+__pycache__/
+*.pyc
+*.pyo
+
+# 编译产物
+main_cuda
+*.o
+*.so
+
+# 模拟输出
+outputs/
+Results/
+Results_scan/
+step35_outputs/
+step36_radial_profiles/
+
+# IDE / 系统
+.DS_Store
+.vscode/
+.idea/
