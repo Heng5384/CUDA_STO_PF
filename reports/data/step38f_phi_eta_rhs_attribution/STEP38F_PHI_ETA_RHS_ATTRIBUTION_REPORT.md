@@ -1,0 +1,5 @@
+# Phi vs Eta RHS Attribution
+
+- `gp_eta_rhs_attr_f1em5`: `max_dphi_absmax=1.086335e-02`, `max_deta_absmax=1.322296e-03`, `max_ratio_deta_dphi=2.632573e+00`, `dominant_eta_rhs_component=bulk`, `dominant_eta_mobility_scaled_component=bulk`, `mean_phi_grad_denom_kmax=4.192189e+00`, `mean_eta_grad_denom_kmax=1.000029e+00`, `max_corr_abs_deta_abs_dxB=5.616206e-01`, `recommendation=baseline_candidate`
+- `gp_eta_rhs_attr_f1em4`: `max_dphi_absmax=1.086335e-02`, `max_deta_absmax=1.801980e-03`, `max_ratio_deta_dphi=2.504104e+01`, `dominant_eta_rhs_component=bulk`, `dominant_eta_mobility_scaled_component=bulk`, `mean_phi_grad_denom_kmax=4.192189e+00`, `mean_eta_grad_denom_kmax=1.000286e+00`, `max_corr_abs_deta_abs_dxB=5.619491e-01`, `recommendation=aggressive_compare`
+- `gp_eta_rhs_attr_f1em3`: `max_dphi_absmax=1.086335e-02`, `max_deta_absmax=1.373169e-02`, `max_ratio_deta_dphi=2.412644e+01`, `dominant_eta_rhs_component=bulk`, `dominant_eta_mobility_scaled_component=bulk`, `mean_phi_grad_denom_kmax=4.192189e+00`, `mean_eta_grad_denom_kmax=1.002857e+00`, `max_corr_abs_deta_abs_dxB=5.634754e-01`, `recommendation=too_aggressive`

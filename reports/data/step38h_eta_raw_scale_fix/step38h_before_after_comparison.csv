@@ -1,0 +1,10 @@
+metric,before_step38g_or_38f,after_step38h_baseline,notes
+eta_bulk_rhs_absmax,2.914e3,2.1135036968e-01,before from raw-unit branch audit; after from baseline per-step max
+phi_chem_rhs_absmax,1.478,1.3624995346e+00,after from baseline per-step max
+eta_bulk_rhs_absmax_over_phi_chem_rhs_absmax,1.97e3,1.7080876310e-01,before raw-scale inflated; after no longer inflated
+eta_Ldt_bulk_absmax_over_phi_Ldt_chem_absmax,mean~3.9e-01 max~4.7e-01,mean=3.1034912063e-05 max=3.3861293126e-05,after mobility-scaled eta bulk update is far smaller at unchanged gp_L_eta
+dgbulk_raw_formula_over_dimless_formula,NaN,1.37790239995e+04,should match energy_scale
+energy_scale_mu_reference,1.3779024e4,1.3779024e4,same scale used by phi chemical RHS
+max_deta_absmax,~1.323e-03 (old f1em5 scan),1.3236165333e-03,similar short-run peak despite scaled bulk because current gp_L_eta and W/kappa setup differ from old raw branch context
+xBtot_rel_delta,small but baseline-dependent,1.4434123569e-04 max / 6.1865130560e-07 last,baseline short run remained controlled
+eta_far_field_max,localized,3.3263892233e-04,still localized

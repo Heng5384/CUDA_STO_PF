@@ -8,6 +8,10 @@
 - `cuda_kernels.cu`: 主要 CUDA kernel 与 GPU 归约/诊断实现
 - `cuda_common.cu`, `cuda_common.h`: 公共 CUDA 工具、k 空间构建与 scratch arena
 - `pf_params.h`: 参数结构定义
+- `reports/step_reports/`: STEP*_REPORT 历史调查报告
+- `reports/PHI_ETA_*.md`: phi/eta 数值对称性 audit
+- `reports/DIAGNOSTIC_*.md`: 旋钮 triage
+- `reports/NEXT_*.md`: 下一工单候选
 - `jobs/`: 本地运行脚本与 Slurm 提交脚本
 - `Results/`: 模拟结果输出目录（已被 Git 忽略）
 
@@ -184,6 +188,180 @@ python3 Unit_Psedobinary.py \
 - 示例文件中的 `_units` 和 `_notes` 只是说明字段，脚本会自动忽略，不影响直接读取
 - 生成后的 `eps_xx00..eps_xy00` 会自动写入 `.params` 文件，无需再手抄到命令行
 
+## STO / pseudobinary 参数化约定
+
+当前代码里，`phi`（`alpha / beta-Ag2Te`）和 `eta`（`alpha / GP zone`）都按同一套
+STO / pseudobinary thin-interface parameterization 处理。两者的区别只来自物理输入值不同，
+不是无量纲化方法不同。
+
+### 统一物理公式
+
+对任意 order parameter `q_i`（`phi` 或 `eta`），当前采用文档约定：
+
+```text
+W_i_phys     = 12 * gamma_i / lambda_i
+kappa_i_phys = 1.5 * gamma_i * lambda_i
+```
+
+对应关系：
+
+- `phi`
+  - `gamma_i = gamma_Jm2`
+  - `lambda_i = lambda_sm_m`
+- `eta`
+  - `gamma_i = gp_gamma_alpha_gp`
+  - `lambda_i = gp_l_eta_nm * 1e-9`
+
+这对应文档关系：
+
+```text
+kappa * W = 18 * gamma^2
+kappa / W = (lambda / 8)^2
+```
+
+### 统一无量纲化
+
+`phi` 和 `eta` 统一使用同一套参考尺度：
+
+- `w_ref`
+- `dx_ref`
+- `t0_diff`
+- `mu_reference_scale`
+
+对应换算：
+
+```text
+W_i_code     = W_i_phys / w_ref
+kappa_i_code = kappa_i_phys / (w_ref * dx_ref^2)
+L_i_code     = L_i_phys * w_ref * t0_diff
+```
+
+注意：
+
+- `W_phi` 和 `gp_W_eta` 的数值可以不同
+- `kappa_phi` 和 `gp_kappa_eta` 的数值可以不同
+- `L_phi` 和 `gp_L_eta` 的数值可以不同
+- 但它们必须共享同一个 `w_ref / dx_ref / t0_diff / mu_reference_scale`
+
+### chemical-potential scale
+
+全局 chemical-potential scale 是：
+
+- `mu_reference_scale`，单位 `J/mol`
+
+它由 `Unit_Psedobinary.py` 生成，公式是：
+
+```text
+mu_reference_scale = w_ref / c_tot_phys
+```
+
+程序运行时：
+
+- `phi` chemical RHS 使用 `mu_A_dimless`, `mu_B_dimless`
+- `eta` 在 `gp_raw_reaction_drive_only=1` 分支下也已经改为先除以同一个 `mu_reference_scale`
+
+因此 `phi` 和 `eta` 的 chemical drive 现在在同一 nondimensional scale 上。
+
+## GP zone 参数输入约定
+
+### 推荐输入
+
+对于 GP `eta` 的界面参数，推荐使用：
+
+- `gp_gamma_alpha_gp`
+- `gp_l_eta_nm`
+
+程序会自动按文档公式生成：
+
+- `gp_W_eta_phys`
+- `gp_kappa_eta_phys`
+
+然后转换成 kernel 内实际使用的 code-unit：
+
+- `P.gp_W_eta`
+- `P.gp_kappa_eta`
+
+### 显式输入 W/kappa
+
+如果需要手动指定，也支持显式 key：
+
+- physical-unit:
+  - `gp_W_eta_phys`
+  - `gp_kappa_eta_phys`
+- code-unit:
+  - `gp_W_eta_code`
+  - `gp_kappa_eta_code`
+
+优先级（`W_eta` / `kappa_eta` / `L_eta` 各自独立适用）：
+
+1. `<name>_code`，直接使用
+2. `<name>_phys`，按 `w_ref` / `dx_ref` / `t_real_unit` 换算到 code
+3. `gp_gamma_alpha_gp + gp_l_eta_nm` 自动推导，仅适用于 `W_eta` / `kappa_eta`，`L_eta` 不走此路径
+4. 裸名 `gp_W_eta` / `gp_kappa_eta` / `gp_L_eta`，兼容入口，按 code 读并打印 deprecation warning
+
+如果同时给了 `_code` 和 `_phys`，程序会做 `1e-6` 相对误差互检，失配时 fatal。
+
+### legacy key
+
+仍兼容旧 key：
+
+- `gp_W_eta`
+- `gp_kappa_eta`
+- `gp_L_eta`
+
+这些裸名现在一律按 code 单位读取，并打印 deprecation warning。若需输入物理单位，请改用 `_phys` 后缀；推荐直接由 `Unit_Psedobinary.py` 一次性生成 `_code` 与 `_phys` 双字段。下一版 release 将彻底移除裸名解析路径。
+
+## 诊断输出
+
+当 `gp_kinetic_ref_enabled=1` 时，程序会打印：
+
+```text
+[STO/pseudobinary thin-interface parameterization diagnostics]
+```
+
+其中包括：
+
+- `interface_parameterization`
+- `w_ref`, `dx_ref`, `t0_diff`, `mu_reference_scale`
+- `phi` 的 document-convention expected values 与 kernel-used values
+- `eta` 的 document-convention expected values 与 kernel-used values
+- `gp_W_eta_input_source`, `gp_kappa_eta_input_source`
+- `gp_W_eta_kernel_vs_doc_ratio`, `gp_kappa_eta_kernel_vs_doc_ratio`
+- `L_eta_diff_ref_code` 等 STO-type GP kinetic reference
+
+对应 CSV：
+
+- `gp_eta_kinetic_reference_diagnostics.csv`
+
+### 当前 smoke-check 期望
+
+如果只给：
+
+- `gp_gamma_alpha_gp`
+- `gp_l_eta_nm`
+
+而不显式给 `gp_W_eta_phys/gp_kappa_eta_phys`，
+则理想输出应显示：
+
+- `gp_W_eta_input_source = derived_physical_converted`
+- `gp_kappa_eta_input_source = derived_physical_converted`
+- `gp_W_eta_kernel_vs_doc_ratio ≈ 1`
+- `gp_kappa_eta_kernel_vs_doc_ratio ≈ 1`
+
+## 当前工程状态（GP eta）
+
+目前已经完成的整理包括：
+
+- `phi` 和 `eta` 的 `W/kappa` 采用同一文档公式
+- `phi` 和 `eta` 共用同一 `mu_reference_scale`
+- `eta` active raw reaction-drive 分支不再把 raw `J/mol` 直接混进 code-unit RHS
+
+还没有做的事：
+
+- `gp_L_eta / f_eta` 在新 `W/kappa` 约定下的完整 rescan
+
+因此，任何早于这一步得到的 `gp_L_eta` baseline，都不应直接继续当作最终物理推荐值。需要在新约定下重新扫描。
+
 ## 输出约定
 
 - 所有模拟结果写入 `Results/`
@@ -260,3 +438,17 @@ TEMP_C=410 DX_M=1e-10 ./jobs/run_dynamics_local.sh --no-build 64 64 64 0.01 10 1
 - `main_cuda` 二进制不纳入 Git 跟踪
 - `Results/`、`jobs/logs/*.out`、`jobs/logs/*.err` 已加入忽略规则
 - 输出路径逻辑统一收敛到仓库根目录，避免结果散落在脚本目录或提交目录
+
+## 测试 / 审计专用旋钮（archive）
+
+这些旋钮默认关闭，曾用于一次性 STEP 调查，对应报告已结案并归档到 `reports/step_reports/`。代码保留以便回归对照，但不建议在 production 输入里启用。详细分类见 `reports/DIAGNOSTIC_SWITCHES_RETIREMENT_TRIAGE.md`。
+
+| 旋钮族 | 字段数 | 对应 STEP |
+| --- | ---: | --- |
+| `Y_rhs_*` / `enable_Y_rhs_*` / `disable_Y_rhs_*` | 5 | STEP32 |
+| `post_conversion_y_update_audit_*` | 3 | STEP18 |
+| `y_update_k0_audit_*` | 3 | STEP19 |
+| `y_update_mass_projection_*` | 5 | STEP20/21 |
+| `gp_to_beta_*_audit / *_feasibility_* (audit 部分)` | ~8 | STEP17/22 |
+| `gp_raw_reaction_drive_only` | 1 | STEP33 |
+| `scheduled_nuc_*` | 31 | legacy test harness |

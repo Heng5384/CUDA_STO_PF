@@ -1,0 +1,40 @@
+[2026-05-17 12:43:26 +0800] DRY-RUN scan only; no file moves or deletions executed.
+[2026-05-17 12:43:26 +0800] Wrote dry_run_cleanup_plan.md based on local scan; cluster scan blocked by Tailscale re-authentication.
+[2026-05-17 12:46:55 +0800] Completed cluster dry-run inventory via uvip-cluster; no remote moves or deletions executed.
+[2026-05-17 12:46:55 +0800] Cluster findings appended into dry_run_cleanup_plan.md, including duplicate root summarize_cnt_scan_from_guide.py marked needs_review.
+[2026-05-17 12:49:15 +0800] mkdir -p analysis outputs/T400_xB0p050/{nucleation_rate,energy_component_barrier} archive/cleanup_20260517
+[2026-05-17 12:49:15 +0800] mv compute_explicit_nucleation_rates.py analysis/compute_explicit_nucleation_rates.py
+[2026-05-17 12:49:15 +0800] mv energy_component_barrier_audit.py analysis/energy_component_barrier_audit.py
+[2026-05-17 12:49:15 +0800] cp -a nucleation_rate_outputs_T400_xB0p050_refB_v2/. outputs/T400_xB0p050/nucleation_rate/
+[2026-05-17 12:49:15 +0800] cp -a Results_workflow_T400_xB0p050_cnt_scan_sync/{current_results_master_table_fitted.csv,reference_energy.csv} outputs/T400_xB0p050/nucleation_rate/
+[2026-05-17 12:49:15 +0800] cp -a energy_component_audit_T400_xB0p050_v3/. outputs/T400_xB0p050/energy_component_barrier/
+[2026-05-17 12:49:53 +0800] python3 analysis/compute_explicit_nucleation_rates.py --help
+[2026-05-17 12:49:53 +0800] python3 analysis/energy_component_barrier_audit.py --help
+[2026-05-17 12:50:06 +0800] mv energy_component_audit_T400_xB0p050_v1 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv energy_component_audit_T400_xB0p050_v2 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv energy_component_audit_T400_xB0p050_v3 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_audit_diag_v2 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_refB_v1 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_refB_v2 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_refaudit_v1 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_v2 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_v3 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_v4 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_v5 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv nucleation_rate_outputs_T400_xB0p050_v6 archive/cleanup_20260517/
+[2026-05-17 12:50:06 +0800] mv Results_workflow_T400_xB0p050_cnt_scan_sync archive/cleanup_20260517/
+[2026-05-17 12:50:34 +0800] ssh uvip-cluster mkdir -p analysis outputs/T400_xB0p050/{nucleation_rate,energy_component_barrier} archive/cleanup_20260517
+[2026-05-17 12:50:34 +0800] rsync -av analysis/{compute_explicit_nucleation_rates.py,energy_component_barrier_audit.py,README_analysis_tools.md} uvip-cluster:/data/home/luozhiheng/CUDA_STO_PF/analysis/
+[2026-05-17 12:51:00 +0800] ssh uvip-cluster cp formal outputs into outputs/T400_xB0p050/{nucleation_rate,energy_component_barrier}
+[2026-05-17 12:51:00 +0800] ssh uvip-cluster mv root compute_explicit_nucleation_rates.py and energy_component_barrier_audit.py into archive/cleanup_20260517/
+[2026-05-17 12:51:00 +0800] ssh uvip-cluster mv superseded energy_component_audit_T400_xB0p050_* and nucleation_rate_outputs_T400_xB0p050* into archive/cleanup_20260517/ excluding root summarize_cnt_scan_from_guide.py
+[2026-05-17 12:51:36 +0800] ssh uvip-cluster python3 analysis/compute_explicit_nucleation_rates.py --help
+[2026-05-17 12:51:36 +0800] ssh uvip-cluster python3 analysis/energy_component_barrier_audit.py --help
+[2026-05-17 12:52:19 +0800] Wrote cleanup_acceptance_report.md after local and cluster verification.
+[2026-05-17 12:55:08 +0800] ssh uvip-cluster mkdir -p Results/workflows/T400_xB0p050/analysis/nucleation_rate and cp -a outputs/T400_xB0p050/nucleation_rate/. Results/workflows/T400_xB0p050/analysis/nucleation_rate/
+[2026-05-17 12:55:08 +0800] mkdir -p Results/workflows/T400_xB0p050/analysis/nucleation_rate and cp -a outputs/T400_xB0p050/nucleation_rate/. Results/workflows/T400_xB0p050/analysis/nucleation_rate/
+[2026-05-17 14:26:56 +0800] mv outputs/T400_xB0p050 archive/cleanup_20260517/outputs_T400_xB0p050
+[2026-05-17 14:27:15 +0800] ssh uvip-cluster mv outputs/T400_xB0p050 archive/cleanup_20260517/outputs_T400_xB0p050
+[2026-05-17 14:28:00 +0800] mkdir -p Results/workflows/T400_xB0p050/analysis/energy_component_barrier and cp -a archive/cleanup_20260517/outputs_T400_xB0p050/energy_component_barrier/. Results/workflows/T400_xB0p050/analysis/energy_component_barrier/
+[2026-05-17 14:28:17 +0800] ssh uvip-cluster mkdir -p Results/workflows/T400_xB0p050/analysis/energy_component_barrier and cp -a archive/cleanup_20260517/outputs_T400_xB0p050/energy_component_barrier/. Results/workflows/T400_xB0p050/analysis/energy_component_barrier/

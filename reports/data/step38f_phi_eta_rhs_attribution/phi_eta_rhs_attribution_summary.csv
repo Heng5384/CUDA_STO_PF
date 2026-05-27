@@ -1,0 +1,4 @@
+case_name,f_eta,gp_L_eta,max_dphi_absmax,max_deta_absmax,max_ratio_deta_dphi,dominant_eta_rhs_component_by_absmax,dominant_eta_mobility_scaled_component_by_absmax,mean_phi_grad_denom_kmax,mean_eta_grad_denom_kmax,damping_ratio_phi_over_eta,max_corr_abs_deta_abs_dxB,first_step_xB_clip,recommendation
+gp_eta_rhs_attr_f1em5,1e-05,0.00047495061735,0.010863349643,0.0013222959724,2.6325732707,bulk,bulk,4.1921888688,1.0000285724,4.1920690912,0.5616205998,-1,baseline_candidate
+gp_eta_rhs_attr_f1em4,0.0001,0.0047495061735,0.010863349643,0.0018019800529,25.041039458,bulk,bulk,4.1921888688,1.0002857242,4.1909914012,0.56194911435,-1,aggressive_compare
+gp_eta_rhs_attr_f1em3,0.001,0.047495061735,0.010863349643,0.013731691285,24.126443425,bulk,bulk,4.1921888688,1.0028572418,4.1802448984,0.5634753628,-1,too_aggressive

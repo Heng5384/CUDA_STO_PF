@@ -1,0 +1,430 @@
+[warn] /home/zhiheng/PF/CUDA_STO_PF/Results/ch_T380_cuda_96x96x96_dt1e-4_steps500_xB0.030_step38j/gp_eta_S218b_Mratio_1/pf_input.params:121 unknown key ignored: ic_23d_xB_out
+[pf-param-file] loaded 123 override(s) from /home/zhiheng/PF/CUDA_STO_PF/Results/ch_T380_cuda_96x96x96_dt1e-4_steps500_xB0.030_step38j/gp_eta_S218b_Mratio_1/pf_input.params
+
+========== Run Configuration ==========
+  mode                     : dynamics
+  model_mode               : gp_zone
+[GP-REF] mode          : mechanical-mixture
+[GP-REF] G_PbTe_Solid  : -152670.9695 J/mol
+[GP-REF] G_Ag2Te_Solid : -155123.1505 J/mol
+[GP-REF] mu_GP0        : -153529.2328 J/mol
+[GP-REF] delta_g_stab  : 0.0 J/mol
+[GP-REF] minus_delta_mu_r_GP(xB_matrix=0.0300) : 2934.3703 J/mol
+[GP-REF] minus_delta_mu_r_GP(xB=0.0300)      : 2934.3703 J/mol
+[GP-REF] minus_delta_mu_r_GP(xB=0.0500)      : 3466.9062 J/mol
+  gp_elastic_enabled       : 0
+  gp_elastic_active_eta    : 0
+  gp_elastic_active_phi    : 0
+  gp_elastic_derivative_scale : 1.000000e+00
+  gp_nuc_enabled           : 0
+  gp_nuc_check_interval    : 10
+  gp_nuc_phi_threshold     : 5.000000e-02
+  gp_nuc_eta_threshold     : 5.000000e-02
+  gp_nuc_h_alpha_threshold : 9.500000e-01
+  gp_nuc_J0                : 1.000000e+12
+  gp_nuc_gamma             : 1.000000e-01
+  gp_nuc_seed_radius       : 1.000000e-01
+  gp_nuc_seed_peak         : 5.000000e-02
+  gp_nuc_seed_iface_width  : 1.000000e-01
+  gp_nuc_patch_radius      : 3.500000e-01
+  gp_nuc_shell_inner_radius : 1.500000e-01
+  gp_nuc_shell_outer_radius : 3.500000e-01
+  gp_nuc_max_events_per_step : 1
+  gp_nuc_mass_mode         : local_compensate
+  gp_to_beta_enabled       : 0
+  gp_to_beta_check_interval : 10
+  gp_to_beta_eta_threshold : 5.000000e-01
+  gp_to_beta_radius_threshold : 0.000000e+00
+  gp_to_beta_xB_threshold  : 0.000000e+00
+  gp_to_beta_seed_radius   : 1.500000e-01
+  gp_to_beta_seed_peak     : 1.000000e+00
+  gp_to_beta_seed_iface_width : 1.000000e-01
+  gp_to_beta_patch_radius  : 4.000000e-01
+  gp_to_beta_shell_inner_radius : 2.000000e-01
+  gp_to_beta_shell_outer_radius : 4.000000e-01
+  gp_to_beta_max_events_per_step : 1
+  gp_to_beta_stochastic_enabled : 0
+  gp_to_beta_J0_site       : 1.000000e+30
+  gp_to_beta_gamma         : 5.000000e-02
+  gp_to_beta_drive_const   : 1.000000e+00
+  gp_to_beta_max_events_per_check : 1
+  gp_to_beta_barrier_mode  : cnt_simple
+  gp_to_beta_drive_mode    : local_simple
+  gp_to_beta_conversion_mass_audit_enabled : 0
+  gp_to_beta_stop_after_conversion_audit : 0
+  gp_to_beta_conversion_audit_prefix : gp_to_beta_conversion_mass_audit
+  gp_to_beta_feasibility_gate_enabled : 1
+  gp_to_beta_min_shell_capacity_factor : 1.050000e+00
+  gp_to_beta_reject_if_infeasible : 1
+  gp_to_beta_allow_seed_amplitude_scaling : 1
+  gp_to_beta_min_seed_amplitude : 5.000000e-02
+  gp_to_beta_event_cooldown_steps : 0
+  gp_to_beta_min_event_spacing : 0.000000e+00
+  gp_to_beta_event_exclusion_radius : 0.000000e+00
+  gp_to_beta_max_events_global : 1000000000
+  gp_to_beta_max_events_per_window : 1000000000
+  gp_to_beta_event_window_steps : 0
+  post_conversion_y_update_audit_enabled : 0
+  post_conversion_y_update_audit_steps : 5
+  post_conversion_y_update_audit_prefix : post_conversion_y_update_audit
+  y_update_k0_audit_enabled : 0
+  y_update_k0_audit_steps  : 5
+  y_update_k0_audit_prefix : y_update_k0_audit
+  y_update_mass_projection_enabled : 0
+  y_update_mass_projection_report_enabled : 0
+  y_update_mass_projection_max_iter : 30
+  y_update_mass_projection_tol : 1.000000e-12
+  y_update_mass_projection_target_mode : pre_Y_update
+  gp_to_beta_mass_mode     : report
+  gp_to_beta_eta_deplete_mode : multiply_1_minus_hphi_seed
+  gp_to_beta_phi_insert_mode : max
+  gp_C_mode                : alpha
+  gp_eps_mode              : isotropic
+  gp_eps_iso               : 0.000000e+00
+  gp_eta_mass_limiter      : off
+  gp_y_update_mode         : conservative_y_rhs
+  gp_y_picard_iters        : 3
+  gp_raw_reaction_drive_only : 1
+  gp_raw_reaction_drive_use_raw_units_debug : 0
+  gp_reaction_nu_A         : 6.50000000e-01
+  gp_reaction_nu_B         : 3.50000000e-01
+  gp_gamma_alpha_gp        : 5.00000000e-02
+  gp_l_eta_nm              : 1.00000000e+00
+  gp_D_ratio               : 1.00000000e+00
+  gp_L_eta_mode            : sto_S218b
+  gp_M_int_eta             : -1.00000000e+00
+  gp_M_eta_phys            : -1.00000000e+00
+  gp_M_eta_ratio_to_crit   : 1.00000000e+00
+  gp_W_eta_input_source    : derived_physical_converted
+  gp_kappa_eta_input_source : derived_physical_converted
+  gp_W_eta_phys_input      : 6.00000000e+08
+  gp_kappa_eta_phys_input  : 7.50000000e-11
+  gp_W_eta_code_input      : 1.78571429e+00
+  gp_kappa_eta_code_input  : 2.23214286e-01
+  gp_xB_eq_alpha_for_eta   : 3.00000000e-02
+  gp_xB_gp_ref(reuse_gp_xB_fixed) : 3.50000000e-01
+  gp_kinetic_ref_enabled   : 1
+  gp_kinetic_ref_apply     : 0
+  phi_eta_step_delta_diag_enabled : 0
+  phi_eta_step_delta_diag_every : 1
+  phi_eta_step_delta_diag_max_steps : 200
+  phi_eta_step_delta_diag_prefix : phi_eta_step_delta
+  phi_eta_rhs_attribution_diag_enabled : 1
+  phi_eta_rhs_attribution_diag_every : 1
+  phi_eta_rhs_attribution_diag_max_steps : 100
+  phi_eta_rhs_attribution_diag_prefix : step38j_rhs_attr
+  gp_delta_g_stab          : 0.00000000e+00
+  gp_mu_reference_raw      : -1.53529233e+05
+  gp_debug_mu_mode         : full
+  gp_debug_mobility_mode   : full
+  gp_debug_xB_ref          : 0.030000
+  gp_debug_mu_linear_slope : 0.000000e+00
+  gp_debug_mu_ref_auto     : 4.592980e-01
+  gp_debug_mu_slope_auto   : 9.272876e+00
+  gp_debug_mobility_scale  : 1.000000e+00
+  gp_debug_constant_mobility : 1.000000e-03
+  gp_debug_freeze_eta      : off
+  gp_debug_zero_divJ       : off
+  gp_debug_flip_flux_sign  : off
+  gp_debug_disable_storage_exact_clip : off
+  init_mode                : standard
+  pf_param_file            : /home/zhiheng/PF/CUDA_STO_PF/Results/ch_T380_cuda_96x96x96_dt1e-4_steps500_xB0.030_step38j/gp_eta_S218b_Mratio_1/pf_input.params
+  grid                     : 96x96x96
+  dx / dy / dz (grid)      : 0.100000 / 0.100000 / 0.100000
+  cell_size_phys_nm        : 0.100000 / 0.100000 / 0.100000
+  system_size_phys_nm      : 9.600000 / 9.600000 / 9.600000
+  system_size_phys_m       : 9.600000e-09 / 9.600000e-09 / 9.600000e-09
+  t_real_unit_s            : 3.701663e+02
+  lambda_sm_nm             : 6.000000
+  lambda_sm/dx             : 60.000000
+  steps                    : 500
+  dt                       : 1.000000e-04
+  out_every                : 100
+  csv_out_every            : 100
+  elastic                  : 禁用
+  external_strain(E0)      : xx=0.000000e+00 yy=0.000000e+00 zz=0.000000e+00 yz=0.000000e+00 xz=0.000000e+00 xy=0.000000e+00
+  diag_vtk                 : 启用
+  diag_elastic_bulk        : 禁用
+  scheduled_nucleation_test : disabled
+  dynamics_mass_diagnostics : disabled (interval=1)
+  Y_rhs_previous_time_level : disabled
+[RUN PARAM] Nx Ny Nz = 96 96 96, dx_nm = 0.100000, interface_width_nm / lambda_sm = 6.000000, dt = 1.000000e-04, init_mode = standard, scheduled nucleation test = disabled
+
+========== Thermodynamics ==========
+  T_C                      : 380.000000
+  T_K                      : 653.150000
+  thermo_convex_extrapolation_enabled : 0
+  xB_eq                    : 3.00000000e-02
+  mu0_compound_hat         : -1.12579200e+01
+  mu_reference_scale       : 1.37790240e+04
+  gp_mu_reference_raw      : -1.53529233e+05
+
+========== Dynamics Controls ==========
+  xB safety cap            : not applied in dynamics mode
+
+========== Interface-Width Consistency (Diagnostics) ==========
+  dx_internal              : 0.1
+  dx_phys_nm(inferred)     : 0.100000
+  unit_to_nm(internal->phys) : 1.000000e+00
+  ic_phi_iface_w(grids_halfwidth) : 30.000000
+  interface_width_grids(2*ic) : 60.000000
+  interface_width_nm(2*ic*dx_phys) : 6.000000
+  kappa_phi_loaded         : 4.50000000e+00
+  kappa_phi_expected_from_ic(0.5*(ic*dx)^2) : 4.50000000e+00
+  kappa_phi_rel_error      : 0.000e+00
+
+========== Output Layout ==========
+  output_root              : Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030
+  output_pf_input          : Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030/pf_input.params
+  init_case_tag            : gp_eta_S218b_Mratio_1
+  case_output_dir          : Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030/gp_eta_S218b_Mratio_1
+  case_pf_input            : Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030/gp_eta_S218b_Mratio_1/pf_input.params
+
+[STO/pseudobinary thin-interface parameterization diagnostics]
+  interface_parameterization     = document_w_12gamma_over_lambda_kappa_1p5gamma_lambda
+  framework                      = phi and eta use the same STO-type pseudobinary reaction phase-field parameterization
+  w_ref                          = 3.36000000e+08 J/m^3
+  dx_ref                         = 1.00000000e-09 m
+  t0_diff                        = 3.70166269e+02 s
+  mu_reference_scale             = 1.37790240e+04 J/mol
+
+  [phi thin-interface inputs/code]
+    gamma_alpha_beta             = 1.68000000e-01 J/m^2
+    lambda_phi                   = 6.00000000e+00 nm
+    W_phi_phys_expected_doc      = 3.36000000e+08 J/m^3
+    kappa_phi_phys_expected_doc  = 1.51200000e-09 J/m
+    W_phi_code_expected_doc      = 1.00000000e+00
+    kappa_phi_code_expected_doc  = 4.50000000e+00
+    W_phi_kernel_used            = 1.00000000e+00
+    kappa_phi_kernel_used        = 4.50000000e+00
+    W_phi_kernel_vs_doc_ratio    = 1.00000000e+00
+    kappa_phi_kernel_vs_doc_ratio = 1.00000000e+00
+    W_phi_phys                   = 3.36000000e+08 J/m^3
+    kappa_phi_phys               = 1.51200000e-09 J/m
+    L_phi_phys                   = 1.92627792e-11
+    W_phi_code                   = 1.00000000e+00
+    kappa_phi_code               = 4.50000000e+00
+    L_phi_code                   = 2.39582485e+00
+
+  [eta thin-interface inputs/code]
+    gp_gamma_alpha_gp            = 5.00000000e-02 J/m^2
+    gp_l_eta_nm                  = 1.00000000e+00 nm
+    W_eta_phys_doc               = 6.00000000e+08 J/m^3
+    kappa_eta_phys_doc           = 7.50000000e-11 J/m
+  gp_W_eta_input_source          = derived_physical_converted
+  gp_kappa_eta_input_source      = derived_physical_converted
+  gp_W_eta_phys_input            = 6.00000000e+08 J/m^3
+  gp_kappa_eta_phys_input        = 7.50000000e-11 J/m
+  gp_W_eta_code_input            = 1.78571429e+00
+  gp_kappa_eta_code_input        = 2.23214286e-01
+  gp_W_eta_code_doc              = 1.78571429e+00
+  gp_kappa_eta_code_doc          = 2.23214286e-01
+  gp_W_eta_kernel_used           = 1.78571429e+00
+  gp_kappa_eta_kernel_used       = 2.23214286e-01
+  gp_W_eta_kernel_vs_doc_ratio   = 1.00000000e+00
+  gp_kappa_eta_kernel_vs_doc_ratio = 1.00000000e+00
+  W_doc_over_W_ln9               = 9.10239227e-01
+  kappa_doc_over_kappa_ln9       = 1.09861229e+00
+  gp_xB_eq_alpha_for_eta         = 3.00000000e-02
+  gp_xB_gp_ref(reuse gp_xB_fixed)= 3.50000000e-01
+
+  [GP STO-type kinetic references]
+  D_alpha_ref                    = 9.72535939e-18 m^2/s
+  L_ref                          = 6.00000000e-08 m
+  dt_code                        = 1.00000000e-04
+  dt_phys                        = 3.70166269e-02 s
+  total_time_phys                = 1.85083134e+01 s
+  c_tot                          = 2.43848911e+04 mol/m^3
+  v_A                            = 6.50000000e-01
+  v_B                            = 3.50000000e-01
+  zeta_eta                       = -4.81903560e+04
+  zeta0_eta                      = 2.29395598e-01
+  D_eff                          = 9.72535939e-18 m^2/s
+  L_eta_diff_ref_phys            = 4.81036865e-08
+  L_eta_diff_ref_code            = 5.98293768e+03
+  gp_L_eta_current_code          = 2.99146884e+03
+  ratio_current_to_reaction_ref  = 5.00000000e-01
+  ratio_current_to_diff_ref      = 5.00000000e-01
+  S_eta_W                        = 5.34190865e-01
+  S_eta_grad                     = 1.97709469e+02
+  S_eta_total                    = 1.98243660e+02
+  S_phi_W                        = 2.39582485e-04
+  S_phi_grad                     = 3.19218887e+00
+  S_phi_total                    = 3.19242845e+00
+  regime_vs_reaction_ref         = eta near finite reaction/interface-controlled reference
+  regime_vs_diff_ref             = eta approaches STO diffusion-controlled limit; check projection-like behavior
+  WARNING                        : eta update may be stiff / projection-like
+
+[GP eta STO-SM Eq. S2.18b kinetic factor]
+  gp_L_eta_mode                  = sto_S218b
+  lambda_eta                     = 1.00000000e-09 m
+  gp_gamma_alpha_gp              = 5.00000000e-02 J/m^2
+  D_alpha                        = 9.72535939e-18 m^2/s
+  c                              = 2.43848911e+04 mol/m^3
+  v_A                            = 6.50000000e-01
+  v_B                            = 3.50000000e-01
+  zeta_eta                       = -4.81903560e+04
+  zeta0_eta                      = 2.29395598e-01
+  uses_abs_zeta_product          = 1
+  Mcrit_eta                      = 1.75950474e-12
+  gp_M_eta_phys_input            = nan
+  gp_M_eta_ratio_to_crit_input   = 1.00000000e+00
+  M_eta_used                     = 1.75950474e-12
+  M_eta_over_Mcrit               = 1.00000000e+00
+  L_eta_reaction_approx_phys     = 4.81036865e-08
+  L_eta_reaction_approx_code     = 5.98293768e+03
+  L_eta_full_phys                = 2.40518433e-08
+  L_eta_full_code                = 2.99146884e+03
+  L_eta_diff_phys                = 4.81036865e-08
+  L_eta_diff_code                = 5.98293768e+03
+  L_eta_full_over_L_diff         = 5.00000000e-01
+  L_eta_full_over_L_reaction_approx = 5.00000000e-01
+  gp_L_eta_kernel_used           = 2.99146884e+03
+  eta_regime_classification      = mixed-control
+  gp_L_eta computed from STO-SM Eq. S2.18b = yes
+  gp_L_eta computed from STO-SM Eq. S2.18b
+  vtk_mode                 : dynamic (no case suffix)
+  phi_eta_rhs_attribution_csv : Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030/gp_eta_S218b_Mratio_1/step38j_rhs_attr_per_step.csv
+  eta_bulk_max_location_csv : Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030/gp_eta_S218b_Mratio_1/step38j_rhs_attr_eta_bulk_max_location.csv
+
+========== Initialization ==========
+  path                     : mass-conserving phi/xB/Y
+
+========== Initialization Geometry ==========
+  shape                    : legacy
+  R_input                  : 0.000000
+  Rx / Ry / Rz             : 1.000000 / 1.000000 / 1.000000
+  R_equiv                  : 1.000000
+  tilt(theta,phi) [deg]    : 0.000 / 0.000
+  rotation                 : disabled
+  center_shift             : (0.000000, 0.000000, 0.000000)
+  phi_noise_amp            : 0.000e+00
+  phi_noise_seed           : 0
+  init_test_id             : -1
+  first_seed_center        : (4.800000, 4.800000, 4.800000)
+
+========== Initialization Composition ==========
+  vf_init(set)             : 0.000000
+  vf_init_eff=<h>          : 0.031898
+  <h^2>                    : 0.006896
+  vf_target                : 0.000001
+  vB_frac                  : 1.000000
+  xB_eq                    : 0.030000
+  xB_out                   : 3.000000e-02 (ic_23d_xB_out=3.000000e-02)
+  <xB>                     : 0.030000
+  <xB_tot>                 : 0.060941
+  theory_target            : 0.06094092
+  mass_balance_diff        : -3.77e-14
+
+========== Observed GP Diffuse Initialization ==========
+  gp_obs_init_success      : 1
+  gp_obs_target_radius_nm  : 1.00000000e+00
+  gp_obs_eta_peak          : 1.00000000e+00
+  gp_obs_profile_type      : tanh
+  gp_obs_match_mode        : match_integral_h_volume
+  gp_obs_compensation_mode : smooth_radial_depletion
+  gp_obs_iface_width_nm    : 2.00000000e-01
+  gp_obs_R_profile_used_nm : 9.92101555e-01
+  gp_obs_V_target          : 4.18879020e+00
+  gp_obs_V_h_final         : 1.78946366e+00
+  gp_obs_R_eff_h_final_nm  : 7.53144123e-01
+  gp_obs_match_error       : -2.39932654e+00
+  gp_obs_mass_before       : 5.39166225e+04
+  gp_obs_mass_after        : 5.39166225e+04
+  gp_obs_mass_error        : 4.69590304e-08
+  gp_obs_depletion_radius_used_nm : 2.00000000e+00
+  gp_obs_depletion_smooth_width_nm : 5.00000000e-01
+  gp_obs_compensation_amplitude : 1.80437341e-02
+  gp_obs_compensation_mass : -5.72628372e+02
+  gp_obs_xB_min_init       : 2.08015022e-02
+  gp_obs_xB_max_init       : 2.99999994e-02
+  gp_obs_xB_shell_min_before_event : 3.00000000e-02
+  gp_obs_xB_shell_max_before_event : 3.00000000e-02
+  gp_obs_max_abs_grad_xB_init : 1.14294810e-02
+  gp_obs_estimated_max_abs_grad_mu_init : 1.42929889e-01
+写出初始化 vtk: Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030/phi_init.vtk
+分配GPU内存...
+[gpu mem] before main cudaMallocs: free=14.93 GB / total=15.47 GB (used=0.54 GB)
+[gpu mem] after main cudaMallocs: free=14.69 GB / total=15.47 GB (used=0.78 GB)
+
+=== Memory Ledger (resident arrays) ===
+  d_phi_r                          884736 elem       7077888 bytes
+  d_eta_r                          884736 elem       7077888 bytes
+  d_Y_r                            884736 elem       7077888 bytes
+  d_xB_r                           884736 elem       7077888 bytes
+  d_phi_rhs_r(=d_lapY_r)           884736 elem       7077888 bytes
+  d_eta_prev_r                     884736 elem       7077888 bytes
+  d_eta_rhs_r                      884736 elem       7077888 bytes
+  d_phi_n_saved                    884736 elem       7077888 bytes
+  d_Y_n_saved                      884736 elem       7077888 bytes
+  d_dY_dt_prev_r                   884736 elem       7077888 bytes
+  d_mu_x_r(=d_Y_rhs_r)             884736 elem       7077888 bytes
+  d_divJ_r(=d_xB_prev_r)           884736 elem       7077888 bytes
+  d_phi_k                          451584 elem       7225344 bytes
+  d_eta_k                          451584 elem       7225344 bytes
+  d_eta_rhs_k                      451584 elem       7225344 bytes
+  d_phi_rhs_k(=d_mu_x_k=d_Y_rhs_k)         451584 elem       7225344 bytes
+  d_Y_k                            451584 elem       7225344 bytes
+  d_divJ_k                         451584 elem       7225344 bytes
+  d_scratch_k_double               451584 elem       7225344 bytes
+  d_scratch_r_double              1769472 elem      14155776 bytes
+  ----------------------------------------
+  Total resident (est.)               149667840 bytes (142.73 MB)
+  Peak estimate (resident+transient) ~ same (scratch reused)
+=== End Memory Ledger ===
+
+创建cuFFT计划...
+  网格: 96x96x96
+cuFFT计划创建成功（复用计划，减少内存使用）
+构建k空间...
+[gpu mem] before minimize work buffers: free=14.68 GB / total=15.47 GB (used=0.79 GB)
+
+========================================
+初始化完成后的显存使用情况:
+  网格大小: 96x96x96
+  已使用: 0.79 GB (5.09%)
+  空闲: 14.68 GB
+  总计: 15.47 GB
+  弹性功能: 未启用
+========================================
+
+[3D] step=00000 t=0.000000 t_real=0.000000e+00 s <x_B_tot>=6.094092e-02 vf_precip=3.189785e-02 R_avg=2.801301e-01 xB_range=[0.0208, 0.0300] Meff_range=[8.6602e+01, 3.8823e+02] t_wall=2026-05-27 02:39:23
+
+开始时间推进...
+========================================
+[3D] step=00100 t=0.010000 t_real=3.701663e+00 s <x_B_tot>=6.117470e-02 vf_precip=3.282997e-02 R_avg=2.290651e-01 xB_range=[0.0287, 0.0309] Meff_range=[1.4696e+02, 4.0554e+02] t_wall=2026-05-27 02:39:32
+step=00100 完成，已输出VTK文件（phi_100.vtk, xB_100.vtk, xBtot_gp_100.vtk, delta_mu_r_100.vtk, f_phi_chem_100.vtk, dgel_dphi_100.vtk, f_phi_dw_100.vtk, f_phi_bulk_100.vtk, f_phi_grad_100.vtk, driving_force_100.vtk）
+[3D] step=00200 t=0.020000 t_real=7.403325e+00 s <x_B_tot>=6.127353e-02 vf_precip=3.382301e-02 R_avg=1.817455e-01 xB_range=[0.0280, 0.0286] Meff_range=[1.4859e+02, 3.6210e+02] t_wall=2026-05-27 02:39:35
+step=00200 完成，已输出VTK文件（phi_200.vtk, xB_200.vtk, xBtot_gp_200.vtk, delta_mu_r_200.vtk, f_phi_chem_200.vtk, dgel_dphi_200.vtk, f_phi_dw_200.vtk, f_phi_bulk_200.vtk, f_phi_grad_200.vtk, driving_force_200.vtk）
+[3D] step=00300 t=0.030000 t_real=1.110499e+01 s <x_B_tot>=6.129549e-02 vf_precip=3.483850e-02 R_avg=1.346290e-01 xB_range=[0.0272, 0.0276] Meff_range=[1.5070e+02, 3.4509e+02] t_wall=2026-05-27 02:39:38
+step=00300 完成，已输出VTK文件（phi_300.vtk, xB_300.vtk, xBtot_gp_300.vtk, delta_mu_r_300.vtk, f_phi_chem_300.vtk, dgel_dphi_300.vtk, f_phi_dw_300.vtk, f_phi_bulk_300.vtk, f_phi_grad_300.vtk, driving_force_300.vtk）
+[3D] step=00400 t=0.040000 t_real=1.480665e+01 s <x_B_tot>=6.131513e-02 vf_precip=3.586802e-02 R_avg=1.081605e-01 xB_range=[0.0262, 0.0265] Meff_range=[1.4737e+02, 3.2739e+02] t_wall=2026-05-27 02:39:42
+step=00400 完成，已输出VTK文件（phi_400.vtk, xB_400.vtk, xBtot_gp_400.vtk, delta_mu_r_400.vtk, f_phi_chem_400.vtk, dgel_dphi_400.vtk, f_phi_dw_400.vtk, f_phi_bulk_400.vtk, f_phi_grad_400.vtk, driving_force_400.vtk）
+
+========================================
+性能统计（精确计时）:
+  总计算时间: 21656.119141 ms (steps 1-500)
+  平均每步: 43.312237 ms
+  网格大小: 96x96x96 = 884736 points
+  吞吐量: 20.43 M points/s
+
+显存使用情况:
+  已使用: 0.79 GB (5.10%)
+  空闲: 14.68 GB
+  总计: 15.47 GB
+========================================
+[3D] step=00500 t=0.050000 t_real=1.850831e+01 s <x_B_tot>=6.133236e-02 vf_precip=3.690196e-02 R_avg=8.190191e-02 xB_range=[0.0252, 0.0255] Meff_range=[1.4241e+02, 3.1029e+02] t_wall=2026-05-27 02:39:45
+step=00500 完成，已输出VTK文件（phi_500.vtk, xB_500.vtk, xBtot_gp_500.vtk, delta_mu_r_500.vtk, f_phi_chem_500.vtk, dgel_dphi_500.vtk, f_phi_dw_500.vtk, f_phi_bulk_500.vtk, f_phi_grad_500.vtk, driving_force_500.vtk）
+
+========================================
+步进墙钟统计:
+  总步进墙钟时间: 23.007080 s
+  平均每步墙钟时间: 0.046014 s
+========================================
+写出 geometry summary: Results/ch_T380_cuda_96x96x96_dt0.0001_steps500_xB0.030/summary.txt
+
+========== Run Summary ==========
+  mode                     : dynamic
+  steps_completed          : 500
+  wall_time_s              : 25.469
+  wall_time_hms            : 00:00:25
