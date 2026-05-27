@@ -4,6 +4,159 @@
 #include <cufft.h>
 #include <cuComplex.h>
 
+enum {
+    MASS_DIAG_PHI_SUM_XBTOT_RAW = 0,
+    MASS_DIAG_PHI_SUM_XBTOT_CLAMPED,
+    MASS_DIAG_PHI_SUM_H_BEFORE,
+    MASS_DIAG_PHI_SUM_H_AFTER,
+    MASS_DIAG_PHI_SUM_XB_BEFORE,
+    MASS_DIAG_PHI_SUM_PHI_BEFORE,
+    MASS_DIAG_PHI_SUM_PHI_AFTER,
+    MASS_DIAG_PHI_SUM_PRED_DELTA_XBTOT,
+    MASS_DIAG_PHI_CLIP_LOW_COUNT,
+    MASS_DIAG_PHI_CLIP_HIGH_COUNT,
+    MASS_DIAG_PHI_STATS_COUNT
+};
+
+enum {
+    MASS_DIAG_Y_SUM_XBTOT_RAWY = 0,
+    MASS_DIAG_Y_SUM_XBTOT_YCLAMP_PRE_XBCLIP,
+    MASS_DIAG_Y_SUM_XBTOT_FINAL,
+    MASS_DIAG_Y_SUM_XB_BEFORE,
+    MASS_DIAG_Y_SUM_XB_RAWY,
+    MASS_DIAG_Y_SUM_XB_YCLAMP_PRE_XBCLIP,
+    MASS_DIAG_Y_SUM_XB_FINAL,
+    MASS_DIAG_Y_CLIP_LOW_COUNT,
+    MASS_DIAG_Y_CLIP_HIGH_COUNT,
+    MASS_DIAG_Y_XB_CLIP_LOW_COUNT,
+    MASS_DIAG_Y_XB_CLIP_HIGH_COUNT,
+    MASS_DIAG_Y_STATS_COUNT
+};
+
+enum {
+    MASS_DIAG_Y_RHS_SUM_H_OLD = 0,
+    MASS_DIAG_Y_RHS_SUM_H_NEW,
+    MASS_DIAG_Y_RHS_SUM_HQ,
+    MASS_DIAG_Y_RHS_SUM_GAMMA_LOCAL,
+    MASS_DIAG_Y_RHS_SUM_TERM_H,
+    MASS_DIAG_Y_RHS_SUM_TERM_LAP,
+    MASS_DIAG_Y_RHS_SUM_TERM_GAMMA,
+    MASS_DIAG_Y_RHS_SUM_DIVJ,
+    MASS_DIAG_Y_RHS_SUM_LAPY,
+    MASS_DIAG_Y_RHS_SUM_TOTAL,
+    MASS_DIAG_Y_RHS_SUMABS_DIVJ,
+    MASS_DIAG_Y_RHS_SUMABS_TERM_H,
+    MASS_DIAG_Y_RHS_SUMABS_TERM_LAP,
+    MASS_DIAG_Y_RHS_SUMABS_TERM_GAMMA,
+    MASS_DIAG_Y_RHS_SUMABS_TOTAL,
+    MASS_DIAG_Y_RHS_SUMSQ_DIVJ,
+    MASS_DIAG_Y_RHS_SUMSQ_TERM_H,
+    MASS_DIAG_Y_RHS_SUMSQ_TERM_LAP,
+    MASS_DIAG_Y_RHS_SUMSQ_TERM_GAMMA,
+    MASS_DIAG_Y_RHS_SUMSQ_TOTAL,
+    MASS_DIAG_Y_RHS_MIN_H,
+    MASS_DIAG_Y_RHS_MIN_HQ,
+    MASS_DIAG_Y_RHS_MAX_HQ,
+    MASS_DIAG_Y_RHS_MAXABS_DIVJ,
+    MASS_DIAG_Y_RHS_MAXABS_TERM_H,
+    MASS_DIAG_Y_RHS_MAXABS_TERM_LAP,
+    MASS_DIAG_Y_RHS_MAXABS_TERM_GAMMA,
+    MASS_DIAG_Y_RHS_MAXABS_TOTAL,
+    MASS_DIAG_Y_RHS_MAXABS_LAGGED_DYDT,
+    MASS_DIAG_Y_RHS_STATS_COUNT
+};
+
+enum {
+    MASS_DIAG_GP_STORAGE_SUM_XBTOT_BEFORE = 0,
+    MASS_DIAG_GP_STORAGE_SUM_XB_ALPHA_BEFORE,
+    MASS_DIAG_GP_STORAGE_SUM_STORAGE_GP_BEFORE,
+    MASS_DIAG_GP_STORAGE_SUM_STORAGE_BETA_BEFORE,
+    MASS_DIAG_GP_STORAGE_SUM_XBTOT_AFTER,
+    MASS_DIAG_GP_STORAGE_SUM_XB_ALPHA_AFTER,
+    MASS_DIAG_GP_STORAGE_SUM_STORAGE_GP_AFTER,
+    MASS_DIAG_GP_STORAGE_SUM_STORAGE_BETA_AFTER,
+    MASS_DIAG_GP_STORAGE_SUM_DELTA_XB_ALPHA,
+    MASS_DIAG_GP_STORAGE_SUM_DELTA_STORAGE_GP,
+    MASS_DIAG_GP_STORAGE_SUM_DELTA_STORAGE_BETA,
+    MASS_DIAG_GP_STORAGE_SUM_DT_DIVJ,
+    MASS_DIAG_GP_STORAGE_SUM_CLOSURE_ERROR,
+    MASS_DIAG_GP_STORAGE_SUM_DIVJ,
+    MASS_DIAG_GP_STORAGE_SMALL_HALPHA_COUNT,
+    MASS_DIAG_GP_STORAGE_MIN_HALPHA,
+    MASS_DIAG_GP_STORAGE_MAX_HALPHA,
+    MASS_DIAG_GP_STORAGE_MIN_HGP,
+    MASS_DIAG_GP_STORAGE_MAX_HGP,
+    MASS_DIAG_GP_STORAGE_MIN_ETA,
+    MASS_DIAG_GP_STORAGE_MAX_ETA,
+    MASS_DIAG_GP_STORAGE_MIN_XB_ALPHA,
+    MASS_DIAG_GP_STORAGE_MAX_XB_ALPHA,
+    MASS_DIAG_GP_STORAGE_STATS_COUNT
+};
+
+enum {
+    GP_Y_UPDATE_SUM_CLIPPING_MASS_ERROR = 0,
+    GP_Y_UPDATE_SUM_SMALL_HALPHA_MASS_ERROR,
+    GP_Y_UPDATE_Y_CLIP_COUNT,
+    GP_Y_UPDATE_XB_CLIP_COUNT,
+    GP_Y_UPDATE_SMALL_HALPHA_COUNT,
+    GP_Y_UPDATE_STATS_COUNT
+};
+
+enum {
+    GP_TRANSPORT_MAXABS_XB_PERTURB = 0,
+    GP_TRANSPORT_MIN_HALPHA,
+    GP_TRANSPORT_MAX_HALPHA,
+    GP_TRANSPORT_MIN_M_ALPHA,
+    GP_TRANSPORT_MAX_M_ALPHA,
+    GP_TRANSPORT_MIN_M_EFF,
+    GP_TRANSPORT_MAX_M_EFF,
+    GP_TRANSPORT_STATS_COUNT
+};
+
+enum {
+    GP_ETA_FEAS_SUM_RECOVERED_XB_BEFORE = 0,
+    GP_ETA_FEAS_MIN_RECOVERED_XB_BEFORE,
+    GP_ETA_FEAS_MAX_RECOVERED_XB_BEFORE,
+    GP_ETA_FEAS_GT_XBMAX_COUNT_BEFORE,
+    GP_ETA_FEAS_LT_XBMIN_COUNT_BEFORE,
+    GP_ETA_FEAS_INVALID_COUNT_BEFORE,
+    GP_ETA_FEAS_SUM_RECOVERED_XB_AFTER,
+    GP_ETA_FEAS_MIN_RECOVERED_XB_AFTER,
+    GP_ETA_FEAS_MAX_RECOVERED_XB_AFTER,
+    GP_ETA_FEAS_GT_XBMAX_COUNT_AFTER,
+    GP_ETA_FEAS_LT_XBMIN_COUNT_AFTER,
+    GP_ETA_FEAS_INVALID_COUNT_AFTER,
+    GP_ETA_FEAS_INVALID_MASS,
+    GP_ETA_FEAS_MAX_ETA_TENT,
+    GP_ETA_FEAS_MAX_HGP_NEW,
+    GP_ETA_FEAS_MAX_ETA_NEW,
+    GP_ETA_FEAS_LIMITER_COUNT,
+    GP_ETA_FEAS_LIMITER_MAX_DELTA,
+    GP_ETA_FEAS_LIMITER_MASS_PREVENTED,
+    GP_ETA_FEAS_STATS_COUNT
+};
+
+enum {
+    GP_ELASTIC_STATS_SUM_GEL = 0,
+    GP_ELASTIC_STATS_MAX_GEL,
+    GP_ELASTIC_STATS_MIN_SIGMA_HYDRO,
+    GP_ELASTIC_STATS_MAX_SIGMA_HYDRO,
+    GP_ELASTIC_STATS_MIN_EPS0_GP_DIAG,
+    GP_ELASTIC_STATS_MAX_EPS0_GP_DIAG,
+    GP_ELASTIC_STATS_SUM_DGEL_DETA,
+    GP_ELASTIC_STATS_MAXABS_DGEL_DETA,
+    GP_ELASTIC_STATS_SUM_DGEL_DPHI,
+    GP_ELASTIC_STATS_MAXABS_DGEL_DPHI,
+    GP_ELASTIC_STATS_SUM_ETA_RHS_ELASTIC,
+    GP_ELASTIC_STATS_MAXABS_ETA_RHS_ELASTIC,
+    GP_ELASTIC_STATS_SUM_PHI_RHS_ELASTIC,
+    GP_ELASTIC_STATS_MAXABS_PHI_RHS_ELASTIC,
+    GP_ELASTIC_STATS_SUM_MINUS_DELTA_MU_R_GP,
+    GP_ELASTIC_STATS_MIN_MINUS_DELTA_MU_R_GP,
+    GP_ELASTIC_STATS_MAX_MINUS_DELTA_MU_R_GP,
+    GP_ELASTIC_STATS_COUNT
+};
+
 // 注意：这些函数在cuda_kernels.cu中实现
 // 它们负责配置并启动对应的CUDA kernel
 
@@ -17,7 +170,7 @@ void launch_dealias_float_kernel(cufftComplex *f_k, int Nx, int Ny, int Nz, int 
                                  double dx, double dy, double dz, int total_size);
 
 // 相场方程RHS计算（含弹性项）
-void launch_compute_phi_rhs_kernel(const double *phi_r, const double *xB_r,
+void launch_compute_phi_rhs_kernel(const double *phi_r, const double *eta_r, const double *xB_r,
                                    double *rhs_r, int Nx, int Ny, int Nz,
                                    double temperature_K, double mu_reference_scale,
                                    double v_A, double v_B, double mu0_compound,
@@ -41,10 +194,16 @@ void launch_compute_phi_rhs_kernel(const double *phi_r, const double *xB_r,
                                    double eps_xx00, double eps_yy00, double eps_zz00,
                                    double eps_yz00, double eps_xz00, double eps_xy00,
                                    double eps_iso_over_vB,
+                                   int gp_mode_enabled,
+                                   int gp_elastic_enabled,
+                                   int gp_elastic_active_phi,
+                                   double gp_eps_iso,
+                                   double gp_elastic_derivative_scale,
                                    double elastic_shift_dimless,
                                    int disable_chem,
                                    int total_size,
-                                   int elastic_enabled);
+                                   int elastic_enabled,
+                                   double *diag_stats);
 
 // 相场方程半隐式更新
 void launch_phi_semi_implicit_update_kernel(const cuDoubleComplex *phi_k_old,
@@ -54,10 +213,95 @@ void launch_phi_semi_implicit_update_kernel(const cuDoubleComplex *phi_k_old,
                                              double L_phi, double kappa_phi,
                                              double dt, int total_size);
 
+// GP-zone eta 方程：RHS、半隐式更新与截断
+void launch_compute_eta_rhs_kernel(const double *eta_r,
+                                   const double *phi_r,
+                                   const double *xB_alpha_r,
+                                   const float *sigma_xx_r,
+                                   const float *sigma_yy_r,
+                                   const float *sigma_zz_r,
+                                   const float *sigma_xy_r,
+                                   const float *sigma_xz_r,
+                                   const float *sigma_yz_r,
+                                   double *rhs_r,
+                                   double temperature_K,
+                                   double mu_reference_scale,
+                                   double Vm_alpha_0,
+                                   double dVm_alpha_dxB,
+                                   double gp_xB_fixed,
+                                   double gp_delta_g0,
+                                   int gp_raw_reaction_drive_only,
+                                   int gp_raw_reaction_drive_use_raw_units_debug,
+                                   double gp_reaction_nu_A,
+                                   double gp_reaction_nu_B,
+                                   double gp_mu_reference_raw,
+                                   double gp_W_eta,
+                                   double eps_iso_over_vB,
+                                   int gp_elastic_enabled,
+                                   int gp_elastic_active_eta,
+                                   double gp_eps_iso,
+                                   double gp_elastic_derivative_scale,
+                                   int total_size,
+                                   double *diag_stats);
+void launch_compute_eta_rhs_components_kernel(const double *eta_r,
+                                              const double *phi_r,
+                                              const double *xB_alpha_r,
+                                              const float *sigma_xx_r,
+                                              const float *sigma_yy_r,
+                                              const float *sigma_zz_r,
+                                              const float *sigma_xy_r,
+                                              const float *sigma_xz_r,
+                                              const float *sigma_yz_r,
+                                              double *chem_r,
+                                              double *dw_r,
+                                              double *elastic_r,
+                                              double *net_explicit_r,
+                                              double *minus_delta_mu_r_gp_r,
+                                              double temperature_K,
+                                              double mu_reference_scale,
+                                              double Vm_alpha_0,
+                                              double dVm_alpha_dxB,
+                                              double gp_xB_fixed,
+                                              double gp_delta_g0,
+                                              int gp_raw_reaction_drive_only,
+                                              int gp_raw_reaction_drive_use_raw_units_debug,
+                                              double gp_reaction_nu_A,
+                                              double gp_reaction_nu_B,
+                                              double gp_mu_reference_raw,
+                                              double gp_W_eta,
+                                              double eps_iso_over_vB,
+                                              int gp_elastic_enabled,
+                                              int gp_elastic_active_eta,
+                                              double gp_eps_iso,
+                                              double gp_elastic_derivative_scale,
+                                              int total_size);
+void launch_eta_semi_implicit_update_kernel(const cuDoubleComplex *eta_k_old,
+                                            const cuDoubleComplex *rhs_k,
+                                            const double *k2,
+                                            cuDoubleComplex *eta_k_new,
+                                            double L_eta, double kappa_eta,
+                                            double dt, int total_size);
+void launch_eta_normalize_and_clamp_kernel(double *eta_r, double invN, int total_size);
+void launch_gp_eta_feasibility_and_limiter_kernel(double *eta_r,
+                                                  const double *eta_old_r,
+                                                  const double *phi_new_r,
+                                                  const double *phi_old_r,
+                                                  const double *xB_old_r,
+                                                  const double *divJ_r,
+                                                  double dt,
+                                                  double xB_GP,
+                                                  double xB_min,
+                                                  double xB_max,
+                                                  double gp_h_alpha_eps,
+                                                  int enable_limiter,
+                                                  double *stats,
+                                                  int total_size);
+
 // phi归一化和截断
 void launch_phi_normalize_and_clamp_kernel(double *phi_r, double invN, int total_size);
 // 仅归一化（无截断）供非phi/Y数组使用
 void launch_normalize_only_kernel(double *arr, double invN, int total_size);
+void launch_add_arrays_kernel(const double *a, const double *b, double *out, int total_size);
 // 计算h(phi)并做体积分数归约
 __global__ void compute_h_values_kernel(const double *phi_r, double *h_values, int total_size);
 double gpu_compute_vf_from_h(const double *d_phi_r, int total_size);
@@ -123,6 +367,19 @@ void launch_compute_mu_x_kernel(const double *Y_r, const double *phi_r,
                                 double eps_iso_over_vB,
                                 int total_size,
                                 int elastic_enabled);
+
+// gp_zone: 计算 matrix composition 的 mu_C，不把 h_alpha 乘进 chemical potential
+void launch_compute_mu_C_gp_kernel(const double *Y_r,
+                                   double *xB_alpha_r, double *mu_C_r,
+                                   double temperature_K, double mu_reference_scale,
+                                   double Vm_alpha_0, double dVm_alpha_dxB,
+                                   double Y_clip, double xB_eps,
+                                   const float *sigma_xx_r,
+                                   const float *sigma_yy_r,
+                                   const float *sigma_zz_r,
+                                   double eps_iso_over_vB,
+                                   int total_size,
+                                   int elastic_enabled);
 
 // minimize mode helper: compute mu_x directly from (phi, xB), without using Y/logit.
 // This is useful when xB is reconstructed from phi each iteration.
@@ -249,6 +506,7 @@ void launch_compute_gel_density_kernel(
     const float *uxy_r, const float *uxz_r, const float *uyz_r,
     // Optimization(4): eigenstrain 参数已移除，现场计算；需要 phi 和 xB
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,  // 可为 NULL（minimize 模式）
     const float *sigma_xx_r, const float *sigma_yy_r, const float *sigma_zz_r,
     const float *sigma_xy_r, const float *sigma_xz_r, const float *sigma_yz_r,
@@ -256,7 +514,21 @@ void launch_compute_gel_density_kernel(
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     double *gel_hat_r,
+    int total_size);
+
+void launch_compute_gp_elastic_stats_kernel(
+    const double *phi_r,
+    const double *eta_r,
+    const double *gel_hat_r,
+    const float *sigma_xx_r,
+    const float *sigma_yy_r,
+    const float *sigma_zz_r,
+    double gp_eps_iso,
+    double *stats,
     int total_size);
 
 // Y方程：计算梯度
@@ -302,6 +574,31 @@ void launch_compute_flux_single_component_kernel(
     double Vm_compound, double temperature_K,
     double mu_reference_scale,
     int total_size);
+void launch_compute_flux_single_component_gp_kernel(
+    const double *grad_mu_alpha_r,
+    const double *phi_r,
+    const double *eta_r,
+    const double *xB_alpha_prev_r,
+    double *J_alpha_r,
+    double D_alpha, double gp_M_GP, double gp_M_beta,
+    double Vm_alpha_0, double dVm_alpha_dxB,
+    double Vm_compound, double temperature_K,
+    double mu_reference_scale,
+    int total_size);
+void launch_compute_gp_transport_stats_kernel(const double *phi_r,
+                                              const double *eta_r,
+                                              const double *xB_alpha_r,
+                                              double xB_ref,
+                                              double D_alpha,
+                                              double gp_M_GP,
+                                              double gp_M_beta,
+                                              double Vm_alpha_0,
+                                              double dVm_alpha_dxB,
+                                              double Vm_compound,
+                                              double temperature_K,
+                                              double mu_reference_scale,
+                                              double *stats,
+                                              int total_size);
 void launch_divJ_accumulate_kernel(
     const cuDoubleComplex *J_alpha_k,
     cuDoubleComplex *divJ_k,
@@ -316,7 +613,30 @@ void launch_compute_Y_rhs_kernel(const double *divJ_r, const double *phi_r,
                                   const double *phi_prev, const double *lapY_r,
                                   const double *Y_r, const double *dY_dt_prev,
                                   double *rhs_r, double dt, double v_B,
-                                  double mean_DY, int total_size);
+                                  double mean_DY, int total_size,
+                                  int use_previous_time_level,
+                                  int disable_gamma_term,
+                                  double term_h_scale,
+                                  double *diag_stats);
+void launch_compute_Y_rhs_gp_kernel(const double *divJ_r, const double *phi_r,
+                                     const double *phi_prev, const double *eta_r,
+                                     const double *eta_prev_r, const double *lapY_r,
+                                     const double *Y_r, const double *dY_dt_prev,
+                                     double *rhs_r, double dt, double xB_GP,
+                                     double mean_DY, double gp_h_alpha_eps,
+                                     int total_size,
+                                     int use_previous_time_level,
+                                     int disable_gamma_term,
+                                     double *diag_stats);
+void launch_compute_Y_rhs_gp_conservative_kernel(const double *divJ_r, const double *phi_r,
+                                                 const double *phi_prev, const double *eta_r,
+                                                 const double *eta_prev_r, const double *lapY_r,
+                                                 const double *Y_r, const double *dY_dt_prev,
+                                                 double *rhs_r, double dt, double xB_GP,
+                                                 double mean_DY, int total_size,
+                                                 int use_previous_time_level,
+                                                 int disable_gamma_term,
+                                                 double *diag_stats);
 
 // Y方程：半隐式更新
 void launch_Y_semi_implicit_update_kernel(const cuDoubleComplex *Y_k_old,
@@ -329,6 +649,94 @@ void launch_Y_semi_implicit_update_kernel(const cuDoubleComplex *Y_k_old,
 void launch_Y_normalize_and_clamp_kernel(double *Y_r, double *xB_r,
                                           double invN, double Y_clip, double Y_upper_cap, double xB_eps,
                                           int total_size);
+void launch_relax_dY_dt_guess_kernel(const double *dY_dt_new_r,
+                                     const double *dY_dt_old_guess_r,
+                                     double *dY_dt_guess_r,
+                                     double omega,
+                                     int total_size);
+void launch_compute_diff_sumsq_max_kernel(const double *a_r,
+                                          const double *b_r,
+                                          double *stats,
+                                          int total_size);
+
+void launch_phi_mass_diagnostics_kernel(const double *phi_ifft_r,
+                                        const double *phi_before_r,
+                                        const double *xB_before_r,
+                                        double *stats,
+                                        double invN,
+                                        double v_B,
+                                        int total_size);
+
+void launch_Y_mass_diagnostics_kernel(const double *Y_ifft_r,
+                                      const double *phi_r,
+                                      const double *xB_before_r,
+                                      double *stats,
+                                      double invN,
+                                      double Y_clip,
+                                      double Y_upper_cap,
+                                      double xB_eps,
+                                      double v_B,
+                                      int total_size);
+void launch_Y_mass_diagnostics_gp_kernel(const double *Y_ifft_r,
+                                         const double *phi_r,
+                                         const double *eta_r,
+                                         const double *xB_before_r,
+                                         double *stats,
+                                         double invN,
+                                         double Y_clip,
+                                         double Y_upper_cap,
+                                         double xB_eps,
+                                         double xB_GP,
+                                         int total_size);
+void launch_gp_storage_exact_Y_update_kernel(const double *divJ_r,
+                                             const double *phi_new_r,
+                                             const double *phi_old_r,
+                                             const double *eta_new_r,
+                                             const double *eta_old_r,
+                                             const double *Y_old_r,
+                                             double *Y_r,
+                                             double *xB_r,
+                                             double dt,
+                                             double xB_GP,
+                                             double Y_clip,
+                                             double Y_upper_cap,
+                                             double xB_eps,
+                                             double gp_h_alpha_eps,
+                                             int disable_internal_clip,
+                                             double *update_stats,
+                                             int total_size);
+void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,
+                                              double *Y_r,
+                                              double *xB_r,
+                                              double lambda_shift,
+                                              int total_size);
+void launch_gp_picard_storage_Y_update_kernel(const double *divJ_r,
+                                              const double *phi_new_r,
+                                              const double *phi_old_r,
+                                              const double *eta_new_r,
+                                              const double *eta_old_r,
+                                              const double *Y_old_r,
+                                              double *Y_guess_r,
+                                              double *xB_r,
+                                              double dt,
+                                              double xB_GP,
+                                              double Y_clip,
+                                              double Y_upper_cap,
+                                              double xB_eps,
+                                              double *update_stats,
+                                              int total_size);
+void launch_gp_storage_diagnostics_kernel(const double *phi_old_r,
+                                          const double *eta_old_r,
+                                          const double *xB_old_r,
+                                          const double *phi_new_r,
+                                          const double *eta_new_r,
+                                          const double *xB_new_r,
+                                          const double *divJ_r,
+                                          double dt,
+                                          double xB_GP,
+                                          double gp_h_alpha_eps,
+                                          double *stats,
+                                          int total_size);
 
 // xB 峰值限幅 kernel
 void launch_clamp_xB_max_kernel(double *xB_r, int total_size, double xB_max);
@@ -340,6 +748,11 @@ void launch_compute_laplacian_k_kernel(const cuDoubleComplex *f_k, const double 
 // 计算xBtot
 void launch_compute_xBtot_kernel(const double *phi_r, const double *xB_r,
                                   double *xBtot_r, double v_B, int total_size);
+
+// 计算 gp_zone 模式的 xBtot_gp
+void launch_compute_xBtot_gp_kernel(const double *phi_r, const double *eta_r,
+                                    const double *xB_alpha_r, double *xBtot_gp_r,
+                                    double xB_GP, int total_size);
 
 // 计算DY值（用于归约）
 void launch_compute_DY_values_kernel(const double *Y_r, const double *phi_r,
@@ -366,9 +779,17 @@ void gpu_reduce_sum_N_in_N_if(const double *phi_r, int total_size,
 double gpu_reduce_sum_xBtot(const double *phi_r, const double *xB_r,
                             double v_B, int total_size);
 
+// 优化版本：直接归约计算xBtot_gp的和（节省显存）
+double gpu_reduce_sum_xBtot_gp(const double *phi_r, const double *eta_r,
+                               const double *xB_alpha_r, double xB_GP,
+                               int total_size);
+
 // 优化版本：直接归约计算DY的和（节省显存）
 double gpu_reduce_sum_DY(const double *Y_r, const double *phi_r,
                         double D_alpha, double D_compound, int total_size);
+double gpu_reduce_sum_DY_gp(const double *Y_r, const double *phi_r,
+                            const double *eta_r, double D_alpha,
+                            int total_size);
 
 // 优化版本：直接归约计算min和max（节省CPU内存和传输时间）
 void gpu_reduce_min_max(const double *d_array, int n,
@@ -438,12 +859,16 @@ void launch_initialize_phi_kernel(
 // 1. Eigenstrain计算（从phi, xB 计算 Wu & Ji 形式的 eigenstrain）
 void launch_compute_eigenstrain_from_phi_kernel(
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,
     float *uxx0_r, float *uyy0_r, float *uzz0_r,
     float *uxy0_r, float *uxz0_r, float *uyz0_r,
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     int total_size);
 
 // Minimize mode only: eigenstrain from phi only (no xB)
@@ -515,6 +940,7 @@ void launch_compute_strain_with_perturbation_kernel(
     const float *uxy_init, const float *uxz_init, const float *uyz_init,
     // Optimization(4): eigenstrain 参数已移除，现场计算
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,  // 可为 NULL（minimize 模式）
     // 输出：修正后的local strain
     float *uxx, float *uyy, float *uzz,
@@ -537,6 +963,9 @@ void launch_compute_strain_with_perturbation_kernel(
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     // 外部应变（6个分量）
     float E0_xx, float E0_yy, float E0_zz, float E0_yz, float E0_xz, float E0_xy,
     int total_size);
@@ -582,12 +1011,16 @@ void launch_compute_stress_from_strain_with_effective_stiffness_kernel(
     const float *uxx_r, const float *uyy_r, const float *uzz_r,
     const float *uxy_r, const float *uxz_r, const float *uyz_r,
     const double *phi_r,
+    const double *eta_r,
     // Optimization(4): eigenstrain 参数已移除，现场计算；需要 xB（可为 NULL，minimize 模式）
     const double *xB_r,
     // Optimization(4): 需要 eps0 相关参数
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     float *sigma_xx_r, float *sigma_yy_r, float *sigma_zz_r,
     float *sigma_xy_r, float *sigma_xz_r, float *sigma_yz_r,
     float S_11, float S_12, float S_13, float S_14, float S_15, float S_16,

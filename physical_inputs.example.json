@@ -1,11 +1,171 @@
 {
+  "gamma": 0.05,
+  "lambda_sm": 6e-10,
+  "dx": 1e-10,
+  "dt": 0.01,
+  "v_A": 0.0,
+  "v_B": 1.0,
+  "temperature_C": 380.0,
+  "Vm_compound": 4.1009e-05,
+  "Vm_alpha_0": 4.1009e-05,
+  "pf_dx": 1e-10,
+  "phys_dx_ref": 1e-09,
+  "D_ratio": 0.01,
+  "gp_gamma_alpha_gp": 0.05,
+  "gp_l_eta": 1e-09,
+  "gp_D_ratio_eta": 0.01,
+  "gp_reaction_nu_A": 0.65,
+  "gp_reaction_nu_B": 0.35,
+  "gp_M_eta_ratio_to_crit": 0.01,
+  "gp_xB_eq_alpha_for_eta": 0.03,
+  "vf_init": 0.0,
+  "vf_target": 0.04,
+  "L_ref_factor": 5.0,
+  "gel_shift_Jm3": 0.0,
+  "eps_iso": 0.00233,
+  "eigenstrain_principal": [
+    0.046,
+    -0.022,
+    -0.017
+  ],
+  "eigenstrain_rotation_matrix": [
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "C_tensor_PbTe_GPa": [
+    [
+      108.0,
+      6.0,
+      6.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      6.0,
+      71.0,
+      43.0,
+      -0.0,
+      0.0,
+      0.0
+    ],
+    [
+      6.0,
+      43.0,
+      71.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      -0.0,
+      0.0,
+      51.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      14.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      14.0
+    ]
+  ],
+  "C_tensor_Ag2Te_GPa": [
+    [
+      64.53932315,
+      42.71742108,
+      40.48003361,
+      2.17554086,
+      -0.06871424,
+      1.43079278
+    ],
+    [
+      42.71742108,
+      90.0,
+      46.28257892,
+      2.50650732,
+      4.13187759,
+      1.64846021
+    ],
+    [
+      40.48003361,
+      46.28257892,
+      68.50060964,
+      2.83747377,
+      4.65968934,
+      1.86612765
+    ],
+    [
+      2.17554086,
+      2.50650732,
+      2.83747377,
+      11.50967838,
+      0.76715418,
+      -2.29548755
+    ],
+    [
+      -0.06871424,
+      4.13187759,
+      4.65968934,
+      0.76715418,
+      17.48003361,
+      0.50453599
+    ],
+    [
+      1.43079278,
+      1.64846021,
+      1.86612765,
+      -2.29548755,
+      0.50453599,
+      13.49032162
+    ]
+  ],
+  "E0_xx": 0.0,
+  "E0_yy": 0.0,
+  "E0_zz": 0.0,
+  "E0_yz": 0.0,
+  "E0_xz": 0.0,
+  "E0_xy": 0.0,
   "_notes": {
-    "dx": "兼容旧接口保留；若同时提供 pf_dx，脚本一律用 pf_dx 做无量纲化与 main_cuda dx/dy/dz。",
-    "pf_dx": "PF 真正单个网格对应的物理长度。若每 1 nm 用 10 个网格解析，这里应填 1e-10。",
-    "phys_dx_ref": "可选的粗物理参考长度，仅用于记录与人工对照，不参与无量纲化。",
-    "eigenstrain_rotation_matrix": "单位矩阵表示无旋转；主应变方向与模拟坐标系一致。",
-    "eigenstrain_tensor_priority": "若同时提供 eigenstrain_tensor 和 eigenstrain_principal，脚本优先使用 eigenstrain_tensor。",
-    "eps_iso": "脚本会自动换算为 main_cuda 需要的 eps_iso_over_vB = eps_iso / v_B。"
+    "dx": "\u517c\u5bb9\u65e7\u63a5\u53e3\u4fdd\u7559\uff1b\u5728\u4e25\u683c\u53ccdx\u6a21\u5f0f\u4e0b\uff0c\u82e5\u672a\u63d0\u4f9b phys_dx_ref / pf_dx\uff0c\u5219 dx \u540c\u65f6\u4f5c\u4e3a phys_dx_ref \u4e0e pf_dx \u7684\u56de\u9000\u503c\u3002",
+    "pf_dx": "PF \u771f\u6b63\u5355\u4e2a\u7f51\u683c\u5bf9\u5e94\u7684\u7269\u7406\u957f\u5ea6\u3002\u5b83\u53ea\u8d1f\u8d23 main_cuda dx/dy/dz \u4e0e ic_phi_iface_w \u7684\u79bb\u6563\u89e3\u6790\u3002",
+    "phys_dx_ref": "\u7269\u7406\u53c2\u6570\u6807\u5b9a\u4f7f\u7528\u7684\u53c2\u8003\u7269\u7406\u957f\u5ea6\uff1b\u4e0e lambda_sm \u4e00\u8d77\u51b3\u5b9a kappa_phi\u3001D_alpha\u3001D_compound \u7684\u65e0\u91cf\u7eb2\u5316\u3002",
+    "gp_gamma_alpha_gp": "eta/GP \u754c\u9762\u7684\u7269\u7406\u754c\u9762\u80fd\uff0c\u5355\u4f4d J/m^2\u3002",
+    "gp_l_eta": "eta/GP \u754c\u9762\u539a\u5ea6\u53c2\u6570\uff0c\u5355\u4f4d m\u3002",
+    "gp_D_ratio_eta": "eta \u7684\u6269\u6563\u6781\u9650\u4e0b D_eff / D_alpha\u3002",
+    "gp_reaction_nu_A": "eta \u53cd\u5e94\u7684 A \u7aef\u5316\u5b66\u8ba1\u91cf\u7cfb\u6570\u3002",
+    "gp_reaction_nu_B": "eta \u53cd\u5e94\u7684 B \u7aef\u5316\u5b66\u8ba1\u91cf\u7cfb\u6570\u3002",
+    "gp_M_eta_ratio_to_crit": "\u4f18\u5148\u63a8\u8350\u7684 eta \u8fc1\u79fb\u7387\u8f93\u5165\u65b9\u5f0f\uff1a\u7ed9 M_eta / Mcrit_eta\u3002",
+    "gp_M_eta_phys": "\u82e5\u9700\u8981\u7edd\u5bf9\u8fc1\u79fb\u7387\uff0c\u53ef\u76f4\u63a5\u7ed9\u7269\u7406\u91cf M_eta\u3002",
+    "gp_xB_eq_alpha_for_eta": "eta \u91c7\u7528\u7684\u5e73\u8861 xB\uff1b\u672a\u586b\u65f6\u56de\u9000\u5230 xB_eq\u3002",
+    "eigenstrain_rotation_matrix": "\u5355\u4f4d\u77e9\u9635\u8868\u793a\u65e0\u65cb\u8f6c\uff1b\u4e3b\u5e94\u53d8\u65b9\u5411\u4e0e\u6a21\u62df\u5750\u6807\u7cfb\u4e00\u81f4\u3002",
+    "eigenstrain_tensor_priority": "\u82e5\u540c\u65f6\u63d0\u4f9b eigenstrain_tensor \u548c eigenstrain_principal\uff0c\u811a\u672c\u4f18\u5148\u4f7f\u7528 eigenstrain_tensor\u3002",
+    "eps_iso": "\u811a\u672c\u4f1a\u81ea\u52a8\u6362\u7b97\u4e3a main_cuda \u9700\u8981\u7684 eps_iso_over_vB = eps_iso / v_B\u3002"
   },
   "_units": {
     "gamma": "J/m^2",
@@ -20,53 +180,23 @@
     "Vm_compound": "m^3/mol",
     "Vm_alpha_0": "m^3/mol",
     "D_ratio": "dimensionless (D_compound / D_alpha)",
+    "gp_gamma_alpha_gp": "J/m^2",
+    "gp_l_eta": "m",
+    "gp_D_ratio_eta": "dimensionless",
+    "gp_reaction_nu_A": "dimensionless stoichiometric coefficient",
+    "gp_reaction_nu_B": "dimensionless stoichiometric coefficient",
+    "gp_M_eta_ratio_to_crit": "dimensionless",
+    "gp_M_eta_phys": "J/mol",
+    "gp_xB_eq_alpha_for_eta": "dimensionless mole fraction",
     "vf_init": "dimensionless volume fraction",
     "vf_target": "dimensionless volume fraction",
     "L_ref_factor": "dimensionless (L_ref / lambda_sm)",
     "gel_shift_Jm3": "J/m^3",
     "eps_iso": "dimensionless isotropic chemical strain",
+    "eigenstrain_tensor": "dimensionless strain tensor in simulation basis",
     "eigenstrain_principal": "dimensionless principal strain",
     "eigenstrain_rotation_matrix": "dimensionless rotation matrix from principal basis to simulation basis; identity means no rotation",
     "C_tensor_PbTe_GPa": "GPa",
     "C_tensor_Ag2Te_GPa": "GPa"
-  },
-  "gamma": 0.168,
-  "lambda_sm": 6e-9,
-  "dx": 1e-10,
-  "pf_dx": 1e-10,
-  "phys_dx_ref": 1e-9,
-  "dt": 0.01,
-  "v_A": 0.0,
-  "v_B": 1.0,
-  "temperature_C": 400.0,
-  "Vm_compound": 4.1009e-05,
-  "Vm_alpha_0": 4.1009e-05,
-  "D_ratio": 0.01,
-  "vf_init": 0.0,
-  "vf_target": 0.04,
-  "L_ref_factor": 10.0,
-  "gel_shift_Jm3": 0.0,
-  "eps_iso": 0.00233,
-  "eigenstrain_principal": [0.046, -0.022, -0.017],
-  "eigenstrain_rotation_matrix": [
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0]
-  ],
-  "C_tensor_PbTe_GPa": [
-    [108.0, 6.0, 6.0, 0.0, 0.0, 0.0],
-    [6.0, 71.0, 43.0, -0.0, 0.0, 0.0],
-    [6.0, 43.0, 71.0, 0.0, 0.0, 0.0],
-    [0.0, -0.0, 0.0, 51.0, 0.0, 0.0],
-    [0.0, 0.0, 0.0, 0.0, 14.0, 0.0],
-    [0.0, 0.0, 0.0, 0.0, 0.0, 14.0]
-  ],
-  "C_tensor_Ag2Te_GPa": [
-    [64.53932315, 42.71742108, 40.48003361, 2.17554086, -0.06871424, 1.43079278],
-    [42.71742108, 90.0, 46.28257892, 2.50650732, 4.13187759, 1.64846021],
-    [40.48003361, 46.28257892, 68.50060964, 2.83747377, 4.65968934, 1.86612765],
-    [2.17554086, 2.50650732, 2.83747377, 11.50967838, 0.76715418, -2.29548755],
-    [-0.06871424, 4.13187759, 4.65968934, 0.76715418, 17.48003361, 0.50453599],
-    [1.43079278, 1.64846021, 1.86612765, -2.29548755, 0.50453599, 13.49032162]
-  ]
+  }
 }

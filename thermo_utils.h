@@ -260,6 +260,34 @@
 // CUDA设备函数标记
 #define DEVICE_FUNC __device__ __host__
 
+#ifdef THERMO_UTILS_DEFINE_GLOBALS
+#ifdef __CUDACC__
+__device__ __constant__ int d_thermo_convex_extrapolation_enabled = 1;
+#endif
+int h_thermo_convex_extrapolation_enabled = 1;
+#else
+#ifdef __CUDACC__
+extern __device__ __constant__ int d_thermo_convex_extrapolation_enabled;
+#endif
+extern int h_thermo_convex_extrapolation_enabled;
+#endif
+
+DEVICE_FUNC static inline int thermo_convex_extrapolation_enabled_runtime(void) {
+#if defined(__CUDA_ARCH__)
+    return d_thermo_convex_extrapolation_enabled;
+#else
+    return h_thermo_convex_extrapolation_enabled;
+#endif
+}
+
+// D(Ag in PbTe), m^2/s; mirrors Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s
+DEVICE_FUNC static inline double D_Ag_in_PbTe_m2_per_s(double T_K) {
+    const double D0_cm2_s = 4.251e-11;
+    const double Q_J_mol = 3.403e+04;
+    const double D_cm2_s = D0_cm2_s * exp(-Q_J_mol / (R_GAS * T_K));
+    return D_cm2_s * 1.0e-4;
+}
+
 // 定义凸化外推的临界浓度
 // 当 xB 超过此值时，启用二次惩罚以保证热力学稳定性
 // 0.15 通常是一个安全的选择 (大于溶解度 ~0.016，且小于 Spinodal点)
@@ -368,7 +396,7 @@ DEVICE_FUNC static inline double dmu_Ag2Te_calphad_dx(double T, double xB) {
 
 // 溶剂 PbTe (Matrix) 的化学势
 DEVICE_FUNC static inline double mu_PbTe_raw(double T, double xB) {
-    if (xB <= X_LIMIT_CONVEX) {
+    if (!thermo_convex_extrapolation_enabled_runtime() || xB <= X_LIMIT_CONVEX) {
         // 正常区域：使用物理模型
         return mu_PbTe_calphad(T, xB);
     } else {
@@ -386,7 +414,7 @@ DEVICE_FUNC static inline double mu_PbTe_raw(double T, double xB) {
 
 // 溶质 Ag2Te (Precipitate) 的化学势
 DEVICE_FUNC static inline double mu_Ag2Te_raw(double T, double xB) {
-    if (xB <= X_LIMIT_CONVEX) {
+    if (!thermo_convex_extrapolation_enabled_runtime() || xB <= X_LIMIT_CONVEX) {
         // 正常区域：使用物理模型
         return mu_Ag2Te_calphad(T, xB);
     } else {
@@ -526,9 +554,9 @@ DEVICE_FUNC static inline double gamma_thermo_nonlinear(double xB, double h,
                                             double Vm_compound,
                                             double temperature_K, double energy_scale){
     
-    // 因为 mu_PbTe_raw 和 mu_Ag2Te_raw 已经内置了凸化逻辑，
-    // 这里可以直接对任意 xB 进行差分，不需要再手动截断 xB 了。
-    // 在 xB > 0.15 的区域，mu 函数是强凸抛物线，二阶导数恒为正 (2 * K_penalty)。
+    // 这里直接对当前 backend 下的 mu_raw 做差分：
+    // - 若启用 convex extrapolation，则高 xB 区域由凸化抛物线控制；
+    // - 若关闭 convex extrapolation，则完全回到 true regular-solution / CALPHAD 形式。
     
     double c_bulk = c_xB_phi(xB, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
     double dx = 1e-5; 

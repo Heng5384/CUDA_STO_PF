@@ -1,7 +1,10 @@
 #ifndef PF_PARAMS_H
 #define PF_PARAMS_H
 
+#define PF_PARAMS_SCHEMA_VERSION 1
+
 typedef struct {
+    int pf_params_schema_version;
     // 网格参数
     int Nx, Ny, Nz;
     double dx, dy, dz;
@@ -13,6 +16,159 @@ typedef struct {
     int csv_out_every;  // CSV文件输出间隔
     int dimension;
     unsigned long seed;
+    char model_mode[32]; // "two_phase" (default) or "gp_zone"
+    double gp_xB_fixed;
+    double gp_delta_g0;
+    double gp_delta_g_stab;
+    // GP mechanical-mixture stabilization shift [J/mol]
+    // default 0.0; calibrate against xB~0.03 experiment
+    double gp_W_eta;
+    double gp_kappa_eta;
+    double gp_L_eta;
+    double gp_W_eta_phys_input;
+    double gp_kappa_eta_phys_input;
+    double gp_L_eta_phys_input;
+    double gp_W_eta_code_input;
+    double gp_kappa_eta_code_input;
+    double gp_L_eta_code_input;
+    int gp_W_eta_legacy_specified;
+    int gp_kappa_eta_legacy_specified;
+    int gp_L_eta_legacy_specified;
+    int gp_W_eta_phys_specified;
+    int gp_kappa_eta_phys_specified;
+    int gp_L_eta_phys_specified;
+    int gp_W_eta_code_specified;
+    int gp_kappa_eta_code_specified;
+    int gp_L_eta_code_specified;
+    int gp_W_eta_input_mode_resolved;
+    int gp_kappa_eta_input_mode_resolved;
+    double gp_gamma_alpha_gp;
+    double gp_l_eta_nm;
+    double gp_D_ratio;
+    double gp_M_int_eta;
+    double gp_eps_iso;
+    double gp_M_GP;
+    double gp_M_beta;
+    int gp_elastic_enabled;
+    int gp_elastic_active_eta;
+    int gp_elastic_active_phi;
+    double gp_elastic_derivative_scale;
+    int gp_nuc_enabled;
+    int gp_nuc_check_interval;
+    double gp_nuc_phi_threshold;
+    double gp_nuc_eta_threshold;
+    double gp_nuc_h_alpha_threshold;
+    double gp_nuc_J0;
+    double gp_nuc_gamma;
+    double gp_nuc_seed_radius;
+    double gp_nuc_seed_peak;
+    double gp_nuc_seed_iface_width;
+    double gp_nuc_patch_radius;
+    double gp_nuc_shell_inner_radius;
+    double gp_nuc_shell_outer_radius;
+    int gp_nuc_max_events_per_step;
+    char gp_nuc_mass_mode[32];
+    int gp_to_beta_enabled;
+    int gp_to_beta_check_interval;
+    double gp_to_beta_eta_threshold;
+    double gp_to_beta_radius_threshold;
+    double gp_to_beta_xB_threshold;
+    double gp_to_beta_seed_radius;
+    double gp_to_beta_seed_peak;
+    double gp_to_beta_seed_iface_width;
+    double gp_to_beta_patch_radius;
+    double gp_to_beta_shell_inner_radius;
+    double gp_to_beta_shell_outer_radius;
+    int gp_to_beta_max_events_per_step;
+    int gp_to_beta_stochastic_enabled;
+    double gp_to_beta_J0_site;
+    double gp_to_beta_gamma;
+    double gp_to_beta_drive_const;
+    int gp_to_beta_max_events_per_check;
+    char gp_to_beta_barrier_mode[32];
+    char gp_to_beta_drive_mode[32];
+    char gp_to_beta_mass_mode[32];
+    char gp_to_beta_eta_deplete_mode[64];
+    char gp_to_beta_phi_insert_mode[32];
+    int gp_to_beta_conversion_mass_audit_enabled;
+    int gp_to_beta_stop_after_conversion_audit;
+    char gp_to_beta_conversion_audit_prefix[128];
+    int gp_to_beta_feasibility_gate_enabled;
+    double gp_to_beta_min_shell_capacity_factor;
+    int gp_to_beta_reject_if_infeasible;
+    int gp_to_beta_allow_seed_amplitude_scaling;
+    double gp_to_beta_min_seed_amplitude;
+    int gp_to_beta_event_cooldown_steps;
+    double gp_to_beta_min_event_spacing;
+    double gp_to_beta_event_exclusion_radius;
+    int gp_to_beta_max_events_global;
+    int gp_to_beta_max_events_per_window;
+    int gp_to_beta_event_window_steps;
+    int post_conversion_y_update_audit_enabled;
+    int post_conversion_y_update_audit_steps;
+    char post_conversion_y_update_audit_prefix[128];
+    int y_update_k0_audit_enabled;
+    int y_update_k0_audit_steps;
+    char y_update_k0_audit_prefix[128];
+    // Optional conservative correction after each Y update:
+    // apply a scalar shift Y <- Y + lambda so storage_exact total mass
+    // matches a chosen target without changing the Y-update RHS itself.
+    int y_update_mass_projection_enabled;
+    // Write per-step projection CSV only when explicitly requested
+    // (or when a Y-update audit is already active).
+    int y_update_mass_projection_report_enabled;
+    int y_update_mass_projection_max_iter;
+    double y_update_mass_projection_tol;
+    // Allowed:
+    // - "pre_Y_update" (recommended)
+    // - "post_conversion_baseline" (debug/test mode)
+    char y_update_mass_projection_target_mode[64];
+    char gp_C_mode[32];
+    char gp_eps_mode[32];
+    char gp_init_mode[32];
+    char gp_init_mass_mode[32];
+    double gp_eta_seed_radius;
+    double gp_eta_seed_peak;
+    double gp_eta_seed_center_x;
+    double gp_eta_seed_center_y;
+    double gp_eta_seed_center_z;
+    double gp_eta_iface_width;
+    // Observed-GP diffuse initialization:
+    // represent an experimentally observed GP zone by matching the h(eta)
+    // effective volume to a target physical radius, while applying a smooth,
+    // broad composition compensation cloud that preserves total xBtot.
+    double gp_obs_target_radius_nm;
+    double gp_obs_eta_peak;
+    double gp_obs_iface_width_nm;
+    char gp_obs_profile_type[32];
+    char gp_obs_match_mode[64];
+    char gp_obs_compensation_mode[64];
+    double gp_obs_depletion_radius_factor;
+    double gp_obs_depletion_smooth_width_factor;
+    double gp_obs_min_xB_alpha;
+    double gp_obs_max_xB_alpha;
+    int gp_raw_reaction_drive_only;
+    int gp_raw_reaction_drive_use_raw_units_debug;
+    double gp_reaction_nu_A;
+    double gp_reaction_nu_B;
+    double gp_xB_eq_alpha_for_eta;
+    char gp_L_eta_mode[32];
+    double gp_M_eta_phys;
+    double gp_M_eta_ratio_to_crit;
+    int gp_kinetic_ref_enabled;
+    int gp_kinetic_ref_apply;
+    int phi_eta_step_delta_diag_enabled;
+    int phi_eta_step_delta_diag_every;
+    int phi_eta_step_delta_diag_max_steps;
+    char phi_eta_step_delta_diag_prefix[128];
+    int phi_eta_rhs_attribution_diag_enabled;
+    int phi_eta_rhs_attribution_diag_every;
+    int phi_eta_rhs_attribution_diag_max_steps;
+    char phi_eta_rhs_attribution_diag_prefix[128];
+    double gp_h_alpha_eps;
+    char gp_eta_mass_limiter[32];
+    char gp_y_update_mode[32];               // old_rhs | conservative_y_rhs | picard_storage | storage_exact
+    int gp_y_picard_iters;
 
     // 界面能相关参数
     double W;
@@ -27,6 +183,7 @@ typedef struct {
 
     // 化学势模型控制参数
     double temperature_C;
+    int thermo_convex_extrapolation_enabled;
     double mu_reference_scale;
 
     // 化学计量系数
@@ -167,6 +324,58 @@ typedef struct {
     int    minimize_continue_from_vtk;        // =1 时从已有 VTK 场恢复，而非重新初始化
     char   continue_phi_vtk_path[4096];       // continuation: 必需的 phi VTK 路径
     char   continue_xB_vtk_path[4096];        // continuation(full-model): 可选 xB VTK 路径
+    int    init_mode_raw_fields;               // =1 时从 Python 生成的 raw 场读取
+    char   init_phi_raw_path[4096];            // raw_fields: phi_init.raw
+    char   init_xB_raw_path[4096];             // raw_fields: xB_init.raw
+    char   init_eta_raw_path[4096];            // raw_fields: optional eta_init.raw
+    char   init_meta_path[4096];               // raw_fields: init_meta.json
+
+    // ============================================
+    // Scheduled nucleation test mode (explicit test-only feature)
+    // ============================================
+    int    scheduled_nuc_enabled;              // =1 only with --enable-scheduled-nucleation-test
+    char   scheduled_nuc_source_dyn_dir[4096]; // source no-strain dynamic-continue directory
+    char   scheduled_nuc_profile_dir[4096];    // extracted faceted profile directory
+    char   scheduled_nuc_source_step[64];      // "latest" or numeric label, diagnostic only for v1
+    char   scheduled_nuc_source_phi_vtk[4096]; // optional explicit source phi VTK name/path
+    char   scheduled_nuc_source_xB_vtk[4096];  // optional explicit source xB VTK name/path
+    char   scheduled_nuc_steps_csv[1024];      // e.g. "100,300,600"
+    char   scheduled_nuc_centers_nm[2048];     // e.g. "100,100,100;180,100,100"
+    char   scheduled_nuc_source_case_label[256];
+    char   scheduled_nuc_xB_edge_mode[128];    // sample-current-background-shell
+    char   scheduled_nuc_edge_sample_stat[32]; // mean|median (median falls back to sampled sort)
+    double scheduled_nuc_edge_sample_inner_nm;
+    double scheduled_nuc_edge_sample_outer_nm;
+    double scheduled_nuc_local_comp_inner_nm;
+    double scheduled_nuc_local_comp_outer_nm;
+    double scheduled_nuc_local_comp_taper_nm;
+    double scheduled_nuc_source_dx_nm;
+    double scheduled_nuc_source_lambda_nm;
+    double scheduled_nuc_target_lambda_nm;
+    double scheduled_nuc_scale_geometry;
+    double scheduled_nuc_scale_interface_width;
+    double scheduled_nuc_scale_xB_profile_width;
+    double scheduled_nuc_alpha_interface;
+    double scheduled_nuc_xB_min;
+    double scheduled_nuc_xB_max;
+    double scheduled_nuc_phi_matrix_threshold;
+    double scheduled_nuc_W_comp_threshold;
+    int    scheduled_nuc_mass_iters;
+    double scheduled_nuc_mass_tol;
+    int    scheduled_nuc_write_event_vtk;
+    int    scheduled_nuc_fallback_analytic_sphere;
+
+    // ============================================
+    // Dynamics xBtot mass-drift diagnostics (explicit opt-in)
+    // ============================================
+    int    dynamics_mass_diag_enabled;        // =1 only with explicit flag
+    int    dynamics_mass_diag_interval;       // per-step interval for CSV diagnostics
+    int    enable_Y_rhs_previous_time_level;  // =1 only with explicit flag; evaluate Y RHS explicit terms using phi^n / Y^n
+    int    disable_Y_rhs_gamma_term;          // =1 only with explicit flag; diagnostic mode only
+    double Y_rhs_term_h_scale;                // diagnostic sensitivity scaling for term_h, default 1.0
+    int    enable_Y_rhs_picard;               // =1 only with explicit flag; Picard iterate gamma*dYdt coupling
+    int    Y_rhs_picard_iters;                // number of Picard iterations; default 1
+    double Y_rhs_picard_omega;                // Picard under-relaxation; default 1.0
 
     // 当前初始化 case 的标签，用于结果子目录命名
     char   init_case_tag[256];

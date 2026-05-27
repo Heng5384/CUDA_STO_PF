@@ -10,6 +10,7 @@
  */
 
 #include "cuda_common.h"
+#include "cuda_kernels.h"
 #include "pf_params.h"
 #include "phase_functions.h"
 #include "thermo_utils.h"
@@ -25,6 +26,62 @@ __host__ __device__ static inline double clamp_eps(double v, double eps) {
 
 // 前置声明：gpu_reduce_sum 在后部实现，这里先声明以供前面函数使用
 double gpu_reduce_sum(const double *d_array, int n);
+
+__device__ static inline double atomicMaxAbsDouble(double *address, double value_abs) {
+    unsigned long long int *address_as_ull = (unsigned long long int*)address;
+    unsigned long long int old = *address_as_ull;
+    while (__longlong_as_double(old) < value_abs) {
+        unsigned long long int assumed = old;
+        old = atomicCAS(address_as_ull, assumed, __double_as_longlong(value_abs));
+        if (old == assumed) break;
+    }
+    return __longlong_as_double(old);
+}
+
+__device__ static inline double atomicMinDouble(double *address, double value) {
+    unsigned long long int *address_as_ull = (unsigned long long int*)address;
+    unsigned long long int old = *address_as_ull;
+    while (__longlong_as_double(old) > value) {
+        unsigned long long int assumed = old;
+        old = atomicCAS(address_as_ull, assumed, __double_as_longlong(value));
+        if (old == assumed) break;
+    }
+    return __longlong_as_double(old);
+}
+
+__device__ static inline double atomicMaxDouble(double *address, double value) {
+    unsigned long long int *address_as_ull = (unsigned long long int*)address;
+    unsigned long long int old = *address_as_ull;
+    while (__longlong_as_double(old) < value) {
+        unsigned long long int assumed = old;
+        old = atomicCAS(address_as_ull, assumed, __double_as_longlong(value));
+        if (old == assumed) break;
+    }
+    return __longlong_as_double(old);
+}
+
+__device__ __host__ static inline double sigmoid_from_logit_unclipped_local(double Y) {
+    if (Y >= 0.0) {
+        double e_negY = exp(-Y);
+        return 1.0 / (1.0 + e_negY);
+    }
+    double e_Y = exp(Y);
+    return e_Y / (1.0 + e_Y);
+}
+
+__device__ static inline double h_inverse_bisection_device(double target) {
+    if (target <= 0.0) return 0.0;
+    if (target >= 1.0) return 1.0;
+    double lo = 0.0;
+    double hi = 1.0;
+    for (int iter = 0; iter < 60; ++iter) {
+        double mid = 0.5 * (lo + hi);
+        double h_mid = h_of_phi(mid);
+        if (h_mid < target) lo = mid;
+        else hi = mid;
+    }
+    return 0.5 * (lo + hi);
+}
 
 // ============================================================================
 // 1. 去混叠kernel（2/3规则）
@@ -162,6 +219,131 @@ void eigenstrain_phi_xB_point(
     eps_xy0_f = (float)eps_xy0;
 }
 
+__device__ __forceinline__
+double stiffness_beta_weight_point(
+    double phi, double eta,
+    int gp_mode_enabled,
+    int gp_elastic_enabled)
+{
+    if (gp_mode_enabled && gp_elastic_enabled) {
+        return stiffness_beta_weight_gp(phi, eta);
+    }
+    return h_of_phi(phi);
+}
+
+__device__ __forceinline__
+void eigenstrain_phi_eta_xB_point(
+    double phi, double eta, double xB,
+    float eps_xx00, float eps_yy00, float eps_zz00,
+    float eps_yz00, float eps_xz00, float eps_xy00,
+    double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
+    float &eps_xx0_f, float &eps_yy0_f, float &eps_zz0_f,
+    float &eps_xy0_f, float &eps_xz0_f, float &eps_yz0_f)
+{
+    if (!(gp_mode_enabled && gp_elastic_enabled)) {
+        eigenstrain_phi_xB_point(
+            phi, xB,
+            eps_xx00, eps_yy00, eps_zz00,
+            eps_yz00, eps_xz00, eps_xy00,
+            eps_iso_over_vB,
+            eps_xx0_f, eps_yy0_f, eps_zz0_f,
+            eps_xy0_f, eps_xz0_f, eps_yz0_f);
+        return;
+    }
+
+    double h_alpha = 0.0;
+    double h_GP = 0.0;
+    double h_beta = 0.0;
+    phase_fractions_gp(phi, eta, &h_alpha, &h_GP, &h_beta);
+    double xB_c = clamp01(xB);
+    double eps_alpha = xB_c * eps_iso_over_vB;
+
+    double eps_xx0 = h_alpha * eps_alpha + h_GP * gp_eps_iso + h_beta * (double)eps_xx00;
+    double eps_yy0 = h_alpha * eps_alpha + h_GP * gp_eps_iso + h_beta * (double)eps_yy00;
+    double eps_zz0 = h_alpha * eps_alpha + h_GP * gp_eps_iso + h_beta * (double)eps_zz00;
+    double eps_yz0 = h_beta * (double)eps_yz00;
+    double eps_xz0 = h_beta * (double)eps_xz00;
+    double eps_xy0 = h_beta * (double)eps_xy00;
+
+    eps_xx0_f = (float)eps_xx0;
+    eps_yy0_f = (float)eps_yy0;
+    eps_zz0_f = (float)eps_zz0;
+    eps_yz0_f = (float)eps_yz0;
+    eps_xz0_f = (float)eps_xz0;
+    eps_xy0_f = (float)eps_xy0;
+}
+
+__device__ __forceinline__
+double compute_dgel_deta_gp_point(
+    double phi, double eta, double xB,
+    double sigma_xx, double sigma_yy, double sigma_zz,
+    double sigma_xy, double sigma_xz, double sigma_yz,
+    double eps_iso_over_vB,
+    double gp_eps_iso)
+{
+    (void)sigma_xy;
+    (void)sigma_xz;
+    (void)sigma_yz;
+    double xB_c = clamp01(xB);
+    double eps_alpha = xB_c * eps_iso_over_vB;
+    double prefactor = (1.0 - h_of_phi(phi)) * h_prime_of_eta(eta);
+    double delta_diag = prefactor * (gp_eps_iso - eps_alpha);
+    return -(sigma_xx + sigma_yy + sigma_zz) * delta_diag;
+}
+
+__device__ __forceinline__
+double compute_dgel_dphi_gp_point(
+    double phi, double eta, double xB,
+    double sigma_xx, double sigma_yy, double sigma_zz,
+    double sigma_xy, double sigma_xz, double sigma_yz,
+    double exx_el, double eyy_el, double ezz_el,
+    double eyz_el, double exz_el, double exy_el,
+    double v_B,
+    double eps_iso_over_vB,
+    double gp_eps_iso,
+    double S_p_11, double S_p_12, double S_p_13, double S_p_14, double S_p_15, double S_p_16,
+    double S_p_22, double S_p_23, double S_p_24, double S_p_25, double S_p_26,
+    double S_p_33, double S_p_34, double S_p_35, double S_p_36,
+    double S_p_44, double S_p_45, double S_p_46,
+    double S_p_55, double S_p_56,
+    double S_p_66,
+    double eps_xx00, double eps_yy00, double eps_zz00,
+    double eps_yz00, double eps_xz00, double eps_xy00)
+{
+    double hp = h_prime_of_phi(phi);
+    double h_eta = h_of_eta(eta);
+    double xB_c = clamp01(xB);
+    double eps_alpha = xB_c * eps_iso_over_vB;
+    double diag_iso_term = -eps_alpha + eps_iso_over_vB * (xB_c - v_B);
+
+    double d_eps_xx0_dphi = hp * (eps_xx00 + (1.0 - h_eta) * diag_iso_term - h_eta * gp_eps_iso);
+    double d_eps_yy0_dphi = hp * (eps_yy00 + (1.0 - h_eta) * diag_iso_term - h_eta * gp_eps_iso);
+    double d_eps_zz0_dphi = hp * (eps_zz00 + (1.0 - h_eta) * diag_iso_term - h_eta * gp_eps_iso);
+    double d_eps_xy0_dphi = hp * eps_xy00;
+    double d_eps_xz0_dphi = hp * eps_xz00;
+    double d_eps_yz0_dphi = hp * eps_yz00;
+
+    double dgel_eigen =
+        -( sigma_xx * d_eps_xx0_dphi
+         + sigma_yy * d_eps_yy0_dphi
+         + sigma_zz * d_eps_zz0_dphi
+         + 2.0 * sigma_xy * d_eps_xy0_dphi
+         + 2.0 * sigma_xz * d_eps_xz0_dphi
+         + 2.0 * sigma_yz * d_eps_yz0_dphi );
+
+    double Q = compute_Q_voigt(exx_el, eyy_el, ezz_el, eyz_el, exz_el, exy_el,
+        S_p_11, S_p_12, S_p_13, S_p_14, S_p_15, S_p_16,
+        S_p_22, S_p_23, S_p_24, S_p_25, S_p_26,
+        S_p_33, S_p_34, S_p_35, S_p_36,
+        S_p_44, S_p_45, S_p_46,
+        S_p_55, S_p_56, S_p_66);
+    double dgel_C = 0.5 * hp * Q;
+    return dgel_eigen + dgel_C;
+}
+
 // Minimize 模式（仅 phi）：eigenstrain = h(phi)*eps^00
 // 与 compute_eigenstrain_from_phi_only_kernel 使用完全相同的公式
 __device__ __forceinline__
@@ -194,6 +376,7 @@ void eigenstrain_phi_only_point(
 
 __global__ void compute_phi_rhs_kernel(
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,
     double *rhs_r,
     int Nx, int Ny, int Nz,
@@ -224,10 +407,16 @@ __global__ void compute_phi_rhs_kernel(
     double eps_xx00, double eps_yy00, double eps_zz00,
     double eps_yz00, double eps_xz00, double eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    int gp_elastic_active_phi,
+    double gp_eps_iso,
+    double gp_elastic_derivative_scale,
     double elastic_shift_dimless,
     int disable_chem,
     int total_size,
-    int elastic_enabled)
+    int elastic_enabled,
+    double *diag_stats)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
@@ -236,6 +425,7 @@ __global__ void compute_phi_rhs_kernel(
     double hp  = h_prime_of_phi(phi);
     double gp  = g_prime_of_phi(phi);
     double h   = h_of_phi(phi);
+    double eta = eta_r ? clamp01(eta_r[idx]) : 0.0;
     
     double xB  = clamp01(xB_r[idx]);
 
@@ -308,15 +498,42 @@ __global__ void compute_phi_rhs_kernel(
         double eyz_el = (double)uyz_r[idx] - (double)eps_yz0_f;
         double exz_el = (double)uxz_r[idx] - (double)eps_xz0_f;
         double exy_el = (double)uxy_r[idx] - (double)eps_xy0_f;
-        double Q = compute_Q_voigt(exx_el, eyy_el, ezz_el, eyz_el, exz_el, exy_el,
-            S_p_11, S_p_12, S_p_13, S_p_14, S_p_15, S_p_16,
-            S_p_22, S_p_23, S_p_24, S_p_25, S_p_26,
-            S_p_33, S_p_34, S_p_35, S_p_36,
-            S_p_44, S_p_45, S_p_46,
-            S_p_55, S_p_56, S_p_66);
-        double dgel_C = 0.5 * hp * Q;
-    
-        f_phi += dgel_eigen + dgel_C;
+        double elastic_part = 0.0;
+        if (gp_mode_enabled && gp_elastic_enabled && gp_elastic_active_phi) {
+            elastic_part = gp_elastic_derivative_scale *
+                compute_dgel_dphi_gp_point(
+                    phi, eta, xB,
+                    sigma_xx, sigma_yy, sigma_zz, sigma_xy, sigma_xz, sigma_yz,
+                    exx_el, eyy_el, ezz_el, eyz_el, exz_el, exy_el,
+                    v_B, eps_iso_over_vB, gp_eps_iso,
+                    S_p_11, S_p_12, S_p_13, S_p_14, S_p_15, S_p_16,
+                    S_p_22, S_p_23, S_p_24, S_p_25, S_p_26,
+                    S_p_33, S_p_34, S_p_35, S_p_36,
+                    S_p_44, S_p_45, S_p_46,
+                    S_p_55, S_p_56, S_p_66,
+                    eps_xx00, eps_yy00, eps_zz00,
+                    eps_yz00, eps_xz00, eps_xy00);
+        } else {
+            double Q = compute_Q_voigt(exx_el, eyy_el, ezz_el, eyz_el, exz_el, exy_el,
+                S_p_11, S_p_12, S_p_13, S_p_14, S_p_15, S_p_16,
+                S_p_22, S_p_23, S_p_24, S_p_25, S_p_26,
+                S_p_33, S_p_34, S_p_35, S_p_36,
+                S_p_44, S_p_45, S_p_46,
+                S_p_55, S_p_56, S_p_66);
+            double dgel_C = 0.5 * hp * Q;
+            elastic_part = dgel_eigen + dgel_C;
+        }
+        f_phi += elastic_part;
+        if (diag_stats && gp_mode_enabled && gp_elastic_enabled && gp_elastic_active_phi) {
+            double dgel_raw = (fabs(gp_elastic_derivative_scale) > 1.0e-300)
+                                  ? (elastic_part / gp_elastic_derivative_scale)
+                                  : 0.0;
+            atomicAdd(&diag_stats[GP_ELASTIC_STATS_SUM_DGEL_DPHI], dgel_raw);
+            atomicMaxAbsDouble(&diag_stats[GP_ELASTIC_STATS_MAXABS_DGEL_DPHI],
+                               fabs(dgel_raw));
+            atomicAdd(&diag_stats[GP_ELASTIC_STATS_SUM_PHI_RHS_ELASTIC], elastic_part);
+            atomicMaxAbsDouble(&diag_stats[GP_ELASTIC_STATS_MAXABS_PHI_RHS_ELASTIC], fabs(elastic_part));
+        }
     }
     rhs_r[idx] = f_phi;
 }
@@ -545,6 +762,228 @@ __global__ void phi_semi_implicit_update_kernel(
     phi_k_new[idx] = cuCdiv(numerator, make_cuDoubleComplex(denom, 0.0));
 }
 
+__global__ void compute_eta_rhs_kernel(
+    const double *eta_r,
+    const double *phi_r,
+    const double *xB_alpha_r,
+    const float *sigma_xx_r,
+    const float *sigma_yy_r,
+    const float *sigma_zz_r,
+    const float *sigma_xy_r,
+    const float *sigma_xz_r,
+    const float *sigma_yz_r,
+    double *rhs_r,
+    double temperature_K,
+    double mu_reference_scale,
+    double Vm_alpha_0,
+    double dVm_alpha_dxB,
+    double gp_xB_fixed,
+    double gp_delta_g0,
+    int gp_raw_reaction_drive_only,
+    int gp_raw_reaction_drive_use_raw_units_debug,
+    double gp_reaction_nu_A,
+    double gp_reaction_nu_B,
+    double gp_mu_reference_raw,
+    double gp_W_eta,
+    double eps_iso_over_vB,
+    int gp_elastic_enabled,
+    int gp_elastic_active_eta,
+    double gp_eps_iso,
+    double gp_elastic_derivative_scale,
+    int total_size,
+    double *diag_stats)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double eta = clamp01(eta_r[idx]);
+    double phi = clamp01(phi_r[idx]);
+    double xB_alpha = clamp_eps(xB_alpha_r[idx], 1.0e-12);
+    double h_phi = h_of_phi(phi);
+    double hp_eta = h_prime_of_phi(eta);
+    double gp_eta = g_prime_of_phi(eta);
+
+    double c_ref = 1.0 / Vm_alpha_of_xB(xB_alpha, Vm_alpha_0, dVm_alpha_dxB);
+    double dgbulk_deta = 0.0;
+    if (gp_raw_reaction_drive_only) {
+        double muA_alpha_raw = mu_PbTe_calphad(temperature_K, xB_alpha);
+        double muB_alpha_raw = mu_Ag2Te_calphad(temperature_K, xB_alpha);
+        double minus_delta_mu_r_gp = NAN;
+        if (gp_raw_reaction_drive_use_raw_units_debug) {
+            minus_delta_mu_r_gp =
+                gp_reaction_nu_A * muA_alpha_raw +
+                gp_reaction_nu_B * muB_alpha_raw -
+                gp_mu_reference_raw;
+        } else {
+            const double mu_scale =
+                (fabs(mu_reference_scale) > 1.0e-300) ? mu_reference_scale : 1.0;
+            const double muA_alpha_dimless = muA_alpha_raw / mu_scale;
+            const double muB_alpha_dimless = muB_alpha_raw / mu_scale;
+            const double gp_mu_reference_dimless = gp_mu_reference_raw / mu_scale;
+            minus_delta_mu_r_gp =
+                gp_reaction_nu_A * muA_alpha_dimless +
+                gp_reaction_nu_B * muB_alpha_dimless -
+                gp_mu_reference_dimless;
+        }
+        dgbulk_deta = c_ref * (1.0 - h_phi) * hp_eta * (-minus_delta_mu_r_gp);
+        if (diag_stats) {
+            atomicAdd(&diag_stats[GP_ELASTIC_STATS_SUM_MINUS_DELTA_MU_R_GP], minus_delta_mu_r_gp);
+            atomicMinDouble(&diag_stats[GP_ELASTIC_STATS_MIN_MINUS_DELTA_MU_R_GP], minus_delta_mu_r_gp);
+            atomicMaxDouble(&diag_stats[GP_ELASTIC_STATS_MAX_MINUS_DELTA_MU_R_GP], minus_delta_mu_r_gp);
+        }
+    } else {
+        double muA_alpha = mu_A_dimless(xB_alpha, temperature_K, mu_reference_scale);
+        double muB_alpha = mu_B_dimless(xB_alpha, temperature_K, mu_reference_scale);
+        double g_alpha = (1.0 - xB_alpha) * muA_alpha + xB_alpha * muB_alpha;
+
+        double xB_gp = clamp_eps(gp_xB_fixed, 1.0e-12);
+        double muA_gp = mu_A_dimless(xB_gp, temperature_K, mu_reference_scale);
+        double muB_gp = mu_B_dimless(xB_gp, temperature_K, mu_reference_scale);
+        double g_gp = (1.0 - xB_gp) * muA_gp + xB_gp * muB_gp - gp_delta_g0;
+        dgbulk_deta = c_ref * (1.0 - h_phi) * hp_eta * (g_gp - g_alpha);
+    }
+    double elastic_part = 0.0;
+    if (gp_elastic_enabled && gp_elastic_active_eta) {
+        elastic_part = gp_elastic_derivative_scale *
+            compute_dgel_deta_gp_point(
+                phi, eta, xB_alpha,
+                (double)sigma_xx_r[idx], (double)sigma_yy_r[idx], (double)sigma_zz_r[idx],
+                (double)sigma_xy_r[idx], (double)sigma_xz_r[idx], (double)sigma_yz_r[idx],
+                eps_iso_over_vB, gp_eps_iso);
+        if (diag_stats) {
+            double dgel_raw = (fabs(gp_elastic_derivative_scale) > 1.0e-300)
+                                  ? (elastic_part / gp_elastic_derivative_scale)
+                                  : 0.0;
+            atomicAdd(&diag_stats[GP_ELASTIC_STATS_SUM_DGEL_DETA], dgel_raw);
+            atomicMaxAbsDouble(&diag_stats[GP_ELASTIC_STATS_MAXABS_DGEL_DETA],
+                               fabs(dgel_raw));
+            atomicAdd(&diag_stats[GP_ELASTIC_STATS_SUM_ETA_RHS_ELASTIC], elastic_part);
+            atomicMaxAbsDouble(&diag_stats[GP_ELASTIC_STATS_MAXABS_ETA_RHS_ELASTIC], fabs(elastic_part));
+        }
+    }
+
+    rhs_r[idx] = dgbulk_deta + gp_W_eta * gp_eta + elastic_part;
+}
+
+__global__ void compute_eta_rhs_components_kernel(
+    const double *eta_r,
+    const double *phi_r,
+    const double *xB_alpha_r,
+    const float *sigma_xx_r,
+    const float *sigma_yy_r,
+    const float *sigma_zz_r,
+    const float *sigma_xy_r,
+    const float *sigma_xz_r,
+    const float *sigma_yz_r,
+    double *chem_r,
+    double *dw_r,
+    double *elastic_r,
+    double *net_explicit_r,
+    double *minus_delta_mu_r_gp_r,
+    double temperature_K,
+    double mu_reference_scale,
+    double Vm_alpha_0,
+    double dVm_alpha_dxB,
+    double gp_xB_fixed,
+    double gp_delta_g0,
+    int gp_raw_reaction_drive_only,
+    int gp_raw_reaction_drive_use_raw_units_debug,
+    double gp_reaction_nu_A,
+    double gp_reaction_nu_B,
+    double gp_mu_reference_raw,
+    double gp_W_eta,
+    double eps_iso_over_vB,
+    int gp_elastic_enabled,
+    int gp_elastic_active_eta,
+    double gp_eps_iso,
+    double gp_elastic_derivative_scale,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double eta = clamp01(eta_r[idx]);
+    double phi = clamp01(phi_r[idx]);
+    double xB_alpha = clamp_eps(xB_alpha_r[idx], 1.0e-12);
+    double h_phi = h_of_phi(phi);
+    double hp_eta = h_prime_of_phi(eta);
+    double gp_eta = g_prime_of_phi(eta);
+    double c_ref = 1.0 / Vm_alpha_of_xB(xB_alpha, Vm_alpha_0, dVm_alpha_dxB);
+
+    double minus_delta_mu_r_gp = NAN;
+    double chem_part = 0.0;
+    if (gp_raw_reaction_drive_only) {
+        double muA_alpha_raw = mu_PbTe_calphad(temperature_K, xB_alpha);
+        double muB_alpha_raw = mu_Ag2Te_calphad(temperature_K, xB_alpha);
+        if (gp_raw_reaction_drive_use_raw_units_debug) {
+            minus_delta_mu_r_gp =
+                gp_reaction_nu_A * muA_alpha_raw +
+                gp_reaction_nu_B * muB_alpha_raw -
+                gp_mu_reference_raw;
+        } else {
+            const double mu_scale =
+                (fabs(mu_reference_scale) > 1.0e-300) ? mu_reference_scale : 1.0;
+            const double muA_alpha_dimless = muA_alpha_raw / mu_scale;
+            const double muB_alpha_dimless = muB_alpha_raw / mu_scale;
+            const double gp_mu_reference_dimless = gp_mu_reference_raw / mu_scale;
+            minus_delta_mu_r_gp =
+                gp_reaction_nu_A * muA_alpha_dimless +
+                gp_reaction_nu_B * muB_alpha_dimless -
+                gp_mu_reference_dimless;
+        }
+        chem_part = c_ref * (1.0 - h_phi) * hp_eta * (-minus_delta_mu_r_gp);
+    } else {
+        double muA_alpha = mu_A_dimless(xB_alpha, temperature_K, mu_reference_scale);
+        double muB_alpha = mu_B_dimless(xB_alpha, temperature_K, mu_reference_scale);
+        double g_alpha = (1.0 - xB_alpha) * muA_alpha + xB_alpha * muB_alpha;
+
+        double xB_gp = clamp_eps(gp_xB_fixed, 1.0e-12);
+        double muA_gp = mu_A_dimless(xB_gp, temperature_K, mu_reference_scale);
+        double muB_gp = mu_B_dimless(xB_gp, temperature_K, mu_reference_scale);
+        double g_gp = (1.0 - xB_gp) * muA_gp + xB_gp * muB_gp - gp_delta_g0;
+        chem_part = c_ref * (1.0 - h_phi) * hp_eta * (g_gp - g_alpha);
+    }
+
+    double dw_part = gp_W_eta * gp_eta;
+    double elastic_part = 0.0;
+    if (gp_elastic_enabled && gp_elastic_active_eta) {
+        elastic_part = gp_elastic_derivative_scale *
+            compute_dgel_deta_gp_point(
+                phi, eta, xB_alpha,
+                (double)sigma_xx_r[idx], (double)sigma_yy_r[idx], (double)sigma_zz_r[idx],
+                (double)sigma_xy_r[idx], (double)sigma_xz_r[idx], (double)sigma_yz_r[idx],
+                eps_iso_over_vB, gp_eps_iso);
+    }
+
+    if (chem_r) chem_r[idx] = chem_part;
+    if (dw_r) dw_r[idx] = dw_part;
+    if (elastic_r) elastic_r[idx] = elastic_part;
+    if (net_explicit_r) net_explicit_r[idx] = chem_part + dw_part + elastic_part;
+    if (minus_delta_mu_r_gp_r) minus_delta_mu_r_gp_r[idx] = minus_delta_mu_r_gp;
+}
+
+__global__ void eta_semi_implicit_update_kernel(
+    const cuDoubleComplex *eta_k_old,
+    const cuDoubleComplex *rhs_k,
+    const double *k2,
+    cuDoubleComplex *eta_k_new,
+    double L_eta,
+    double kappa_eta,
+    double dt,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double L_dt = L_eta * dt;
+    double denom = 1.0 + L_dt * kappa_eta * k2[idx];
+
+    cuDoubleComplex eta_old = eta_k_old[idx];
+    cuDoubleComplex rhs = rhs_k[idx];
+    cuDoubleComplex numerator = cuCsub(eta_old, cuCmul(make_cuDoubleComplex(L_dt, 0.0), rhs));
+    eta_k_new[idx] = cuCdiv(numerator, make_cuDoubleComplex(denom, 0.0));
+}
+
 // ============================================================================
 // 4. phi归一化和截断kernel
 // ============================================================================
@@ -562,6 +1001,171 @@ __global__ void phi_normalize_and_clamp_kernel(
     // 截断到合理范围
     if (phi_r[idx] < -1e-6) phi_r[idx] = -1e-6;
     if (phi_r[idx] > 1.0 + 1e-6) phi_r[idx] = 1.0 + 1e-6;
+}
+
+__global__ void eta_normalize_and_clamp_kernel(
+    double *eta_r,
+    double invN,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double eta = eta_r[idx] * invN;
+    if (eta < 0.0) eta = 0.0;
+    if (eta > 1.0) eta = 1.0;
+    eta_r[idx] = eta;
+}
+
+__device__ static inline int gp_recovered_xB_valid_device(double xBtot_available,
+                                                           double h_beta,
+                                                           double A,
+                                                           double h_GP,
+                                                           double xB_GP,
+                                                           double xB_min,
+                                                           double xB_max,
+                                                           double eps_h,
+                                                           double *xB_rec_out) {
+    if (!isfinite(xBtot_available) || !isfinite(h_beta) || !isfinite(A) || !isfinite(h_GP)) return 0;
+    if (A < 0.0) return 0;
+    if (h_GP < 0.0 || h_GP > A) return 0;
+    double h_alpha = A - h_GP;
+    if (!(h_alpha >= eps_h)) return 0;
+    double numerator = xBtot_available - h_GP * xB_GP - h_beta;
+    if (!isfinite(numerator)) return 0;
+    double xB_rec = numerator / h_alpha;
+    if (!isfinite(xB_rec)) return 0;
+    if (xB_rec_out) *xB_rec_out = xB_rec;
+    return (xB_rec >= xB_min && xB_rec <= xB_max) ? 1 : 0;
+}
+
+__device__ static inline double gp_limited_hGP_device(double xBtot_available,
+                                                       double h_beta,
+                                                       double A,
+                                                       double h_GP_tent,
+                                                       double xB_GP,
+                                                       double xB_min,
+                                                       double xB_max,
+                                                       double eps_h) {
+    if (!isfinite(xBtot_available) || !isfinite(h_beta) || !isfinite(A) || !isfinite(h_GP_tent)) return 0.0;
+    double h_GP_hi = fmin(fmax(h_GP_tent, 0.0), fmax(A, 0.0));
+    double xB_tmp = 0.0;
+    if (gp_recovered_xB_valid_device(xBtot_available, h_beta, A, h_GP_hi, xB_GP,
+                                     xB_min, xB_max, eps_h, &xB_tmp)) {
+        return h_GP_hi;
+    }
+    double lo = 0.0;
+    double hi = h_GP_hi;
+    for (int iter = 0; iter < 80; ++iter) {
+        double mid = 0.5 * (lo + hi);
+        if (gp_recovered_xB_valid_device(xBtot_available, h_beta, A, mid, xB_GP,
+                                         xB_min, xB_max, eps_h, &xB_tmp)) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
+__global__ void gp_eta_feasibility_and_limiter_kernel(
+    double *eta_r,
+    const double *eta_old_r,
+    const double *phi_new_r,
+    const double *phi_old_r,
+    const double *xB_old_r,
+    const double *divJ_r,
+    double dt,
+    double xB_GP,
+    double xB_min,
+    double xB_max,
+    double gp_h_alpha_eps,
+    int enable_limiter,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double eta_tent = clamp01(eta_r[idx]);
+    double phi_new = clamp01(phi_new_r[idx]);
+    double phi_old = clamp01(phi_old_r[idx]);
+    double xB_old = clamp_eps(xB_old_r[idx], xB_min);
+    double h_alpha_old = 0.0;
+    double h_GP_old = 0.0;
+    double h_beta_old = 0.0;
+    phase_fractions_gp(phi_old, clamp01(eta_old_r[idx]), &h_alpha_old, &h_GP_old, &h_beta_old);
+    double h_phi_new = h_of_phi(phi_new);
+    double one_minus_hphi_new = fmax(1.0 - h_phi_new, 0.0);
+    double h_beta_new = h_phi_new;
+    double h_eta_tent = h_of_eta(eta_tent);
+    double h_GP_tent = one_minus_hphi_new * h_eta_tent;
+    double h_alpha_tent = fmax(one_minus_hphi_new - h_GP_tent, 0.0);
+    double xBtot_old = xB_old + h_GP_old * (xB_GP - xB_old) + h_beta_old * (1.0 - xB_old);
+    double xBtot_target = xBtot_old + dt * (divJ_r ? divJ_r[idx] : 0.0);
+    const double A = one_minus_hphi_new;
+    double recovered_before = 0.0;
+    int valid_before = gp_recovered_xB_valid_device(xBtot_target, h_beta_new, A, h_GP_tent,
+                                                    xB_GP, xB_min, xB_max, gp_h_alpha_eps,
+                                                    &recovered_before);
+    if (!isfinite(recovered_before)) recovered_before = 0.0;
+
+    double eta_final = eta_tent;
+    double h_GP_final = h_GP_tent;
+    double limiter_delta = 0.0;
+    double limiter_mass_prevented = 0.0;
+    int limited = 0;
+
+    if (enable_limiter && A > gp_h_alpha_eps && h_GP_tent > 0.0 && !valid_before) {
+        h_GP_final = gp_limited_hGP_device(xBtot_target, h_beta_new, A, h_GP_tent,
+                                           xB_GP, xB_min, xB_max, gp_h_alpha_eps);
+        double h_eta_allowed = h_GP_final / fmax(A, gp_h_alpha_eps);
+        h_eta_allowed = clamp01(h_eta_allowed);
+        eta_final = h_inverse_bisection_device(h_eta_allowed);
+        if (!isfinite(eta_final)) eta_final = 0.0;
+        eta_final = clamp01(eta_final);
+        limiter_delta = fabs(eta_tent - eta_final);
+        limiter_mass_prevented = fmax(h_GP_tent - h_GP_final, 0.0) * fmax(xB_GP - xB_old, 0.0);
+        limited = (limiter_delta > 0.0) ? 1 : 0;
+    }
+
+    // This kernel now runs after eta has been normalized back to [0,1], so keep
+    // the accepted eta directly in normalized storage.
+    eta_r[idx] = eta_final;
+    double h_eta_final = h_of_eta(eta_final);
+    if (!isfinite(h_eta_final)) h_eta_final = 0.0;
+    h_GP_final = one_minus_hphi_new * h_eta_final;
+    double h_alpha_final = fmax(one_minus_hphi_new - h_GP_final, 0.0);
+    double recovered_final = 0.0;
+    int valid_after = gp_recovered_xB_valid_device(xBtot_target, h_beta_new, A, h_GP_final,
+                                                   xB_GP, xB_min, xB_max, gp_h_alpha_eps,
+                                                   &recovered_final);
+    if (!isfinite(recovered_final)) recovered_final = 0.0;
+    double recovered_final_mass = h_alpha_final * recovered_final + h_GP_final * xB_GP + h_beta_new;
+    double invalid_final_mass = recovered_final_mass - xBtot_target;
+    if (!isfinite(invalid_final_mass)) invalid_final_mass = 0.0;
+
+    if (stats) {
+        atomicMaxDouble(&stats[GP_ETA_FEAS_MAX_ETA_TENT], eta_tent);
+        atomicAdd(&stats[GP_ETA_FEAS_SUM_RECOVERED_XB_BEFORE], recovered_before);
+        atomicMinDouble(&stats[GP_ETA_FEAS_MIN_RECOVERED_XB_BEFORE], recovered_before);
+        atomicMaxDouble(&stats[GP_ETA_FEAS_MAX_RECOVERED_XB_BEFORE], recovered_before);
+        atomicAdd(&stats[GP_ETA_FEAS_GT_XBMAX_COUNT_BEFORE], (recovered_before > xB_max) ? 1.0 : 0.0);
+        atomicAdd(&stats[GP_ETA_FEAS_LT_XBMIN_COUNT_BEFORE], (recovered_before < xB_min) ? 1.0 : 0.0);
+        atomicAdd(&stats[GP_ETA_FEAS_INVALID_COUNT_BEFORE], valid_before ? 0.0 : 1.0);
+        atomicAdd(&stats[GP_ETA_FEAS_SUM_RECOVERED_XB_AFTER], recovered_final);
+        atomicMinDouble(&stats[GP_ETA_FEAS_MIN_RECOVERED_XB_AFTER], recovered_final);
+        atomicMaxDouble(&stats[GP_ETA_FEAS_MAX_RECOVERED_XB_AFTER], recovered_final);
+        atomicAdd(&stats[GP_ETA_FEAS_GT_XBMAX_COUNT_AFTER], (recovered_final > xB_max) ? 1.0 : 0.0);
+        atomicAdd(&stats[GP_ETA_FEAS_LT_XBMIN_COUNT_AFTER], (recovered_final < xB_min) ? 1.0 : 0.0);
+        atomicAdd(&stats[GP_ETA_FEAS_INVALID_COUNT_AFTER], valid_after ? 0.0 : 1.0);
+        atomicAdd(&stats[GP_ETA_FEAS_INVALID_MASS], invalid_final_mass);
+        atomicMaxDouble(&stats[GP_ETA_FEAS_MAX_HGP_NEW], h_GP_final);
+        atomicMaxDouble(&stats[GP_ETA_FEAS_MAX_ETA_NEW], eta_final);
+        atomicAdd(&stats[GP_ETA_FEAS_LIMITER_COUNT], (double)limited);
+        atomicMaxDouble(&stats[GP_ETA_FEAS_LIMITER_MAX_DELTA], limiter_delta);
+        atomicAdd(&stats[GP_ETA_FEAS_LIMITER_MASS_PREVENTED], limiter_mass_prevented);
+    }
 }
 
 // 仅归一化（无截断），供非phi/Y数组使用
@@ -637,6 +1241,45 @@ __global__ void compute_mu_x_kernel(
         mu_x_val += dgel_dxBtot;
     }
     mu_x_r[idx] = mu_x_val;
+}
+
+__global__ void compute_mu_C_gp_kernel(
+    const double *Y_r,
+    double *xB_alpha_r,
+    double *mu_C_r,
+    double temperature_K,
+    double mu_reference_scale,
+    double Vm_alpha_0,
+    double dVm_alpha_dxB,
+    double Y_clip,
+    double xB_eps,
+    const float *sigma_xx_r,
+    const float *sigma_yy_r,
+    const float *sigma_zz_r,
+    double eps_iso_over_vB,
+    int total_size,
+    int elastic_enabled)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double xB_alpha = sigmoid_from_logit(Y_r[idx], Y_clip, xB_eps);
+    xB_alpha_r[idx] = xB_alpha;
+
+    double mu_C_val = 0.0;
+    double muA = mu_A_dimless(xB_alpha, temperature_K, mu_reference_scale);
+    double muB = mu_B_dimless(xB_alpha, temperature_K, mu_reference_scale);
+    double c_ref = 1.0 / Vm_alpha_of_xB(xB_alpha, Vm_alpha_0, dVm_alpha_dxB);
+    mu_C_val = c_ref * (muB - muA);
+
+    if (elastic_enabled) {
+        double sigma_hydro = (double)sigma_xx_r[idx] +
+                             (double)sigma_yy_r[idx] +
+                             (double)sigma_zz_r[idx];
+        mu_C_val += -eps_iso_over_vB * sigma_hydro;
+    }
+
+    mu_C_r[idx] = mu_C_val;
 }
 
 // ============================================================================
@@ -871,6 +1514,12 @@ __global__ void scale_array_kernel(double *arr, double factor, int total_size) {
     arr[idx] *= factor;
 }
 
+__global__ void add_arrays_kernel(const double *a, const double *b, double *out, int total_size) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    out[idx] = a[idx] + b[idx];
+}
+
 // Optimization: 拆分为 OutA(chem,dw) 与 OutB(bulk,dgel)，便于 2-slot scratch 串行复用
 __global__ void compute_f_phi_chem_f_phi_dw_kernel(
     const double *phi_r, const double *xB_r,
@@ -1062,6 +1711,7 @@ __global__ void compute_gel_density_kernel(
     const float *uxy_r, const float *uxz_r, const float *uyz_r,
     // Optimization(4): eigenstrain 参数已移除，现场计算；需要 phi 和 xB
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,  // 可为 NULL（minimize 模式）
     const float *sigma_xx_r, const float *sigma_yy_r, const float *sigma_zz_r,
     const float *sigma_xy_r, const float *sigma_xz_r, const float *sigma_yz_r,
@@ -1069,6 +1719,9 @@ __global__ void compute_gel_density_kernel(
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     double *gel_hat_r,
     int total_size)
 {
@@ -1077,13 +1730,16 @@ __global__ void compute_gel_density_kernel(
 
     // Optimization(4): 现场计算 eigenstrain
     double phi = phi_r[idx];
+    double eta = eta_r ? eta_r[idx] : 0.0;
     double xB = (xB_r != NULL) ? clamp01(xB_r[idx]) : 0.0;
     float eps_xx0_f, eps_yy0_f, eps_zz0_f;
     float eps_xy0_f, eps_xz0_f, eps_yz0_f;
     if (xB_r != NULL) {
-        eigenstrain_phi_xB_point(phi, xB, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
-                                  eps_iso_over_vB, eps_xx0_f, eps_yy0_f, eps_zz0_f,
-                                  eps_xy0_f, eps_xz0_f, eps_yz0_f);
+        eigenstrain_phi_eta_xB_point(phi, eta, xB, eps_xx00, eps_yy00, eps_zz00,
+                                     eps_yz00, eps_xz00, eps_xy00, eps_iso_over_vB,
+                                     gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
+                                     eps_xx0_f, eps_yy0_f, eps_zz0_f,
+                                     eps_xy0_f, eps_xz0_f, eps_yz0_f);
     } else {
         eigenstrain_phi_only_point(phi, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
                                     eps_xx0_f, eps_yy0_f, eps_zz0_f, eps_xy0_f, eps_xz0_f, eps_yz0_f);
@@ -1111,6 +1767,36 @@ __global__ void compute_gel_density_kernel(
         + 2.0 * (sxy * exy + sxz * exz + syz * eyz);
 
     gel_hat_r[idx] = 0.5 * sig_dot_eps;
+}
+
+__global__ void compute_gp_elastic_stats_kernel(
+    const double *phi_r,
+    const double *eta_r,
+    const double *gel_hat_r,
+    const float *sigma_xx_r,
+    const float *sigma_yy_r,
+    const float *sigma_zz_r,
+    double gp_eps_iso,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double gel = gel_hat_r[idx];
+    double sigma_hydro = (double)sigma_xx_r[idx] + (double)sigma_yy_r[idx] + (double)sigma_zz_r[idx];
+    double h_alpha = 0.0;
+    double h_GP = 0.0;
+    double h_beta = 0.0;
+    phase_fractions_gp(phi_r[idx], eta_r[idx], &h_alpha, &h_GP, &h_beta);
+    double eps0_gp_diag = h_GP * gp_eps_iso;
+
+    atomicAdd(&stats[GP_ELASTIC_STATS_SUM_GEL], gel);
+    atomicMaxAbsDouble(&stats[GP_ELASTIC_STATS_MAX_GEL], fabs(gel));
+    atomicMinDouble(&stats[GP_ELASTIC_STATS_MIN_SIGMA_HYDRO], sigma_hydro);
+    atomicMaxDouble(&stats[GP_ELASTIC_STATS_MAX_SIGMA_HYDRO], sigma_hydro);
+    atomicMinDouble(&stats[GP_ELASTIC_STATS_MIN_EPS0_GP_DIAG], eps0_gp_diag);
+    atomicMaxDouble(&stats[GP_ELASTIC_STATS_MAX_EPS0_GP_DIAG], eps0_gp_diag);
 }
 
 // ============================================================================
@@ -1242,8 +1928,80 @@ __global__ void compute_flux_single_component_kernel(
     double G = gamma_thermo_nonlinear(xB0, h, Vm_alpha_0, dVm_alpha_dxB,
                                       Vm_compound, temperature_K, mu_reference_scale);
     double Meff = Dm / G;
-
+    
     J_alpha_r[idx] = Meff * grad_mu_alpha_r[idx];
+}
+
+__global__ void compute_flux_single_component_gp_kernel(
+    const double *grad_mu_alpha_r,
+    const double *phi_r,
+    const double *eta_r,
+    const double *xB_alpha_prev_r,
+    double *J_alpha_r,
+    double D_alpha,
+    double gp_M_GP,
+    double gp_M_beta,
+    double Vm_alpha_0,
+    double dVm_alpha_dxB,
+    double Vm_compound,
+    double temperature_K,
+    double mu_reference_scale,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha = 0.0;
+    double h_GP = 0.0;
+    double h_beta = 0.0;
+    phase_fractions_gp(phi_r[idx], eta_r[idx], &h_alpha, &h_GP, &h_beta);
+
+    double xB0 = xB_alpha_prev_r[idx];
+    double G_alpha = gamma_thermo_nonlinear(xB0, 0.0, Vm_alpha_0, dVm_alpha_dxB,
+                                            Vm_compound, temperature_K, mu_reference_scale);
+    double M_alpha = D_alpha / G_alpha;
+    double M_eff = h_alpha * M_alpha + h_GP * gp_M_GP + h_beta * gp_M_beta;
+
+    J_alpha_r[idx] = M_eff * grad_mu_alpha_r[idx];
+}
+
+__global__ void compute_gp_transport_stats_kernel(
+    const double *phi_r,
+    const double *eta_r,
+    const double *xB_alpha_r,
+    double xB_ref,
+    double D_alpha,
+    double gp_M_GP,
+    double gp_M_beta,
+    double Vm_alpha_0,
+    double dVm_alpha_dxB,
+    double Vm_compound,
+    double temperature_K,
+    double mu_reference_scale,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha = 0.0;
+    double h_GP = 0.0;
+    double h_beta = 0.0;
+    phase_fractions_gp(phi_r[idx], eta_r[idx], &h_alpha, &h_GP, &h_beta);
+
+    double xB = xB_alpha_r[idx];
+    double G_alpha = gamma_thermo_nonlinear(xB, 0.0, Vm_alpha_0, dVm_alpha_dxB,
+                                            Vm_compound, temperature_K, mu_reference_scale);
+    double M_alpha = D_alpha / G_alpha;
+    double M_eff = h_alpha * M_alpha + h_GP * gp_M_GP + h_beta * gp_M_beta;
+
+    atomicMaxAbsDouble(&stats[GP_TRANSPORT_MAXABS_XB_PERTURB], fabs(xB - xB_ref));
+    atomicMinDouble(&stats[GP_TRANSPORT_MIN_HALPHA], h_alpha);
+    atomicMaxDouble(&stats[GP_TRANSPORT_MAX_HALPHA], h_alpha);
+    atomicMinDouble(&stats[GP_TRANSPORT_MIN_M_ALPHA], M_alpha);
+    atomicMaxDouble(&stats[GP_TRANSPORT_MAX_M_ALPHA], M_alpha);
+    atomicMinDouble(&stats[GP_TRANSPORT_MIN_M_EFF], M_eff);
+    atomicMaxDouble(&stats[GP_TRANSPORT_MAX_M_EFF], M_eff);
 }
 
 // Optimization: divJ 累加 kernel，divJ_k += i*k_alpha*J_alpha_k
@@ -1331,14 +2089,20 @@ __global__ void compute_Y_rhs_kernel(
     double dt,
     double v_B,
     double mean_DY,
-    int total_size)
+    int total_size,
+    int use_previous_time_level,
+    int disable_gamma_term,
+    double term_h_scale,
+    double *diag_stats)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
     
-    double phi = phi_r[idx];
-    double hp = h_prime_of_phi(phi);
-    double dphi_dt = (phi - phi_prev[idx]) / dt;
+    double phi_new = phi_r[idx];
+    double phi_old = phi_prev[idx];
+    double h_new = h_of_phi(phi_new);
+    double h_old = h_of_phi(phi_old);
+    double dh_dt = (h_new - h_old) / dt;
     
     // 从 Y 稳定地计算 xB 与 logistic 导数，避免直接 exp(±Y) 带来的溢出
     double Y_val = Y_r[idx];
@@ -1353,21 +2117,211 @@ __global__ void compute_Y_rhs_kernel(
     if (xB < 1e-12) xB = 1e-12;
     if (xB > 1.0 - 1e-12) xB = 1.0 - 1e-12;
     double logistic_deriv = xB * (1.0 - xB);
-    double term_h = hp * dphi_dt * (v_B - xB);
-    
-    double h = h_of_phi(phi);
-    double gamma_local = ((1.0 - h) * logistic_deriv - 1.0);
+    double term_h = term_h_scale * dh_dt * (v_B - xB);
+
+    double h_for_explicit = use_previous_time_level ? h_old : h_new;
+    double gamma_local = ((1.0 - h_for_explicit) * logistic_deriv - 1.0);
     double dY_dt = 0.0;
     if (dY_dt_prev) {
         dY_dt = dY_dt_prev[idx];
     }
-    double term_gamma = gamma_local * dY_dt;
+    double term_gamma = disable_gamma_term ? 0.0 : (gamma_local * dY_dt);
     
     double lapY = lapY_r[idx];
     double term_lap = mean_DY * lapY;
     
     double S_term = -term_h - term_lap - term_gamma;
     rhs_r[idx] = divJ_r[idx] + S_term;
+
+    if (diag_stats) {
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_OLD], h_old);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_NEW], h_new);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_GAMMA_LOCAL], gamma_local);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_H], term_h);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_LAP], term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_GAMMA], term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_DIVJ], divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_LAPY], lapY);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TOTAL], rhs_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_DIVJ], fabs(divJ_r[idx]));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_H], fabs(term_h));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_LAP], fabs(term_lap));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_GAMMA], fabs(term_gamma));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TOTAL], fabs(rhs_r[idx]));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_DIVJ], divJ_r[idx] * divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_H], term_h * term_h);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_LAP], term_lap * term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_GAMMA], term_gamma * term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TOTAL], rhs_r[idx] * rhs_r[idx]);
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_DIVJ], fabs(divJ_r[idx]));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_H], fabs(term_h));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_LAP], fabs(term_lap));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_GAMMA], fabs(term_gamma));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TOTAL], fabs(rhs_r[idx]));
+    }
+}
+
+__global__ void compute_Y_rhs_gp_kernel(
+    const double *divJ_r,
+    const double *phi_r,
+    const double *phi_prev,
+    const double *eta_r,
+    const double *eta_prev_r,
+    const double *lapY_r,
+    const double *Y_r,
+    const double *dY_dt_prev,
+    double *rhs_r,
+    double dt,
+    double xB_GP,
+    double mean_DY,
+    double gp_h_alpha_eps,
+    int total_size,
+    int use_previous_time_level,
+    int disable_gamma_term,
+    double *diag_stats)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha_new = 0.0;
+    double h_GP_new = 0.0;
+    double h_beta_new = 0.0;
+    phase_fractions_gp(phi_r[idx], eta_r[idx], &h_alpha_new, &h_GP_new, &h_beta_new);
+
+    double h_alpha_old = 0.0;
+    double h_GP_old = 0.0;
+    double h_beta_old = 0.0;
+    phase_fractions_gp(phi_prev[idx], eta_prev_r[idx], &h_alpha_old, &h_GP_old, &h_beta_old);
+
+    double dh_GP_dt = (h_GP_new - h_GP_old) / dt;
+    double dh_beta_dt = (h_beta_new - h_beta_old) / dt;
+
+    double xB = sigmoid_from_logit(Y_r[idx], 20.0, 1e-12);
+    double logistic_deriv = xB * (1.0 - xB);
+    double storage_source = dh_GP_dt * (xB_GP - xB) + dh_beta_dt * (1.0 - xB);
+
+    double h_alpha_for_explicit = use_previous_time_level ? h_alpha_old : h_alpha_new;
+    double h_alpha_eff = fmax(h_alpha_for_explicit, gp_h_alpha_eps);
+    double gamma_local = (h_alpha_eff * logistic_deriv - 1.0);
+    double dY_dt = 0.0;
+    if (dY_dt_prev) {
+        dY_dt = dY_dt_prev[idx];
+    }
+    double term_gamma = disable_gamma_term ? 0.0 : (gamma_local * dY_dt);
+    double lapY = lapY_r[idx];
+    double term_lap = mean_DY * lapY;
+
+    rhs_r[idx] = divJ_r[idx] - storage_source - term_lap - term_gamma;
+
+    if (diag_stats) {
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_OLD], h_alpha_old);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_NEW], h_alpha_new);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_GAMMA_LOCAL], gamma_local);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_H], storage_source);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_LAP], term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_GAMMA], term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_DIVJ], divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_LAPY], lapY);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TOTAL], rhs_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_DIVJ], fabs(divJ_r[idx]));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_H], fabs(storage_source));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_LAP], fabs(term_lap));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_GAMMA], fabs(term_gamma));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TOTAL], fabs(rhs_r[idx]));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_DIVJ], divJ_r[idx] * divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_H], storage_source * storage_source);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_LAP], term_lap * term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_GAMMA], term_gamma * term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TOTAL], rhs_r[idx] * rhs_r[idx]);
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_DIVJ], fabs(divJ_r[idx]));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_H], fabs(storage_source));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_LAP], fabs(term_lap));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_GAMMA], fabs(term_gamma));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TOTAL], fabs(rhs_r[idx]));
+    }
+}
+
+__global__ void compute_Y_rhs_gp_conservative_kernel(
+    const double *divJ_r,
+    const double *phi_r,
+    const double *phi_prev,
+    const double *eta_r,
+    const double *eta_prev_r,
+    const double *lapY_r,
+    const double *Y_r,
+    const double *dY_dt_prev,
+    double *rhs_r,
+    double dt,
+    double xB_GP,
+    double mean_DY,
+    int total_size,
+    int use_previous_time_level,
+    int disable_gamma_term,
+    double *diag_stats)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha_new = 0.0;
+    double h_GP_new = 0.0;
+    double h_beta_new = 0.0;
+    phase_fractions_gp(phi_r[idx], eta_r[idx], &h_alpha_new, &h_GP_new, &h_beta_new);
+
+    double h_alpha_old = 0.0;
+    double h_GP_old = 0.0;
+    double h_beta_old = 0.0;
+    phase_fractions_gp(phi_prev[idx], eta_prev_r[idx], &h_alpha_old, &h_GP_old, &h_beta_old);
+
+    double dh_GP_dt = (h_GP_new - h_GP_old) / dt;
+    double dh_beta_dt = (h_beta_new - h_beta_old) / dt;
+
+    double xB = sigmoid_from_logit(Y_r[idx], 20.0, 1.0e-12);
+    double q = xB * (1.0 - xB);
+    double storage_source = dh_GP_dt * (xB_GP - xB) + dh_beta_dt * (1.0 - xB);
+
+    const double h_alpha_explicit = use_previous_time_level ? h_alpha_old : h_alpha_new;
+    const double hq = h_alpha_explicit * q;
+    const double gamma_local = hq - 1.0;
+    double lagged_dYdt = 0.0;
+    if (dY_dt_prev) lagged_dYdt = dY_dt_prev[idx];
+    const double term_gamma = disable_gamma_term ? 0.0 : (gamma_local * lagged_dYdt);
+    const double lapY = lapY_r[idx];
+    const double term_lap = mean_DY * lapY;
+    const double fY = divJ_r[idx] - storage_source - term_lap - term_gamma;
+
+    rhs_r[idx] = fY;
+
+    if (diag_stats) {
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_OLD], h_alpha_old);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_NEW], h_alpha_new);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_HQ], hq);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_GAMMA_LOCAL], gamma_local);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_H], storage_source);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_LAP], term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_GAMMA], term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_DIVJ], divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_LAPY], lapY);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TOTAL], fY);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_DIVJ], fabs(divJ_r[idx]));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_H], fabs(storage_source));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_LAP], fabs(term_lap));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_GAMMA], fabs(term_gamma));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TOTAL], fabs(fY));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_DIVJ], divJ_r[idx] * divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_H], storage_source * storage_source);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_LAP], term_lap * term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_GAMMA], term_gamma * term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TOTAL], fY * fY);
+        atomicMinDouble(&diag_stats[MASS_DIAG_Y_RHS_MIN_H], h_alpha_explicit);
+        atomicMinDouble(&diag_stats[MASS_DIAG_Y_RHS_MIN_HQ], hq);
+        atomicMaxDouble(&diag_stats[MASS_DIAG_Y_RHS_MAX_HQ], hq);
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_DIVJ], fabs(divJ_r[idx]));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_H], fabs(storage_source));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_LAP], fabs(term_lap));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_GAMMA], fabs(term_gamma));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TOTAL], fabs(fY));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_LAGGED_DYDT], fabs(lagged_dYdt));
+    }
 }
 
 // ============================================================================
@@ -1421,6 +2375,452 @@ __global__ void Y_normalize_and_clamp_kernel(
     xB_r[idx] = sigmoid_from_logit(Y_new, Y_clip, xB_eps);
 }
 
+__global__ void phi_mass_diagnostics_kernel(
+    const double *phi_ifft_r,
+    const double *phi_before_r,
+    const double *xB_before_r,
+    double *stats,
+    double invN,
+    double v_B,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double phi_before = phi_before_r[idx];
+    double xB_before = xB_before_r[idx];
+    double h_before = h_of_phi(phi_before);
+    double phi_raw = phi_ifft_r[idx] * invN;
+    double phi_after = phi_raw;
+    double clip_low = 0.0;
+    double clip_high = 0.0;
+    if (phi_after < -1.0e-6) {
+        phi_after = -1.0e-6;
+        clip_low = 1.0;
+    }
+    if (phi_after > 1.0 + 1.0e-6) {
+        phi_after = 1.0 + 1.0e-6;
+        clip_high = 1.0;
+    }
+    double h_raw = h_of_phi(phi_raw);
+    double h_after = h_of_phi(phi_after);
+    double xBtot_raw = (1.0 - h_raw) * xB_before + v_B * h_raw;
+    double xBtot_after = (1.0 - h_after) * xB_before + v_B * h_after;
+    double pred = (h_after - h_before) * (v_B - xB_before);
+
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_XBTOT_RAW], xBtot_raw);
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_XBTOT_CLAMPED], xBtot_after);
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_H_BEFORE], h_before);
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_H_AFTER], h_after);
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_XB_BEFORE], xB_before);
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_PHI_BEFORE], phi_before);
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_PHI_AFTER], phi_after);
+    atomicAdd(&stats[MASS_DIAG_PHI_SUM_PRED_DELTA_XBTOT], pred);
+    atomicAdd(&stats[MASS_DIAG_PHI_CLIP_LOW_COUNT], clip_low);
+    atomicAdd(&stats[MASS_DIAG_PHI_CLIP_HIGH_COUNT], clip_high);
+}
+
+__global__ void Y_mass_diagnostics_kernel(
+    const double *Y_ifft_r,
+    const double *phi_r,
+    const double *xB_before_r,
+    double *stats,
+    double invN,
+    double Y_clip,
+    double Y_upper_cap,
+    double xB_eps,
+    double v_B,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double phi = phi_r[idx];
+    double h = h_of_phi(phi);
+    double xB_before = xB_before_r[idx];
+    // Y_ifft_r is already normalized back to real-space before this diagnostic kernel.
+    // Do not apply invN again here, otherwise xB_raw collapses toward 0.5 and
+    // all Y-update mass diagnostics become meaningless.
+    double Y_raw = Y_ifft_r[idx];
+    double xB_raw = sigmoid_from_logit_unclipped_local(Y_raw);
+
+    double y_low = 0.0;
+    double y_high = 0.0;
+    double Y_clamped = Y_raw;
+    if (Y_clamped > Y_upper_cap) {
+        Y_clamped = Y_upper_cap;
+        y_high = 1.0;
+    }
+    if (Y_clamped < -Y_clip) {
+        Y_clamped = -Y_clip;
+        y_low = 1.0;
+    }
+
+    double xB_preclip = sigmoid_from_logit_unclipped_local(Y_clamped);
+    double xb_low = 0.0;
+    double xb_high = 0.0;
+    double xB_final = xB_preclip;
+    if (xB_final < xB_eps) {
+        xB_final = xB_eps;
+        xb_low = 1.0;
+    }
+    if (xB_final > 1.0 - xB_eps) {
+        xB_final = 1.0 - xB_eps;
+        xb_high = 1.0;
+    }
+
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XBTOT_RAWY], (1.0 - h) * xB_raw + v_B * h);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XBTOT_YCLAMP_PRE_XBCLIP], (1.0 - h) * xB_preclip + v_B * h);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XBTOT_FINAL], (1.0 - h) * xB_final + v_B * h);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_BEFORE], xB_before);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_RAWY], xB_raw);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_YCLAMP_PRE_XBCLIP], xB_preclip);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_FINAL], xB_final);
+    atomicAdd(&stats[MASS_DIAG_Y_CLIP_LOW_COUNT], y_low);
+    atomicAdd(&stats[MASS_DIAG_Y_CLIP_HIGH_COUNT], y_high);
+    atomicAdd(&stats[MASS_DIAG_Y_XB_CLIP_LOW_COUNT], xb_low);
+    atomicAdd(&stats[MASS_DIAG_Y_XB_CLIP_HIGH_COUNT], xb_high);
+}
+
+__global__ void Y_mass_diagnostics_gp_kernel(
+    const double *Y_ifft_r,
+    const double *phi_r,
+    const double *eta_r,
+    const double *xB_before_r,
+    double *stats,
+    double invN,
+    double Y_clip,
+    double Y_upper_cap,
+    double xB_eps,
+    double xB_GP,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha = 0.0;
+    double h_GP = 0.0;
+    double h_beta = 0.0;
+    phase_fractions_gp(phi_r[idx], eta_r[idx], &h_alpha, &h_GP, &h_beta);
+
+    double xB_before = xB_before_r[idx];
+    (void)invN;
+    double Y_raw = Y_ifft_r[idx];
+    double xB_raw = sigmoid_from_logit_unclipped_local(Y_raw);
+
+    double y_low = 0.0;
+    double y_high = 0.0;
+    double Y_clamped = Y_raw;
+    if (Y_clamped > Y_upper_cap) {
+        Y_clamped = Y_upper_cap;
+        y_high = 1.0;
+    }
+    if (Y_clamped < -Y_clip) {
+        Y_clamped = -Y_clip;
+        y_low = 1.0;
+    }
+
+    double xB_preclip = sigmoid_from_logit_unclipped_local(Y_clamped);
+    double xb_low = 0.0;
+    double xb_high = 0.0;
+    double xB_final = xB_preclip;
+    if (xB_final < xB_eps) {
+        xB_final = xB_eps;
+        xb_low = 1.0;
+    }
+    if (xB_final > 1.0 - xB_eps) {
+        xB_final = 1.0 - xB_eps;
+        xb_high = 1.0;
+    }
+
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XBTOT_RAWY], h_alpha * xB_raw + h_GP * xB_GP + h_beta);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XBTOT_YCLAMP_PRE_XBCLIP], h_alpha * xB_preclip + h_GP * xB_GP + h_beta);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XBTOT_FINAL], h_alpha * xB_final + h_GP * xB_GP + h_beta);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_BEFORE], xB_before);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_RAWY], xB_raw);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_YCLAMP_PRE_XBCLIP], xB_preclip);
+    atomicAdd(&stats[MASS_DIAG_Y_SUM_XB_FINAL], xB_final);
+    atomicAdd(&stats[MASS_DIAG_Y_CLIP_LOW_COUNT], y_low);
+    atomicAdd(&stats[MASS_DIAG_Y_CLIP_HIGH_COUNT], y_high);
+    atomicAdd(&stats[MASS_DIAG_Y_XB_CLIP_LOW_COUNT], xb_low);
+    atomicAdd(&stats[MASS_DIAG_Y_XB_CLIP_HIGH_COUNT], xb_high);
+}
+
+__global__ void gp_storage_exact_Y_update_kernel(
+    const double *divJ_r,
+    const double *phi_new_r,
+    const double *phi_old_r,
+    const double *eta_new_r,
+    const double *eta_old_r,
+    const double *Y_old_r,
+    double *Y_r,
+    double *xB_r,
+    double dt,
+    double xB_GP,
+    double Y_clip,
+    double Y_upper_cap,
+    double xB_eps,
+    double gp_h_alpha_eps,
+    int disable_internal_clip,
+    double *update_stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha_old = 0.0, h_GP_old = 0.0, h_beta_old = 0.0;
+    double h_alpha_new = 0.0, h_GP_new = 0.0, h_beta_new = 0.0;
+    phase_fractions_gp(phi_old_r[idx], eta_old_r[idx], &h_alpha_old, &h_GP_old, &h_beta_old);
+    phase_fractions_gp(phi_new_r[idx], eta_new_r[idx], &h_alpha_new, &h_GP_new, &h_beta_new);
+
+    double xB_old = sigmoid_from_logit(Y_old_r[idx], Y_clip, xB_eps);
+    double S_old = h_GP_old * (xB_GP - xB_old) + h_beta_old * (1.0 - xB_old);
+    double xBtot_old = xB_old + S_old;
+    double xBtot_target = xBtot_old + dt * divJ_r[idx];
+    if (!isfinite(xBtot_target)) {
+        Y_r[idx] = Y_old_r[idx];
+        xB_r[idx] = xB_old;
+        if (update_stats) {
+            atomicAdd(&update_stats[GP_Y_UPDATE_SMALL_HALPHA_COUNT], 1.0);
+        }
+        return;
+    }
+
+    double denom = h_alpha_new;
+    const int small_h_alpha = (denom < gp_h_alpha_eps) ? 1 : 0;
+    double xB_unclipped = xB_old;
+    if (!small_h_alpha) {
+        double numerator = xBtot_target - h_GP_new * xB_GP - h_beta_new;
+        xB_unclipped = numerator / denom;
+    }
+    if (!isfinite(xB_unclipped)) xB_unclipped = xB_old;
+    double xBtot_after_unclipped = h_alpha_new * xB_unclipped + h_GP_new * xB_GP + h_beta_new;
+    double small_h_alpha_mass_error = xBtot_after_unclipped - xBtot_target;
+
+    double xb_low = 0.0;
+    double xb_high = 0.0;
+    double y_low = 0.0;
+    double y_high = 0.0;
+    double xB_final = xB_unclipped;
+    double Y_final = Y_old_r[idx];
+    int bypass_clip = 0;
+    if (disable_internal_clip &&
+        isfinite(xB_unclipped) &&
+        xB_unclipped >= xB_eps &&
+        xB_unclipped <= 1.0 - xB_eps) {
+        double Y_no_clip = log(xB_unclipped / (1.0 - xB_unclipped));
+        if (isfinite(Y_no_clip)) {
+            xB_final = xB_unclipped;
+            Y_final = Y_no_clip;
+            bypass_clip = 1;
+        }
+    }
+    if (!bypass_clip) {
+        if (xB_final < xB_eps) {
+            xB_final = xB_eps;
+            xb_low = 1.0;
+        }
+        if (xB_final > 1.0 - xB_eps) {
+            xB_final = 1.0 - xB_eps;
+            xb_high = 1.0;
+        }
+
+        double Y_unclipped = logit_from_fraction(xB_final, xB_eps, Y_clip);
+        Y_final = Y_unclipped;
+        if (Y_final > Y_upper_cap) {
+            Y_final = Y_upper_cap;
+            y_high = 1.0;
+        }
+        if (Y_final < -Y_clip) {
+            Y_final = -Y_clip;
+            y_low = 1.0;
+        }
+        xB_final = sigmoid_from_logit(Y_final, Y_clip, xB_eps);
+    }
+    double xBtot_after_clipped = h_alpha_new * xB_final + h_GP_new * xB_GP + h_beta_new;
+    double clipping_mass_error = xBtot_after_clipped - xBtot_after_unclipped;
+
+    Y_r[idx] = Y_final;
+    xB_r[idx] = xB_final;
+
+    if (update_stats) {
+        atomicAdd(&update_stats[GP_Y_UPDATE_SUM_CLIPPING_MASS_ERROR], clipping_mass_error);
+        atomicAdd(&update_stats[GP_Y_UPDATE_SUM_SMALL_HALPHA_MASS_ERROR], small_h_alpha_mass_error);
+        atomicAdd(&update_stats[GP_Y_UPDATE_Y_CLIP_COUNT], y_low + y_high);
+        atomicAdd(&update_stats[GP_Y_UPDATE_XB_CLIP_COUNT], xb_low + xb_high);
+        if (small_h_alpha) {
+            atomicAdd(&update_stats[GP_Y_UPDATE_SMALL_HALPHA_COUNT], 1.0);
+        }
+    }
+}
+
+__global__ void gp_picard_storage_Y_update_kernel(
+    const double *divJ_r,
+    const double *phi_new_r,
+    const double *phi_old_r,
+    const double *eta_new_r,
+    const double *eta_old_r,
+    const double *Y_old_r,
+    double *Y_guess_r,
+    double *xB_r,
+    double dt,
+    double xB_GP,
+    double Y_clip,
+    double Y_upper_cap,
+    double xB_eps,
+    double *update_stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha_old = 0.0, h_GP_old = 0.0, h_beta_old = 0.0;
+    double h_alpha_new = 0.0, h_GP_new = 0.0, h_beta_new = 0.0;
+    phase_fractions_gp(phi_old_r[idx], eta_old_r[idx], &h_alpha_old, &h_GP_old, &h_beta_old);
+    phase_fractions_gp(phi_new_r[idx], eta_new_r[idx], &h_alpha_new, &h_GP_new, &h_beta_new);
+
+    double xB_old = sigmoid_from_logit(Y_old_r[idx], Y_clip, xB_eps);
+    double xB_guess = sigmoid_from_logit(Y_guess_r[idx], Y_clip, xB_eps);
+    double S_old = h_GP_old * (xB_GP - xB_old) + h_beta_old * (1.0 - xB_old);
+    double xBtot_target = xB_old + S_old + dt * divJ_r[idx];
+    const int small_h_alpha = (h_alpha_new < fmax(xB_eps, 1.0e-8)) ? 1 : 0;
+
+    double xB_unclipped = xB_old;
+    if (!small_h_alpha) {
+        double S_new_guess = h_GP_new * (xB_GP - xB_guess) + h_beta_new * (1.0 - xB_guess);
+        double storage_source_discrete = (S_new_guess - S_old) / dt;
+        xB_unclipped = xB_old + dt * (divJ_r[idx] - storage_source_discrete);
+    }
+    double xBtot_after_unclipped = h_alpha_new * xB_unclipped + h_GP_new * xB_GP + h_beta_new;
+
+    double xb_low = 0.0;
+    double xb_high = 0.0;
+    double xB_final = xB_unclipped;
+    if (xB_final < xB_eps) {
+        xB_final = xB_eps;
+        xb_low = 1.0;
+    }
+    if (xB_final > 1.0 - xB_eps) {
+        xB_final = 1.0 - xB_eps;
+        xb_high = 1.0;
+    }
+
+    double Y_unclipped = logit_from_fraction(xB_final, xB_eps, Y_clip);
+    double y_low = 0.0;
+    double y_high = 0.0;
+    double Y_final = Y_unclipped;
+    if (Y_final > Y_upper_cap) {
+        Y_final = Y_upper_cap;
+        y_high = 1.0;
+    }
+    if (Y_final < -Y_clip) {
+        Y_final = -Y_clip;
+        y_low = 1.0;
+    }
+    xB_final = sigmoid_from_logit(Y_final, Y_clip, xB_eps);
+    double xBtot_after_clipped = h_alpha_new * xB_final + h_GP_new * xB_GP + h_beta_new;
+    double clipping_mass_error = xBtot_after_clipped - xBtot_after_unclipped;
+    double small_h_alpha_mass_error = xBtot_after_unclipped - xBtot_target;
+
+    Y_guess_r[idx] = Y_final;
+    xB_r[idx] = xB_final;
+
+    if (update_stats) {
+        atomicAdd(&update_stats[GP_Y_UPDATE_SUM_CLIPPING_MASS_ERROR], clipping_mass_error);
+        atomicAdd(&update_stats[GP_Y_UPDATE_SUM_SMALL_HALPHA_MASS_ERROR], small_h_alpha_mass_error);
+        atomicAdd(&update_stats[GP_Y_UPDATE_Y_CLIP_COUNT], y_low + y_high);
+        atomicAdd(&update_stats[GP_Y_UPDATE_XB_CLIP_COUNT], xb_low + xb_high);
+        if (small_h_alpha) {
+            atomicAdd(&update_stats[GP_Y_UPDATE_SMALL_HALPHA_COUNT], 1.0);
+        }
+    }
+}
+
+__global__ void apply_Y_shift_recompute_xB_kernel(
+    const double *Y_base_r,
+    double *Y_r,
+    double *xB_r,
+    double lambda_shift,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    double Y_shifted = Y_base_r[idx] + lambda_shift;
+    double xB = 0.0;
+    if (Y_shifted >= 0.0) {
+        double e = exp(-Y_shifted);
+        xB = 1.0 / (1.0 + e);
+    } else {
+        double e = exp(Y_shifted);
+        xB = e / (1.0 + e);
+    }
+    Y_r[idx] = Y_shifted;
+    xB_r[idx] = xB;
+}
+
+__global__ void gp_storage_diagnostics_kernel(
+    const double *phi_old_r,
+    const double *eta_old_r,
+    const double *xB_old_r,
+    const double *phi_new_r,
+    const double *eta_new_r,
+    const double *xB_new_r,
+    const double *divJ_r,
+    double dt,
+    double xB_GP,
+    double gp_h_alpha_eps,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha_old = 0.0, h_GP_old = 0.0, h_beta_old = 0.0;
+    double h_alpha_new = 0.0, h_GP_new = 0.0, h_beta_new = 0.0;
+    phase_fractions_gp(phi_old_r[idx], eta_old_r[idx], &h_alpha_old, &h_GP_old, &h_beta_old);
+    phase_fractions_gp(phi_new_r[idx], eta_new_r[idx], &h_alpha_new, &h_GP_new, &h_beta_new);
+
+    double xB_before = xB_old_r[idx];
+    double xB_after = xB_new_r[idx];
+    double storage_gp_before = h_GP_old * (xB_GP - xB_before);
+    double storage_beta_before = h_beta_old * (1.0 - xB_before);
+    double storage_gp_after = h_GP_new * (xB_GP - xB_after);
+    double storage_beta_after = h_beta_new * (1.0 - xB_after);
+    double xBtot_before = xB_before + storage_gp_before + storage_beta_before;
+    double xBtot_after = xB_after + storage_gp_after + storage_beta_after;
+    double delta_xB = xB_after - xB_before;
+    double delta_storage_gp = storage_gp_after - storage_gp_before;
+    double delta_storage_beta = storage_beta_after - storage_beta_before;
+    double dt_divJ = dt * divJ_r[idx];
+    double closure_error = (delta_xB + delta_storage_gp + delta_storage_beta) - dt_divJ;
+
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_XBTOT_BEFORE], xBtot_before);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_XB_ALPHA_BEFORE], xB_before);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_STORAGE_GP_BEFORE], storage_gp_before);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_STORAGE_BETA_BEFORE], storage_beta_before);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_XBTOT_AFTER], xBtot_after);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_XB_ALPHA_AFTER], xB_after);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_STORAGE_GP_AFTER], storage_gp_after);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_STORAGE_BETA_AFTER], storage_beta_after);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_DELTA_XB_ALPHA], delta_xB);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_DELTA_STORAGE_GP], delta_storage_gp);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_DELTA_STORAGE_BETA], delta_storage_beta);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_DT_DIVJ], dt_divJ);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_CLOSURE_ERROR], closure_error);
+    atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SUM_DIVJ], divJ_r[idx]);
+    if (h_alpha_new < gp_h_alpha_eps) {
+        atomicAdd(&stats[MASS_DIAG_GP_STORAGE_SMALL_HALPHA_COUNT], 1.0);
+    }
+    atomicMinDouble(&stats[MASS_DIAG_GP_STORAGE_MIN_HALPHA], h_alpha_new);
+    atomicMaxDouble(&stats[MASS_DIAG_GP_STORAGE_MAX_HALPHA], h_alpha_new);
+    atomicMinDouble(&stats[MASS_DIAG_GP_STORAGE_MIN_HGP], h_GP_new);
+    atomicMaxDouble(&stats[MASS_DIAG_GP_STORAGE_MAX_HGP], h_GP_new);
+    atomicMinDouble(&stats[MASS_DIAG_GP_STORAGE_MIN_ETA], eta_new_r[idx]);
+    atomicMaxDouble(&stats[MASS_DIAG_GP_STORAGE_MAX_ETA], eta_new_r[idx]);
+    atomicMinDouble(&stats[MASS_DIAG_GP_STORAGE_MIN_XB_ALPHA], xB_after);
+    atomicMaxDouble(&stats[MASS_DIAG_GP_STORAGE_MAX_XB_ALPHA], xB_after);
+}
+
 // ============================================================================
 // 11.5 xB 峰值限幅 kernel
 // ============================================================================
@@ -1469,6 +2869,32 @@ __global__ void update_dY_dt_prev_kernel(
     if (idx >= total_size) return;
     
     dY_dt_prev_r[idx] = (Y_r[idx] - Y_n_saved[idx]) / dt;
+}
+
+__global__ void relax_dY_dt_guess_kernel(
+    const double *dY_dt_new_r,
+    const double *dY_dt_old_guess_r,
+    double *dY_dt_guess_r,
+    double omega,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    dY_dt_guess_r[idx] =
+        omega * dY_dt_new_r[idx] + (1.0 - omega) * dY_dt_old_guess_r[idx];
+}
+
+__global__ void compute_diff_sumsq_max_kernel(
+    const double *a_r,
+    const double *b_r,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    double d = a_r[idx] - b_r[idx];
+    atomicAdd(&stats[0], d * d);
+    atomicMaxAbsDouble(&stats[1], fabs(d));
 }
 
 // ============================================================================
@@ -1556,6 +2982,24 @@ __global__ void compute_xBtot_kernel(
     double xB = xB_r[idx];
     
     xBtot_r[idx] = (1.0 - h) * xB + v_B * h;
+}
+
+__global__ void compute_xBtot_gp_kernel(
+    const double *phi_r,
+    const double *eta_r,
+    const double *xB_alpha_r,
+    double *xBtot_gp_r,
+    double xB_GP,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    double h_alpha = 0.0;
+    double h_GP = 0.0;
+    double h_beta = 0.0;
+    phase_fractions_gp(phi_r[idx], eta_r[idx], &h_alpha, &h_GP, &h_beta);
+    xBtot_gp_r[idx] = h_alpha * xB_alpha_r[idx] + h_GP * xB_GP + h_beta;
 }
 
 // ============================================================================
@@ -1646,6 +3090,42 @@ __global__ void reduce_sum_xBtot_kernel(
     }
 }
 
+__global__ void reduce_sum_xBtot_gp_kernel(
+    const double *phi_r,
+    const double *eta_r,
+    const double *xB_alpha_r,
+    double *block_sums,
+    double xB_GP,
+    int total_size)
+{
+    extern __shared__ double sdata[];
+    unsigned int tid = threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    double val = 0.0;
+    if (i < total_size) {
+        double h_alpha = 0.0;
+        double h_GP = 0.0;
+        double h_beta = 0.0;
+        phase_fractions_gp(phi_r[i], eta_r[i], &h_alpha, &h_GP, &h_beta);
+        val = h_alpha * xB_alpha_r[i] + h_GP * xB_GP + h_beta;
+    }
+
+    sdata[tid] = val;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata[tid] += sdata[tid + s];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        block_sums[blockIdx.x] = sdata[0];
+    }
+}
+
 // ============================================================================
 // 优化kernel：直接归约计算DY的和（不需要存储完整数组）
 // ============================================================================
@@ -1698,6 +3178,43 @@ __global__ void reduce_sum_DY_kernel(
     }
     
     // 写入结果
+    if (tid == 0) {
+        block_sums[blockIdx.x] = sdata[0];
+    }
+}
+
+__global__ void reduce_sum_DY_gp_kernel(
+    const double *Y_r,
+    const double *phi_r,
+    const double *eta_r,
+    double *block_sums,
+    double D_alpha,
+    int total_size)
+{
+    extern __shared__ double sdata[];
+    unsigned int tid = threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    double val = 0.0;
+    if (i < total_size) {
+        double h_alpha = 0.0;
+        phase_fractions_gp(phi_r[i], eta_r[i], &h_alpha, NULL, NULL);
+
+        double xB = sigmoid_from_logit(Y_r[i], 20.0, 1e-12);
+        double logistic_deriv = xB * (1.0 - xB);
+        val = h_alpha * D_alpha * logistic_deriv;
+    }
+
+    sdata[tid] = val;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata[tid] += sdata[tid + s];
+        }
+        __syncthreads();
+    }
+
     if (tid == 0) {
         block_sums[blockIdx.x] = sdata[0];
     }
@@ -1928,7 +3445,7 @@ void launch_dealias_float_kernel(cufftComplex *f_k, int Nx, int Ny, int Nz, int 
     dealias_23_float_kernel<<<blocks, threads>>>(f_k, Nx, Ny, Nz, NzC, dx, dy, dz, total_size);
 }
 
-void launch_compute_phi_rhs_kernel(const double *phi_r, const double *xB_r,
+void launch_compute_phi_rhs_kernel(const double *phi_r, const double *eta_r, const double *xB_r,
                                    double *rhs_r, int Nx, int Ny, int Nz,
                                    double temperature_K, double mu_reference_scale,
                                    double v_A, double v_B, double mu0_compound,
@@ -1952,14 +3469,20 @@ void launch_compute_phi_rhs_kernel(const double *phi_r, const double *xB_r,
                                    double eps_xx00, double eps_yy00, double eps_zz00,
                                    double eps_yz00, double eps_xz00, double eps_xy00,
                                    double eps_iso_over_vB,
+                                   int gp_mode_enabled,
+                                   int gp_elastic_enabled,
+                                   int gp_elastic_active_phi,
+                                   double gp_eps_iso,
+                                   double gp_elastic_derivative_scale,
                                    double elastic_shift_dimless,
                                    int disable_chem,
                                    int total_size,
-                                   int elastic_enabled) {
+                                   int elastic_enabled,
+                                   double *diag_stats) {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
     compute_phi_rhs_kernel<<<blocks, threads>>>(
-        phi_r, xB_r, rhs_r,
+        phi_r, eta_r, xB_r, rhs_r,
         Nx, Ny, Nz,
         temperature_K, mu_reference_scale,
         v_A, v_B, mu0_compound,
@@ -1977,10 +3500,13 @@ void launch_compute_phi_rhs_kernel(const double *phi_r, const double *xB_r,
         eps_xx00, eps_yy00, eps_zz00,
         eps_yz00, eps_xz00, eps_xy00,
         eps_iso_over_vB,
+        gp_mode_enabled, gp_elastic_enabled, gp_elastic_active_phi,
+        gp_eps_iso, gp_elastic_derivative_scale,
         elastic_shift_dimless,
         disable_chem,
         total_size,
-        elastic_enabled);
+        elastic_enabled,
+        diag_stats);
 }
 
 void launch_reconstruct_xB_from_phi_kernel(const double *phi_r, double *xB_r,
@@ -2106,10 +3632,186 @@ void launch_phi_semi_implicit_update_kernel(const cuDoubleComplex *phi_k_old,
                                                           dt, total_size);
 }
 
+void launch_compute_eta_rhs_kernel(const double *eta_r,
+                                   const double *phi_r,
+                                   const double *xB_alpha_r,
+                                   const float *sigma_xx_r,
+                                   const float *sigma_yy_r,
+                                   const float *sigma_zz_r,
+                                   const float *sigma_xy_r,
+                                   const float *sigma_xz_r,
+                                   const float *sigma_yz_r,
+                                   double *rhs_r,
+                                   double temperature_K,
+                                   double mu_reference_scale,
+                                   double Vm_alpha_0,
+                                   double dVm_alpha_dxB,
+                                   double gp_xB_fixed,
+                                   double gp_delta_g0,
+                                   int gp_raw_reaction_drive_only,
+                                   int gp_raw_reaction_drive_use_raw_units_debug,
+                                   double gp_reaction_nu_A,
+                                   double gp_reaction_nu_B,
+                                   double gp_mu_reference_raw,
+                                   double gp_W_eta,
+                                   double eps_iso_over_vB,
+                                   int gp_elastic_enabled,
+                                   int gp_elastic_active_eta,
+                                   double gp_eps_iso,
+                                   double gp_elastic_derivative_scale,
+                                   int total_size,
+                                   double *diag_stats)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_eta_rhs_kernel<<<blocks, threads>>>(
+        eta_r, phi_r, xB_alpha_r,
+        sigma_xx_r, sigma_yy_r, sigma_zz_r,
+        sigma_xy_r, sigma_xz_r, sigma_yz_r,
+        rhs_r,
+        temperature_K, mu_reference_scale,
+        Vm_alpha_0, dVm_alpha_dxB,
+        gp_xB_fixed, gp_delta_g0,
+        gp_raw_reaction_drive_only, gp_raw_reaction_drive_use_raw_units_debug,
+        gp_reaction_nu_A, gp_reaction_nu_B, gp_mu_reference_raw,
+        gp_W_eta,
+        eps_iso_over_vB,
+        gp_elastic_enabled, gp_elastic_active_eta,
+        gp_eps_iso, gp_elastic_derivative_scale,
+        total_size, diag_stats);
+}
+
+void launch_compute_eta_rhs_components_kernel(const double *eta_r,
+                                              const double *phi_r,
+                                              const double *xB_alpha_r,
+                                              const float *sigma_xx_r,
+                                              const float *sigma_yy_r,
+                                              const float *sigma_zz_r,
+                                              const float *sigma_xy_r,
+                                              const float *sigma_xz_r,
+                                              const float *sigma_yz_r,
+                                              double *chem_r,
+                                              double *dw_r,
+                                              double *elastic_r,
+                                              double *net_explicit_r,
+                                              double *minus_delta_mu_r_gp_r,
+                                              double temperature_K,
+                                              double mu_reference_scale,
+                                              double Vm_alpha_0,
+                                              double dVm_alpha_dxB,
+                                              double gp_xB_fixed,
+                                              double gp_delta_g0,
+                                              int gp_raw_reaction_drive_only,
+                                              int gp_raw_reaction_drive_use_raw_units_debug,
+                                              double gp_reaction_nu_A,
+                                              double gp_reaction_nu_B,
+                                              double gp_mu_reference_raw,
+                                              double gp_W_eta,
+                                              double eps_iso_over_vB,
+                                              int gp_elastic_enabled,
+                                              int gp_elastic_active_eta,
+                                              double gp_eps_iso,
+                                              double gp_elastic_derivative_scale,
+                                              int total_size)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_eta_rhs_components_kernel<<<blocks, threads>>>(
+        eta_r, phi_r, xB_alpha_r,
+        sigma_xx_r, sigma_yy_r, sigma_zz_r,
+        sigma_xy_r, sigma_xz_r, sigma_yz_r,
+        chem_r, dw_r, elastic_r, net_explicit_r, minus_delta_mu_r_gp_r,
+        temperature_K, mu_reference_scale,
+        Vm_alpha_0, dVm_alpha_dxB,
+        gp_xB_fixed, gp_delta_g0,
+        gp_raw_reaction_drive_only, gp_raw_reaction_drive_use_raw_units_debug,
+        gp_reaction_nu_A, gp_reaction_nu_B, gp_mu_reference_raw,
+        gp_W_eta,
+        eps_iso_over_vB,
+        gp_elastic_enabled, gp_elastic_active_eta,
+        gp_eps_iso, gp_elastic_derivative_scale,
+        total_size);
+}
+
+void launch_eta_semi_implicit_update_kernel(const cuDoubleComplex *eta_k_old,
+                                            const cuDoubleComplex *rhs_k,
+                                            const double *k2,
+                                            cuDoubleComplex *eta_k_new,
+                                            double L_eta, double kappa_eta,
+                                            double dt, int total_size)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    eta_semi_implicit_update_kernel<<<blocks, threads>>>(
+        eta_k_old, rhs_k, k2, eta_k_new, L_eta, kappa_eta, dt, total_size);
+}
+
 void launch_phi_normalize_and_clamp_kernel(double *phi_r, double invN, int total_size) {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
     phi_normalize_and_clamp_kernel<<<blocks, threads>>>(phi_r, invN, total_size);
+}
+
+void launch_eta_normalize_and_clamp_kernel(double *eta_r, double invN, int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    eta_normalize_and_clamp_kernel<<<blocks, threads>>>(eta_r, invN, total_size);
+}
+
+void launch_gp_eta_feasibility_and_limiter_kernel(double *eta_r,
+                                                  const double *eta_old_r,
+                                                  const double *phi_new_r,
+                                                  const double *phi_old_r,
+                                                  const double *xB_old_r,
+                                                  const double *divJ_r,
+                                                  double dt,
+                                                  double xB_GP,
+                                                  double xB_min,
+                                                  double xB_max,
+                                                  double gp_h_alpha_eps,
+                                                  int enable_limiter,
+                                                  double *stats,
+                                                  int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    gp_eta_feasibility_and_limiter_kernel<<<blocks, threads>>>(
+        eta_r, eta_old_r, phi_new_r, phi_old_r, xB_old_r, divJ_r, dt,
+        xB_GP, xB_min, xB_max,
+        gp_h_alpha_eps, enable_limiter, stats, total_size);
+}
+
+// Backward-compatible overload kept so any stale TU that still expects the
+// earlier pre-divJ signature links cleanly. It falls back to zero divJ and
+// phi_old = phi_new, which matches the original diagnostic-only behavior.
+void launch_gp_eta_feasibility_and_limiter_kernel(double *eta_r,
+                                                  const double *eta_old_r,
+                                                  const double *phi_r,
+                                                  const double *xB_r,
+                                                  double invN,
+                                                  double xB_GP,
+                                                  double xB_min,
+                                                  double xB_max,
+                                                  double gp_h_alpha_eps,
+                                                  int enable_limiter,
+                                                  double *stats,
+                                                  int total_size) {
+    (void)invN;
+    launch_gp_eta_feasibility_and_limiter_kernel(
+        eta_r, eta_old_r, phi_r, phi_r, xB_r, NULL, 0.0,
+        xB_GP, xB_min, xB_max, gp_h_alpha_eps, enable_limiter, stats, total_size);
+}
+
+void launch_phi_mass_diagnostics_kernel(const double *phi_ifft_r,
+                                        const double *phi_before_r,
+                                        const double *xB_before_r,
+                                        double *stats,
+                                        double invN,
+                                        double v_B,
+                                        int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    phi_mass_diagnostics_kernel<<<blocks, threads>>>(
+        phi_ifft_r, phi_before_r, xB_before_r, stats, invN, v_B, total_size);
 }
 
 void launch_normalize_only_kernel(double *arr, double invN, int total_size) {
@@ -2138,6 +3840,30 @@ void launch_compute_mu_x_kernel(const double *Y_r, const double *phi_r,
         v_A, v_B, mu0_compound,
         Vm_compound, Vm_alpha_0,
         dVm_alpha_dxB, Y_clip, xB_eps,
+        sigma_xx_r, sigma_yy_r, sigma_zz_r,
+        eps_iso_over_vB,
+        total_size,
+        elastic_enabled);
+}
+
+void launch_compute_mu_C_gp_kernel(const double *Y_r,
+                                   double *xB_alpha_r, double *mu_C_r,
+                                   double temperature_K, double mu_reference_scale,
+                                   double Vm_alpha_0, double dVm_alpha_dxB,
+                                   double Y_clip, double xB_eps,
+                                   const float *sigma_xx_r,
+                                   const float *sigma_yy_r,
+                                   const float *sigma_zz_r,
+                                   double eps_iso_over_vB,
+                                   int total_size,
+                                   int elastic_enabled) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_mu_C_gp_kernel<<<blocks, threads>>>(
+        Y_r, xB_alpha_r, mu_C_r,
+        temperature_K, mu_reference_scale,
+        Vm_alpha_0, dVm_alpha_dxB,
+        Y_clip, xB_eps,
         sigma_xx_r, sigma_yy_r, sigma_zz_r,
         eps_iso_over_vB,
         total_size,
@@ -2359,6 +4085,12 @@ void launch_scale_array_kernel(double *arr, double factor, int total_size) {
     scale_array_kernel<<<blocks, threads>>>(arr, factor, total_size);
 }
 
+void launch_add_arrays_kernel(const double *a, const double *b, double *out, int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    add_arrays_kernel<<<blocks, threads>>>(a, b, out, total_size);
+}
+
 void launch_subtract_scaled_kernel(double *rhs_r, const double *lap_r, double scale, int total_size) {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
@@ -2378,6 +4110,7 @@ void launch_compute_gel_density_kernel(
     const float *uxy_r, const float *uxz_r, const float *uyz_r,
     // Optimization(4): eigenstrain 参数已移除，现场计算；需要 phi 和 xB
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,  // 可为 NULL（minimize 模式）
     const float *sigma_xx_r, const float *sigma_yy_r, const float *sigma_zz_r,
     const float *sigma_xy_r, const float *sigma_xz_r, const float *sigma_yz_r,
@@ -2385,6 +4118,9 @@ void launch_compute_gel_density_kernel(
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     double *gel_hat_r,
     int total_size)
 {
@@ -2392,11 +4128,31 @@ void launch_compute_gel_density_kernel(
     configure_launch(total_size, threads, blocks);
     compute_gel_density_kernel<<<blocks, threads>>>(
         uxx_r, uyy_r, uzz_r, uxy_r, uxz_r, uyz_r,
-        phi_r, xB_r,
+        phi_r, eta_r, xB_r,
         sigma_xx_r, sigma_yy_r, sigma_zz_r, sigma_xy_r, sigma_xz_r, sigma_yz_r,
         eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00, eps_iso_over_vB,
+        gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
         gel_hat_r,
         total_size);
+}
+
+void launch_compute_gp_elastic_stats_kernel(
+    const double *phi_r,
+    const double *eta_r,
+    const double *gel_hat_r,
+    const float *sigma_xx_r,
+    const float *sigma_yy_r,
+    const float *sigma_zz_r,
+    double gp_eps_iso,
+    double *stats,
+    int total_size)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_gp_elastic_stats_kernel<<<blocks, threads>>>(
+        phi_r, eta_r, gel_hat_r,
+        sigma_xx_r, sigma_yy_r, sigma_zz_r,
+        gp_eps_iso, stats, total_size);
 }
 
 void launch_compute_gradient_k_kernel(const cuDoubleComplex *f_k,
@@ -2470,6 +4226,47 @@ void launch_compute_flux_single_component_kernel(
         D_alpha, D_compound, Vm_alpha_0, dVm_alpha_dxB,
         Vm_compound, temperature_K, mu_reference_scale, total_size);
 }
+void launch_compute_flux_single_component_gp_kernel(
+    const double *grad_mu_alpha_r,
+    const double *phi_r,
+    const double *eta_r,
+    const double *xB_alpha_prev_r,
+    double *J_alpha_r,
+    double D_alpha, double gp_M_GP, double gp_M_beta,
+    double Vm_alpha_0, double dVm_alpha_dxB,
+    double Vm_compound, double temperature_K,
+    double mu_reference_scale,
+    int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_flux_single_component_gp_kernel<<<blocks, threads>>>(
+        grad_mu_alpha_r, phi_r, eta_r, xB_alpha_prev_r, J_alpha_r,
+        D_alpha, gp_M_GP, gp_M_beta,
+        Vm_alpha_0, dVm_alpha_dxB,
+        Vm_compound, temperature_K, mu_reference_scale,
+        total_size);
+}
+void launch_compute_gp_transport_stats_kernel(const double *phi_r,
+                                              const double *eta_r,
+                                              const double *xB_alpha_r,
+                                              double xB_ref,
+                                              double D_alpha,
+                                              double gp_M_GP,
+                                              double gp_M_beta,
+                                              double Vm_alpha_0,
+                                              double dVm_alpha_dxB,
+                                              double Vm_compound,
+                                              double temperature_K,
+                                              double mu_reference_scale,
+                                              double *stats,
+                                              int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_gp_transport_stats_kernel<<<blocks, threads>>>(
+        phi_r, eta_r, xB_alpha_r, xB_ref, D_alpha, gp_M_GP, gp_M_beta,
+        Vm_alpha_0, dVm_alpha_dxB, Vm_compound, temperature_K, mu_reference_scale,
+        stats, total_size);
+}
 void launch_divJ_accumulate_kernel(
     const cuDoubleComplex *J_alpha_k,
     cuDoubleComplex *divJ_k,
@@ -2492,12 +4289,61 @@ void launch_compute_Y_rhs_kernel(const double *divJ_r, const double *phi_r,
                                   const double *phi_prev, const double *lapY_r,
                                   const double *Y_r, const double *dY_dt_prev,
                                   double *rhs_r, double dt, double v_B,
-                                  double mean_DY, int total_size) {
+                                  double mean_DY, int total_size,
+                                  int use_previous_time_level,
+                                  int disable_gamma_term,
+                                  double term_h_scale,
+                                  double *diag_stats) {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
     compute_Y_rhs_kernel<<<blocks, threads>>>(divJ_r, phi_r, phi_prev, lapY_r,
                                                Y_r, dY_dt_prev, rhs_r, dt, v_B,
-                                               mean_DY, total_size);
+                                               mean_DY, total_size,
+                                               use_previous_time_level,
+                                               disable_gamma_term,
+                                               term_h_scale,
+                                               diag_stats);
+}
+
+void launch_compute_Y_rhs_gp_kernel(const double *divJ_r, const double *phi_r,
+                                     const double *phi_prev, const double *eta_r,
+                                     const double *eta_prev_r, const double *lapY_r,
+                                     const double *Y_r, const double *dY_dt_prev,
+                                     double *rhs_r, double dt, double xB_GP,
+                                     double mean_DY, double gp_h_alpha_eps,
+                                     int total_size,
+                                     int use_previous_time_level,
+                                     int disable_gamma_term,
+                                     double *diag_stats)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    compute_Y_rhs_gp_kernel<<<blocks, threads>>>(divJ_r, phi_r, phi_prev,
+                                                  eta_r, eta_prev_r, lapY_r,
+                                                  Y_r, dY_dt_prev, rhs_r, dt,
+                                                  xB_GP, mean_DY, gp_h_alpha_eps,
+                                                  total_size,
+                                                  use_previous_time_level,
+                                                  disable_gamma_term,
+                                                  diag_stats);
+}
+
+void launch_compute_Y_rhs_gp_conservative_kernel(const double *divJ_r, const double *phi_r,
+                                                 const double *phi_prev, const double *eta_r,
+                                                 const double *eta_prev_r, const double *lapY_r,
+                                                 const double *Y_r, const double *dY_dt_prev,
+                                                 double *rhs_r, double dt, double xB_GP,
+                                                 double mean_DY, int total_size,
+                                                 int use_previous_time_level,
+                                                 int disable_gamma_term,
+                                                 double *diag_stats)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    compute_Y_rhs_gp_conservative_kernel<<<blocks, threads>>>(
+        divJ_r, phi_r, phi_prev, eta_r, eta_prev_r, lapY_r, Y_r, dY_dt_prev,
+        rhs_r, dt, xB_GP, mean_DY, total_size, use_previous_time_level,
+        disable_gamma_term, diag_stats);
 }
 
 void launch_Y_semi_implicit_update_kernel(const cuDoubleComplex *Y_k_old,
@@ -2519,6 +4365,144 @@ void launch_Y_normalize_and_clamp_kernel(double *Y_r, double *xB_r,
     Y_normalize_and_clamp_kernel<<<blocks, threads>>>(Y_r, xB_r, invN, Y_clip, Y_upper_cap, xB_eps, total_size);
 }
 
+void launch_relax_dY_dt_guess_kernel(const double *dY_dt_new_r,
+                                     const double *dY_dt_old_guess_r,
+                                     double *dY_dt_guess_r,
+                                     double omega,
+                                     int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    relax_dY_dt_guess_kernel<<<blocks, threads>>>(
+        dY_dt_new_r, dY_dt_old_guess_r, dY_dt_guess_r, omega, total_size);
+}
+
+void launch_compute_diff_sumsq_max_kernel(const double *a_r,
+                                          const double *b_r,
+                                          double *stats,
+                                          int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_diff_sumsq_max_kernel<<<blocks, threads>>>(a_r, b_r, stats, total_size);
+}
+
+void launch_Y_mass_diagnostics_kernel(const double *Y_ifft_r,
+                                      const double *phi_r,
+                                      const double *xB_before_r,
+                                      double *stats,
+                                      double invN,
+                                      double Y_clip,
+                                      double Y_upper_cap,
+                                      double xB_eps,
+                                      double v_B,
+                                      int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    Y_mass_diagnostics_kernel<<<blocks, threads>>>(
+        Y_ifft_r, phi_r, xB_before_r, stats, invN, Y_clip, Y_upper_cap, xB_eps, v_B, total_size);
+}
+
+void launch_Y_mass_diagnostics_gp_kernel(const double *Y_ifft_r,
+                                         const double *phi_r,
+                                         const double *eta_r,
+                                         const double *xB_before_r,
+                                         double *stats,
+                                         double invN,
+                                         double Y_clip,
+                                         double Y_upper_cap,
+                                         double xB_eps,
+                                         double xB_GP,
+                                         int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    Y_mass_diagnostics_gp_kernel<<<blocks, threads>>>(
+        Y_ifft_r, phi_r, eta_r, xB_before_r, stats, invN,
+        Y_clip, Y_upper_cap, xB_eps, xB_GP, total_size);
+}
+
+void launch_gp_storage_exact_Y_update_kernel(const double *divJ_r,
+                                             const double *phi_new_r,
+                                             const double *phi_old_r,
+                                             const double *eta_new_r,
+                                             const double *eta_old_r,
+                                             const double *Y_old_r,
+                                             double *Y_r,
+                                             double *xB_r,
+                                             double dt,
+                                             double xB_GP,
+                                             double Y_clip,
+                                             double Y_upper_cap,
+                                             double xB_eps,
+                                             double gp_h_alpha_eps,
+                                             int disable_internal_clip,
+                                             double *update_stats,
+                                             int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    gp_storage_exact_Y_update_kernel<<<blocks, threads>>>(
+        divJ_r, phi_new_r, phi_old_r, eta_new_r, eta_old_r, Y_old_r,
+        Y_r, xB_r, dt, xB_GP, Y_clip, Y_upper_cap, xB_eps, gp_h_alpha_eps,
+        disable_internal_clip,
+        update_stats, total_size);
+}
+
+void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,
+                                              double *Y_r,
+                                              double *xB_r,
+                                              double lambda_shift,
+                                              int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    apply_Y_shift_recompute_xB_kernel<<<blocks, threads>>>(
+        Y_base_r, Y_r, xB_r, lambda_shift, total_size);
+}
+
+void launch_gp_picard_storage_Y_update_kernel(const double *divJ_r,
+                                              const double *phi_new_r,
+                                              const double *phi_old_r,
+                                              const double *eta_new_r,
+                                              const double *eta_old_r,
+                                              const double *Y_old_r,
+                                              double *Y_guess_r,
+                                              double *xB_r,
+                                              double dt,
+                                              double xB_GP,
+                                              double Y_clip,
+                                              double Y_upper_cap,
+                                              double xB_eps,
+                                              double *update_stats,
+                                              int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    gp_picard_storage_Y_update_kernel<<<blocks, threads>>>(
+        divJ_r, phi_new_r, phi_old_r, eta_new_r, eta_old_r, Y_old_r,
+        Y_guess_r, xB_r, dt, xB_GP, Y_clip, Y_upper_cap, xB_eps,
+        update_stats, total_size);
+}
+
+void launch_gp_storage_diagnostics_kernel(const double *phi_old_r,
+                                          const double *eta_old_r,
+                                          const double *xB_old_r,
+                                          const double *phi_new_r,
+                                          const double *eta_new_r,
+                                          const double *xB_new_r,
+                                          const double *divJ_r,
+                                          double dt,
+                                          double xB_GP,
+                                          double gp_h_alpha_eps,
+                                          double *stats,
+                                          int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    gp_storage_diagnostics_kernel<<<blocks, threads>>>(
+        phi_old_r, eta_old_r, xB_old_r, phi_new_r, eta_new_r, xB_new_r,
+        divJ_r, dt, xB_GP, gp_h_alpha_eps, stats, total_size);
+}
+
 void launch_clamp_xB_max_kernel(double *xB_r, int total_size, double xB_max) {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
@@ -2537,6 +4521,15 @@ void launch_compute_xBtot_kernel(const double *phi_r, const double *xB_r,
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
     compute_xBtot_kernel<<<blocks, threads>>>(phi_r, xB_r, xBtot_r, v_B, total_size);
+}
+
+void launch_compute_xBtot_gp_kernel(const double *phi_r, const double *eta_r,
+                                    const double *xB_alpha_r, double *xBtot_gp_r,
+                                    double xB_GP, int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_xBtot_gp_kernel<<<blocks, threads>>>(phi_r, eta_r, xB_alpha_r,
+                                                 xBtot_gp_r, xB_GP, total_size);
 }
 
 void launch_compute_DY_values_kernel(const double *Y_r, const double *phi_r,
@@ -2752,7 +4745,30 @@ double gpu_reduce_sum_xBtot(const double *phi_r, const double *xB_r,
     double result = gpu_reduce_sum(d_block_sums, num_blocks);
     
     CUDA_CHECK(cudaFree(d_block_sums));
-    
+
+    return result;
+}
+
+double gpu_reduce_sum_xBtot_gp(const double *phi_r, const double *eta_r,
+                               const double *xB_alpha_r, double xB_GP,
+                               int total_size)
+{
+    if (total_size <= 0) return 0.0;
+
+    int threads_per_block = 256;
+    int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
+
+    double *d_block_sums;
+    CUDA_CHECK(cudaMalloc(&d_block_sums, num_blocks * sizeof(double)));
+
+    size_t shared_mem_size = threads_per_block * sizeof(double);
+    reduce_sum_xBtot_gp_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
+        phi_r, eta_r, xB_alpha_r, d_block_sums, xB_GP, total_size);
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    double result = gpu_reduce_sum(d_block_sums, num_blocks);
+    CUDA_CHECK(cudaFree(d_block_sums));
+
     return result;
 }
 
@@ -2783,6 +4799,59 @@ double gpu_reduce_sum_DY(const double *Y_r, const double *phi_r,
     
     CUDA_CHECK(cudaFree(d_block_sums));
     
+    return result;
+}
+
+double gpu_reduce_sum_DY_gp(const double *Y_r, const double *phi_r,
+                            const double *eta_r, double D_alpha,
+                            int total_size)
+{
+    if (total_size <= 0) {
+        return 0.0;
+    }
+
+    int threads_per_block = 256;
+    int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
+    size_t shared_mem_size = threads_per_block * sizeof(double);
+
+    double *d_block_sums;
+    CUDA_CHECK(cudaMalloc(&d_block_sums, num_blocks * sizeof(double)));
+
+    reduce_sum_DY_gp_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
+        Y_r, phi_r, eta_r, d_block_sums, D_alpha, total_size);
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    double result = 0.0;
+    if (num_blocks == 1) {
+        CUDA_CHECK(cudaMemcpy(&result, d_block_sums, sizeof(double), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaFree(d_block_sums));
+        return result;
+    }
+
+    int remaining = num_blocks;
+    double *d_input = d_block_sums;
+
+    while (remaining > 1) {
+        int new_blocks = (remaining + threads_per_block - 1) / threads_per_block;
+
+        double *d_output;
+        CUDA_CHECK(cudaMalloc(&d_output, new_blocks * sizeof(double)));
+
+        reduce_sum_kernel<<<new_blocks, threads_per_block, shared_mem_size>>>(
+            d_input, d_output, remaining);
+        CUDA_CHECK(cudaDeviceSynchronize());
+
+        if (d_input != d_block_sums) {
+            CUDA_CHECK(cudaFree(d_input));
+        }
+        d_input = d_output;
+        remaining = new_blocks;
+    }
+
+    CUDA_CHECK(cudaMemcpy(&result, d_input, sizeof(double), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaFree(d_input));
+    CUDA_CHECK(cudaFree(d_block_sums));
+
     return result;
 }
 
@@ -3080,6 +5149,7 @@ void launch_initialize_phi_kernel(
 
 __global__ void compute_eigenstrain_from_phi_kernel(
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,
     float *uxx0_r, float *uyy0_r, float *uzz0_r,
     float *uxy0_r, float *uxz0_r, float *uyz0_r,
@@ -3088,43 +5158,33 @@ __global__ void compute_eigenstrain_from_phi_kernel(
     float eps_yz00, float eps_xz00, float eps_xy00,
     // 各向同性化学膨胀参数：eps_iso_over_vB = ε_iso / v_B（常数）
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     int total_size)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
 
     double phi = phi_r[idx];
-    double h   = h_of_phi(phi);
+    double eta = eta_r ? eta_r[idx] : 0.0;
     double xB  = clamp01(xB_r[idx]);
+    float eps_xx0, eps_yy0, eps_zz0;
+    float eps_xy0, eps_xz0, eps_yz0;
+    eigenstrain_phi_eta_xB_point(phi, eta, xB,
+                                 eps_xx00, eps_yy00, eps_zz00,
+                                 eps_yz00, eps_xz00, eps_xy00,
+                                 eps_iso_over_vB,
+                                 gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
+                                 eps_xx0, eps_yy0, eps_zz0,
+                                 eps_xy0, eps_xz0, eps_yz0);
 
-    // 化学体积膨胀：ε^c(x_B) = x_B * (ε_iso / v_B)
-    double eps_c = xB * eps_iso_over_vB;
-
-    // 5) stress-free transformation strain：只在析出相（φ→1）启动
-    double eps_xx00_d = (double)eps_xx00;
-    double eps_yy00_d = (double)eps_yy00;
-    double eps_zz00_d = (double)eps_zz00;
-    double eps_yz00_d = (double)eps_yz00;
-    double eps_xz00_d = (double)eps_xz00;
-    double eps_xy00_d = (double)eps_xy00;
-
-    // 6) 总 eigenstrain: ε^0_ij = (1-h) ε^c δ_ij + h ε^00_ij
-    double one_minus_h = 1.0 - h;
-
-    double eps_xx0 = one_minus_h * eps_c + h * eps_xx00_d;
-    double eps_yy0 = one_minus_h * eps_c + h * eps_yy00_d;
-    double eps_zz0 = one_minus_h * eps_c + h * eps_zz00_d;
-    double eps_yz0 =                       h * eps_yz00_d;
-    double eps_xz0 =                       h * eps_xz00_d;
-    double eps_xy0 =                       h * eps_xy00_d;
-
-    // 7) 写回 Voigt 形式 eigenstrain 数组（float）
-    uxx0_r[idx] = (float)eps_xx0;
-    uyy0_r[idx] = (float)eps_yy0;
-    uzz0_r[idx] = (float)eps_zz0;
-    uyz0_r[idx] = (float)eps_yz0;
-    uxz0_r[idx] = (float)eps_xz0;
-    uxy0_r[idx] = (float)eps_xy0;
+    uxx0_r[idx] = eps_xx0;
+    uyy0_r[idx] = eps_yy0;
+    uzz0_r[idx] = eps_zz0;
+    uyz0_r[idx] = eps_yz0;
+    uxz0_r[idx] = eps_xz0;
+    uxy0_r[idx] = eps_xy0;
 }
 
 // Minimize mode only: eigenstrain from phi only, no xB.
@@ -3818,6 +5878,7 @@ __global__ void compute_strain_with_perturbation_kernel(
         // Optimization(4): eigenstrain 参数已移除，现场计算
     // 输入：相场和 xB（用于现场计算 eigenstrain）
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,  // 可为 NULL（minimize 模式）
     // 输出：修正后的local strain
     float *uxx, float *uyy, float *uzz,
@@ -3840,6 +5901,9 @@ __global__ void compute_strain_with_perturbation_kernel(
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     // 外部应变（6个分量）
     float E0_xx, float E0_yy, float E0_zz, float E0_yz, float E0_xz, float E0_xy,
     int total_size)
@@ -3857,11 +5921,14 @@ __global__ void compute_strain_with_perturbation_kernel(
     
     // Optimization(4): 现场计算 eigenstrain
     double phi = phi_r[idx];
+    double eta = eta_r ? eta_r[idx] : 0.0;
     double xB = (xB_r != NULL) ? clamp01(xB_r[idx]) : 0.0;
     float r_uxx0, r_uyy0, r_uzz0, r_uxy0, r_uxz0, r_uyz0;
     if (xB_r != NULL) {
-        eigenstrain_phi_xB_point(phi, xB, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
-                                 eps_iso_over_vB, r_uxx0, r_uyy0, r_uzz0, r_uxy0, r_uxz0, r_uyz0);
+        eigenstrain_phi_eta_xB_point(phi, eta, xB, eps_xx00, eps_yy00, eps_zz00,
+                                     eps_yz00, eps_xz00, eps_xy00, eps_iso_over_vB,
+                                     gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
+                                     r_uxx0, r_uyy0, r_uzz0, r_uxy0, r_uxz0, r_uyz0);
     } else {
         eigenstrain_phi_only_point(phi, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
                                    r_uxx0, r_uyy0, r_uzz0, r_uxy0, r_uxz0, r_uyz0);
@@ -3870,7 +5937,7 @@ __global__ void compute_strain_with_perturbation_kernel(
     // 直接在kernel内计算perturbation（使用h(phi)插值，按照SDV_Poly.c:1101-1121行的逻辑）
     // 用户要求忽略substrate和Air phase，只考虑单个phase field
     // phi 已在上面声明，无需重复声明
-    double h_val = h_of_phi(phi);  // h(phi) = phi^3*(6*phi^2 - 15*phi + 10)
+    double h_val = stiffness_beta_weight_point(phi, eta, gp_mode_enabled, gp_elastic_enabled);
     
     // 计算perturbation项（直接在strain计算中使用，不存储）
     float tmpp1 = (float)(h_val * S_p_11);
@@ -3963,21 +6030,26 @@ __global__ void compute_strain_with_perturbation_kernel(
 
 void launch_compute_eigenstrain_from_phi_kernel(
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,
     float *uxx0_r, float *uyy0_r, float *uzz0_r,
     float *uxy0_r, float *uxz0_r, float *uyz0_r,
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     int total_size)
 {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
     compute_eigenstrain_from_phi_kernel<<<blocks, threads>>>(
-        phi_r, xB_r,
+        phi_r, eta_r, xB_r,
         uxx0_r, uyy0_r, uzz0_r, uxy0_r, uxz0_r, uyz0_r,
         eps_xx00, eps_yy00, eps_zz00,
         eps_yz00, eps_xz00, eps_xy00, eps_iso_over_vB,
+        gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
         total_size);
 }
 
@@ -4126,6 +6198,7 @@ void launch_compute_strain_with_perturbation_kernel(
     const float *uxy_init, const float *uxz_init, const float *uyz_init,
     // Optimization(4): eigenstrain 参数已移除，现场计算
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,  // 可为 NULL（minimize 模式）
     float *uxx, float *uyy, float *uzz,
     float *uxy, float *uxz, float *uyz,
@@ -4145,6 +6218,9 @@ void launch_compute_strain_with_perturbation_kernel(
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     float E0_xx, float E0_yy, float E0_zz, float E0_yz, float E0_xz, float E0_xy,
     int total_size)
 {
@@ -4153,7 +6229,7 @@ void launch_compute_strain_with_perturbation_kernel(
     compute_strain_with_perturbation_kernel<<<blocks, threads>>>(
         uxx_init, uyy_init, uzz_init, uxy_init, uxz_init, uyz_init,
         // Optimization(4): eigenstrain 参数已移除
-        phi_r, xB_r,
+        phi_r, eta_r, xB_r,
         uxx, uyy, uzz, uxy, uxz, uyz,
         S_11, S_12, S_13, S_14, S_15, S_16,
         S_22, S_23, S_24, S_25, S_26,
@@ -4168,6 +6244,7 @@ void launch_compute_strain_with_perturbation_kernel(
         S_p_55, S_p_56,
         S_p_66,
         eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00, eps_iso_over_vB,
+        gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
         E0_xx, E0_yy, E0_zz, E0_yz, E0_xz, E0_xy,
         total_size);
 }
@@ -4177,11 +6254,15 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
     const float *uxx_r, const float *uyy_r, const float *uzz_r,
     const float *uxy_r, const float *uxz_r, const float *uyz_r,
     const double *phi_r,  // 相场，用于计算有效弹性系数
+    const double *eta_r,  // gp_zone: 参与 eigenstrain / stiffness helper
     const double *xB_r,   // Optimization(4): 需要 xB 来现场计算 eps0（可为 NULL，minimize 模式）
     // Optimization(4): eigenstrain 参数已移除，现场计算；需要 eps0 相关参数
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     float *sigma_xx_r, float *sigma_yy_r, float *sigma_zz_r,
     float *sigma_xy_r, float *sigma_xz_r, float *sigma_yz_r,
     // 基体弹性刚度矩阵（Voigt记号）
@@ -4213,13 +6294,16 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
     
     // Optimization(4): 现场计算 eigenstrain
     double phi = phi_r[idx];
+    double eta = eta_r ? eta_r[idx] : 0.0;
     double xB = (xB_r != NULL) ? clamp01(xB_r[idx]) : 0.0;  // 如果 xB_r 为 NULL（minimize 模式），使用 0
     float eps_xx0_f, eps_yy0_f, eps_zz0_f;
     float eps_xy0_f, eps_xz0_f, eps_yz0_f;
     if (xB_r != NULL) {
-        eigenstrain_phi_xB_point(phi, xB, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
-                                 eps_iso_over_vB, eps_xx0_f, eps_yy0_f, eps_zz0_f,
-                                 eps_xy0_f, eps_xz0_f, eps_yz0_f);
+        eigenstrain_phi_eta_xB_point(phi, eta, xB, eps_xx00, eps_yy00, eps_zz00,
+                                     eps_yz00, eps_xz00, eps_xy00, eps_iso_over_vB,
+                                     gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
+                                     eps_xx0_f, eps_yy0_f, eps_zz0_f,
+                                     eps_xy0_f, eps_xz0_f, eps_yz0_f);
     } else {
         eigenstrain_phi_only_point(phi, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
                                     eps_xx0_f, eps_yy0_f, eps_zz0_f, eps_xy0_f, eps_xz0_f, eps_yz0_f);
@@ -4234,7 +6318,7 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
     float eps_xy = eps_xy_total - eps_xy0_f;
     
     // 计算有效弹性系数：S_eff = S_ij + phi * S_p_ij（用h(phi)控制）
-    double h = h_of_phi(phi);               // 用h(phi)控制弹性常数perturbation
+    double h = stiffness_beta_weight_point(phi, eta, gp_mode_enabled, gp_elastic_enabled);
     float S_eff_11 = S_11 + (float)(h * S_p_11);
     float S_eff_12 = S_12 + (float)(h * S_p_12);
     float S_eff_13 = S_13 + (float)(h * S_p_13);
@@ -4271,11 +6355,15 @@ void launch_compute_stress_from_strain_with_effective_stiffness_kernel(
     const float *uxx_r, const float *uyy_r, const float *uzz_r,
     const float *uxy_r, const float *uxz_r, const float *uyz_r,
     const double *phi_r,
+    const double *eta_r,
     const double *xB_r,  // Optimization(4): 需要 xB 来现场计算 eps0（可为 NULL）
     // Optimization(4): eigenstrain 参数已移除，需要 eps0 相关参数
     float eps_xx00, float eps_yy00, float eps_zz00,
     float eps_yz00, float eps_xz00, float eps_xy00,
     double eps_iso_over_vB,
+    int gp_mode_enabled,
+    int gp_elastic_enabled,
+    double gp_eps_iso,
     float *sigma_xx_r, float *sigma_yy_r, float *sigma_zz_r,
     float *sigma_xy_r, float *sigma_xz_r, float *sigma_yz_r,
     float S_11, float S_12, float S_13, float S_14, float S_15, float S_16,
@@ -4296,8 +6384,9 @@ void launch_compute_stress_from_strain_with_effective_stiffness_kernel(
     configure_launch(total_size, threads, blocks);
     compute_stress_from_strain_with_effective_stiffness_kernel<<<blocks, threads>>>(
         uxx_r, uyy_r, uzz_r, uxy_r, uxz_r, uyz_r,
-        phi_r, xB_r,
+        phi_r, eta_r, xB_r,
         eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00, eps_iso_over_vB,
+        gp_mode_enabled, gp_elastic_enabled, gp_eps_iso,
         sigma_xx_r, sigma_yy_r, sigma_zz_r, sigma_xy_r, sigma_xz_r, sigma_yz_r,
         S_11, S_12, S_13, S_14, S_15, S_16,
         S_22, S_23, S_24, S_25, S_26,

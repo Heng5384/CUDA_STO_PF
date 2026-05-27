@@ -25,7 +25,10 @@ import copy
 import json
 import math
 from dataclasses import asdict, dataclass
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
+
+
+PF_PARAMS_SCHEMA_VERSION = 1
 
 # =========================================================
 # 数值工具
@@ -226,6 +229,14 @@ class PhysicalInputs:
     pf_dx: float = None
     phys_dx_ref: float = None
     D_ratio: float = 0.1
+    gp_gamma_alpha_gp: float = 0.05
+    gp_l_eta: float = 1.0e-9
+    gp_D_ratio_eta: float = 0.01
+    gp_reaction_nu_A: float = 0.65
+    gp_reaction_nu_B: float = 0.35
+    gp_M_eta_ratio_to_crit: Optional[float] = None
+    gp_M_eta_phys: Optional[float] = None
+    gp_xB_eq_alpha_for_eta: Optional[float] = 0.03
     vf_init: float = 0.05
     vf_target: float = 0.20
     L_ref_factor: float = 1.0
@@ -276,6 +287,15 @@ class PFParamSet:
     ic_vf_target_phi: float
     ic_phi_iface_w: float
     mu_reference: float
+    gp_W_eta_code: float
+    gp_kappa_eta_code: float
+    gp_L_eta_code: float
+    gp_W_eta_phys: float
+    gp_kappa_eta_phys: float
+    gp_L_eta_phys: float
+    gp_zeta_eta: float
+    gp_zeta0_eta: float
+    Mcrit_eta_phys: float
 
     # ===== 无量纲弹性矩阵 (6x6) =====
     C_tensor_matrix_hat: List[List[float]]
@@ -311,6 +331,14 @@ EXAMPLE_INPUT_UNITS = {
     "Vm_compound": "m^3/mol",
     "Vm_alpha_0": "m^3/mol",
     "D_ratio": "dimensionless (D_compound / D_alpha)",
+    "gp_gamma_alpha_gp": "J/m^2",
+    "gp_l_eta": "m",
+    "gp_D_ratio_eta": "dimensionless",
+    "gp_reaction_nu_A": "dimensionless stoichiometric coefficient",
+    "gp_reaction_nu_B": "dimensionless stoichiometric coefficient",
+    "gp_M_eta_ratio_to_crit": "dimensionless",
+    "gp_M_eta_phys": "J/mol",
+    "gp_xB_eq_alpha_for_eta": "dimensionless mole fraction",
     "vf_init": "dimensionless volume fraction",
     "vf_target": "dimensionless volume fraction",
     "L_ref_factor": "dimensionless (L_ref / lambda_sm)",
@@ -339,6 +367,14 @@ USER_PHYSICAL_INPUTS = PhysicalInputs(
     Vm_alpha_0=4.1009e-5,            # m^3/mol (PbTe)
     Vm_compound=4.1009e-5,           # m^3/mol (Ag2Te)
     D_ratio=0.01,                   # D_precip / D_matrix
+    gp_gamma_alpha_gp=0.05,         # J/m^2
+    gp_l_eta=1.0e-9,                # m
+    gp_D_ratio_eta=0.01,            # D_eff / D_alpha
+    gp_reaction_nu_A=0.65,
+    gp_reaction_nu_B=0.35,
+    gp_M_eta_ratio_to_crit=1.0e-2,  # recommended baseline from STEP38J
+    gp_M_eta_phys=None,
+    gp_xB_eq_alpha_for_eta=0.03,
     vf_init=0.00,                   # 初始相分数
     vf_target=0.04,                 # 目标相分数 (用于估算初始过饱和度)
     L_ref_factor=5.0,              # L_ref = 10 * lambda_sm
@@ -504,7 +540,7 @@ def h_switch(xi: float) -> float:
 def h_switch_derivative(xi: float) -> float:
     return 30.0 * xi ** 4 - 60.0 * xi ** 3 + 30.0 * xi ** 2
 
-def compute_zeta0(lambda_sm: float, w: float, kappa: float, D_alpha: float, D_comp: float, n_quad: int = 2001) -> float:
+def compute_gp_eta_zeta0(lambda_sm: float, w: float, kappa: float, D_alpha: float, D_comp: float, n_quad: int = 2001) -> float:
     x_min = -0.5 * lambda_sm
     x_max =  0.5 * lambda_sm
     xs = _linspace(x_min, x_max, n_quad)
@@ -519,6 +555,16 @@ def compute_zeta0(lambda_sm: float, w: float, kappa: float, D_alpha: float, D_co
     outer = [hprime[i] * dxi_vals[i] * I_vals[i] for i in range(n_quad)]
     outer_int = _trapezoid(outer, dx)
     return -2.0 * D_alpha / lambda_sm * outer_int
+
+
+def compute_zeta0(lambda_sm: float, w: float, kappa: float, D_alpha: float, D_comp: float, n_quad: int = 2001) -> float:
+    return compute_gp_eta_zeta0(lambda_sm, w, kappa, D_alpha, D_comp, n_quad=n_quad)
+
+
+def compute_eta_interface_params(gamma_gp: float, l_eta: float) -> Tuple[float, float]:
+    if not (gamma_gp > 0.0) or not (l_eta > 0.0):
+        raise ValueError("gp_gamma_alpha_gp 和 gp_l_eta 必须为正")
+    return 12.0 * gamma_gp / l_eta, 1.5 * gamma_gp * l_eta
 
 
 # -------------------------------
@@ -546,6 +592,7 @@ class PFParamConverter:
         # 1) 界面参数
         w, kappa, W_code = compute_interface_params(inputs.gamma, inputs.lambda_sm)
         f0_elastic = w  # [J/m^3] 能量标度
+        gp_w_phys, gp_kappa_phys = compute_eta_interface_params(inputs.gp_gamma_alpha_gp, inputs.gp_l_eta)
 
         # === [新增] 计算无量纲 gel shift ===
         gel_shift_hat = inputs.gel_shift_Jm3 / f0_elastic if abs(f0_elastic) > 1e-30 else 0.0
@@ -553,6 +600,7 @@ class PFParamConverter:
         # 2) 溶解度
         xAg2Te_eq = xAg2Te_eq_from_T(T_K)
         xB_eq = xAg2Te_eq
+        xB_eq_eta = inputs.gp_xB_eq_alpha_for_eta if inputs.gp_xB_eq_alpha_for_eta is not None else xB_eq
 
         # 3) μ 线性化
         _, muA_a1 = linearize_mu(mu_PbTe, T_K, xAg2Te_eq)
@@ -562,17 +610,32 @@ class PFParamConverter:
         D_alpha_phys = D_Ag_in_PbTe_m2_per_s(T_K)
         D_comp_phys = D_alpha_phys * inputs.D_ratio
 
-        # 5) ζ 和 ζ0
-        zeta = compute_zeta(muA_a1, muB_a1, inputs.v_A, inputs.v_B, xB_eq)
-        zeta0 = compute_zeta0(inputs.lambda_sm, w, kappa, D_alpha_phys, D_comp_phys)
-        zprod = zeta * zeta0
+        # 5) η ζ / ζ0 / Mcrit / Lη
+        zeta_eta = compute_zeta(muA_a1, muB_a1, inputs.gp_reaction_nu_A, inputs.gp_reaction_nu_B, xB_eq_eta)
+        zeta0_eta = compute_gp_eta_zeta0(inputs.gp_l_eta, gp_w_phys, gp_kappa_phys, D_alpha_phys, D_alpha_phys * inputs.gp_D_ratio_eta)
+        zprod = zeta_eta * zeta0_eta
         if abs(zprod) < 1e-30:
             raise ValueError("zeta0*zeta≈0")
 
         c_tot_phys = 1.0 / inputs.Vm_alpha_0
 
-        L_xi = (4.0 * (inputs.v_A + inputs.v_B) * D_alpha_phys
-                / (3.0 * c_tot_phys * (inputs.lambda_sm) ** 2 * abs(zprod)))
+        Mcrit_eta = 2.0 * D_alpha_phys / (abs(zprod) * inputs.gp_l_eta)
+        gp_M_eta_phys = inputs.gp_M_eta_phys
+        if gp_M_eta_phys is None:
+            if inputs.gp_M_eta_ratio_to_crit is not None:
+                gp_M_eta_phys = inputs.gp_M_eta_ratio_to_crit * Mcrit_eta
+            else:
+                gp_M_eta_phys = 1.0e-2 * Mcrit_eta
+
+        L_eta_full_phys = (
+            2.0 * (inputs.gp_reaction_nu_A + inputs.gp_reaction_nu_B) / (3.0 * c_tot_phys * inputs.gp_l_eta)
+        ) / (
+            (1.0 / gp_M_eta_phys) + (abs(zprod) * inputs.gp_l_eta / (2.0 * D_alpha_phys))
+        )
+        L_eta_diff_phys = (
+            4.0 * (inputs.gp_reaction_nu_A + inputs.gp_reaction_nu_B) * D_alpha_phys
+            / (3.0 * c_tot_phys * inputs.gp_l_eta * inputs.gp_l_eta * abs(zprod))
+        )
 
         L_ref = inputs.L_ref_factor * inputs.lambda_sm
         t0_diff = L_ref ** 2 / D_alpha_phys
@@ -580,7 +643,12 @@ class PFParamConverter:
         kappa_code = kappa / (w * phys_dx_ref ** 2)
         D_alpha_code = D_alpha_phys * t0_diff / (phys_dx_ref ** 2)
         D_comp_code = D_comp_phys * t0_diff / (phys_dx_ref ** 2)
-        L_phi_code = L_xi * w * t0_diff
+        L_phi_phys = (4.0 * (inputs.v_A + inputs.v_B) * D_alpha_phys
+                      / (3.0 * c_tot_phys * (inputs.lambda_sm) ** 2 * abs(zprod)))
+        L_phi_code = L_phi_phys * w * t0_diff
+        gp_w_code = gp_w_phys / w if abs(w) > 1e-30 else float("nan")
+        gp_kappa_code = gp_kappa_phys / (w * phys_dx_ref ** 2) if abs(w) > 1e-30 else float("nan")
+        gp_L_eta_code = L_eta_full_phys * w * t0_diff
 
         mu_reference = w / c_tot_phys
         ic_phi_iface_w = (inputs.lambda_sm / pf_dx) / 2.0
@@ -613,6 +681,15 @@ class PFParamConverter:
             ic_vf_target_phi=inputs.vf_target,
             ic_phi_iface_w=ic_phi_iface_w,
             mu_reference=mu_reference,
+            gp_W_eta_code=gp_w_code,
+            gp_kappa_eta_code=gp_kappa_code,
+            gp_L_eta_code=gp_L_eta_code,
+            gp_W_eta_phys=gp_w_phys,
+            gp_kappa_eta_phys=gp_kappa_phys,
+            gp_L_eta_phys=L_eta_full_phys,
+            gp_zeta_eta=zeta_eta,
+            gp_zeta0_eta=zeta0_eta,
+            Mcrit_eta_phys=Mcrit_eta,
             C_tensor_matrix_hat=C_matrix_hat,
             C_tensor_precip_hat=C_precip_hat,
             gel_shift_hat=gel_shift_hat,   # === [新增] ===
@@ -658,7 +735,9 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
     D_alpha_phys = D_Ag_in_PbTe_m2_per_s(T_K)
     L_ref = inputs.L_ref_factor * inputs.lambda_sm
     t_real_unit = L_ref ** 2 / D_alpha_phys
+    xB_eq_eta = inputs.gp_xB_eq_alpha_for_eta if inputs.gp_xB_eq_alpha_for_eta is not None else pfset.ic_xB_eq_matrix
     overrides: Dict[str, float] = {
+        "pf_params_schema_version": PF_PARAMS_SCHEMA_VERSION,
         "dx": pf_dx / phys_dx_ref,
         "dy": pf_dx / phys_dx_ref,
         "dz": pf_dx / phys_dx_ref,
@@ -676,6 +755,18 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
         "Vm_compound": pfset.Vm_compound,
         "Vm_alpha_0": pfset.Vm_alpha_0,
         "dVm_alpha_dxB": pfset.dVm_alpha_dxB,
+        "gp_W_eta_code": pfset.gp_W_eta_code,
+        "gp_kappa_eta_code": pfset.gp_kappa_eta_code,
+        "gp_L_eta_code": pfset.gp_L_eta_code,
+        "gp_W_eta_phys": pfset.gp_W_eta_phys,
+        "gp_kappa_eta_phys": pfset.gp_kappa_eta_phys,
+        "gp_L_eta_phys": pfset.gp_L_eta_phys,
+        "gp_gamma_alpha_gp": inputs.gp_gamma_alpha_gp,
+        "gp_l_eta_nm": inputs.gp_l_eta * 1e9,
+        "gp_D_ratio": inputs.gp_D_ratio_eta,
+        "gp_reaction_nu_A": inputs.gp_reaction_nu_A,
+        "gp_reaction_nu_B": inputs.gp_reaction_nu_B,
+        "gp_xB_eq_alpha_for_eta": xB_eq_eta,
         "ic_vf_init_phi": pfset.ic_vf_init_phi,
         "ic_vf_target_phi": pfset.ic_vf_target_phi,
         "ic_phi_iface_w": pfset.ic_phi_iface_w,
@@ -697,6 +788,10 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
         "E0_xz": inputs.E0_xz,
         "E0_xy": inputs.E0_xy,
     }
+    if inputs.gp_M_eta_ratio_to_crit is not None:
+        overrides["gp_M_eta_ratio_to_crit"] = inputs.gp_M_eta_ratio_to_crit
+    if inputs.gp_M_eta_phys is not None:
+        overrides["gp_M_eta_phys"] = inputs.gp_M_eta_phys
 
     matrix_components = _voigt_independent_components(pfset.C_tensor_matrix_hat)
     precip_components = _voigt_independent_components(pfset.C_tensor_precip_hat)
@@ -738,6 +833,14 @@ def write_example_input_json(path: str) -> None:
         "dx": "兼容旧接口保留；在严格双dx模式下，若未提供 phys_dx_ref / pf_dx，则 dx 同时作为 phys_dx_ref 与 pf_dx 的回退值。",
         "pf_dx": "PF 真正单个网格对应的物理长度。它只负责 main_cuda dx/dy/dz 与 ic_phi_iface_w 的离散解析。",
         "phys_dx_ref": "物理参数标定使用的参考物理长度；与 lambda_sm 一起决定 kappa_phi、D_alpha、D_compound 的无量纲化。",
+        "gp_gamma_alpha_gp": "eta/GP 界面的物理界面能，单位 J/m^2。",
+        "gp_l_eta": "eta/GP 界面厚度参数，单位 m。",
+        "gp_D_ratio_eta": "eta 的扩散极限下 D_eff / D_alpha。",
+        "gp_reaction_nu_A": "eta 反应的 A 端化学计量系数。",
+        "gp_reaction_nu_B": "eta 反应的 B 端化学计量系数。",
+        "gp_M_eta_ratio_to_crit": "优先推荐的 eta 迁移率输入方式：给 M_eta / Mcrit_eta。",
+        "gp_M_eta_phys": "若需要绝对迁移率，可直接给物理量 M_eta。",
+        "gp_xB_eq_alpha_for_eta": "eta 采用的平衡 xB；未填时回退到 xB_eq。",
         "eigenstrain_rotation_matrix": "单位矩阵表示无旋转；主应变方向与模拟坐标系一致。",
         "eigenstrain_tensor_priority": "若同时提供 eigenstrain_tensor 和 eigenstrain_principal，脚本优先使用 eigenstrain_tensor。",
         "eps_iso": "脚本会自动换算为 main_cuda 需要的 eps_iso_over_vB = eps_iso / v_B。",
@@ -766,6 +869,7 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
     D_comp_phys = D_alpha_phys * inputs.D_ratio
     w_phys = 12.0 * inputs.gamma / inputs.lambda_sm
     c_tot_phys = 1.0 / inputs.Vm_alpha_0
+    xB_eq_eta = inputs.gp_xB_eq_alpha_for_eta if inputs.gp_xB_eq_alpha_for_eta is not None else pfset.ic_xB_eq_matrix
     L_ref = inputs.L_ref_factor * inputs.lambda_sm
     t0_diff_s = L_ref ** 2 / D_alpha_phys
     dVm_phys = (inputs.Vm_compound - inputs.Vm_alpha_0) / inputs.v_B
@@ -838,6 +942,14 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
                 "L_ref_m": L_ref,
                 "L_ref_factor": inputs.L_ref_factor,
                 "dVm_alpha_dxB_phys_m3_per_mol": dVm_phys,
+                "gp_gamma_alpha_gp_J_per_m2": inputs.gp_gamma_alpha_gp,
+                "gp_l_eta_m": inputs.gp_l_eta,
+                "gp_D_ratio_eta": inputs.gp_D_ratio_eta,
+                "gp_reaction_nu_A": inputs.gp_reaction_nu_A,
+                "gp_reaction_nu_B": inputs.gp_reaction_nu_B,
+                "gp_xB_eq_alpha_for_eta": xB_eq_eta,
+                "gp_M_eta_ratio_to_crit": inputs.gp_M_eta_ratio_to_crit,
+                "gp_M_eta_phys_J_per_mol": inputs.gp_M_eta_phys,
 
                 # === [新增] gel shift 输出 ===
                 "gel_shift_input_J_per_m3": inputs.gel_shift_Jm3,
@@ -871,6 +983,17 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
                 "rc_hat_over_pf_dx": rc_hat_over_pf_dx,
             },
             "quality_checks": quality_checks,
+            "eta_interface": {
+                "W_eta_phys_J_per_m3": pfset.gp_W_eta_phys,
+                "kappa_eta_phys_J_per_m": pfset.gp_kappa_eta_phys,
+                "W_eta_code": pfset.gp_W_eta_code,
+                "kappa_eta_code": pfset.gp_kappa_eta_code,
+                "L_eta_phys": pfset.gp_L_eta_phys,
+                "L_eta_code": pfset.gp_L_eta_code,
+                "zeta_eta": pfset.gp_zeta_eta,
+                "zeta0_eta": pfset.gp_zeta0_eta,
+                "Mcrit_eta_phys": pfset.Mcrit_eta_phys,
+            },
             "inputs_C_tensor_PbTe_GPa": inputs.C_tensor_PbTe_GPa,
             "inputs_C_tensor_Ag2Te_GPa": inputs.C_tensor_Ag2Te_GPa,
             "eigenstrain_input": {
