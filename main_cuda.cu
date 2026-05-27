@@ -396,12 +396,6 @@ static inline void host_normalize3(double v[3]) {
     v[2] /= n;
 }
 
-static inline void host_cross3(const double a[3], const double b[3], double out[3]) {
-    out[0] = a[1] * b[2] - a[2] * b[1];
-    out[1] = a[2] * b[0] - a[0] * b[2];
-    out[2] = a[0] * b[1] - a[1] * b[0];
-}
-
 static inline double host_angle_deg_abs(const double a[3], const double b[3]) {
     double aa[3] = {a[0], a[1], a[2]};
     double bb[3] = {b[0], b[1], b[2]};
@@ -3158,7 +3152,6 @@ static int run_y_update_mass_projection(const PFParams *P,
     CUDA_CHECK(cudaMemcpy(d_Y_base_r, d_Y_r, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToDevice));
 
     double lambda_best = 0.0;
-    double sum_best = sum_before;
     int converged = (fabs(sum_before - target_sum_xBtot) <= tol_abs) ? 1 : 0;
     int num_iter = 0;
     const char *notes = converged ? "already_within_tolerance" : "";
@@ -3173,14 +3166,11 @@ static int run_y_update_mass_projection(const PFParams *P,
         double flo = eval_lambda(lo) - target_sum_xBtot;
         double fhi = eval_lambda(hi) - target_sum_xBtot;
         lambda_best = 0.0;
-        sum_best = sum_before;
         if (fabs(flo) <= tol_abs) {
             lambda_best = lo;
-            sum_best = flo + target_sum_xBtot;
             converged = 1;
         } else if (fabs(fhi) <= tol_abs) {
             lambda_best = hi;
-            sum_best = fhi + target_sum_xBtot;
             converged = 1;
         } else {
             if (flo * fhi > 0.0) {
@@ -3195,7 +3185,6 @@ static int run_y_update_mass_projection(const PFParams *P,
                     double sum_mid = eval_lambda(mid);
                     double fmid = sum_mid - target_sum_xBtot;
                     lambda_best = mid;
-                    sum_best = sum_mid;
                     if (fabs(fmid) <= tol_abs) {
                         converged = 1;
                         break;
@@ -3215,7 +3204,6 @@ static int run_y_update_mass_projection(const PFParams *P,
                 notes = "projection_bracket_failed";
                 launch_apply_Y_shift_recompute_xB_kernel(d_Y_base_r, d_Y_r, d_xB_r, 0.0, total_r);
                 lambda_best = 0.0;
-                sum_best = sum_before;
             }
         }
     }
@@ -4999,69 +4987,6 @@ static void params_default(PFParams *P) {
     P->ic_phi_centers = NULL;
 }
 
-// 辅助：沿法向在 phi 跨越 0.5 的格点处做线性插值，求边界位置的平均（格点单位）
-// 仅对 phi_left 与 phi_right  straddle 0.5 的 (y,z) 或 (x,z) 或 (x,y) 做插值，避免整面平均稀释界面
-static inline void boundary_interp_x(const double *h_phi, int Nx, int Ny, int Nz, int x_lo, int x_hi, double dx,
-                                     int is_left, double *out_phys) {
-    double sum_pos = 0.0;
-    int count = 0;
-    for (int y = 0; y < Ny; y++)
-        for (int z = 0; z < Nz; z++) {
-            int idx_lo = (x_lo * Ny + y) * Nz + z;
-            int idx_hi = (x_hi * Ny + y) * Nz + z;
-            double p_lo = h_phi[idx_lo], p_hi = h_phi[idx_hi];
-            if (!((p_lo < 0.5 && p_hi > 0.5) || (p_lo > 0.5 && p_hi < 0.5))) continue;
-            double denom = p_hi - p_lo;
-            double f = (fabs(denom) < 1e-12) ? 0.5 : (0.5 - p_lo) / denom;
-            if (f < 0.0) f = 0.0;
-            if (f > 1.0) f = 1.0;
-            double pos_grid = is_left ? (x_lo + f) : (x_hi - (1.0 - f));
-            sum_pos += pos_grid;
-            count++;
-        }
-    *out_phys = (count > 0) ? (sum_pos / (double)count) * dx : (is_left ? x_lo : x_hi) * dx;
-}
-static inline void boundary_interp_y(const double *h_phi, int Nx, int Ny, int Nz, int y_lo, int y_hi, double dy,
-                                     int is_left, double *out_phys) {
-    double sum_pos = 0.0;
-    int count = 0;
-    for (int x = 0; x < Nx; x++)
-        for (int z = 0; z < Nz; z++) {
-            int idx_lo = (x * Ny + y_lo) * Nz + z;
-            int idx_hi = (x * Ny + y_hi) * Nz + z;
-            double p_lo = h_phi[idx_lo], p_hi = h_phi[idx_hi];
-            if (!((p_lo < 0.5 && p_hi > 0.5) || (p_lo > 0.5 && p_hi < 0.5))) continue;
-            double denom = p_hi - p_lo;
-            double f = (fabs(denom) < 1e-12) ? 0.5 : (0.5 - p_lo) / denom;
-            if (f < 0.0) f = 0.0;
-            if (f > 1.0) f = 1.0;
-            double pos_grid = is_left ? (y_lo + f) : (y_hi - (1.0 - f));
-            sum_pos += pos_grid;
-            count++;
-        }
-    *out_phys = (count > 0) ? (sum_pos / (double)count) * dy : (is_left ? y_lo : y_hi) * dy;
-}
-static inline void boundary_interp_z(const double *h_phi, int Nx, int Ny, int Nz, int z_lo, int z_hi, double dz,
-                                     int is_left, double *out_phys) {
-    double sum_pos = 0.0;
-    int count = 0;
-    for (int x = 0; x < Nx; x++)
-        for (int y = 0; y < Ny; y++) {
-            int idx_lo = (x * Ny + y) * Nz + z_lo;
-            int idx_hi = (x * Ny + y) * Nz + z_hi;
-            double p_lo = h_phi[idx_lo], p_hi = h_phi[idx_hi];
-            if (!((p_lo < 0.5 && p_hi > 0.5) || (p_lo > 0.5 && p_hi < 0.5))) continue;
-            double denom = p_hi - p_lo;
-            double f = (fabs(denom) < 1e-12) ? 0.5 : (0.5 - p_lo) / denom;
-            if (f < 0.0) f = 0.0;
-            if (f > 1.0) f = 1.0;
-            double pos_grid = is_left ? (z_lo + f) : (z_hi - (1.0 - f));
-            sum_pos += pos_grid;
-            count++;
-        }
-    *out_phys = (count > 0) ? (sum_pos / (double)count) * dz : (is_left ? z_lo : z_hi) * dz;
-}
-
 // ============================================================
 // 计算析出相（Nucleus）在 X、Y、Z 三个方向上的物理尺寸
 // 在 phi=0.5 跨越处做线性插值，仅对界面穿越点求平均，得到亚网格精度
@@ -5427,21 +5352,6 @@ static double compute_mu_C_gp_host(double xB_alpha,
     return c_ref * (muB - muA);
 }
 
-static double compute_mu_C_gp_slope_numeric_host(double xB_ref,
-                                                 double temperature_K,
-                                                 double mu_reference_scale,
-                                                 double Vm_alpha_0,
-                                                 double dVm_alpha_dxB) {
-    const double dx = 1.0e-5;
-    double x_plus = clamp_fraction_eps(xB_ref + dx);
-    double x_minus = clamp_fraction_eps(xB_ref - dx);
-    double mu_plus = compute_mu_C_gp_host(x_plus, temperature_K, mu_reference_scale,
-                                          Vm_alpha_0, dVm_alpha_dxB);
-    double mu_minus = compute_mu_C_gp_host(x_minus, temperature_K, mu_reference_scale,
-                                           Vm_alpha_0, dVm_alpha_dxB);
-    return (mu_plus - mu_minus) / fmax(x_plus - x_minus, 1.0e-30);
-}
-
 static double compute_g_alpha_host(double xB_alpha,
                                    double temperature_K,
                                    double mu_reference_scale) {
@@ -5449,14 +5359,6 @@ static double compute_g_alpha_host(double xB_alpha,
     (void)mu_reference_scale;
     double muA = mu_PbTe_raw(temperature_K, x);
     double muB = mu_Ag2Te_raw(temperature_K, x);
-    return (1.0 - x) * muA + x * muB;
-}
-
-static double compute_g_alpha_raw_regular_solution_host(double xB_alpha,
-                                                        double temperature_K) {
-    double x = clamp_fraction_eps(xB_alpha);
-    double muA = mu_PbTe_calphad(temperature_K, x);
-    double muB = mu_Ag2Te_calphad(temperature_K, x);
     return (1.0 - x) * muA + x * muB;
 }
 

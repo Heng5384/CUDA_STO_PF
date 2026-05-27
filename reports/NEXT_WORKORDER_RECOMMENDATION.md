@@ -29,3 +29,5 @@ Do **B first**.
 Reason:
 
 The iteration-level physics is already structurally aligned, while the codebase still carries a lot of diagnostic surface area. Cleaning that up first lowers cognitive load and makes any later phi/eta refactor easier to verify.
+
+- `thermo_utils.h:270`: `d_thermo_convex_extrapolation_enabled` extern declaration treated as static definition (`nvcc #20044-D`). The fix needs a device-constant single-definition rework, so it is better handled as a dedicated follow-up.

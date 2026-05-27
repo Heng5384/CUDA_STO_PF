@@ -34,6 +34,26 @@ make main_cuda
 make main_cuda CUDA_ROOT=/usr/local/cuda-12.9 CUDA_ARCH=sm_120 NVCC=/usr/local/cuda-12.9/bin/nvcc
 ```
 
+### nvcc 路径找不到时
+
+如果 `make` 报 `nvcc: command not found`，是因为 shell 的 `$PATH` 里没有 CUDA bin 目录。两种修法：
+
+临时（一次性）：
+
+```bash
+PATH=$CUDA_ROOT/bin:$PATH make main_cuda
+```
+
+长期（推荐写进 `~/.bashrc` 或 `~/.profile`）：
+
+```bash
+export CUDA_ROOT=/usr/local/cuda-12.9
+export PATH=$CUDA_ROOT/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_ROOT/lib64:$LD_LIBRARY_PATH
+```
+
+Workstation (RTX 5080) 上常见路径是 `/usr/local/cuda-12.9`，cluster 上可能是 `/usr/local/cuda` 或 `module load cuda/12.x`，按当地 admin 文档调整即可。
+
 ## 运行
 
 本地 dynamics 入口：
