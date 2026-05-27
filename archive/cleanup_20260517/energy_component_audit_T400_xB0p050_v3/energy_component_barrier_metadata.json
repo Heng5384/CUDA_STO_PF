@@ -1,0 +1,15 @@
+{
+  "generated_at_utc": "2026-05-16T15:40:02.872243+00:00",
+  "workflow_root": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050",
+  "guide_csv": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/guide_cnt_scan.csv",
+  "summary_csv": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv",
+  "reference_csv": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/reference_energy.csv",
+  "plot_paths": [
+    "/data/home/luozhiheng/CUDA_STO_PF/energy_component_audit_T400_xB0p050_v3/plots/barrier_components_stacked.png",
+    "/data/home/luozhiheng/CUDA_STO_PF/energy_component_audit_T400_xB0p050_v3/plots/DeltaG_total_vs_r_eff_nm.png",
+    "/data/home/luozhiheng/CUDA_STO_PF/energy_component_audit_T400_xB0p050_v3/plots/DeltaG_chem_vs_r_eff_nm.png",
+    "/data/home/luozhiheng/CUDA_STO_PF/energy_component_audit_T400_xB0p050_v3/plots/DeltaG_el_vs_mode.png"
+  ],
+  "warnings": [],
+  "reference_mismatch_detected": false
+}

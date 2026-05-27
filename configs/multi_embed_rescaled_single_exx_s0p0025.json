@@ -1,0 +1,51 @@
+{
+  "global": {
+    "target_N": [400, 400, 400],
+    "target_dx_nm": 1.0,
+    "target_interface_width_nm": 4.0,
+    "source_default_dx_nm": 0.1,
+    "source_default_interface_width_nm": 0.6,
+    "background_mode": "constant",
+    "xB_background_constant": 0.03,
+    "xB_far": 0.03,
+    "xB_edge_mode_default": "global-constant",
+    "xB0_target_nominal": 0.03,
+    "xBtot_target_mode": "nominal",
+    "xB_min": 1e-8,
+    "xB_max": 0.035,
+    "mass_mode": "local-shell-compensate",
+    "W_comp_threshold": 0.001,
+    "phi_matrix_threshold": 0.05,
+    "mass_correction_iters": 10,
+    "mass_tol": 1e-9,
+    "xB_combine_mode": "min",
+    "phi_combine_mode": "max",
+    "dtype": "float32",
+    "chunk_z": 32,
+    "write_vtk": true,
+    "write_plots": false,
+    "write_comparison_plots": false,
+    "local_comp_inner_nm": 0.0,
+    "local_comp_outer_nm": 20.0
+  },
+  "nuclei": [
+    {
+      "name": "exx_s0p0025_single",
+      "profile_dir": "../Results/workflows/T400_xB0p030/analysis_tmp/exx_s0p0025_faceted_profiles_for_sched",
+      "source_dyn_dir": "../Results/workflows/T400_xB0p030/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r2.495nm_xB0.030/continue_dyn_1",
+      "source_grid_N": [400, 400, 400],
+      "source_dx_nm": 0.1,
+      "source_interface_width_nm": 0.6,
+      "target_interface_width_nm": 4.0,
+      "center_nm": [200.0, 200.0, 200.0],
+      "scale_factor_geometry": 1.0,
+      "scale_factor_interface_width": 6.6666666667,
+      "scale_factor_xB_profile_width": 6.6666666667,
+      "source_box_blend_margin_nm": 3.0,
+      "alpha_interface": 0.25,
+      "xB_rebuild_mode": "delta-interface",
+      "xB_edge_mode": "global-constant",
+      "enabled": true
+    }
+  ]
+}

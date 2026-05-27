@@ -1,0 +1,480 @@
+{
+  "generated_at_utc": "2026-05-14T08:57:45.994271+00:00",
+  "script": "/data/home/luozhiheng/CUDA_STO_PF/compute_explicit_nucleation_rates.py",
+  "git_commit": "9db5fb4572523b126e49b7152c1272f745bdd2aa",
+  "scan_root": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050",
+  "case_pattern": "cntcon_*",
+  "params_glob": "pf_input.params",
+  "log_glob": "*.log",
+  "profile_glob": "*profile*.csv",
+  "preferred_barrier_summaries": [
+    "barrier_summary.csv",
+    "current_results_master_table_fitted.csv",
+    "growth_summary.csv"
+  ],
+  "diffusivity_mode": "arrhenius_ag",
+  "theta_mode": "steady",
+  "tau_inc_s": null,
+  "t_eval_s": null,
+  "t_act_s": 0.0,
+  "delta_v_nuc_m3_cli": null,
+  "dt_phys_s_cli": null,
+  "allow_zeldovich_fallback": false,
+  "zeldovich_fallback_value": null,
+  "fit_points": 5,
+  "parameter_sources": {
+    "thermo": "thermo_utils.h:get_L_param + xB_eq_from_temperature",
+    "phase_fraction": "phase_functions.h:h_of_phi",
+    "diffusivity": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+    "time_scale": "Unit_Psedobinary.py:build_main_cuda_overrides -> t_real_unit"
+  },
+  "unit_conversions": {
+    "temperature": "T_K = T_C + 273.15",
+    "diffusivity": "cm^2/s -> m^2/s by multiplying 1e-4",
+    "radius": "nm -> m by multiplying 1e-9",
+    "volume": "nm^3 -> m^3 by multiplying 1e-27",
+    "barrier": {
+      "eV_to_J": 1.602176634e-19,
+      "kBT_to_J": "DeltaG_J = DeltaG_kBT * kB * T_K"
+    }
+  },
+  "profile_file_count": 1,
+  "completed_cases": 0,
+  "incomplete_cases": 25,
+  "output_files": {
+    "table_csv": "/data/home/luozhiheng/CUDA_STO_PF/nucleation_rate_outputs_T400_xB0p050_v5/nucleation_rate_table.csv",
+    "metadata_json": "/data/home/luozhiheng/CUDA_STO_PF/nucleation_rate_outputs_T400_xB0p050_v5/nucleation_rate_metadata.json",
+    "plots": [
+      "/data/home/luozhiheng/CUDA_STO_PF/nucleation_rate_outputs_T400_xB0p050_v5/plots/barrier_over_kBT_vs_S.png",
+      "/data/home/luozhiheng/CUDA_STO_PF/nucleation_rate_outputs_T400_xB0p050_v5/plots/r_eff_star_vs_S.png",
+      "/data/home/luozhiheng/CUDA_STO_PF/nucleation_rate_outputs_T400_xB0p050_v5/plots/beta_vs_case_parameter.png"
+    ]
+  },
+  "cases": [
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_s0p0025",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.587nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_s0p0025_r1p586644",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_s0p005",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.575nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_s0p005_r1p574736",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_s0p0075",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.572nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_s0p0075_r1p571623",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_s0p01",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.577nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_s0p01_r1p577227",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_sm0p0025",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.638nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_sm0p0025_r1p638315",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_sm0p005",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.679nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_sm0p005_r1p679465",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_sm0p0075",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.732nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_sm0p0075_r1p732283",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_eyy_sm0p01",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.798nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_eyy_sm0p01_r1p798379",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_s000",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.577nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_s000_r1p576511",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_s0p0025",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.534nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_s0p0025_r1p533967",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_s0p005",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.495nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_s0p005_r1p495370",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_s0p0075",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.460nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_s0p0075_r1p460371",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_s0p01",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.429nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_s0p01_r1p428669",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_sm0p0025",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.623nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_sm0p0025_r1p623406",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_sm0p005",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.675nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_sm0p005_r1p675128",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_sm0p0075",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.732nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_sm0p0075_r1p732232",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_exx_sm0p01",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.795nm_xB0.050/cntcon_T400_xB0p050_strictref_exx_sm0p01_r1p795377",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_s0p0025",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.361nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_s0p0025_r1p361050",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_s0p005",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.391nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_s0p005_r1p390869",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_s0p0075",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.425nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_s0p0075_r1p424702",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_s0p01",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.463nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_s0p01_r1p462932",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_sm0p0025",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.312nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_sm0p0025_r1p312217",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_sm0p005",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.293nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_sm0p005_r1p292707",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_sm0p0075",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.276nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_sm0p0075_r1p276203",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    },
+    {
+      "base_case_tag": "cntcon_T400_xB0p050_strictref_eyy_sm0p01",
+      "case_dir": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.263nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_sm0p01_r1p262553",
+      "status": "incomplete",
+      "barrier_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:F_CNT_peak_hat -> /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:12*gamma/lambda_sm; V_box=grid_nx,grid_ny,grid_nz; spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref",
+      "r_eff_source": "/data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/cnt_scan/current_results_master_table_fitted.csv:voxel_count * [spacing_x * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_y * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref; spacing_z * /data/home/luozhiheng/CUDA_STO_PF/Results/workflows/T400_xB0p050/input/physical_inputs.json:phys_dx_ref] -> r_eff",
+      "z_source": "fallback_missing_profile",
+      "diffusivity_source": "Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s",
+      "warnings": [
+        "DeltaV_nuc defaulted to one physical voxel volume",
+        "converted F_CNT_peak_hat from hat free-energy density to J using physical energy density scale and box volume",
+        "converted profile field 'F_total_CNT_hat' from hat units to J",
+        "missing usable profile curvature; rerun with --allow-zeldovich-fallback to force an estimate",
+        "profile points do not bracket r_eff_star; cannot fit local curvature",
+        "r_eff_star reconstructed from thresholded voxel_count volume; this approximates V_h with phi>0.5 geometry"
+      ]
+    }
+  ]
+}
