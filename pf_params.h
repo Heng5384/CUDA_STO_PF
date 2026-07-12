@@ -588,6 +588,7 @@ typedef struct {
     char   init_xB_raw_path[4096];             // raw_fields: xB_init.raw
     char   init_eta_raw_path[4096];            // raw_fields: optional eta_init.raw
     char   init_meta_path[4096];               // raw_fields: init_meta.json
+    char   init_conservative_storage_raw_path[4096]; // optional authoritative Ctot/qalpha restart
 
     // ============================================
     // Scheduled nucleation test mode (explicit test-only feature)

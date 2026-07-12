@@ -1,0 +1,8 @@
+path,role,provenance
+main_cuda.cu,restart/checkpoint implementation,exact patch intent plus semantic hardening
+pf_params.h,restart path parameter,exact patch intent
+scripts/analyze_pf_ctot_qalpha_validation.py,equal-time refinement and checkpoint reader,context reconstruction
+scripts/test_conservative_storage_recovery.py,focused host-side contract tests,new recovery test
+docs/pf/conservative_storage_recovery/conservative_storage_recovery_acceptance_report.md,compact acceptance report,new recovery evidence
+docs/pf/conservative_storage_recovery/recovery_commit_file_manifest.csv,commit scope manifest,new recovery evidence
+docs/pf/conservative_storage_recovery/recovery_test_summary.csv,compact test results,new recovery evidence

@@ -1,0 +1,15 @@
+test,environment,status,key_result
+nvcc_build,workstation CUDA 12.9 RTX 5080,PASS,BUILD_EXIT=0
+python_syntax,local and workstation,PASS,analyzer and focused test compile
+focused_checkpoint_contract,local and workstation,PASS,good/missing/shape/size/analyzer cases
+ctot_qalpha_reference_unit,workstation isolated snapshot,PASS,unit_tests=PASS
+storage_exact_formula,workstation isolated snapshot,PASS,storage_exact_formula_tests=PASS
+analyzer_refinement_smoke,workstation temporary output,PASS,8 cases including two dt0p00025 x 2000
+ctot_uniform_roundtrip,workstation 8x8x8,PASS,phi/xB/storage/mass errors all zero
+ctot_nonuniform_roundtrip,workstation 8x8x8,PASS,4+4 equals continuous 8 with storage Linf zero
+checkpoint_marker,workstation,PASS,write and restart markers observed
+missing_checkpoint,workstation,PASS,exit 2 with fatal metadata diagnostic
+trailing_byte_checkpoint,workstation,PASS,exit 2 with trailing_bytes=yes
+shape_mismatch,workstation,PASS,exit 2 with expected/actual shape
+mode_mismatch,workstation,PASS,Ctot checkpoint rejected by qalpha mode
+qalpha_positive_restart,workstation 8x8x8,PASS,qalpha load and write markers observed

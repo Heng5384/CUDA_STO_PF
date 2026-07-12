@@ -2708,6 +2708,32 @@ static int json_get_string_simple(const char *json, const char *key, char *out, 
     return 1;
 }
 
+static int json_get_bool_simple(const char *json, const char *key, int *out) {
+    char pattern[128];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *p = strstr(json, pattern);
+    if (!p || !(p = strchr(p, ':'))) return 0;
+    do { ++p; } while (*p && isspace((unsigned char)*p));
+    if (strncmp(p, "true", 4) == 0) {
+        *out = 1;
+        return 1;
+    }
+    if (strncmp(p, "false", 5) == 0) {
+        *out = 0;
+        return 1;
+    }
+    return 0;
+}
+
+static int json_get_int3_array_simple(const char *json, const char *key,
+                                      int *a, int *b, int *c) {
+    char pattern[128];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *p = strstr(json, pattern);
+    if (!p || !(p = strchr(p, ':')) || !(p = strchr(p, '['))) return 0;
+    return sscanf(p, "[ %d , %d , %d ]", a, b, c) == 3;
+}
+
 static int load_raw_init_meta(const char *path, RawInitMeta *meta) {
     if (!path || path[0] == '\0' || !meta) return 0;
     memset(meta, 0, sizeof(*meta));
@@ -2754,9 +2780,12 @@ static int read_raw_field_to_double(const char *path, const char *dtype, size_t 
             return 0;
         }
         size_t got = fread(tmp, sizeof(float), total, fp);
+        const int has_trailing_byte = (fgetc(fp) != EOF);
         fclose(fp);
-        if (got != total) {
-            fprintf(stderr, "[fatal] raw %s size mismatch: got %zu float32 values, expected %zu\n", label, got, total);
+        if (got != total || has_trailing_byte) {
+            fprintf(stderr,
+                    "[fatal] raw %s size mismatch: got %zu float32 values, expected %zu, trailing_bytes=%s\n",
+                    label, got, total, has_trailing_byte ? "yes" : "no");
             free(tmp);
             return 0;
         }
@@ -2765,9 +2794,12 @@ static int read_raw_field_to_double(const char *path, const char *dtype, size_t 
         return 1;
     } else if (strcmp(dtype, "float64") == 0) {
         size_t got = fread(out, sizeof(double), total, fp);
+        const int has_trailing_byte = (fgetc(fp) != EOF);
         fclose(fp);
-        if (got != total) {
-            fprintf(stderr, "[fatal] raw %s size mismatch: got %zu float64 values, expected %zu\n", label, got, total);
+        if (got != total || has_trailing_byte) {
+            fprintf(stderr,
+                    "[fatal] raw %s size mismatch: got %zu float64 values, expected %zu, trailing_bytes=%s\n",
+                    label, got, total, has_trailing_byte ? "yes" : "no");
             return 0;
         }
         return 1;
@@ -2775,6 +2807,51 @@ static int read_raw_field_to_double(const char *path, const char *dtype, size_t 
     fclose(fp);
     fprintf(stderr, "[fatal] unsupported raw dtype '%s' for %s; use float32 or float64\n", dtype, label);
     return 0;
+}
+
+static int validate_conservative_storage_checkpoint_meta(
+    const char *raw_path, const char *expected_mode,
+    int expected_nx, int expected_ny, int expected_nz) {
+    char meta_path[4096];
+    snprintf(meta_path, sizeof(meta_path), "%s", raw_path);
+    char *suffix = strrchr(meta_path, '.');
+    if (suffix && strcmp(suffix, ".raw") == 0) {
+        memcpy(suffix, ".json", 6);
+    } else {
+        const size_t used = strlen(meta_path);
+        if (used + 5 >= sizeof(meta_path)) {
+            fprintf(stderr, "[fatal] conservative storage checkpoint path is too long\n");
+            return 0;
+        }
+        memcpy(meta_path + used, ".json", 6);
+    }
+    char *json = read_text_file_alloc(meta_path);
+    if (!json) {
+        fprintf(stderr,
+                "[fatal] cannot read conservative storage checkpoint metadata: %s\n",
+                meta_path);
+        return 0;
+    }
+    char mode[64] = "", dtype[32] = "";
+    int nx = 0, ny = 0, nz = 0, authoritative = 0;
+    const int ok =
+        json_get_string_simple(json, "mode", mode, sizeof(mode)) &&
+        json_get_string_simple(json, "dtype", dtype, sizeof(dtype)) &&
+        json_get_int3_array_simple(json, "shape", &nx, &ny, &nz) &&
+        json_get_bool_simple(json, "authoritative", &authoritative);
+    free(json);
+    if (!ok || !authoritative || strcmp(dtype, "float64") != 0 ||
+        strcmp(mode, expected_mode) != 0 ||
+        nx != expected_nx || ny != expected_ny || nz != expected_nz) {
+        fprintf(stderr,
+                "[fatal] conservative storage checkpoint metadata mismatch: "
+                "path=%s mode=%s expected_mode=%s dtype=%s shape=%dx%dx%d "
+                "expected_shape=%dx%dx%d authoritative=%d\n",
+                meta_path, mode, expected_mode, dtype, nx, ny, nz,
+                expected_nx, expected_ny, expected_nz, authoritative);
+        return 0;
+    }
+    return 1;
 }
 
 static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFParams *P,
@@ -15979,6 +16056,7 @@ static void params_default(PFParams *P) {
     P->init_xB_raw_path[0] = '\0';
     P->init_eta_raw_path[0] = '\0';
     P->init_meta_path[0] = '\0';
+    P->init_conservative_storage_raw_path[0] = '\0';
 
     // Scheduled nucleation test: explicit opt-in only. Defaults are inert.
     P->scheduled_nuc_enabled = 0;
@@ -22515,6 +22593,15 @@ int main(int argc, char **argv) {
             P.init_mode_raw_fields = 1;
             continue;
         }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--init-conservative-storage-raw")) != NULL) {
+            strncpy(P.init_conservative_storage_raw_path, v,
+                    sizeof(P.init_conservative_storage_raw_path) - 1);
+            P.init_conservative_storage_raw_path[
+                sizeof(P.init_conservative_storage_raw_path) - 1] = '\0';
+            P.init_mode_raw_fields = 1;
+            continue;
+        }
         if (strcmp(argv[i], "--enable-scheduled-nucleation-test") == 0) {
             P.scheduled_nuc_enabled = 1;
             continue;
@@ -26895,6 +26982,14 @@ int main(int argc, char **argv) {
     const int pf_conservative_runtime =
         pf_conservative_ctot_runtime || pf_conservative_qalpha_runtime;
     const int pf_conservative_primary_is_ctot = pf_conservative_ctot_runtime ? 1 : 0;
+    if (P.init_conservative_storage_raw_path[0] != '\0' &&
+        !pf_conservative_runtime) {
+        fprintf(stderr,
+                "[fatal] --init-conservative-storage-raw requires "
+                "pf_composition_mode=ctot_conservative_split or "
+                "qalpha_conservative_local_transaction\n");
+        return 2;
+    }
     if (pf_mode_q_transport_runtime) {
         CUDA_CHECK(cudaMalloc(&d_q_alpha_r, size_r));
         CUDA_CHECK(cudaMalloc(&d_pf_q_stats, PF_Q_STATS_COUNT * sizeof(double)));
@@ -27107,6 +27202,33 @@ int main(int argc, char **argv) {
         launch_initialize_conservative_storage_kernel(
             d_phi_r, d_xB_r, d_pf_conservative_storage_r, P.v_B,
             pf_conservative_primary_is_ctot, total_r);
+        if (P.init_conservative_storage_raw_path[0] != '\0') {
+            std::vector<double> storage_restart((size_t)total_r);
+            if (!validate_conservative_storage_checkpoint_meta(
+                    P.init_conservative_storage_raw_path,
+                    P.pf_composition_mode, P.Nx, P.Ny, P.Nz)) {
+                return 2;
+            }
+            if (!read_raw_field_to_double(P.init_conservative_storage_raw_path,
+                                          "float64", (size_t)total_r,
+                                          storage_restart.data(),
+                                          "conservative_storage")) {
+                return 2;
+            }
+            CUDA_CHECK(cudaMemcpy(d_pf_conservative_storage_r,
+                                  storage_restart.data(), size_r,
+                                  cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaMemset(d_pf_conservative_stats, 0,
+                                  PF_CONS_STATS_COUNT * sizeof(double)));
+            launch_reconstruct_conservative_context_kernel(
+                d_pf_conservative_storage_r, d_phi_r, d_xB_r, d_Y_r,
+                temperature_K, P.v_B, pf_conservative_primary_is_ctot,
+                P.pf_conservative_beta_support_eps, P.xB_eps, P.Y_clip,
+                d_pf_conservative_stats, total_r);
+            printf("PF_CONSERVATIVE_RESTART_LOADED path=%s mode=%s\n",
+                   P.init_conservative_storage_raw_path,
+                   P.pf_composition_mode);
+        }
     }
     if (gp_buffers_enabled) {
         CUDA_CHECK(cudaMemcpy(d_eta_r, h_eta_r, size_r, cudaMemcpyHostToDevice));
@@ -32390,6 +32512,50 @@ gp_post_birth_skip_to_finalize:
         CUDA_CHECK(cudaFree(d_uxy_k));
         CUDA_CHECK(cudaFree(d_uxz_k));
         CUDA_CHECK(cudaFree(d_uyz_k));
+    }
+
+    if (pf_conservative_runtime && d_pf_conservative_storage_r &&
+        case_output_dir && case_output_dir[0] != '\0') {
+        std::vector<double> storage_checkpoint((size_t)total_r);
+        CUDA_CHECK(cudaMemcpy(storage_checkpoint.data(),
+                              d_pf_conservative_storage_r, size_r,
+                              cudaMemcpyDeviceToHost));
+        char storage_path[4096];
+        snprintf(storage_path, sizeof(storage_path),
+                 "%s/conservative_storage_final.raw", case_output_dir);
+        FILE *storage_fp = fopen(storage_path, "wb");
+        if (!storage_fp ||
+            fwrite(storage_checkpoint.data(), sizeof(double),
+                   (size_t)total_r, storage_fp) != (size_t)total_r) {
+            if (storage_fp) fclose(storage_fp);
+            fprintf(stderr,
+                    "[fatal] failed to write conservative storage checkpoint %s\n",
+                    storage_path);
+            return 2;
+        }
+        fclose(storage_fp);
+
+        char storage_meta_path[4096];
+        snprintf(storage_meta_path, sizeof(storage_meta_path),
+                 "%s/conservative_storage_final.json", case_output_dir);
+        FILE *storage_meta_fp = fopen(storage_meta_path, "w");
+        if (!storage_meta_fp) {
+            fprintf(stderr,
+                    "[fatal] failed to write conservative storage metadata %s\n",
+                    storage_meta_path);
+            return 2;
+        }
+        fprintf(storage_meta_fp,
+                "{\n  \"mode\": \"%s\",\n  \"dtype\": \"float64\",\n"
+                "  \"shape\": [%d, %d, %d],\n  \"step\": %d,\n"
+                "  \"physical_time_code\": %.17e,\n"
+                "  \"raw_file\": \"conservative_storage_final.raw\",\n"
+                "  \"authoritative\": true\n}\n",
+                P.pf_composition_mode, P.Nx, P.Ny, P.Nz,
+                steps_completed, steps_completed * P.dt);
+        fclose(storage_meta_fp);
+        printf("PF_CONSERVATIVE_CHECKPOINT_WRITTEN path=%s mode=%s\n",
+               storage_path, P.pf_composition_mode);
     }
 
     kspace_free_cuda(&KS);

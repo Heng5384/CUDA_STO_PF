@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -84,16 +85,47 @@ def energy_proxy(phi, xb, T, scale, W=1.0, kappa=0.045):
     return chemical + 0.5*kappa*grad + W*float(np.sum(gpure(phi)))
 
 
-def find_case(T, mode, dtag, n):
+def validation_specs():
+    specs = []
+    for mode in ("ctot_conservative_split", "qalpha_conservative_local_transaction"):
+        specs += [
+            (mode, "0p002", 0.002, 250),
+            (mode, "0p001", 0.001, 500),
+            (mode, "0p0005", 0.0005, 1000),
+            (mode, "0p00025", 0.00025, 2000),
+        ]
+    return specs
+
+
+def read_conservative_checkpoint(case: Path, expected_shape):
+    meta_path = case / "conservative_storage_final.json"
+    if not meta_path.exists():
+        return None, None
+    meta = json.loads(meta_path.read_text())
+    if meta.get("dtype") != "float64" or meta.get("authoritative") is not True:
+        raise ValueError(f"invalid conservative checkpoint metadata: {meta_path}")
+    shape = tuple(int(v) for v in meta.get("shape", ()))
+    if shape != tuple(expected_shape):
+        raise ValueError(f"checkpoint shape {shape} != expected {tuple(expected_shape)}")
+    raw_path = case / meta.get("raw_file", "conservative_storage_final.raw")
+    expected_bytes = int(np.prod(shape)) * np.dtype(np.float64).itemsize
+    if raw_path.stat().st_size != expected_bytes:
+        raise ValueError(
+            f"checkpoint size {raw_path.stat().st_size} != expected {expected_bytes}: {raw_path}"
+        )
+    return np.fromfile(raw_path, dtype=np.float64).reshape(shape), meta
+
+
+def find_case(results_root, T, mode, dtag, n):
     pattern = f"Results/chel_T{T}_cuda_128x128x128_dt*_steps{n}_xB0.008/T{T}_{mode}_F2_dt{dtag}_equalT"
-    found = list(ROOT.glob(pattern))
+    found = list(results_root.glob(pattern))
     return found[0] if found else None
 
 
-def summarize_temperature(T, specs):
+def summarize_temperature(results_root, T, specs):
     summary, series = [], []
     for mode, dtag, dt, n in specs:
-        case = find_case(T, mode, dtag, n)
+        case = find_case(results_root, T, mode, dtag, n)
         if not case:
             continue
         diag = list(csv.DictReader((case/"pf_conservative_step_diagnostics.csv").open()))
@@ -103,6 +135,10 @@ def summarize_temperature(T, specs):
         phi0, xb0 = read_vtk(case/"phi_init.vtk"), read_vtk(case/"xB_0.vtk")
         phif, xbf = read_vtk(case/f"phi_{n}.vtk"), read_vtk(case/f"xB_{n}.vtk")
         hh0, hhf = h(phi0), h(phif)
+        checkpoint, checkpoint_meta = read_conservative_checkpoint(case, phif.shape)
+        reconstructed = ((1-hhf)*xbf+hhf if mode == "ctot_conservative_split"
+                         else (1-hhf)*xbf)
+        authoritative = checkpoint if checkpoint is not None else reconstructed
         mass_res = max(abs(float(r["mass_after_phase"])-float(r["mass_before_transport"])) for r in diag)
         mass_scale = max(1.0, abs(float(diag[0]["mass_before_transport"])))
         e0 = energy_proxy(phi0, xb0, T+273.15, 1.3779024e5)
@@ -118,6 +154,11 @@ def summarize_temperature(T, specs):
             "max_C_reconstructed": np.max((1-hhf)*xbf+hhf),
             "min_q_reconstructed": np.min((1-hhf)*xbf),
             "max_q_reconstructed": np.max((1-hhf)*xbf),
+            "checkpoint_present": checkpoint is not None,
+            "checkpoint_step": checkpoint_meta.get("step") if checkpoint_meta else "",
+            "checkpoint_physical_time_code": checkpoint_meta.get("physical_time_code") if checkpoint_meta else "",
+            "min_authoritative_storage": np.min(authoritative),
+            "max_authoritative_storage": np.max(authoritative),
             "max_authoritative_mass_error_rel": mass_res/mass_scale,
             "bound_violation_count": max(float(r["bound_violation_count"]) for r in diag),
             "limited_face_count_max": max(float(r["limited_face_count"]) for r in diag),
@@ -145,15 +186,26 @@ def write_csv(path, rows):
 
 
 def main():
-    specs=[]
-    for mode in ("ctot_conservative_split", "qalpha_conservative_local_transaction"):
-        specs += [(mode,"0p002",0.002,250),(mode,"0p001",0.001,500),(mode,"0p0005",0.0005,1000)]
-    s400,t400=summarize_temperature(400,specs)
-    s380,t380=summarize_temperature(380,specs)
-    write_csv(REPORT/"pf_T400_ctot_qalpha_dt_summary.csv",s400)
-    write_csv(REPORT/"pf_T400_ctot_qalpha_time_series.csv",t400)
-    write_csv(REPORT/"pf_T380_ctot_qalpha_dt_summary.csv",s380)
-    write_csv(REPORT/"pf_T380_ctot_qalpha_time_series.csv",t380)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--results-root", type=Path, default=ROOT)
+    parser.add_argument("--report-dir", type=Path, default=REPORT)
+    parser.add_argument("--dry-run-manifest", type=Path)
+    args = parser.parse_args()
+    specs = validation_specs()
+    if args.dry_run_manifest:
+        rows = [dict(mode=m, dt=dt, nsteps=n, physical_time_code=dt*n, case_tag=dtag)
+                for m, dtag, dt, n in specs]
+        args.dry_run_manifest.parent.mkdir(parents=True, exist_ok=True)
+        args.dry_run_manifest.write_text(json.dumps(rows, indent=2) + "\n")
+        print(json.dumps({"manifest": str(args.dry_run_manifest), "cases": len(rows)}))
+        return
+    args.report_dir.mkdir(parents=True, exist_ok=True)
+    s400,t400=summarize_temperature(args.results_root,400,specs)
+    s380,t380=summarize_temperature(args.results_root,380,specs)
+    write_csv(args.report_dir/"pf_T400_ctot_qalpha_dt_summary.csv",s400)
+    write_csv(args.report_dir/"pf_T400_ctot_qalpha_time_series.csv",t400)
+    write_csv(args.report_dir/"pf_T380_ctot_qalpha_dt_summary.csv",s380)
+    write_csv(args.report_dir/"pf_T380_ctot_qalpha_time_series.csv",t380)
     print(json.dumps({"T400_cases":len(s400),"T380_cases":len(s380)}))
 
 
