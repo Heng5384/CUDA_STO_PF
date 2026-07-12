@@ -8,6 +8,10 @@ import shlex
 import sys
 from pathlib import Path
 
+from tools.analysis.dynamic_continue_source_policy import (
+    NO_SAFE_POSTCRITICAL_RADIUS_AVAILABLE,
+    choose_dynamic_continue_source,
+)
 from tools.analysis.workflow_utils import cnt_summary_filename
 
 
@@ -202,10 +206,19 @@ def derive_next_discrete_summary_path(
     step_nm = float(meta["step_nm"])
     npts = int(round(2.0 * window_nm / step_nm)) + 1
     scan_radii = [round(rc_schur - window_nm + i * step_nm, 6) for i in range(npts)]
-    next_radii = [r for r in scan_radii if r > rc_cnt + 1e-9]
-    if not next_radii:
-        raise ValueError(f"No discrete radius larger than rc_cnt_nm={rc_cnt:.6f} for {row.get('base_case_tag')}")
-    next_radius = next_radii[0]
+    choice = choose_dynamic_continue_source(
+        scan_radii,
+        rc_cnt,
+        min_margin_nm=0.10,
+        fallback_margin_nm=0.05,
+        allow_exact_peak_debug=False,
+    )
+    if choice.status == NO_SAFE_POSTCRITICAL_RADIUS_AVAILABLE or choice.radius_nm is None:
+        raise ValueError(
+            f"No safe postcritical radius >= rc_cnt_nm+0.05 for rc_cnt_nm={rc_cnt:.6f} "
+            f"case={row.get('base_case_tag')}"
+        )
+    next_radius = choice.radius_nm
 
     root_dir = peak_summary_path.parent.parent
     case_dir = peak_summary_path.parent

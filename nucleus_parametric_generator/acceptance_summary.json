@@ -1,0 +1,42 @@
+{
+  "accepted": false,
+  "runtime_status": "blocked_cuda_driver_version",
+  "criteria": {
+    "finite_fields": true,
+    "mass_error_lt_1e_minus_10": true,
+    "single_component": true,
+    "phi_no_overflow": true
+  },
+  "grid": [
+    300,
+    300,
+    300
+  ],
+  "dx_nm": 0.1,
+  "r_eff_nm": 5.66018,
+  "anisotropic": true,
+  "amplitude": 0.753039106943,
+  "target_phi_volume_nm3": 759.590609639,
+  "phi_integral_nm3": 759.590609639,
+  "mean_hphi": 0.0130454457933,
+  "mass_error": -7.40707495339e-12,
+  "phi_min": 2.72274584818e-10,
+  "phi_max": 0.752861091641,
+  "xB_min": 0.0170478429645,
+  "xB_max": 0.0299999993294,
+  "grad_phi_max": 0.13189938411,
+  "connected_components": 1,
+  "largest_component_voxels": -1,
+  "workstation_runtime_passed": false,
+  "acceptance_policy": "generator acceptance AND main_cuda raw_fields 1-step smoke pass",
+  "runtime_blocker": "main_cuda reached raw_fields initialization, but workstation CUDA driver is older than the CUDA runtime used by the executable",
+  "raw_fields_initialization_observed": {
+    "phi_finite": true,
+    "xBtot_mean_matches_meta": true,
+    "xBtot_meta_diff": -7.522e-15,
+    "phi_min": 2.72274592e-10,
+    "phi_max": 0.752861083,
+    "xB_min": 0.017047843,
+    "xB_max": 0.0299999993
+  }
+}

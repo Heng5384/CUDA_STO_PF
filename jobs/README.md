@@ -50,6 +50,9 @@
 
 规范约定：
 
+- cluster `gpu_uvip` 队列操作必须遵守仓库根目录的 `CLUSTER_UVIP_QUEUE_POLICY.md`：
+  用户要求用 cluster 跑任务时，必须先提交目标 workload 和尾部 placeholder/continue/resume job，
+  验证后才允许取消旧 blocker；禁止使用 `scontrol hold`
 - 所有模拟结果都写到仓库根目录下的 `Results/`
 - Slurm 日志统一写到 `jobs/logs/`
 - 本地 `run_*.sh` 脚本无论从仓库根目录还是 `jobs/` 目录启动，都能自动定位项目根目录

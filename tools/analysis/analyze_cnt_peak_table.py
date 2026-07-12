@@ -82,6 +82,10 @@ def parse_summary_file(path: Path) -> dict[str, object]:
         "spacing_x": None,
         "spacing_y": None,
         "spacing_z": None,
+        "internal_unit_to_nm": None,
+        "spacing_x_nm": None,
+        "spacing_y_nm": None,
+        "spacing_z_nm": None,
         "threshold_phi": None,
         "connected_components": None,
         "chosen_component": None,
@@ -90,9 +94,15 @@ def parse_summary_file(path: Path) -> dict[str, object]:
         "center_x": None,
         "center_y": None,
         "center_z": None,
+        "center_x_nm": None,
+        "center_y_nm": None,
+        "center_z_nm": None,
         "bbox_x": None,
         "bbox_y": None,
         "bbox_z": None,
+        "bbox_x_nm": None,
+        "bbox_y_nm": None,
+        "bbox_z_nm": None,
         "long_axis_x": None,
         "long_axis_y": None,
         "long_axis_z": None,
@@ -105,6 +115,9 @@ def parse_summary_file(path: Path) -> dict[str, object]:
         "L1_long": None,
         "L2_mid": None,
         "L3_short": None,
+        "L1_long_nm": None,
+        "L2_mid_nm": None,
+        "L3_short_nm": None,
         "L1_over_L3": None,
         "L2_over_L3": None,
         "L1_over_L2": None,
@@ -165,6 +178,11 @@ def parse_summary_file(path: Path) -> dict[str, object]:
             elif key == "spacing_sim_units":
                 vx, vy, vz = parse_vector(value)
                 data["spacing_x"], data["spacing_y"], data["spacing_z"] = vx, vy, vz
+            elif key == "internal_unit_to_nm":
+                data["internal_unit_to_nm"] = float(value)
+            elif key == "spacing_nm":
+                vx, vy, vz = parse_vector(value)
+                data["spacing_x_nm"], data["spacing_y_nm"], data["spacing_z_nm"] = vx, vy, vz
             elif key == "threshold_mode":
                 try:
                     data["threshold_phi"] = float(value.split(">")[-1].strip())
@@ -181,9 +199,15 @@ def parse_summary_file(path: Path) -> dict[str, object]:
             elif key == "center_of_mass":
                 vx, vy, vz = parse_vector(value)
                 data["center_x"], data["center_y"], data["center_z"] = vx, vy, vz
+            elif key == "center_of_mass_nm":
+                vx, vy, vz = parse_vector(value)
+                data["center_x_nm"], data["center_y_nm"], data["center_z_nm"] = vx, vy, vz
             elif key == "bbox_length_xyz":
                 vx, vy, vz = parse_vector(value)
                 data["bbox_x"], data["bbox_y"], data["bbox_z"] = vx, vy, vz
+            elif key == "bbox_length_xyz_nm":
+                vx, vy, vz = parse_vector(value)
+                data["bbox_x_nm"], data["bbox_y_nm"], data["bbox_z_nm"] = vx, vy, vz
             elif key == "long_axis":
                 vx, vy, vz = parse_vector(value)
                 data["long_axis_x"], data["long_axis_y"], data["long_axis_z"] = vx, vy, vz
@@ -199,6 +223,12 @@ def parse_summary_file(path: Path) -> dict[str, object]:
                 data["L2_mid"] = float(value)
             elif key == "L3_short":
                 data["L3_short"] = float(value)
+            elif key == "L1_long_nm":
+                data["L1_long_nm"] = float(value)
+            elif key == "L2_mid_nm":
+                data["L2_mid_nm"] = float(value)
+            elif key == "L3_short_nm":
+                data["L3_short_nm"] = float(value)
             elif key == "L1/L3":
                 data["L1_over_L3"] = float(value)
             elif key == "L2/L3":

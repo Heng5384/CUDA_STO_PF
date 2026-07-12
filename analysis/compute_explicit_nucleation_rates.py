@@ -13,9 +13,11 @@ code:
     V_h    = integral h(phi) dV
     r_eff  = (3 V_h / 4 pi)^(1/3)
 
-The rate structure retains the CNT-like prefactor form:
+The rate structure retains the CNT-like prefactor form, but uses the
+dimensionless cluster-size Zeldovich factor when paired with a 1/s attachment
+frequency:
 
-    J = N_site * Z_r * beta_r_star * exp(-DeltaG_star / (kB T)) * Theta_tr
+    J = N_site * Z_n * beta_r_star * exp(-DeltaG_star / (kB T)) * Theta_tr
 
 For this Ag2Te-PbTe pseudo-binary system, the limiting species is the pseudo-binary
 solute B = Ag2Te growth unit. The first version uses homogeneous matrix nucleation
@@ -88,6 +90,8 @@ DEFAULT_TABLE_FIELDS = [
     "D_B_m2_s",
     "D_B_source",
     "N_site_m3",
+    "Z_n_1",
+    "Z_n_source",
     "Z_r_1_m",
     "Z_r_source",
     "beta_r_star_1_s",
@@ -137,6 +141,8 @@ DIAGNOSTIC_TABLE_FIELDS = [
     "D_B_m2_s",
     "D_B_source",
     "N_site_m3",
+    "Z_n_1",
+    "Z_n_source",
     "beta_r_star_1_s",
     "Theta_tr",
     "strict_status",
@@ -467,6 +473,8 @@ class RateResult:
     D_B_m2_s: float | None
     D_B_source: str
     N_site_m3: float | None
+    Z_n_1: float | None
+    Z_n_source: str
     Z_r_1_m: float | None
     Z_r_source: str
     beta_r_star_1_s: float | None
@@ -2341,27 +2349,39 @@ def infer_dt_phys(case: CaseData, arg_value: float | None) -> tuple[float | None
 
 def compute_log_rate_terms(
     n_site: float | None,
-    z_r: float | None,
+    z_n: float | None,
     beta: float | None,
     barrier_j: float | None,
     theta: float | None,
     temp_k: float | None,
 ) -> tuple[float | None, float | None, float | None, float | None, float | None, float | None]:
-    if None in (n_site, z_r, beta, barrier_j, theta, temp_k):
+    if None in (n_site, z_n, beta, barrier_j, theta, temp_k):
         return None, None, None, None, None, None
-    if n_site <= 0.0 or z_r <= 0.0 or beta <= 0.0 or temp_k <= 0.0:
+    if n_site <= 0.0 or z_n <= 0.0 or beta <= 0.0 or temp_k <= 0.0:
         return None, None, None, None, None, None
     if theta <= 0.0:
-        ln_prefactor = math.log(n_site) + math.log(z_r) + math.log(beta)
+        ln_prefactor = math.log(n_site) + math.log(z_n) + math.log(beta)
         barrier_over_kbt = barrier_j / (K_B_J_PER_K * temp_k)
         return ln_prefactor, barrier_over_kbt, float("-inf"), ln_prefactor / LOG10, -barrier_over_kbt / LOG10, float("-inf")
-    ln_prefactor = math.log(n_site) + math.log(z_r) + math.log(beta) + math.log(theta)
+    ln_prefactor = math.log(n_site) + math.log(z_n) + math.log(beta) + math.log(theta)
     barrier_over_kbt = barrier_j / (K_B_J_PER_K * temp_k)
     ln_j = ln_prefactor - barrier_over_kbt
     prefactor_log10 = ln_prefactor / LOG10
     barrier_penalty_log10 = -barrier_over_kbt / LOG10
     log10_j = ln_j / LOG10
     return ln_prefactor, barrier_over_kbt, ln_j, prefactor_log10, barrier_penalty_log10, log10_j
+
+
+def z_n_from_z_r(z_r_1_m: float | None, omega_g_m3: float | None, r_eff_star_m: float | None) -> float | None:
+    if z_r_1_m is None or omega_g_m3 is None or r_eff_star_m is None:
+        return None
+    if not (
+        math.isfinite(z_r_1_m) and z_r_1_m > 0.0 and
+        math.isfinite(omega_g_m3) and omega_g_m3 > 0.0 and
+        math.isfinite(r_eff_star_m) and r_eff_star_m > 0.0
+    ):
+        return None
+    return z_r_1_m * omega_g_m3 / (4.0 * math.pi * r_eff_star_m * r_eff_star_m)
 
 
 def maybe_exp_from_ln(ln_value: float | None) -> float | None:
@@ -2699,6 +2719,12 @@ def compute_rate(case: CaseData, all_cases: list[CaseData], args: argparse.Names
         profile_source = diagnostic_z.profile_source
     if diagnostic_z.value is None:
         diagnostic_reasons.append("missing_diagnostic_zeldovich")
+    strict_z_n = z_n_from_z_r(strict_z.value, omega_g, r_eff_m)
+    diagnostic_z_n = z_n_from_z_r(diagnostic_z.value, omega_g, r_eff_m)
+    if strict_z.value is not None and strict_z_n is None:
+        strict_reasons.append("strict_Z_n_conversion_failed")
+    if diagnostic_z.value is not None and diagnostic_z_n is None:
+        diagnostic_reasons.append("diagnostic_Z_n_conversion_failed")
 
     reference_audit, reference_comparison, reference_extras, reference_warnings = build_reference_energy_audit(
         case=case,
@@ -2725,7 +2751,7 @@ def compute_rate(case: CaseData, all_cases: list[CaseData], args: argparse.Names
     p_event_diagnostic = None
     log10_expected_events_diagnostic = None
 
-    if diagnostic_z.value is not None:
+    if diagnostic_z_n is not None:
         (
             ln_prefactor,
             barrier_over_kbt,
@@ -2733,7 +2759,7 @@ def compute_rate(case: CaseData, all_cases: list[CaseData], args: argparse.Names
             prefactor_log10,
             barrier_penalty_log10,
             log10_j_diagnostic,
-        ) = compute_log_rate_terms(n_site, diagnostic_z.value, beta, barrier_j, theta, temp_k)
+        ) = compute_log_rate_terms(n_site, diagnostic_z_n, beta, barrier_j, theta, temp_k)
         j_diagnostic = maybe_exp_from_ln(ln_j_diagnostic)
         p_event_diagnostic, log10_expected_events_diagnostic = compute_poisson_outputs(
             j_diagnostic,
@@ -2743,11 +2769,12 @@ def compute_rate(case: CaseData, all_cases: list[CaseData], args: argparse.Names
         )
         if log10_j_diagnostic is None:
             diagnostic_reasons.append("diagnostic_log_rate_failed")
-    diagnostic_z_current_value = diagnostic_z.value
+    diagnostic_z_current_value = diagnostic_z_n
     if diagnostic_z.source == "capillary_from_barrier_radius" and barrier_j_absolute is not None and r_eff_m is not None and temp_k is not None and r_eff_m > 0.0:
         gamma_eff_abs = 3.0 * barrier_j_absolute / (4.0 * math.pi * r_eff_m * r_eff_m)
         if gamma_eff_abs > 0.0:
-            diagnostic_z_current_value = math.sqrt(4.0 * gamma_eff_abs / (K_B_J_PER_K * temp_k))
+            z_r_current = math.sqrt(4.0 * gamma_eff_abs / (K_B_J_PER_K * temp_k))
+            diagnostic_z_current_value = z_n_from_z_r(z_r_current, omega_g, r_eff_m)
     j_diagnostic_current = None
     log10_j_diagnostic_current = None
     p_event_diagnostic_current = None
@@ -2776,11 +2803,12 @@ def compute_rate(case: CaseData, all_cases: list[CaseData], args: argparse.Names
     barrier_over_kbt_corrected = None
     ln_j_corrected = None
     barrier_penalty_log10_corrected = None
-    diagnostic_z_corrected_value = diagnostic_z.value
+    diagnostic_z_corrected_value = diagnostic_z_n
     if diagnostic_z.source == "capillary_from_barrier_radius" and barrier_j_corrected is not None and r_eff_m is not None and temp_k is not None and r_eff_m > 0.0:
         gamma_eff_corr = 3.0 * barrier_j_corrected / (4.0 * math.pi * r_eff_m * r_eff_m)
         if gamma_eff_corr > 0.0:
-            diagnostic_z_corrected_value = math.sqrt(4.0 * gamma_eff_corr / (K_B_J_PER_K * temp_k))
+            z_r_corrected = math.sqrt(4.0 * gamma_eff_corr / (K_B_J_PER_K * temp_k))
+            diagnostic_z_corrected_value = z_n_from_z_r(z_r_corrected, omega_g, r_eff_m)
     if diagnostic_z_corrected_value is not None and barrier_j_corrected is not None:
         (
             _ln_pref_unused,
@@ -2802,9 +2830,9 @@ def compute_rate(case: CaseData, all_cases: list[CaseData], args: argparse.Names
     j_strict = None
     p_event_strict = None
     log10_expected_events_strict = None
-    if strict_z.value is not None:
+    if strict_z_n is not None:
         _, _, strict_ln_j, _, _, log10_j_strict = compute_log_rate_terms(
-            n_site, strict_z.value, beta, barrier_j, theta, temp_k
+            n_site, strict_z_n, beta, barrier_j, theta, temp_k
         )
         j_strict = maybe_exp_from_ln(strict_ln_j)
         p_event_strict, log10_expected_events_strict = compute_poisson_outputs(
@@ -2850,6 +2878,8 @@ def compute_rate(case: CaseData, all_cases: list[CaseData], args: argparse.Names
         D_B_m2_s=d_b,
         D_B_source=d_source,
         N_site_m3=n_site,
+        Z_n_1=strict_z_n,
+        Z_n_source=("derived_from_Z_r_and_Omega_g" if strict_z_n is not None else ""),
         Z_r_1_m=strict_z.value,
         Z_r_source=strict_z.source,
         beta_r_star_1_s=beta,

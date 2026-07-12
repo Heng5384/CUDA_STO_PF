@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/cuda_sto_pf/nucleus_catalog.schema.json",
+  "title": "Dual-track offline nucleus catalog",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "system_type",
+    "track",
+    "runtime_policy",
+    "entry_count",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 2
+    },
+    "system_type": {
+      "const": "dual-track hybrid PF + CNT calibrated nucleation system"
+    },
+    "track": {
+      "const": "TRACK_1_OFFLINE_CNT_SCANNING"
+    },
+    "runtime_policy": {
+      "type": "string",
+      "pattern": "calibration"
+    },
+    "entry_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "T_C",
+          "xB",
+          "strain_mode",
+          "strain_value",
+          "rc_nm",
+          "energy_barrier_kBT",
+          "shape_type",
+          "aspect_ratio",
+          "origin",
+          "runtime_usable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "T_C": {
+            "type": "number"
+          },
+          "xB": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          },
+          "strain_mode": {
+            "type": "string"
+          },
+          "strain_value": {
+            "type": "number"
+          },
+          "rc_nm": {
+            "type": "number",
+            "exclusiveMinimum": 0.0
+          },
+          "energy_barrier_J": {
+            "type": "number"
+          },
+          "energy_barrier_kBT": {
+            "type": "number"
+          },
+          "shape_type": {
+            "enum": [
+              "spherical",
+              "faceted",
+              "anisotropic",
+              "planar",
+              "unknown"
+            ]
+          },
+          "aspect_ratio": {
+            "type": "number",
+            "minimum": 1.0
+          },
+          "axis_ratios": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "surface_factor": {
+            "type": "number"
+          },
+          "source_dyn_dir": {
+            "type": "string"
+          },
+          "profile_dir": {
+            "type": "string"
+          },
+          "confidence_score": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          },
+          "origin": {
+            "type": "string"
+          },
+          "runtime_usable": {
+            "const": false
+          },
+          "runtime_note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

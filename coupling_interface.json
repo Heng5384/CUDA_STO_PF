@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "system_type": "dual-track hybrid PF + CNT calibrated nucleation system",
+  "contract": {
+    "track_1": "CNT scanning + nucleus library generation is offline only",
+    "track_2": "PF microstructure evolution runs without realtime CNT calculations",
+    "only_runtime_coupling_variables": [
+      "S_field",
+      "DeltaG_star_surface_fit"
+    ],
+    "forbidden_runtime_dependencies": [
+      "critical_radius_scan",
+      "nucleus_library_template_selection",
+      "CNT_event_kernel",
+      "DFT_or_CE_job_submission"
+    ]
+  },
+  "offline_inputs": {
+    "nucleus_catalog_json": "Results/dual_track_calibration/nucleus_catalog.json",
+    "barrier_surface_fit_csv": "Results/dual_track_calibration/barrier_surface_fit.csv",
+    "shape_library_dir": "Results/dual_track_calibration/shape_library"
+  },
+  "s_field_calibration": {
+    "definition": "S(phi_GP, grad_phi_GP, xB)",
+    "runtime_role": "multiply beta bulk driving force only",
+    "s_min": 1.0,
+    "s_max": 4.0,
+    "gp_amplitude": 1.0,
+    "gp_power": 1.0,
+    "interface_amplitude": 0.25,
+    "interface_length_nm": 1.0,
+    "xb_reference": 0.05,
+    "xb_amplitude": 0.0,
+    "xb_width": 0.01,
+    "calibration_rule": "S may be fitted offline from sqrt(DeltaG_bulk_star / DeltaG_GP_star)"
+  },
+  "pf_runtime_equations": {
+    "composition": "Cahn-Hilliard form: dxB/dt = div(M(xB,phi_GP,phi_beta) grad mu)",
+    "gp": "Allen-Cahn form: dphi_GP/dt = -L_GP deltaF/dphi_GP",
+    "beta": "Allen-Cahn form: dphi_beta/dt = -L_beta deltaF/dphi_beta",
+    "beta_driving_force": "Delta_g_beta_eff(x) = S(x) * Delta_g_beta_bulk(xB)"
+  },
+  "validation_checks": {
+    "pf_evolves_independently": true,
+    "cnt_only_used_offline": true,
+    "s_field_is_only_runtime_spatial_coupling": true,
+    "nucleation_is_spatially_resolved_in_pf": true,
+    "nucleus_library_used_only_for_calibration": true
+  }
+}

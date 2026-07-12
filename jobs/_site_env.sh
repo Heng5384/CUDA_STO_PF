@@ -296,8 +296,8 @@ site_prepare_cuda_env() {
     site_try_enable_modules
     if [[ "${SITE_SKIP_MODULE_LOAD:-0}" != "1" ]] && command -v module >/dev/null 2>&1; then
       module purge >/dev/null 2>&1 || true
-      if ! module load "${CUDA_MODULE:-cuda/cuda-12.9}"; then
-        echo "[warn] Failed to load CUDA module '${CUDA_MODULE:-cuda/cuda-12.9}'. Falling back to nvcc auto-detection." >&2
+      if ! module load "${CUDA_MODULE:-cuda/cuda-12.8}"; then
+        echo "[warn] Failed to load CUDA module '${CUDA_MODULE:-cuda/cuda-12.8}'. Falling back to nvcc auto-detection." >&2
       fi
     fi
     if [[ -z "${CUDA_VISIBLE_DEVICES:-}" ]]; then
@@ -324,18 +324,18 @@ site_prepare_cuda_env() {
     if site_in_slurm; then
       candidates=(
         "${CUDA_ROOT:-}"
-        /usr/local/cuda-12.9
-        /usr/local/cuda
         /usr/local/cuda-12.8
+        /usr/local/cuda
+        /usr/local/cuda-12.9
         /usr/local/cuda-12
         /opt/cuda
       )
     else
       candidates=(
         "${CUDA_ROOT:-}"
-        /usr/local/cuda-12.9
-        /usr/local/cuda
         /usr/local/cuda-12.8
+        /usr/local/cuda
+        /usr/local/cuda-12.9
         /usr/local/cuda-12
         /usr/local/cuda-11
         /opt/cuda
@@ -383,6 +383,19 @@ site_build_main_cuda() {
   echo "编译程序..."
   site_require_cuda_env || return $?
   site_prepare_job_dirs
-  make clean
-  make main_cuda "CUDA_ROOT=${CUDA_ROOT}" "CUDA_ARCH=${CUDA_ARCH}" "NVCC=${NVCC}"
+  if [[ "${SITE_SKIP_MAIN_CUDA_BUILD:-0}" == "1" && -x "${PROJECT_ROOT}/main_cuda" ]]; then
+    echo "[site-env] SITE_SKIP_MAIN_CUDA_BUILD=1 and main_cuda exists; skipping build."
+    return 0
+  fi
+
+  local lock_file="${PROJECT_ROOT}/jobs/generated/main_cuda_build.lock"
+  {
+    flock 9
+    if [[ "${SITE_SKIP_MAIN_CUDA_BUILD:-0}" == "1" && -x "${PROJECT_ROOT}/main_cuda" ]]; then
+      echo "[site-env] SITE_SKIP_MAIN_CUDA_BUILD=1 and main_cuda exists after lock; skipping build."
+      return 0
+    fi
+    make clean
+    make main_cuda "CUDA_ROOT=${CUDA_ROOT}" "CUDA_ARCH=${CUDA_ARCH}" "NVCC=${NVCC}"
+  } 9>"${lock_file}"
 }

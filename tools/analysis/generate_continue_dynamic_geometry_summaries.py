@@ -42,6 +42,36 @@ def _parse_pf_params(path: Path) -> dict[str, float]:
     return out
 
 
+def _find_vf_csv(cont_dir: Path, mode_label: str) -> Path | None:
+    if mode_label == "dynamic":
+        hits = sorted(cont_dir.glob("vf_precip_vs_time*.csv"))
+        return hits[0] if hits else None
+    return None
+
+
+def _read_last_radius_from_vf_csv(path: Path | None) -> tuple[float | None, float | None]:
+    if path is None or not path.exists():
+        return None, None
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        return None, None
+    row = rows[-1]
+    r_internal = None
+    r_nm = None
+    for key in ("R_avg", "R_eff", "radius_avg"):
+        if key in row and row[key].strip():
+            r_internal = float(row[key])
+            break
+    for key in ("R_avg_nm", "R_eff_nm"):
+        if key in row and row[key].strip():
+            r_nm = float(row[key])
+            break
+    if r_internal is None:
+        return None, None
+    return r_internal, r_nm
+
+
 def _read_legacy_scalar_vtk(path: Path) -> tuple[np.ndarray, tuple[int, int, int], tuple[float, float, float]]:
     dims: tuple[int, int, int] | None = None
     spacing = (1.0, 1.0, 1.0)
@@ -351,6 +381,28 @@ def _write_summary(path: Path, phi_vtk: Path, geom: dict[str, object], mode_labe
     face_normals = geom["face_normals"]
     nx, ny, nz = geom["grid"]
     dx, dy, dz = geom["spacing"]
+    pf_params = _parse_pf_params(path.parent / "pf_input.params")
+    lambda_sm_m = pf_params.get("lambda_sm_m")
+    ic_phi_iface_w = pf_params.get("ic_phi_iface_w")
+    unit_to_nm = math.nan
+    if (
+        lambda_sm_m is not None
+        and ic_phi_iface_w is not None
+        and abs(dx) > 1.0e-30
+        and abs(ic_phi_iface_w) > 1.0e-30
+    ):
+        dx_phys_nm = (lambda_sm_m / (2.0 * ic_phi_iface_w)) * 1.0e9
+        unit_to_nm = dx_phys_nm / dx
+
+    def _scaled(values: tuple[float, ...] | list[float] | np.ndarray) -> list[float]:
+        if not math.isfinite(unit_to_nm):
+            return [math.nan for _ in values]
+        return [float(v) * unit_to_nm for v in values]
+
+    vf_csv = _find_vf_csv(path.parent, mode_label)
+    r_avg_internal, r_avg_nm = _read_last_radius_from_vf_csv(vf_csv)
+    if r_avg_internal is not None and (r_avg_nm is None) and math.isfinite(unit_to_nm):
+        r_avg_nm = r_avg_internal * unit_to_nm
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fp:
@@ -360,13 +412,24 @@ def _write_summary(path: Path, phi_vtk: Path, geom: dict[str, object], mode_labe
         fp.write(f"mode                      : {mode_label}\n")
         fp.write(f"grid_dimensions           : ({nx}, {ny}, {nz})\n")
         fp.write(f"spacing_sim_units         : ({dx:.6f}, {dy:.6f}, {dz:.6f})\n")
+        spacing_nm = _scaled((dx, dy, dz))
+        fp.write(f"internal_unit_to_nm       : {unit_to_nm:.10e}\n")
+        fp.write(f"spacing_nm                : ({spacing_nm[0]:.6f}, {spacing_nm[1]:.6f}, {spacing_nm[2]:.6f})\n")
+        if r_avg_internal is not None:
+            fp.write(f"R_avg_internal            : {r_avg_internal:.6e}\n")
+        if r_avg_nm is not None:
+            fp.write(f"R_avg_nm                  : {r_avg_nm:.6e}\n")
         fp.write(f"threshold_mode            : phi > {geom['threshold']:.3f}\n")
         fp.write(f"connected_components      : {geom['component_count']}\n")
         fp.write(f"chosen_component          : {geom['chosen_component']}\n")
         fp.write(f"voxel_count               : {geom['voxel_count']}\n")
         fp.write(f"boundary_voxel_count      : {geom['boundary_voxel_count']}\n")
         fp.write(f"center_of_mass            : [{center[0]:.6f}, {center[1]:.6f}, {center[2]:.6f}]\n")
+        center_nm = _scaled(center)
+        fp.write(f"center_of_mass_nm         : [{center_nm[0]:.6f}, {center_nm[1]:.6f}, {center_nm[2]:.6f}]\n")
         fp.write(f"bbox_length_xyz           : [{bbox[0]:.6f}, {bbox[1]:.6f}, {bbox[2]:.6f}]\n")
+        bbox_nm = _scaled(bbox)
+        fp.write(f"bbox_length_xyz_nm        : [{bbox_nm[0]:.6f}, {bbox_nm[1]:.6f}, {bbox_nm[2]:.6f}]\n")
         fp.write("\n--- Principal axes (unit vectors) ---\n")
         fp.write(f"long_axis                 : [{axes[0][0]:.6f}, {axes[0][1]:.6f}, {axes[0][2]:.6f}]\n")
         fp.write(f"mid_axis                  : [{axes[1][0]:.6f}, {axes[1][1]:.6f}, {axes[1][2]:.6f}]\n")
@@ -375,6 +438,10 @@ def _write_summary(path: Path, phi_vtk: Path, geom: dict[str, object], mode_labe
         fp.write(f"L1_long                   : {full_axes[0]:.6e}\n")
         fp.write(f"L2_mid                    : {full_axes[1]:.6e}\n")
         fp.write(f"L3_short                  : {full_axes[2]:.6e}\n")
+        full_axes_nm = _scaled(full_axes)
+        fp.write(f"L1_long_nm                : {full_axes_nm[0]:.6e}\n")
+        fp.write(f"L2_mid_nm                 : {full_axes_nm[1]:.6e}\n")
+        fp.write(f"L3_short_nm               : {full_axes_nm[2]:.6e}\n")
         fp.write(f"L1/L3                     : {(full_axes[0] / full_axes[2]) if full_axes[2] > 0 else 0.0:.6f}\n")
         fp.write(f"L2/L3                     : {(full_axes[1] / full_axes[2]) if full_axes[2] > 0 else 0.0:.6f}\n")
         fp.write(f"L1/L2                     : {(full_axes[0] / full_axes[1]) if full_axes[1] > 0 else 0.0:.6f}\n")
@@ -390,6 +457,8 @@ def _write_summary(path: Path, phi_vtk: Path, geom: dict[str, object], mode_labe
                 fp.write("  [warning] not enough boundary points selected.\n")
                 continue
             fp.write(f"  mean point              : [{face_points[i][0]:.6f}, {face_points[i][1]:.6f}, {face_points[i][2]:.6f}]\n")
+            face_point_nm = _scaled(face_points[i])
+            fp.write(f"  mean point nm           : [{face_point_nm[0]:.6f}, {face_point_nm[1]:.6f}, {face_point_nm[2]:.6f}]\n")
             fp.write(f"  mean normal             : [{face_normals[i][0]:.6f}, {face_normals[i][1]:.6f}, {face_normals[i][2]:.6f}]\n")
             fp.write(f"  angle with x            : {_angle_deg_abs(face_normals[i], ref_axes[0]):.3f}\n")
             fp.write(f"  angle with y            : {_angle_deg_abs(face_normals[i], ref_axes[1]):.3f}\n")

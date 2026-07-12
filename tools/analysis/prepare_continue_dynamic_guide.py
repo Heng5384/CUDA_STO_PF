@@ -12,6 +12,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.analysis.analyze_cnt_peak_table import parse_summary_file
+from tools.analysis.dynamic_continue_source_policy import (
+    NO_SAFE_POSTCRITICAL_RADIUS_AVAILABLE,
+    choose_dynamic_continue_source,
+)
 from tools.analysis.workflow_utils import cnt_summary_filename, continue_summary_rel, voxel_count_to_radius_nm
 
 
@@ -51,6 +55,10 @@ def main() -> int:
     parser.add_argument("--repo-root", "--results-root", dest="repo_root", type=Path, default=Path("."), help="repo root containing Results/")
     parser.add_argument("--radius-offset-nm", type=float, default=0.1, help="legacy fallback: nominal discrete radius margin above rc_cnt_nm when no fitted/actual-radius match is available")
     parser.add_argument("--fit-radius-margin-nm", type=float, default=0.055, help="require source nominal discrete radius >= rc_cnt_fit_nm + margin")
+    parser.add_argument("--dynamic-continue-source-policy", default="first_right_of_peak_with_margin", choices=("first_right_of_peak_with_margin", "legacy_fit_margin"), help="production source radius policy")
+    parser.add_argument("--dynamic-continue-min-postcritical-margin-nm", type=float, default=0.10, help="production margin to the right of the fitted peak")
+    parser.add_argument("--dynamic-continue-fallback-postcritical-margin-nm", type=float, default=0.05, help="fallback margin to the right of the fitted peak")
+    parser.add_argument("--dynamic-continue-allow-exact-peak-debug", type=int, default=0, help="allow exact peak source only for debug rows")
     parser.add_argument("--dx-nm", type=float, default=0.1, help="grid spacing used to convert voxel_count to equivalent radius")
     parser.add_argument("--dt", type=float, default=0.1, help="continue dynamic dt")
     parser.add_argument("--steps", type=int, default=5000, help="continue dynamic steps")
@@ -101,20 +109,42 @@ def main() -> int:
         candidates = guide_by_base.get(base, [])
         source_row = None
         start_radius_source = ""
-        for candidate in candidates:
-            if target_fit_radius is None:
-                continue
-            if float(candidate["radius_nm"]) >= target_fit_radius - 1e-9:
-                source_row = candidate
-                start_radius_source = f"first_discrete_radius_ge_rc_cnt_fit_plus_{args.fit_radius_margin_nm:g}nm"
-                break
-        if source_row is None:
+        if args.dynamic_continue_source_policy == "first_right_of_peak_with_margin":
+            peak_radius = rc_cnt_fit if rc_cnt_fit is not None else rc_cnt
+            completed_candidates = []
+            for candidate in candidates:
+                phi_vtk = _resolve_repo_path(repo_root, candidate["phi_final_rel"])
+                xb_vtk = _resolve_repo_path(repo_root, candidate["xb_final_rel"])
+                summary_path = _cnt_summary_path(candidate, repo_root)
+                if phi_vtk.exists() and xb_vtk.exists() and summary_path.exists():
+                    completed_candidates.append(candidate)
+            choice = choose_dynamic_continue_source(
+                completed_candidates,
+                peak_radius,
+                min_margin_nm=args.dynamic_continue_min_postcritical_margin_nm,
+                fallback_margin_nm=args.dynamic_continue_fallback_postcritical_margin_nm,
+                allow_exact_peak_debug=bool(args.dynamic_continue_allow_exact_peak_debug),
+            )
+            if choice.status != NO_SAFE_POSTCRITICAL_RADIUS_AVAILABLE:
+                source_row = choice.row
+                start_radius_source = choice.policy_used
+            else:
+                start_radius_source = choice.status
+        else:
+            for candidate in candidates:
+                if target_fit_radius is None:
+                    continue
+                if float(candidate["radius_nm"]) >= target_fit_radius - 1e-9:
+                    source_row = candidate
+                    start_radius_source = f"first_discrete_radius_ge_rc_cnt_fit_plus_{args.fit_radius_margin_nm:g}nm"
+                    break
+        if source_row is None and args.dynamic_continue_source_policy != "first_right_of_peak_with_margin":
             for candidate in candidates:
                 if float(candidate["radius_nm"]) >= target_nominal_radius - 1e-9:
                     source_row = candidate
                     start_radius_source = f"fallback_first_discrete_radius_ge_rc_cnt_plus_{args.radius_offset_nm:g}nm"
                     break
-        if source_row is None and candidates:
+        if source_row is None and candidates and args.dynamic_continue_source_policy != "first_right_of_peak_with_margin":
             source_row = candidates[-1]
             start_radius_source = "fallback_largest_discrete_radius_in_scan"
         if source_row is None:
