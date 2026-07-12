@@ -553,15 +553,18 @@ DEVICE_FUNC static inline double gamma_thermo_nonlinear(double xB, double h,
                                             double Vm_alpha_0, double dVm_alpha_dxB,
                                             double Vm_compound,
                                             double temperature_K, double energy_scale){
-    
-    // 这里直接对当前 backend 下的 mu_raw 做差分：
-    // - 若启用 convex extrapolation，则高 xB 区域由凸化抛物线控制；
-    // - 若关闭 convex extrapolation，则完全回到 true regular-solution / CALPHAD 形式。
-    
-    double c_bulk = c_xB_phi(xB, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
+    // Restore the legacy high-composition driving-force limiter behind the
+    // existing thermodynamic stabilization switch. Above xB=0.08, Gamma is
+    // evaluated at the cutoff and therefore remains constant.
+    double xB_calc = xB;
+    if (thermo_convex_extrapolation_enabled_runtime() && xB_calc > 0.08) {
+        xB_calc = 0.08;
+    }
+
+    double c_bulk = c_xB_phi(xB_calc, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
     double dx = 1e-5; 
-    double x_plus = clamp_fraction_eps(xB + dx);
-    double x_minus = clamp_fraction_eps(xB - dx);
+    double x_plus = clamp_fraction_eps(xB_calc + dx);
+    double x_minus = clamp_fraction_eps(xB_calc - dx);
     
     double dmuA_dx = (mu_A_dimless(x_plus, temperature_K, energy_scale) -
                       mu_A_dimless(x_minus, temperature_K, energy_scale)) / (x_plus - x_minus);

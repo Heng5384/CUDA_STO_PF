@@ -24,6 +24,19 @@ __host__ __device__ static inline double clamp_eps(double v, double eps) {
     return v;
 }
 
+// The transport update and its diagnostic must share one positive, bounded
+// mobility.  Without this guard, a clipped xB cell can make Gamma approach
+// zero or change sign in the flux kernel while the reported Meff is capped.
+__device__ static inline double stabilized_meff(double Dm, double gamma) {
+    const double gamma_floor = 1.0e-4;
+    const double D_safe = fmax(Dm, 0.0);
+    const double gamma_safe = (isfinite(gamma) && gamma > gamma_floor)
+        ? gamma : gamma_floor;
+    const double cap = D_safe * 1000.0;
+    const double value = D_safe / gamma_safe;
+    return (isfinite(value) && value < cap) ? value : cap;
+}
+
 // 前置声明：gpu_reduce_sum 在后部实现，这里先声明以供前面函数使用
 double gpu_reduce_sum(const double *d_array, int n);
 
@@ -1894,8 +1907,7 @@ __global__ void compute_flux_kernel(
     double G = gamma_thermo_nonlinear(xB0, h, Vm_alpha_0, dVm_alpha_dxB, 
                                       Vm_compound, temperature_K, mu_reference_scale);
     
-    // 有效迁移率
-    double Meff = Dm / G;
+    double Meff = stabilized_meff(Dm, G);
     
     Jx_r[idx] = Meff * grad_mu_x_r[idx];
     Jy_r[idx] = Meff * grad_mu_y_r[idx];
@@ -1927,9 +1939,34 @@ __global__ void compute_flux_single_component_kernel(
     double Dm = D_mix(h, D_alpha, D_compound);
     double G = gamma_thermo_nonlinear(xB0, h, Vm_alpha_0, dVm_alpha_dxB,
                                       Vm_compound, temperature_K, mu_reference_scale);
-    double Meff = Dm / G;
+    double Meff = stabilized_meff(Dm, G);
     
     J_alpha_r[idx] = Meff * grad_mu_alpha_r[idx];
+}
+
+__global__ void compute_flux_single_component_q_kernel(
+    const double *grad_mu_alpha_r,
+    const double *phi_r,
+    const double *xB_prev_r,
+    double *J_alpha_r,
+    double D_alpha,
+    double Vm_alpha_0,
+    double dVm_alpha_dxB,
+    double Vm_compound,
+    double temperature_K,
+    double mu_reference_scale,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(clamp01(phi_r[idx]));
+    const double alpha = 1.0 - h;
+    const double xB0 = xB_prev_r[idx];
+    const double G_alpha = gamma_thermo_nonlinear(
+        xB0, 0.0, Vm_alpha_0, dVm_alpha_dxB,
+        Vm_compound, temperature_K, mu_reference_scale);
+    const double M_alpha = stabilized_meff(D_alpha, G_alpha);
+    J_alpha_r[idx] = alpha * M_alpha * grad_mu_alpha_r[idx];
 }
 
 __global__ void compute_flux_single_component_gp_kernel(
@@ -1959,7 +1996,7 @@ __global__ void compute_flux_single_component_gp_kernel(
     double xB0 = xB_alpha_prev_r[idx];
     double G_alpha = gamma_thermo_nonlinear(xB0, 0.0, Vm_alpha_0, dVm_alpha_dxB,
                                             Vm_compound, temperature_K, mu_reference_scale);
-    double M_alpha = D_alpha / G_alpha;
+    double M_alpha = stabilized_meff(D_alpha, G_alpha);
     double M_eff = h_alpha * M_alpha + h_GP * gp_M_GP + h_beta * gp_M_beta;
 
     J_alpha_r[idx] = M_eff * grad_mu_alpha_r[idx];
@@ -1992,7 +2029,7 @@ __global__ void compute_gp_transport_stats_kernel(
     double xB = xB_alpha_r[idx];
     double G_alpha = gamma_thermo_nonlinear(xB, 0.0, Vm_alpha_0, dVm_alpha_dxB,
                                             Vm_compound, temperature_K, mu_reference_scale);
-    double M_alpha = D_alpha / G_alpha;
+    double M_alpha = stabilized_meff(D_alpha, G_alpha);
     double M_eff = h_alpha * M_alpha + h_GP * gp_M_GP + h_beta * gp_M_beta;
 
     atomicMaxAbsDouble(&stats[GP_TRANSPORT_MAXABS_XB_PERTURB], fabs(xB - xB_ref));
@@ -2654,6 +2691,442 @@ __global__ void gp_storage_exact_Y_update_kernel(
     }
 }
 
+// Same-step conservative update for the two-phase storage
+// C=(1-h_beta)*xB_alpha+h_beta*v_B.  This avoids using a derivative from the
+// previous physical timestep as an algebraic Jacobian iterate.  Local bound or
+// small-storage residuals remain explicit in update_stats and are closed by the
+// existing global mass projection; they are never silently discarded.
+__global__ void two_phase_storage_exact_Y_update_kernel(
+    const double *divJ_r,
+    const double *phi_new_r,
+    const double *phi_old_r,
+    const double *Y_old_r,
+    double *Y_r,
+    double *xB_r,
+    double dt,
+    double v_B,
+    double Y_clip,
+    double Y_upper_cap,
+    double xB_eps,
+    double h_alpha_eps,
+    double *update_stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    const double h_beta_old = h_of_phi(clamp01(phi_old_r[idx]));
+    const double h_beta_new = h_of_phi(clamp01(phi_new_r[idx]));
+    const double h_alpha_old = 1.0 - h_beta_old;
+    const double h_alpha_new = 1.0 - h_beta_new;
+    const double xB_old = sigmoid_from_logit(Y_old_r[idx], Y_clip, xB_eps);
+    const double C_old = h_alpha_old * xB_old + h_beta_old * v_B;
+    const double C_target = C_old + dt * divJ_r[idx];
+
+    double xB_trial = xB_old;
+    const int small_h_alpha = !(h_alpha_new >= h_alpha_eps);
+    if (!small_h_alpha && isfinite(C_target)) {
+        xB_trial = (C_target - h_beta_new * v_B) / h_alpha_new;
+    }
+    const int infeasible_reconstruction =
+        small_h_alpha || !isfinite(xB_trial) ||
+        xB_trial < xB_eps || xB_trial > 1.0 - xB_eps;
+    // x_alpha is an unobservable continuation when matrix storage vanishes.
+    // Likewise, an out-of-bounds trial means the split phi step requested more
+    // local storage than exists. Preserve the previous bounded continuation and
+    // expose the residual to the conservative global projection.
+    double xB_final = infeasible_reconstruction ? xB_old : xB_trial;
+    double Y_final = logit_from_fraction(xB_final, xB_eps, Y_clip);
+    Y_final = fmin(fmax(Y_final, -Y_clip), Y_upper_cap);
+    xB_final = sigmoid_from_logit(Y_final, Y_clip, xB_eps);
+    const double C_final = h_alpha_new * xB_final + h_beta_new * v_B;
+    const double protected_reconstruction_mass_error = C_final - C_target;
+
+    Y_r[idx] = Y_final;
+    xB_r[idx] = xB_final;
+    if (update_stats) {
+        atomicAdd(&update_stats[GP_Y_UPDATE_SUM_CLIPPING_MASS_ERROR],
+                  protected_reconstruction_mass_error);
+        atomicAdd(&update_stats[GP_Y_UPDATE_SUM_SMALL_HALPHA_MASS_ERROR],
+                  small_h_alpha ? protected_reconstruction_mass_error : 0.0);
+        atomicAdd(&update_stats[GP_Y_UPDATE_Y_CLIP_COUNT],
+                  (Y_final <= -Y_clip || Y_final >= Y_upper_cap) ? 1.0 : 0.0);
+        atomicAdd(&update_stats[GP_Y_UPDATE_XB_CLIP_COUNT],
+                  infeasible_reconstruction ? 1.0 : 0.0);
+        if (small_h_alpha) {
+            atomicAdd(&update_stats[GP_Y_UPDATE_SMALL_HALPHA_COUNT], 1.0);
+        }
+    }
+}
+
+__global__ void compute_xB_storage_rhs_kernel(
+    const double *divJ_r,
+    const double *phi_new_r,
+    const double *phi_old_r,
+    const double *lap_xB_r,
+    const double *xB_old_r,
+    double *rhs_xB_r,
+    double dt,
+    double v_B,
+    double mean_Dx,
+    double h_alpha_eps,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h_new = h_of_phi(clamp01(phi_new_r[idx]));
+    const double h_alpha = 1.0 - h_new;
+    const double lap_old = lap_xB_r[idx];
+    (void)phi_old_r;
+    (void)xB_old_r;
+    (void)dt;
+    (void)v_B;
+    // With phi held at the accepted split level, C_t=divJ gives
+    // (1-h)*x_alpha,t=divJ. The phi-storage residual is closed separately by
+    // the full-storage projection; beta support below the numerical storage
+    // floor is protected from singular local inversion.
+    const double physical_rate =
+        (h_alpha >= h_alpha_eps) ? (divJ_r[idx] / h_alpha) : 0.0;
+    rhs_xB_r[idx] = physical_rate - mean_Dx * lap_old;
+}
+
+__global__ void xB_normalize_clamp_and_logit_kernel(
+    double *xB_ifft_r,
+    double *xB_r,
+    double *Y_r,
+    double invN,
+    double xB_eps,
+    double Y_clip,
+    double Y_upper_cap,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    double x = xB_ifft_r[idx] * invN;
+    if (!isfinite(x)) x = xB_r[idx];
+    x = fmin(fmax(x, xB_eps), 1.0 - xB_eps);
+    double y = logit_from_fraction(x, xB_eps, Y_clip);
+    y = fmin(fmax(y, -Y_clip), Y_upper_cap);
+    x = sigmoid_from_logit(y, Y_clip, xB_eps);
+    xB_r[idx] = x;
+    Y_r[idx] = y;
+}
+
+__global__ void initialize_q_alpha_kernel(const double *phi_r,
+                                          const double *xB_r,
+                                          double *q_alpha_r,
+                                          int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(clamp01(phi_r[idx]));
+    q_alpha_r[idx] = (1.0 - h) * xB_r[idx];
+}
+
+// Pure phase substep at zero transport: q_new=q_old-Delta(h)*v_B.
+// An infeasible phase request is reported to the host and the run rejects the
+// step; this kernel never clips q and silently discards conserved storage.
+__global__ void apply_local_phase_storage_transfer_q_kernel(
+    const double *phi_new_r,
+    const double *phi_old_r,
+    double *q_alpha_r,
+    double v_B,
+    double feasibility_tol,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h_old = h_of_phi(clamp01(phi_old_r[idx]));
+    const double h_new = h_of_phi(clamp01(phi_new_r[idx]));
+    const double alpha_new = 1.0 - h_new;
+    const double delta_h = h_new - h_old;
+    const double q_old = q_alpha_r[idx];
+    const double q_new = q_old - delta_h * v_B;
+    const double residual = (q_new + h_new * v_B) -
+                            (q_old + h_old * v_B);
+    atomicAdd(&stats[PF_Q_SUM_DELTA_H], delta_h * v_B);
+    atomicAdd(&stats[PF_Q_SUM_LOCAL_DELTA_Q], q_new - q_old);
+    atomicAdd(&stats[PF_Q_SUM_LOCAL_RESIDUAL], residual);
+    atomicMaxAbsDouble(&stats[PF_Q_MAXABS_LOCAL_RESIDUAL], fabs(residual));
+    atomicMinDouble(&stats[PF_Q_MIN_ALPHA], alpha_new);
+    if (!isfinite(q_new) || q_new < -feasibility_tol ||
+        q_new > alpha_new + feasibility_tol) {
+        atomicAdd(&stats[PF_Q_INFEASIBLE_PHASE_COUNT], 1.0);
+        return;
+    }
+    q_alpha_r[idx] = fmin(fmax(q_new, 0.0), alpha_new);
+}
+
+__global__ void compute_q_transport_rhs_kernel(const double *divJ_r,
+                                               const double *lap_q_r,
+                                               double *rhs_q_r,
+                                               double mean_Dq,
+                                               int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    rhs_q_r[idx] = divJ_r[idx] - mean_Dq * lap_q_r[idx];
+}
+
+__global__ void q_normalize_validate_and_reconstruct_kernel(
+    double *q_ifft_r,
+    double *q_alpha_r,
+    const double *phi_r,
+    double *xB_r,
+    double *Y_r,
+    double invN,
+    double xB_eps,
+    double Y_clip,
+    double Y_upper_cap,
+    double bound_tol,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(clamp01(phi_r[idx]));
+    const double alpha = 1.0 - h;
+    double q = q_ifft_r[idx] * invN;
+    const double q_unbounded = q;
+    if (!isfinite(q) || q < -bound_tol || q > alpha + bound_tol) {
+        atomicAdd(&stats[PF_Q_TRANSPORT_BOUND_VIOLATION_COUNT], 1.0);
+    }
+    q = isfinite(q) ? fmin(fmax(q, 0.0), alpha) : 0.0;
+    atomicAdd(&stats[PF_Q_TRANSPORT_BOUND_MASS], q - q_unbounded);
+    q_alpha_r[idx] = q;
+
+    // q and alpha co-vanish in beta support.  Their bounded ratio is the
+    // declared matrix-channel context; at alpha=0 the previous bounded context
+    // is retained because it carries zero conserved storage.
+    double x = xB_r[idx];
+    if (alpha > 1.0e-14) x = q / alpha;
+    x = fmin(fmax(x, xB_eps), 1.0 - xB_eps);
+    double y = logit_from_fraction(x, xB_eps, Y_clip);
+    y = fmin(fmax(y, -Y_clip), Y_upper_cap);
+    xB_r[idx] = sigmoid_from_logit(y, Y_clip, xB_eps);
+    Y_r[idx] = y;
+}
+
+__global__ void q_explicit_transport_and_reconstruct_kernel(
+    double *q_alpha_r,
+    const double *divJ_r,
+    const double *phi_r,
+    double *xB_r,
+    double *Y_r,
+    double dt,
+    double xB_eps,
+    double Y_clip,
+    double Y_upper_cap,
+    double bound_tol,
+    double *stats,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(clamp01(phi_r[idx]));
+    const double alpha = 1.0 - h;
+    const double q_trial = q_alpha_r[idx] + dt * divJ_r[idx];
+    if (!isfinite(q_trial) || q_trial < -bound_tol ||
+        q_trial > alpha + bound_tol) {
+        atomicAdd(&stats[PF_Q_TRANSPORT_BOUND_VIOLATION_COUNT], 1.0);
+    }
+    const double q = isfinite(q_trial)
+                         ? fmin(fmax(q_trial, 0.0), alpha) : 0.0;
+    atomicAdd(&stats[PF_Q_TRANSPORT_BOUND_MASS], q - q_trial);
+    q_alpha_r[idx] = q;
+    double x = xB_r[idx];
+    if (alpha > 1.0e-14) x = q / alpha;
+    x = fmin(fmax(x, xB_eps), 1.0 - xB_eps);
+    double y = logit_from_fraction(x, xB_eps, Y_clip);
+    y = fmin(fmax(y, -Y_clip), Y_upper_cap);
+    xB_r[idx] = sigmoid_from_logit(y, Y_clip, xB_eps);
+    Y_r[idx] = y;
+}
+
+__global__ void sync_q_from_phi_xB_kernel(const double *phi_r,
+                                          const double *xB_r,
+                                          double *q_alpha_r,
+                                          int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(clamp01(phi_r[idx]));
+    q_alpha_r[idx] = (1.0 - h) * xB_r[idx];
+}
+
+// ============================================================================
+// PF-only conservative Ctot/q_alpha architectures.
+// Each checkerboard sweep owns one periodic face exactly once.  The two cells
+// receive opposite increments, so limiting cannot change the global sum.
+// ============================================================================
+__global__ void initialize_conservative_storage_kernel(
+    const double *phi_r, const double *xB_r, double *storage_r,
+    double v_B, int primary_is_ctot, int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(clamp01(phi_r[idx]));
+    const double q = (1.0 - h) * clamp01(xB_r[idx]);
+    storage_r[idx] = primary_is_ctot ? (q + h * v_B) : q;
+}
+
+__global__ void reconstruct_conservative_context_kernel(
+    const double *storage_r, const double *phi_r, double *xB_r, double *Y_r,
+    double temperature_K, double v_B, int primary_is_ctot,
+    double beta_support_eps, double xB_eps, double Y_clip,
+    double *stats, int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(clamp01(phi_r[idx]));
+    double alpha = fmax(1.0 - h, 0.0);
+    const double q = primary_is_ctot ? (storage_r[idx] - h * v_B)
+                                     : storage_r[idx];
+    double x = solve_x_eq_device(temperature_K);
+    if (alpha > beta_support_eps) {
+        x = q / alpha;
+    } else if (stats) {
+        atomicAdd(&stats[PF_CONS_BETA_CONTEXT_COUNT], 1.0);
+    }
+    if (!isfinite(x)) {
+        x = solve_x_eq_device(temperature_K);
+        if (stats) atomicAdd(&stats[PF_CONS_NONFINITE_COUNT], 1.0);
+    }
+    x = fmin(fmax(x, xB_eps), 1.0 - xB_eps);
+    xB_r[idx] = x;
+    Y_r[idx] = logit_from_fraction(x, xB_eps, Y_clip);
+}
+
+__global__ void pairwise_conservative_face_sweep_kernel(
+    double *storage_r, const double *mu_r, const double *phi_r,
+    const double *xB_r, int Nx, int Ny, int Nz, int axis, int parity,
+    double spacing, double dt, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale,
+    double v_B, int primary_is_ctot, int backward_euler,
+    double bound_tol, double *stats, int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int k = idx % Nz;
+    const int t = idx / Nz;
+    const int j = t % Ny;
+    const int i = t / Ny;
+    const int coord = (axis == 0) ? i : ((axis == 1) ? j : k);
+    if ((coord & 1) != parity) return;
+    int ni = i, nj = j, nk = k;
+    if (axis == 0) ni = (i + 1 == Nx) ? 0 : i + 1;
+    else if (axis == 1) nj = (j + 1 == Ny) ? 0 : j + 1;
+    else nk = (k + 1 == Nz) ? 0 : k + 1;
+    const int nidx = (ni * Ny + nj) * Nz + nk;
+
+    const double hi = h_of_phi(clamp01(phi_r[idx]));
+    const double hj = h_of_phi(clamp01(phi_r[nidx]));
+    const double ai = fmax(1.0 - hi, 0.0);
+    const double aj = fmax(1.0 - hj, 0.0);
+    const double xi = clamp_eps(xB_r[idx], 1.0e-12);
+    const double xj = clamp_eps(xB_r[nidx], 1.0e-12);
+    const double Gi = gamma_thermo_nonlinear(
+        xi, 0.0, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale);
+    const double Gj = gamma_thermo_nonlinear(
+        xj, 0.0, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale);
+    const double Mi = ai * stabilized_meff(D_alpha, Gi);
+    const double Mj = aj * stabilized_meff(D_alpha, Gj);
+    const double Mface = (Mi > 0.0 && Mj > 0.0)
+        ? (2.0 * Mi * Mj / (Mi + Mj)) : 0.0;
+    const double inv_dx2 = 1.0 / (spacing * spacing);
+    double transfer = dt * Mface * (mu_r[idx] - mu_r[nidx]) * inv_dx2;
+    if (backward_euler && Mface > 0.0) {
+        const double dmu_dCi = Gi / fmax(ai, 1.0e-14);
+        const double dmu_dCj = Gj / fmax(aj, 1.0e-14);
+        const double denom = 1.0 + dt * Mface * inv_dx2 *
+                                   fmax(dmu_dCi + dmu_dCj, 0.0);
+        transfer /= denom;
+    }
+
+    const double si = storage_r[idx];
+    const double sj = storage_r[nidx];
+    const double loi = primary_is_ctot ? hi * v_B : 0.0;
+    const double loj = primary_is_ctot ? hj * v_B : 0.0;
+    const double hii = primary_is_ctot ? (hi * v_B + ai) : ai;
+    const double hij = primary_is_ctot ? (hj * v_B + aj) : aj;
+    const double raw = transfer;
+    if (transfer >= 0.0) {
+        transfer = fmin(transfer, fmax(si - loi, 0.0));
+        transfer = fmin(transfer, fmax(hij - sj, 0.0));
+    } else {
+        const double mag = fmin(-transfer, fmax(sj - loj, 0.0));
+        transfer = -fmin(mag, fmax(hii - si, 0.0));
+    }
+    if (stats) {
+        atomicAdd(&stats[PF_CONS_SUM_SIGNED_TRANSFER], transfer - transfer);
+        atomicAdd(&stats[PF_CONS_SUM_ABS_TRANSFER], fabs(transfer));
+        atomicMaxAbsDouble(&stats[PF_CONS_MAXABS_FACE_TRANSFER], fabs(transfer));
+        if (fabs(transfer - raw) > bound_tol)
+            atomicAdd(&stats[PF_CONS_LIMITED_FACE_COUNT], 1.0);
+    }
+    storage_r[idx] = si - transfer;
+    storage_r[nidx] = sj + transfer;
+    if (stats && (storage_r[idx] < loi - bound_tol || storage_r[idx] > hii + bound_tol ||
+                  storage_r[nidx] < loj - bound_tol || storage_r[nidx] > hij + bound_tol)) {
+        atomicAdd(&stats[PF_CONS_BOUND_VIOLATION_COUNT], 1.0);
+    }
+}
+
+__global__ void constrain_phase_and_reconstruct_conservative_kernel(
+    double *phi_new_r, const double *phi_old_r, double *storage_r,
+    double *xB_r, double *Y_r, double temperature_K, double v_B,
+    int primary_is_ctot, double beta_support_eps, double xB_eps,
+    double Y_clip, double bound_tol, double *stats, int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double phi_old = clamp01(phi_old_r[idx]);
+    const double h_old = h_of_phi(phi_old);
+    const double C = primary_is_ctot ? storage_r[idx]
+                                     : storage_r[idx] + h_old * v_B;
+    double phi = clamp01(phi_new_r[idx]);
+    double h = h_of_phi(phi);
+    const double hmax = (v_B > 0.0) ? fmin(fmax(C / v_B, 0.0), 1.0) : 1.0;
+    if (h > hmax + bound_tol) {
+        const double unconstrained = phi;
+        phi = h_inverse_bisection_device(hmax);
+        h = h_of_phi(phi);
+        if (stats) {
+            atomicAdd(&stats[PF_CONS_PHASE_CONSTRAINT_COUNT], 1.0);
+            atomicMaxAbsDouble(&stats[PF_CONS_MAXABS_PHASE_CORRECTION],
+                               fabs(phi - unconstrained));
+        }
+    }
+    double alpha = fmax(1.0 - h, 0.0);
+    double q = C - h * v_B;
+    if (!isfinite(q) || q < -bound_tol || q > alpha + bound_tol) {
+        if (stats) atomicAdd(&stats[PF_CONS_BOUND_VIOLATION_COUNT], 1.0);
+        // Do not clip conserved storage.  Mark failure and retain the accepted
+        // phase value; the host audit rejects/rolls back this step.
+        phi = phi_old;
+        h = h_old;
+        alpha = fmax(1.0 - h, 0.0);
+        q = C - h * v_B;
+    }
+    phi_new_r[idx] = phi;
+    if (!primary_is_ctot) storage_r[idx] = q;
+    double x = solve_x_eq_device(temperature_K);
+    if (alpha > beta_support_eps) x = q / alpha;
+    else if (stats) atomicAdd(&stats[PF_CONS_BETA_CONTEXT_COUNT], 1.0);
+    if (!isfinite(x)) {
+        x = solve_x_eq_device(temperature_K);
+        if (stats) atomicAdd(&stats[PF_CONS_NONFINITE_COUNT], 1.0);
+    }
+    x = fmin(fmax(x, xB_eps), 1.0 - xB_eps);
+    xB_r[idx] = x;
+    Y_r[idx] = logit_from_fraction(x, xB_eps, Y_clip);
+}
+
+
 __global__ void gp_picard_storage_Y_update_kernel(
     const double *divJ_r,
     const double *phi_new_r,
@@ -2741,21 +3214,18 @@ __global__ void apply_Y_shift_recompute_xB_kernel(
     double *Y_r,
     double *xB_r,
     double lambda_shift,
+    double Y_clip,
+    double Y_upper_cap,
+    double xB_eps,
     int total_size)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
     double Y_shifted = Y_base_r[idx] + lambda_shift;
-    double xB = 0.0;
-    if (Y_shifted >= 0.0) {
-        double e = exp(-Y_shifted);
-        xB = 1.0 / (1.0 + e);
-    } else {
-        double e = exp(Y_shifted);
-        xB = e / (1.0 + e);
-    }
+    if (Y_shifted > Y_upper_cap) Y_shifted = Y_upper_cap;
+    if (Y_shifted < -Y_clip) Y_shifted = -Y_clip;
     Y_r[idx] = Y_shifted;
-    xB_r[idx] = xB;
+    xB_r[idx] = sigmoid_from_logit(Y_shifted, Y_clip, xB_eps);
 }
 
 __global__ void gp_storage_diagnostics_kernel(
@@ -3386,16 +3856,7 @@ __global__ void reduce_min_max_meff_kernel(
         double G = gamma_thermo_nonlinear(xB, h, Vm_alpha_0, dVm_alpha_dxB, 
                                           Vm_compound, temperature_K, mu_reference_scale);
         
-        // 稳定性增强：热力学因子 G 在 spinodal 点附近会趋于 0 或负值，导致 Meff 爆炸
-        double G_limit = 1e-4; 
-        if (G < G_limit) G = G_limit; 
-        
-        // 有效迁移率
-        double Meff = Dm / G;
-        
-        // 进一步限制 Meff，防止数值不稳定
-        double Meff_max = Dm * 1000.0;
-        if (Meff > Meff_max) Meff = Meff_max;
+        double Meff = stabilized_meff(Dm, G);
         
         min_val = Meff;
         max_val = Meff;
@@ -4226,6 +4687,19 @@ void launch_compute_flux_single_component_kernel(
         D_alpha, D_compound, Vm_alpha_0, dVm_alpha_dxB,
         Vm_compound, temperature_K, mu_reference_scale, total_size);
 }
+void launch_compute_flux_single_component_q_kernel(
+    const double *grad_mu_alpha_r, const double *phi_r,
+    const double *xB_prev_r, double *J_alpha_r,
+    double D_alpha, double Vm_alpha_0, double dVm_alpha_dxB,
+    double Vm_compound, double temperature_K,
+    double mu_reference_scale, int total_size) {
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_flux_single_component_q_kernel<<<blocks, threads>>>(
+        grad_mu_alpha_r, phi_r, xB_prev_r, J_alpha_r,
+        D_alpha, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale, total_size);
+}
 void launch_compute_flux_single_component_gp_kernel(
     const double *grad_mu_alpha_r,
     const double *phi_r,
@@ -4447,16 +4921,200 @@ void launch_gp_storage_exact_Y_update_kernel(const double *divJ_r,
         update_stats, total_size);
 }
 
+void launch_two_phase_storage_exact_Y_update_kernel(const double *divJ_r,
+                                                    const double *phi_new_r,
+                                                    const double *phi_old_r,
+                                                    const double *Y_old_r,
+                                                    double *Y_r,
+                                                    double *xB_r,
+                                                    double dt,
+                                                    double v_B,
+                                                    double Y_clip,
+                                                    double Y_upper_cap,
+                                                    double xB_eps,
+                                                    double h_alpha_eps,
+                                                    double *update_stats,
+                                                    int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    two_phase_storage_exact_Y_update_kernel<<<blocks, threads>>>(
+        divJ_r, phi_new_r, phi_old_r, Y_old_r, Y_r, xB_r, dt, v_B,
+        Y_clip, Y_upper_cap, xB_eps, h_alpha_eps, update_stats, total_size);
+}
+
+void launch_compute_xB_storage_rhs_kernel(const double *divJ_r,
+                                          const double *phi_new_r,
+                                          const double *phi_old_r,
+                                          const double *lap_xB_r,
+                                          const double *xB_old_r,
+                                          double *rhs_xB_r,
+                                          double dt,
+                                          double v_B,
+                                          double mean_Dx,
+                                          double h_alpha_eps,
+                                          int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    compute_xB_storage_rhs_kernel<<<blocks, threads>>>(
+        divJ_r, phi_new_r, phi_old_r, lap_xB_r, xB_old_r, rhs_xB_r,
+        dt, v_B, mean_Dx, h_alpha_eps, total_size);
+}
+
+void launch_xB_normalize_clamp_and_logit_kernel(double *xB_ifft_r,
+                                                double *xB_r,
+                                                double *Y_r,
+                                                double invN,
+                                                double xB_eps,
+                                                double Y_clip,
+                                                double Y_upper_cap,
+                                                int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    xB_normalize_clamp_and_logit_kernel<<<blocks, threads>>>(
+        xB_ifft_r, xB_r, Y_r, invN, xB_eps, Y_clip, Y_upper_cap, total_size);
+}
+
+void launch_initialize_q_alpha_kernel(const double *phi_r,
+                                      const double *xB_r,
+                                      double *q_alpha_r,
+                                      int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    initialize_q_alpha_kernel<<<blocks, threads>>>(phi_r, xB_r, q_alpha_r, total_size);
+}
+
+void launch_apply_local_phase_storage_transfer_q_kernel(
+    const double *phi_new_r, const double *phi_old_r,
+    double *q_alpha_r, double v_B, double feasibility_tol,
+    double *stats, int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    apply_local_phase_storage_transfer_q_kernel<<<blocks, threads>>>(
+        phi_new_r, phi_old_r, q_alpha_r, v_B, feasibility_tol, stats, total_size);
+}
+
+void launch_compute_q_transport_rhs_kernel(const double *divJ_r,
+                                           const double *lap_q_r,
+                                           double *rhs_q_r,
+                                           double mean_Dq,
+                                           int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    compute_q_transport_rhs_kernel<<<blocks, threads>>>(
+        divJ_r, lap_q_r, rhs_q_r, mean_Dq, total_size);
+}
+
+void launch_q_normalize_validate_and_reconstruct_kernel(
+    double *q_ifft_r, double *q_alpha_r, const double *phi_r,
+    double *xB_r, double *Y_r, double invN, double xB_eps,
+    double Y_clip, double Y_upper_cap, double bound_tol,
+    double *stats, int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    q_normalize_validate_and_reconstruct_kernel<<<blocks, threads>>>(
+        q_ifft_r, q_alpha_r, phi_r, xB_r, Y_r, invN, xB_eps,
+        Y_clip, Y_upper_cap, bound_tol, stats, total_size);
+}
+
+void launch_q_explicit_transport_and_reconstruct_kernel(
+    double *q_alpha_r, const double *divJ_r, const double *phi_r,
+    double *xB_r, double *Y_r, double dt, double xB_eps,
+    double Y_clip, double Y_upper_cap, double bound_tol,
+    double *stats, int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    q_explicit_transport_and_reconstruct_kernel<<<blocks, threads>>>(
+        q_alpha_r, divJ_r, phi_r, xB_r, Y_r, dt, xB_eps,
+        Y_clip, Y_upper_cap, bound_tol, stats, total_size);
+}
+
+void launch_sync_q_from_phi_xB_kernel(const double *phi_r,
+                                      const double *xB_r,
+                                      double *q_alpha_r,
+                                      int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    sync_q_from_phi_xB_kernel<<<blocks, threads>>>(
+        phi_r, xB_r, q_alpha_r, total_size);
+}
+
+void launch_initialize_conservative_storage_kernel(
+    const double *phi_r, const double *xB_r, double *storage_r,
+    double v_B, int primary_is_ctot, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    initialize_conservative_storage_kernel<<<blocks, threads>>>(
+        phi_r, xB_r, storage_r, v_B, primary_is_ctot, total_size);
+}
+
+void launch_reconstruct_conservative_context_kernel(
+    const double *storage_r, const double *phi_r, double *xB_r, double *Y_r,
+    double temperature_K, double v_B, int primary_is_ctot,
+    double beta_support_eps, double xB_eps, double Y_clip,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    reconstruct_conservative_context_kernel<<<blocks, threads>>>(
+        storage_r, phi_r, xB_r, Y_r, temperature_K, v_B,
+        primary_is_ctot, beta_support_eps, xB_eps, Y_clip, stats, total_size);
+}
+
+void launch_pairwise_conservative_face_sweep_kernel(
+    double *storage_r, const double *mu_r, const double *phi_r,
+    const double *xB_r, int Nx, int Ny, int Nz, int axis, int parity,
+    double spacing, double dt, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale,
+    double v_B, int primary_is_ctot, int backward_euler,
+    double bound_tol, double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    pairwise_conservative_face_sweep_kernel<<<blocks, threads>>>(
+        storage_r, mu_r, phi_r, xB_r, Nx, Ny, Nz, axis, parity,
+        spacing, dt, D_alpha, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale, v_B, primary_is_ctot,
+        backward_euler, bound_tol, stats, total_size);
+}
+
+void launch_constrain_phase_and_reconstruct_conservative_kernel(
+    double *phi_new_r, const double *phi_old_r, double *storage_r,
+    double *xB_r, double *Y_r, double temperature_K, double v_B,
+    int primary_is_ctot, double beta_support_eps, double xB_eps,
+    double Y_clip, double bound_tol, double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    constrain_phase_and_reconstruct_conservative_kernel<<<blocks, threads>>>(
+        phi_new_r, phi_old_r, storage_r, xB_r, Y_r, temperature_K, v_B,
+        primary_is_ctot, beta_support_eps, xB_eps, Y_clip, bound_tol,
+        stats, total_size);
+}
+
 void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,
                                               double *Y_r,
                                               double *xB_r,
                                               double lambda_shift,
+                                              double Y_clip,
+                                              double Y_upper_cap,
+                                              double xB_eps,
                                               int total_size)
 {
     int threads = 256;
     int blocks = (total_size + threads - 1) / threads;
     apply_Y_shift_recompute_xB_kernel<<<blocks, threads>>>(
-        Y_base_r, Y_r, xB_r, lambda_shift, total_size);
+        Y_base_r, Y_r, xB_r, lambda_shift, Y_clip, Y_upper_cap, xB_eps, total_size);
 }
 
 void launch_gp_picard_storage_Y_update_kernel(const double *divJ_r,

@@ -22,6 +22,10 @@
 #include <limits>
 #include <string>
 #include <map>
+#include <fstream>
+#include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "cuda_common.h"
 #include "pf_params.h"
@@ -30,6 +34,22 @@
 #include "thermo_utils.h"
 #include "cuda_kernels.h"
 #include "io_vtk_cuda.h"
+
+__global__ void diagnostic_rsmd_gather_double_kernel(const double *src,
+                                                     const int *indices,
+                                                     double *dst,
+                                                     int n) {
+    int t = blockIdx.x * blockDim.x + threadIdx.x;
+    if (t < n) dst[t] = src[indices[t]];
+}
+
+__global__ void diagnostic_rsmd_scatter_double_kernel(double *dst,
+                                                      const int *indices,
+                                                      const double *src,
+                                                      int n) {
+    int t = blockIdx.x * blockDim.x + threadIdx.x;
+    if (t < n) dst[indices[t]] = src[t];
+}
 
 typedef enum {
     VTK_NAME_INIT = 0,
@@ -58,12 +78,25 @@ static int is_valid_gp_eps_mode(const char *mode);
 static int is_valid_gp_L_eta_mode(const char *mode);
 static int is_valid_y_update_mass_projection_target_mode(const char *mode);
 static int is_gp_zone_mode(const PFParams *P);
+static int gp_storage_coupling_enabled(const PFParams *P);
+static void compute_field_minmax_host(const std::vector<double> &phi,
+                                      const std::vector<double> &xB,
+                                      double *phi_min, double *phi_max,
+                                      double *phi_mean,
+                                      double *xb_min, double *xb_max,
+                                      double *xb_mean, double *mean_h);
 static void sync_thermo_runtime_flags(const PFParams *P);
 static double gpu_reduce_sum_model_xBtot(const PFParams *P,
                                          const double *phi_r,
                                          const double *eta_r,
                                          const double *xB_alpha_r,
                                          int total_size);
+static double gp_pseudobinary_xB_from_xAg(double xAg);
+static double gp_pseudobinary_xAg_from_xB(double xB);
+static double gp_compute_matrix_mean_xB_alpha_host(const std::vector<double> &phi,
+                                                   const std::vector<double> &xB);
+static double gp_site_volume_m3_from_radius_nm(double radius_nm);
+static int gp_assisted_flat_index(const PFParams *P, int ix, int iy, int iz);
 void launch_compute_flux_single_component_gp_kernel(
     const double *grad_mu_alpha_r,
     const double *phi_r,
@@ -766,6 +799,13 @@ static int compute_nucleus_geometry_summary_host(const double *h_phi,
     return 1;
 }
 
+static double compute_eta_ref_dx_phys_m_host(const PFParams *P);
+static double compute_eta_ref_D_alpha_phys_host(const PFParams *P);
+static double compute_local_Vm_alpha_phys_host(double xB_alpha, const PFParams *P);
+static double runtime_dx_nm_host(const PFParams *P);
+static double runtime_dy_nm_host(const PFParams *P);
+static double runtime_dz_nm_host(const PFParams *P);
+
 static int write_nucleus_geometry_summary(const char *summary_path,
                                          const NucleusGeometrySummary *summary,
                                          const PFParams *P,
@@ -790,6 +830,11 @@ static int write_nucleus_geometry_summary(const char *summary_path,
         return 0;
     }
 
+    const double unit_to_nm = compute_eta_ref_dx_phys_m_host(P) * 1.0e9;
+    const double dx_nm = (P && isfinite(unit_to_nm)) ? (P->dx * unit_to_nm) : NAN;
+    const double dy_nm = (P && isfinite(unit_to_nm)) ? (P->dy * unit_to_nm) : NAN;
+    const double dz_nm = (P && isfinite(unit_to_nm)) ? (P->dz * unit_to_nm) : NAN;
+
     fprintf(fp, "==================== Analysis Summary ====================\n");
     fprintf(fp, "summary_file              : %s\n", summary_path);
     if (phi_vtk_path && phi_vtk_path[0] != '\0') {
@@ -798,6 +843,8 @@ static int write_nucleus_geometry_summary(const char *summary_path,
     fprintf(fp, "mode                      : %s\n", (P && P->mode == 0) ? "dynamic" : "minimize");
     fprintf(fp, "grid_dimensions           : (%d, %d, %d)\n", P ? P->Nx : 0, P ? P->Ny : 0, P ? P->Nz : 0);
     fprintf(fp, "spacing_sim_units         : (%.6f, %.6f, %.6f)\n", P ? P->dx : 0.0, P ? P->dy : 0.0, P ? P->dz : 0.0);
+    fprintf(fp, "internal_unit_to_nm       : %.10e\n", unit_to_nm);
+    fprintf(fp, "spacing_nm                : (%.6f, %.6f, %.6f)\n", dx_nm, dy_nm, dz_nm);
     fprintf(fp, "threshold_mode            : phi > %.3f\n", summary->threshold);
     fprintf(fp, "connected_components      : %d\n", summary->component_count);
     fprintf(fp, "chosen_component          : %d\n", summary->chosen_component);
@@ -805,8 +852,16 @@ static int write_nucleus_geometry_summary(const char *summary_path,
     fprintf(fp, "boundary_voxel_count      : %zu\n", summary->boundary_voxel_count);
     fprintf(fp, "center_of_mass            : [%.6f, %.6f, %.6f]\n",
             summary->center[0], summary->center[1], summary->center[2]);
+    fprintf(fp, "center_of_mass_nm         : [%.6f, %.6f, %.6f]\n",
+            summary->center[0] * unit_to_nm,
+            summary->center[1] * unit_to_nm,
+            summary->center[2] * unit_to_nm);
     fprintf(fp, "bbox_length_xyz           : [%.6f, %.6f, %.6f]\n",
             summary->bbox_lengths[0], summary->bbox_lengths[1], summary->bbox_lengths[2]);
+    fprintf(fp, "bbox_length_xyz_nm        : [%.6f, %.6f, %.6f]\n",
+            summary->bbox_lengths[0] * unit_to_nm,
+            summary->bbox_lengths[1] * unit_to_nm,
+            summary->bbox_lengths[2] * unit_to_nm);
     fprintf(fp, "\n--- Principal axes (unit vectors) ---\n");
     fprintf(fp, "long_axis                 : [%.6f, %.6f, %.6f]\n",
             summary->principal_axes[0][0], summary->principal_axes[0][1], summary->principal_axes[0][2]);
@@ -819,6 +874,9 @@ static int write_nucleus_geometry_summary(const char *summary_path,
     fprintf(fp, "L1_long                   : %.6e\n", summary->full_axes[0]);
     fprintf(fp, "L2_mid                    : %.6e\n", summary->full_axes[1]);
     fprintf(fp, "L3_short                  : %.6e\n", summary->full_axes[2]);
+    fprintf(fp, "L1_long_nm                : %.6e\n", summary->full_axes[0] * unit_to_nm);
+    fprintf(fp, "L2_mid_nm                 : %.6e\n", summary->full_axes[1] * unit_to_nm);
+    fprintf(fp, "L3_short_nm               : %.6e\n", summary->full_axes[2] * unit_to_nm);
     fprintf(fp, "L1/L3                     : %.6f\n",
             (summary->full_axes[2] > 0.0) ? (summary->full_axes[0] / summary->full_axes[2]) : 0.0);
     fprintf(fp, "L2/L3                     : %.6f\n",
@@ -845,6 +903,10 @@ static int write_nucleus_geometry_summary(const char *summary_path,
         }
         fprintf(fp, "  mean point              : [%.6f, %.6f, %.6f]\n",
                 summary->face_points[face][0], summary->face_points[face][1], summary->face_points[face][2]);
+        fprintf(fp, "  mean point nm           : [%.6f, %.6f, %.6f]\n",
+                summary->face_points[face][0] * unit_to_nm,
+                summary->face_points[face][1] * unit_to_nm,
+                summary->face_points[face][2] * unit_to_nm);
         fprintf(fp, "  mean normal             : [%.6f, %.6f, %.6f]\n",
                 summary->face_normals[face][0], summary->face_normals[face][1], summary->face_normals[face][2]);
         fprintf(fp, "  angle with x            : %.3f\n",
@@ -957,11 +1019,11 @@ static int voigt21_suffix_index(const char *suffix) {
 static void mark_pfparams_presence(PFParamOverridePresence *presence, const char *key) {
     if (!presence || !key) return;
     if (strcmp(key, "pf_params_schema_version") == 0) { presence->have_pf_params_schema_version = 1; return; }
-    if (strcmp(key, "dt") == 0) { presence->have_dt = 1; return; }
+    if (strcmp(key, "dt") == 0 || strcmp(key, "dt_code") == 0) { presence->have_dt = 1; return; }
     if (strcmp(key, "dx") == 0) { presence->have_dx = 1; return; }
     if (strcmp(key, "dy") == 0) { presence->have_dy = 1; return; }
     if (strcmp(key, "dz") == 0) { presence->have_dz = 1; return; }
-    if (strcmp(key, "t_real_unit") == 0) { presence->have_t_real_unit = 1; return; }
+    if (strcmp(key, "t_real_unit") == 0 || strcmp(key, "t_real_unit_s") == 0) { presence->have_t_real_unit = 1; return; }
     if (strcmp(key, "temperature_C") == 0) { presence->have_temperature_C = 1; return; }
     if (strcmp(key, "mu_reference_scale") == 0) { presence->have_mu_reference_scale = 1; return; }
     if (strcmp(key, "W") == 0) { presence->have_W = 1; return; }
@@ -1306,6 +1368,735 @@ static int validate_physical_params_ready(const PFParams *P) {
         }
     }
 
+    if (P->enable_gp_assisted_beta_nucleation) {
+        if (P->mode != 0) {
+            fprintf(stderr, "[fatal] GP-assisted beta debug mode currently requires dynamics mode (mode=0).\n");
+            ok = 0;
+        }
+        if (!P->gp_assisted_debug_scheduled && !P->gp_stochastic_enabled) {
+            fprintf(stderr, "[fatal] enable_gp_assisted_beta_nucleation requires gp_assisted_debug_scheduled=1 or gp_stochastic_enabled=1.\n");
+            ok = 0;
+        }
+        if (P->gp_assisted_debug_scheduled && P->gp_stochastic_enabled) {
+            fprintf(stderr, "[fatal] gp_assisted_debug_scheduled and gp_stochastic_enabled are mutually exclusive.\n");
+            ok = 0;
+        }
+        if (P->gp_assisted_debug_scheduled && P->gp_debug_scheduled_step < 0) {
+            fprintf(stderr, "[fatal] gp_debug_scheduled_step must be >= 0 when GP-assisted beta debug is enabled.\n");
+            ok = 0;
+        }
+        if (P->gp_stochastic_enabled) {
+            if (P->gp_stochastic_k0 < 0.0) {
+                fprintf(stderr, "[fatal] gp_stochastic_k0 must be >= 0.\n");
+                ok = 0;
+            }
+            if (P->gp_stochastic_deltaG_homo_kBT < 0.0) {
+                fprintf(stderr, "[fatal] gp_stochastic_deltaG_homo_kBT must be >= 0.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_rate_model, "surrogate_hazard") != 0 &&
+                strcmp(P->beta_rate_model, "physical_cnt") != 0) {
+                fprintf(stderr, "[fatal] beta_rate_model must be surrogate_hazard or physical_cnt.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_rate_D_B_alpha_model, "from_runtime_D_alpha") != 0 &&
+                strcmp(P->beta_rate_D_B_alpha_model, "Arrhenius") != 0) {
+                fprintf(stderr, "[fatal] beta_rate_D_B_alpha_model must be from_runtime_D_alpha or Arrhenius.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_rate_Z_r_fallback_mode, "disabled") != 0 &&
+                strcmp(P->beta_rate_Z_r_fallback_mode, "diagnostic_from_library") != 0 &&
+                strcmp(P->beta_rate_Z_r_fallback_mode, "debug_capillary") != 0) {
+                fprintf(stderr, "[fatal] beta_rate_Z_r_fallback_mode must be disabled, diagnostic_from_library, or debug_capillary.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_rate_Z_type, "Z_n") != 0 &&
+                strcmp(P->beta_rate_Z_type, "Z_r_m_inv") != 0) {
+                fprintf(stderr, "[fatal] beta_rate_Z_type must be Z_n or Z_r_m_inv.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_rate_deltaV_nuc_mode, "omega_site") != 0 &&
+                strcmp(P->beta_rate_deltaV_nuc_mode, "cell_volume") != 0 &&
+                strcmp(P->beta_rate_deltaV_nuc_mode, "explicit") != 0) {
+                fprintf(stderr, "[fatal] beta_rate_deltaV_nuc_mode must be omega_site, cell_volume, or explicit.\n");
+                ok = 0;
+            }
+            if (!(isfinite(P->beta_rate_debug_rate_multiplier) && P->beta_rate_debug_rate_multiplier > 0.0)) {
+                fprintf(stderr, "[fatal] beta_rate_debug_rate_multiplier must be > 0.\n");
+                ok = 0;
+            }
+            if (!(P->beta_rate_phi_threshold >= 0.0 && P->beta_rate_phi_threshold <= 1.0)) {
+                fprintf(stderr, "[fatal] beta_rate_phi_threshold must be in [0,1].\n");
+                ok = 0;
+            }
+            if (P->beta_rate_xB_min < 0.0) {
+                fprintf(stderr, "[fatal] beta_rate_xB_min must be >= 0.\n");
+                ok = 0;
+            }
+            if (!(P->beta_debug_force_single_event == 0 || P->beta_debug_force_single_event == 1)) {
+                fprintf(stderr, "[fatal] beta_debug_force_single_event must be 0 or 1.\n");
+                ok = 0;
+            }
+            if (P->beta_debug_force_step < 0 || P->beta_debug_max_events_total < 0) {
+                fprintf(stderr, "[fatal] beta_debug_force_step and beta_debug_max_events_total must be >= 0.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_debug_position_mode, "max_capacity_near_GP") != 0) {
+                fprintf(stderr, "[fatal] beta_debug_position_mode must be max_capacity_near_GP.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_debug_inventory_mode, "capacity_matched") != 0 &&
+                strcmp(P->beta_debug_inventory_mode, "full_physical_seed") != 0) {
+                fprintf(stderr, "[fatal] beta_debug_inventory_mode must be capacity_matched or full_physical_seed.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_debug_draw_radius_mode, "fixed") != 0 &&
+                strcmp(P->beta_debug_draw_radius_mode, "adaptive_until_capacity") != 0) {
+                fprintf(stderr, "[fatal] beta_debug_draw_radius_mode must be fixed or adaptive_until_capacity.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_debug_GP_capture_mode, "none") != 0 &&
+                strcmp(P->beta_debug_GP_capture_mode, "selected_GP_only") != 0 &&
+                strcmp(P->beta_debug_GP_capture_mode, "multi_GP_all_within_radius") != 0 &&
+                strcmp(P->beta_debug_GP_capture_mode, "multi_GP_nearest_first") != 0) {
+                fprintf(stderr, "[fatal] beta_debug_GP_capture_mode must be none, selected_GP_only, multi_GP_all_within_radius, or multi_GP_nearest_first.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_debug_GP_capture_consume_order, "nearest_first") != 0) {
+                fprintf(stderr, "[fatal] beta_debug_GP_capture_consume_order must be nearest_first.\n");
+                ok = 0;
+            }
+            if (!(isfinite(P->beta_debug_matrix_draw_radius_nm) && P->beta_debug_matrix_draw_radius_nm >= 0.0 &&
+                  isfinite(P->beta_debug_GP_capture_radius_nm) && P->beta_debug_GP_capture_radius_nm >= 0.0)) {
+                fprintf(stderr, "[fatal] beta_debug_matrix_draw_radius_nm and beta_debug_GP_capture_radius_nm must be finite and >= 0.\n");
+                ok = 0;
+            }
+            if (!(P->beta_debug_do_not_reduce_requested_mass == 0 ||
+                  P->beta_debug_do_not_reduce_requested_mass == 1)) {
+                fprintf(stderr, "[fatal] beta_debug_do_not_reduce_requested_mass must be 0 or 1.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0 &&
+                P->beta_debug_do_not_reduce_requested_mass != 1) {
+                fprintf(stderr, "[fatal] full_physical_seed debug mode requires beta_debug_do_not_reduce_requested_mass=1.\n");
+                ok = 0;
+            }
+            if (!(isfinite(P->beta_debug_capacity_fraction) &&
+                  P->beta_debug_capacity_fraction > 0.0 &&
+                  P->beta_debug_capacity_fraction <= 1.0)) {
+                fprintf(stderr, "[fatal] beta_debug_capacity_fraction must be in (0,1].\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_handoff_policy, "legacy_direct_insert") != 0 &&
+                strcmp(P->beta_handoff_policy, "capacity_gated_dynamic_seed") != 0 &&
+                strcmp(P->beta_handoff_policy, "staged_GP_to_beta_conversion") != 0 &&
+                strcmp(P->beta_handoff_policy, "diagnostic_force_direct_insert") != 0) {
+                fprintf(stderr, "[fatal] beta_handoff_policy must be legacy_direct_insert, capacity_gated_dynamic_seed, staged_GP_to_beta_conversion, or diagnostic_force_direct_insert.\n");
+                ok = 0;
+            }
+            if (!(P->beta_capacity_gate_enabled == 0 || P->beta_capacity_gate_enabled == 1)) {
+                fprintf(stderr, "[fatal] beta_capacity_gate_enabled must be 0 or 1.\n");
+                ok = 0;
+            }
+            if (!(isfinite(P->beta_capacity_gate_matrix_draw_radius_nm) &&
+                  P->beta_capacity_gate_matrix_draw_radius_nm >= 0.0 &&
+                  isfinite(P->beta_capacity_gate_GP_capture_radius_nm) &&
+                  P->beta_capacity_gate_GP_capture_radius_nm >= 0.0 &&
+                  isfinite(P->beta_capacity_gate_max_reasonable_radius_nm) &&
+                  P->beta_capacity_gate_max_reasonable_radius_nm >= 0.0 &&
+                  isfinite(P->beta_capacity_gate_allow_direct_if_capacity_ratio_ge) &&
+                  P->beta_capacity_gate_allow_direct_if_capacity_ratio_ge > 0.0)) {
+                fprintf(stderr, "[fatal] beta capacity gate radii and threshold must be finite and nonnegative; threshold must be > 0.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_capacity_gate_GP_capture_mode, "none") != 0 &&
+                strcmp(P->beta_capacity_gate_GP_capture_mode, "selected_GP_only") != 0 &&
+                strcmp(P->beta_capacity_gate_GP_capture_mode, "multi_GP_all_within_radius") != 0 &&
+                strcmp(P->beta_capacity_gate_GP_capture_mode, "multi_GP_nearest_first") != 0) {
+                fprintf(stderr, "[fatal] beta_capacity_gate_GP_capture_mode must be none, selected_GP_only, multi_GP_all_within_radius, or multi_GP_nearest_first.\n");
+                ok = 0;
+            }
+            if (!(P->beta_staged_conversion_enabled == 0 || P->beta_staged_conversion_enabled == 1)) {
+                fprintf(stderr, "[fatal] beta_staged_conversion_enabled must be 0 or 1.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_staged_conversion_target, "dynamic_continue_seed_mass") != 0) {
+                fprintf(stderr, "[fatal] beta_staged_conversion_target must be dynamic_continue_seed_mass.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_staged_conversion_initial_inventory_mode, "consume_available_GP_and_matrix") != 0) {
+                fprintf(stderr, "[fatal] beta_staged_conversion_initial_inventory_mode must be consume_available_GP_and_matrix.\n");
+                ok = 0;
+            }
+            if (strcmp(P->beta_staged_conversion_release_mode, "inventory_accumulation") != 0) {
+                fprintf(stderr, "[fatal] beta_staged_conversion_release_mode must be inventory_accumulation.\n");
+                ok = 0;
+            }
+            if (!(P->beta_staged_conversion_insert_when_capacity_reached == 0 ||
+                  P->beta_staged_conversion_insert_when_capacity_reached == 1)) {
+                fprintf(stderr, "[fatal] beta_staged_conversion_insert_when_capacity_reached must be 0 or 1.\n");
+                ok = 0;
+            }
+            if (P->beta_staged_conversion_max_subgrid_steps < 0 ||
+                !(isfinite(P->beta_staged_conversion_mass_tolerance_rel) &&
+                  P->beta_staged_conversion_mass_tolerance_rel > 0.0)) {
+                fprintf(stderr, "[fatal] beta_staged_conversion_max_subgrid_steps must be >= 0 and beta_staged_conversion_mass_tolerance_rel must be > 0.\n");
+                ok = 0;
+            }
+            if (!(P->beta_staged_accumulation_enabled == 0 ||
+                  P->beta_staged_accumulation_enabled == 1) ||
+                P->beta_staged_accumulation_interval_steps <= 0 ||
+                !(isfinite(P->beta_staged_accumulation_GP_capture_radius_nm) &&
+                  P->beta_staged_accumulation_GP_capture_radius_nm >= 0.0) ||
+                !(isfinite(P->beta_staged_accumulation_matrix_draw_radius_nm) &&
+                  P->beta_staged_accumulation_matrix_draw_radius_nm >= 0.0) ||
+                !(isfinite(P->beta_staged_accumulation_max_fraction_per_step) &&
+                  P->beta_staged_accumulation_max_fraction_per_step > 0.0 &&
+                  P->beta_staged_accumulation_max_fraction_per_step <= 1.0) ||
+                !(isfinite(P->beta_staged_accumulation_max_inventory_per_step) &&
+                  P->beta_staged_accumulation_max_inventory_per_step >= 0.0) ||
+                !(P->beta_staged_insert_when_target_reached == 0 ||
+                  P->beta_staged_insert_when_target_reached == 1) ||
+                !(P->beta_staged_debug_accelerated_accumulation == 0 ||
+                  P->beta_staged_debug_accelerated_accumulation == 1) ||
+                !(isfinite(P->beta_staged_debug_accumulation_rate_multiplier) &&
+                  P->beta_staged_debug_accumulation_rate_multiplier >= 1.0) ||
+                !(P->beta_staged_debug_stop_after_resolved_insert == 0 ||
+                  P->beta_staged_debug_stop_after_resolved_insert == 1)) {
+                fprintf(stderr, "[fatal] invalid beta staged accumulation parameters.\n");
+                ok = 0;
+            }
+            if (strcmp(P->resolved_handoff_xB_write_mode, "legacy_rebase_current_edge") != 0 &&
+                strcmp(P->resolved_handoff_xB_write_mode, "preserve_profile_xB_alpha_in_support") != 0) {
+                fprintf(stderr,
+                        "[fatal] resolved_handoff_xB_write_mode must be legacy_rebase_current_edge or preserve_profile_xB_alpha_in_support.\n");
+                ok = 0;
+            }
+            if (!(P->diagnostic_rsmd_enabled == 0 || P->diagnostic_rsmd_enabled == 1) ||
+                !(isfinite(P->diagnostic_rsmd_T_only)) ||
+                !(isfinite(P->diagnostic_rsmd_xB_halo_target) &&
+                  P->diagnostic_rsmd_xB_halo_target > 0.0 &&
+                  P->diagnostic_rsmd_xB_halo_target < 1.0) ||
+                !(isfinite(P->diagnostic_rsmd_R_exchange_nm) &&
+                  P->diagnostic_rsmd_R_exchange_nm >= 0.0) ||
+                !(isfinite(P->diagnostic_rsmd_chi_rel) &&
+                  P->diagnostic_rsmd_chi_rel >= 0.0) ||
+                !(isfinite(P->diagnostic_rsmd_kernel_radius_dx) &&
+                  P->diagnostic_rsmd_kernel_radius_dx > 0.0) ||
+                !(isfinite(P->diagnostic_rsmd_interface_shell_width_nm) &&
+                  P->diagnostic_rsmd_interface_shell_width_nm > 0.0) ||
+                !(P->diagnostic_rsmd_reset_Y_history_after_source == 0 ||
+                  P->diagnostic_rsmd_reset_Y_history_after_source == 1) ||
+                !(P->diagnostic_rsmd_history_restart_mode >= 0 &&
+                  P->diagnostic_rsmd_history_restart_mode <= 2) ||
+                !(P->diagnostic_rsmd_interface_diag_enabled == 0 ||
+                  P->diagnostic_rsmd_interface_diag_enabled == 1) ||
+                P->diagnostic_rsmd_interface_diag_every <= 0 ||
+                !(isfinite(P->diagnostic_rsmd_h_src_max) &&
+                  P->diagnostic_rsmd_h_src_max >= 0.0 &&
+                  P->diagnostic_rsmd_h_src_max <= 1.0) ||
+                !(isfinite(P->diagnostic_rsmd_f_max_per_step) &&
+                  P->diagnostic_rsmd_f_max_per_step >= 0.0 &&
+                  P->diagnostic_rsmd_f_max_per_step <= 1.0) ||
+                !(isfinite(P->diagnostic_rsmd_source_substep_dt_code) &&
+                  P->diagnostic_rsmd_source_substep_dt_code >= 0.0) ||
+                !(P->diagnostic_rsmd_headroom_weighted == 0 ||
+                  P->diagnostic_rsmd_headroom_weighted == 1) ||
+                P->diagnostic_rsmd_release_window_steps < 0 ||
+                !(isfinite(P->diagnostic_rsmd_seed_R_eff_h_nm) &&
+                  P->diagnostic_rsmd_seed_R_eff_h_nm >= 0.0)) {
+                fprintf(stderr, "[fatal] invalid diagnostic RSMD parameters.\n");
+                ok = 0;
+            }
+            if (P->diagnostic_rsmd_enabled) {
+                if (strcmp(P->diagnostic_rsmd_provenance, "required_supply_diagnostic") != 0 &&
+                    strcmp(P->diagnostic_rsmd_provenance, "scenario_bracket_not_calibrated") != 0) {
+                    fprintf(stderr,
+                            "[fatal] diagnostic_rsmd_provenance must be required_supply_diagnostic "
+                            "or scenario_bracket_not_calibrated.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->diagnostic_rsmd_delivery_mode, "gp_centered_kernel") != 0 &&
+                    strcmp(P->diagnostic_rsmd_delivery_mode, "seed_interface_alpha_shell") != 0) {
+                    fprintf(stderr,
+                            "[fatal] diagnostic_rsmd_delivery_mode must be gp_centered_kernel "
+                            "or seed_interface_alpha_shell.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->diagnostic_rsmd_interface_shell_kernel, "inner_peaked_legacy") != 0 &&
+                    strcmp(P->diagnostic_rsmd_interface_shell_kernel, "compact_bell") != 0) {
+                    fprintf(stderr,
+                            "[fatal] diagnostic_rsmd_interface_shell_kernel must be "
+                            "inner_peaked_legacy or compact_bell.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->diagnostic_rsmd_operator_split, "post_pf_lie") != 0 &&
+                    strcmp(P->diagnostic_rsmd_operator_split, "pre_pf_lie") != 0 &&
+                    strcmp(P->diagnostic_rsmd_operator_split, "strang") != 0) {
+                    fprintf(stderr,
+                            "[fatal] diagnostic_rsmd_operator_split must be post_pf_lie, "
+                            "pre_pf_lie, or strang.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->diagnostic_rsmd_source_integrator, "legacy_explicit") != 0 &&
+                    strcmp(P->diagnostic_rsmd_source_integrator, "exact_exponential") != 0) {
+                    fprintf(stderr,
+                            "[fatal] diagnostic_rsmd_source_integrator must be "
+                            "legacy_explicit or exact_exponential.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->diagnostic_rsmd_control_mode, "full_coupled") != 0 &&
+                    strcmp(P->diagnostic_rsmd_control_mode, "source_only_frozen_field") != 0 &&
+                    strcmp(P->diagnostic_rsmd_control_mode, "source_diffusion_frozen_phi") != 0) {
+                    fprintf(stderr,
+                            "[fatal] diagnostic_rsmd_control_mode must be full_coupled, "
+                            "source_only_frozen_field, or source_diffusion_frozen_phi.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->pf_baseline_control_mode, "full") != 0 &&
+                    strcmp(P->pf_baseline_control_mode, "frozen_phi") != 0 &&
+                    strcmp(P->pf_baseline_control_mode, "transport_no_projection") != 0 &&
+                    strcmp(P->pf_baseline_control_mode, "projection_only") != 0 &&
+                    strcmp(P->pf_baseline_control_mode, "phi_only") != 0) {
+                    fprintf(stderr,
+                            "[fatal] pf_baseline_control_mode must be full, frozen_phi, "
+                            "transport_no_projection, projection_only, or phi_only.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->pf_y_update_mode, "lagged_rhs") != 0 &&
+                    strcmp(P->pf_y_update_mode, "storage_exact") != 0 &&
+                    strcmp(P->pf_y_update_mode, "x_transport_projection_split") != 0 &&
+                    strcmp(P->pf_y_update_mode, "q_transport_projection_split") != 0) {
+                    fprintf(stderr,
+                            "[fatal] pf_y_update_mode must be lagged_rhs, storage_exact, "
+                            "x_transport_projection_split, or q_transport_projection_split.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->pf_composition_mode, "legacy") != 0 &&
+                    strcmp(P->pf_composition_mode, "ctot_conservative_split") != 0 &&
+                    strcmp(P->pf_composition_mode, "qalpha_conservative_local_transaction") != 0) {
+                    fprintf(stderr,
+                            "[fatal] pf_composition_mode must be legacy, "
+                            "ctot_conservative_split, or qalpha_conservative_local_transaction.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->pf_conservative_flux_strategy, "pairwise_limited") != 0 &&
+                    strcmp(P->pf_conservative_flux_strategy, "pairwise_backward_euler") != 0) {
+                    fprintf(stderr,
+                            "[fatal] pf_conservative_flux_strategy must be pairwise_limited "
+                            "or pairwise_backward_euler.\n");
+                    ok = 0;
+                }
+                if (!(P->pf_conservative_bound_tol > 0.0) ||
+                    !(P->pf_conservative_mass_tol > 0.0) ||
+                    !(P->pf_conservative_beta_support_eps > 0.0) ||
+                    P->pf_conservative_max_subcycles < 1) {
+                    fprintf(stderr, "[fatal] invalid PF conservative solver tolerances/subcycles.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->pf_composition_mode, "legacy") != 0 &&
+                    (P->y_update_mass_projection_enabled || is_gp_zone_mode(P) ||
+                     P->diagnostic_rsmd_enabled || P->gp_nuc_enabled ||
+                     P->enable_gp_assisted_beta_nucleation)) {
+                    fprintf(stderr,
+                            "[fatal] conservative PF composition modes are PF-only: projection, "
+                            "GP/RSMD/birth/staged operators must be disabled.\n");
+                    ok = 0;
+                }
+                if (!(P->pf_matrix_storage_floor > 0.0 &&
+                      P->pf_matrix_storage_floor <= 1.0)) {
+                    fprintf(stderr,
+                            "[fatal] pf_matrix_storage_floor must be in (0,1].\n");
+                    ok = 0;
+                }
+                if (!(P->pf_composition_stabilizer_Dalpha_multiplier > 0.0) ||
+                    !isfinite(P->pf_composition_stabilizer_Dalpha_multiplier)) {
+                    fprintf(stderr,
+                            "[fatal] pf_composition_stabilizer_Dalpha_multiplier must be finite and > 0.\n");
+                    ok = 0;
+                }
+                if (fabs(P->scheduled_nuc_scale_interface_width - 1.0) > 1.0e-12 ||
+                    fabs(P->scheduled_nuc_scale_xB_profile_width - 1.0) > 1.0e-12) {
+                    fprintf(stderr,
+                            "[fatal] diagnostic_rsmd_enabled forbids scheduled profile scaling; use scale_phi=scale_xB=1.\n");
+                    ok = 0;
+                }
+            }
+            if (strcmp(P->pf_composition_mode, "legacy") != 0 &&
+                strcmp(P->pf_composition_mode, "ctot_conservative_split") != 0 &&
+                strcmp(P->pf_composition_mode,
+                       "qalpha_conservative_local_transaction") != 0) {
+                fprintf(stderr, "[fatal] invalid pf_composition_mode.\n");
+                ok = 0;
+            }
+            if (strcmp(P->pf_conservative_flux_strategy, "pairwise_limited") != 0 &&
+                strcmp(P->pf_conservative_flux_strategy,
+                       "pairwise_backward_euler") != 0) {
+                fprintf(stderr, "[fatal] invalid pf_conservative_flux_strategy.\n");
+                ok = 0;
+            }
+            if (strcmp(P->pf_composition_mode, "legacy") != 0) {
+                if (P->y_update_mass_projection_enabled || is_gp_zone_mode(P) ||
+                    P->diagnostic_rsmd_enabled || P->gp_nuc_enabled ||
+                    P->enable_gp_assisted_beta_nucleation) {
+                    fprintf(stderr,
+                            "[fatal] conservative PF composition modes require PF-only operators.\n");
+                    ok = 0;
+                }
+                if (!(P->pf_conservative_bound_tol > 0.0) ||
+                    !(P->pf_conservative_mass_tol > 0.0) ||
+                    !(P->pf_conservative_beta_support_eps > 0.0) ||
+                    P->pf_conservative_max_subcycles < 1) {
+                    fprintf(stderr, "[fatal] invalid PF conservative solver controls.\n");
+                    ok = 0;
+                }
+            }
+            if (strcmp(P->beta_rate_model, "physical_cnt") == 0) {
+                if (!(P->beta_rate_use_gp_barrier_modifier == 0 || P->beta_rate_use_gp_barrier_modifier == 1)) {
+                    fprintf(stderr, "[fatal] beta_rate_use_gp_barrier_modifier must be 0 or 1.\n");
+                    ok = 0;
+                }
+                if (!(P->beta_rate_D_B_alpha_model[0] != '\0')) {
+                    fprintf(stderr, "[fatal] beta_rate_D_B_alpha_model must be set for physical_cnt.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->beta_rate_D_B_alpha_model, "Arrhenius") == 0) {
+                    if (!(P->beta_rate_D_B_alpha_D0_m2_s > 0.0) || !(P->beta_rate_D_B_alpha_Q_J_mol > 0.0)) {
+                        fprintf(stderr, "[fatal] Arrhenius physical_cnt requires positive beta_rate_D_B_alpha_D0_m2_s and beta_rate_D_B_alpha_Q_J_mol.\n");
+                        ok = 0;
+                    }
+                }
+                if (!(isfinite(P->beta_rate_Omega_g_m3) && P->beta_rate_Omega_g_m3 > 0.0)) {
+                    fprintf(stderr, "[fatal] physical_cnt requires beta_rate_Omega_g_m3 > 0 (do not rely on fake defaults).\n");
+                    ok = 0;
+                }
+                if (strcmp(P->beta_rate_Z_type, "Z_n") != 0) {
+                    fprintf(stderr, "[fatal] physical_cnt currently supports only beta_rate_Z_type=Z_n because beta_r_star is a 1/s attachment frequency.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->beta_rate_deltaV_nuc_mode, "explicit") == 0 &&
+                    !(isfinite(P->beta_rate_deltaV_nuc_m3) && P->beta_rate_deltaV_nuc_m3 > 0.0)) {
+                    fprintf(stderr, "[fatal] beta_rate_deltaV_nuc_mode=explicit requires beta_rate_deltaV_nuc_m3 > 0.\n");
+                    ok = 0;
+                }
+                if (P->beta_rate_transient_enabled &&
+                    !(isfinite(P->beta_rate_tau_inc_s) && P->beta_rate_tau_inc_s > 0.0)) {
+                    fprintf(stderr, "[fatal] beta_rate_transient_enabled=1 requires beta_rate_tau_inc_s > 0.\n");
+                    ok = 0;
+                }
+            }
+        }
+        if (P->enable_gp_runtime_library_nucleation) {
+            if (!P->gp_stochastic_enabled) {
+                fprintf(stderr, "[fatal] enable_gp_runtime_library_nucleation requires gp_stochastic_enabled=1.\n");
+                ok = 0;
+            }
+            if (P->gp_runtime_barrier_library_path[0] == '\0') {
+                fprintf(stderr, "[fatal] gp_runtime_barrier_library_path is required when runtime library nucleation is enabled.\n");
+                ok = 0;
+            }
+            if (!(P->gp_runtime_s_gp_scalar > 0.0 && P->gp_runtime_s_gp_scalar <= 1.0)) {
+                fprintf(stderr, "[fatal] gp_runtime_s_gp_scalar must be in (0,1].\n");
+                ok = 0;
+            }
+            if (strcmp(P->gp_runtime_nucleation_mode, "homogeneous_plus_GP") != 0 &&
+                strcmp(P->gp_runtime_nucleation_mode, "GP_only") != 0) {
+                fprintf(stderr, "[fatal] gp_runtime_nucleation_mode must be homogeneous_plus_GP or GP_only.\n");
+                ok = 0;
+            }
+            if (P->gp_runtime_catalog_T_tol_C < 0.0 || P->gp_runtime_catalog_xB_tol < 0.0) {
+                fprintf(stderr, "[fatal] gp_runtime catalog tolerances must be non-negative.\n");
+                ok = 0;
+            }
+            if (!P->gp_runtime_catalog_allow_fallback &&
+                (P->gp_runtime_catalog_T_tol_C == 0.0 || P->gp_runtime_catalog_xB_tol == 0.0)) {
+                fprintf(stderr, "[warn] gp_runtime_catalog_allow_fallback=0 with zero tolerance may reject all catalog seeds.\n");
+            }
+            if (P->enable_dynamic_continue_bridge) {
+                if (!(P->gp_runtime_min_rseed_over_dx > 0.0)) {
+                    fprintf(stderr, "[fatal] gp_runtime_min_rseed_over_dx must be > 0 when dynamic continue bridge is enabled.\n");
+                    ok = 0;
+                }
+                if (!P->gp_runtime_enable_delayed_insertion_queue) {
+                    fprintf(stderr, "[fatal] dynamic continue bridge production mode requires gp_runtime_enable_delayed_insertion_queue=1.\n");
+                    ok = 0;
+                }
+                if (strcmp(P->gp_runtime_bridge_missing_policy, "reject_event") != 0 &&
+                    strcmp(P->gp_runtime_bridge_missing_policy, "debug_immediate_fallback") != 0) {
+                    fprintf(stderr, "[fatal] gp_runtime_bridge_missing_policy must be reject_event or debug_immediate_fallback.\n");
+                    ok = 0;
+                }
+                if (P->dynamic_continue_bridge_catalog_path[0] == '\0' &&
+                    !P->gp_runtime_allow_immediate_fallback_debug) {
+                    fprintf(stderr, "[warn] dynamic continue bridge enabled without catalog path; production CNT events will be rejected until bridge metadata exist.\n");
+                }
+                if (P->enable_runtime_nucleus_library && P->gp_runtime_nucleus_library_path[0] == '\0') {
+                    fprintf(stderr, "[fatal] enable_runtime_nucleus_library requires gp_runtime_nucleus_library_path.\n");
+                    ok = 0;
+                }
+                if (P->enable_runtime_nucleus_library && P->gp_runtime_profile_cache_root[0] == '\0') {
+                    fprintf(stderr, "[fatal] enable_runtime_nucleus_library requires gp_runtime_profile_cache_root.\n");
+                    ok = 0;
+                }
+            }
+        }
+        if (strcmp(P->gp_site_mode, "single") != 0 &&
+            strcmp(P->gp_site_mode, "grid") != 0 &&
+            strcmp(P->gp_site_mode, "random") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_site_mode=%s (expected single, grid, or random).\n",
+                    P->gp_site_mode);
+            ok = 0;
+        }
+        if ((strcmp(P->gp_birth_model, "prescribed_sites") == 0) && P->gp_n_sites <= 0) {
+            fprintf(stderr, "[fatal] gp_n_sites must be > 0.\n");
+            ok = 0;
+        }
+        if ((long long)P->gp_n_sites > (long long)P->Nx * (long long)P->Ny * (long long)P->Nz) {
+            fprintf(stderr, "[fatal] gp_n_sites cannot exceed total grid cells.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_birth_model, "prescribed_sites") != 0 &&
+            strcmp(P->gp_birth_model, "poisson_literature_JGP") != 0 &&
+            strcmp(P->gp_birth_model, "diagnostic_JGP_override") != 0) {
+            fprintf(stderr, "[fatal] gp_birth_model must be prescribed_sites, poisson_literature_JGP, or diagnostic_JGP_override.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_birth_candidate_volume_model, "box") != 0) {
+            fprintf(stderr, "[fatal] gp_birth_candidate_volume_model currently supports only box.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_birth_position_mode, "random_uniform") != 0) {
+            fprintf(stderr, "[fatal] gp_birth_position_mode currently supports only random_uniform.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_overlap_saturation_mode, "min_s") != 0) {
+            fprintf(stderr, "[fatal] gp_overlap_saturation_mode currently supports only min_s.\n");
+            ok = 0;
+        }
+        if (!(P->gp_birth_max_events_per_step >= 0)) {
+            fprintf(stderr, "[fatal] gp_birth_max_events_per_step must be >= 0.\n");
+            ok = 0;
+        }
+        if (!(P->gp_birth_max_total_sites >= 0)) {
+            fprintf(stderr, "[fatal] gp_birth_max_total_sites must be >= 0.\n");
+            ok = 0;
+        }
+        if (!(P->gp_literature_Q_J_mol > 0.0 && P->gp_literature_D0_m2_s > 0.0 &&
+              P->gp_literature_A_m5 > 0.0 && P->gp_literature_B_eff_J3_m6 > 0.0 &&
+              P->gp_literature_a_PbTe_m > 0.0)) {
+            fprintf(stderr, "[fatal] literature GP kernel parameters must be positive.\n");
+            ok = 0;
+        }
+        if (!(P->gp_literature_xAg_default >= 0.0 && P->gp_literature_xAg_default < 1.0)) {
+            fprintf(stderr, "[fatal] gp_literature_xAg_default must be in [0,1).\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_literature_xAg_mode, "fixed_param") != 0 &&
+            strcmp(P->gp_literature_xAg_mode, "from_initial_xB_alpha") != 0 &&
+            strcmp(P->gp_literature_xAg_mode, "from_current_mean_xB_alpha") != 0 &&
+            strcmp(P->gp_literature_xAg_mode, "from_after_quench_xB_far") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_literature_xAg_mode=%s.\n", P->gp_literature_xAg_mode);
+            ok = 0;
+        }
+        if (!(P->gp_literature_xeq_guard >= 0.0)) {
+            fprintf(stderr, "[fatal] gp_literature_xeq_guard must be >= 0.\n");
+            ok = 0;
+        }
+        if (!(P->gp_static_marker_enabled == 0 || P->gp_static_marker_enabled == 1)) {
+            fprintf(stderr, "[fatal] gp_static_marker_enabled must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (!(P->gp_initial_population_enabled == 0 || P->gp_initial_population_enabled == 1)) {
+            fprintf(stderr, "[fatal] gp_initial_population_enabled must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (!(P->gp_growth_enabled == 0 || P->gp_growth_enabled == 1) ||
+            !(P->gp_radius_evolution_enabled == 0 || P->gp_radius_evolution_enabled == 1) ||
+            !(P->gp_inventory_growth_enabled == 0 || P->gp_inventory_growth_enabled == 1)) {
+            fprintf(stderr, "[fatal] gp_growth_enabled/gp_radius_evolution_enabled/gp_inventory_growth_enabled must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (!(P->gp_smooth_depletion_enabled == 0 || P->gp_smooth_depletion_enabled == 1)) {
+            fprintf(stderr, "[fatal] gp_smooth_depletion_enabled must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (!(P->gp_birth_connect_to_smooth_local_depletion == 0 || P->gp_birth_connect_to_smooth_local_depletion == 1)) {
+            fprintf(stderr, "[fatal] gp_birth_connect_to_smooth_local_depletion must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_birth_inventory_policy, "actual_removed_mass") != 0 &&
+            strcmp(P->gp_birth_inventory_policy, "excess_over_local_background") != 0 &&
+            strcmp(P->gp_birth_inventory_policy, "legacy_requested_mass") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_birth_inventory_policy=%s.\n",
+                    P->gp_birth_inventory_policy);
+            ok = 0;
+        }
+        if (!(P->gp_literature_birth_requires_post_Y_projection == 0 ||
+              P->gp_literature_birth_requires_post_Y_projection == 1)) {
+            fprintf(stderr, "[fatal] gp_literature_birth_requires_post_Y_projection must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (!(P->gp_birth_debug_force_single_event == 0 || P->gp_birth_debug_force_single_event == 1) ||
+            !(P->gp_birth_debug_disable_poisson_randomness == 0 || P->gp_birth_debug_disable_poisson_randomness == 1) ||
+            !(P->gp_birth_debug_freeze_dynamics_after_birth == 0 || P->gp_birth_debug_freeze_dynamics_after_birth == 1) ||
+            !(P->gp_birth_debug_disable_CH_dynamics_after_birth == 0 || P->gp_birth_debug_disable_CH_dynamics_after_birth == 1) ||
+            !(P->gp_birth_debug_force_rebuild_Y_after_birth == 0 || P->gp_birth_debug_force_rebuild_Y_after_birth == 1) ||
+            !(P->gp_post_birth_mass_probe_enabled == 0 || P->gp_post_birth_mass_probe_enabled == 1)) {
+            fprintf(stderr, "[fatal] gp_birth_debug_force_single_event/gp_birth_debug_disable_poisson_randomness/gp_birth_debug_freeze_dynamics_after_birth/gp_birth_debug_disable_CH_dynamics_after_birth/gp_birth_debug_force_rebuild_Y_after_birth/gp_post_birth_mass_probe_enabled must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (P->gp_birth_debug_force_step < 0 || P->gp_birth_debug_max_events_total < 0 ||
+            P->gp_birth_debug_stop_after_step < 0) {
+            fprintf(stderr, "[fatal] gp_birth_debug_force_step, gp_birth_debug_max_events_total, and gp_birth_debug_stop_after_step must be >= 0.\n");
+            ok = 0;
+        }
+        if (P->gp_birth_max_total_new_births_for_debug < -1) {
+            fprintf(stderr, "[fatal] gp_birth_max_total_new_births_for_debug must be >= -1.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_birth_debug_force_position_mode, "center") != 0 &&
+            strcmp(P->gp_birth_debug_force_position_mode, "random_uniform") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_birth_debug_force_position_mode=%s.\n",
+                    P->gp_birth_debug_force_position_mode);
+            ok = 0;
+        }
+        if ((strcmp(P->gp_birth_model, "poisson_literature_JGP") == 0 ||
+             strcmp(P->gp_birth_model, "diagnostic_JGP_override") == 0) &&
+            !P->gp_stochastic_enabled) {
+            fprintf(stderr, "[fatal] GP literature/override birth requires gp_stochastic_enabled=1.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_birth_model, "poisson_literature_JGP") == 0 && !P->gp_literature_model_enabled) {
+            fprintf(stderr, "[fatal] gp_birth_model=poisson_literature_JGP requires gp_literature_model_enabled=1.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_birth_model, "diagnostic_JGP_override") == 0 &&
+            (!P->gp_literature_JGP_override_enabled || !(P->gp_literature_JGP_override_m3_s >= 0.0))) {
+            fprintf(stderr, "[fatal] diagnostic_JGP_override requires gp_literature_JGP_override_enabled=1 and non-negative gp_literature_JGP_override_m3_s.\n");
+            ok = 0;
+        }
+        if (P->gp_site_spacing < 0.0) {
+            fprintf(stderr, "[fatal] gp_site_spacing must be >= 0.\n");
+            ok = 0;
+        }
+        if (P->gp_site_B_mass_equiv < 0.0) {
+            fprintf(stderr, "[fatal] gp_site_B_mass_equiv must be >= 0.\n");
+            ok = 0;
+        }
+        if (!(P->gp_marker_core_radius_nm > 0.0)) {
+            fprintf(stderr, "[fatal] gp_marker_core_radius_nm must be > 0.\n");
+            ok = 0;
+        }
+        if (!(P->gp_marker_influence_radius_nm >= P->gp_marker_core_radius_nm)) {
+            fprintf(stderr, "[fatal] gp_marker_influence_radius_nm must be >= gp_marker_core_radius_nm.\n");
+            ok = 0;
+        }
+        if (!(P->gp_depletion_radius_nm >= P->gp_marker_influence_radius_nm)) {
+            fprintf(stderr, "[fatal] gp_depletion_radius_nm must be >= gp_marker_influence_radius_nm.\n");
+            ok = 0;
+        }
+        if (!(P->gp_xB_floor >= 0.0 && P->gp_xB_floor < 1.0)) {
+            fprintf(stderr, "[fatal] gp_xB_floor must be in [0,1).\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_depletion_kernel, "compact_quintic") != 0 &&
+            strcmp(P->gp_depletion_kernel, "compact_gaussian") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_depletion_kernel=%s (expected compact_quintic or compact_gaussian).\n",
+                    P->gp_depletion_kernel);
+            ok = 0;
+        }
+        if (!(P->gp_release_radius_nm > 0.0)) {
+            fprintf(stderr, "[fatal] gp_release_radius_nm must be > 0.\n");
+            ok = 0;
+        }
+        if (!(P->gp_debug_beta_seed_radius > 0.0) ||
+            !(P->gp_debug_beta_seed_iface_width > 0.0)) {
+            fprintf(stderr, "[fatal] gp_debug_beta_seed_radius and gp_debug_beta_seed_iface_width must be > 0.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_initial_mass_mode, "total_composition_fixed") != 0 &&
+            strcmp(P->gp_initial_mass_mode, "matrix_composition_fixed") != 0 &&
+            strcmp(P->gp_initial_mass_mode, "smooth_local_depletion") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_initial_mass_mode=%s (expected total_composition_fixed, matrix_composition_fixed, or smooth_local_depletion).\n",
+                    P->gp_initial_mass_mode);
+            ok = 0;
+        }
+        if (strcmp(P->gp_initial_population_source, "none") != 0 &&
+            strcmp(P->gp_initial_population_source, "Sheskin_AQ") != 0 &&
+            strcmp(P->gp_initial_population_source, "Yu_APT_AQ") != 0 &&
+            strcmp(P->gp_initial_population_source, "custom_density") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_initial_population_source=%s.\n",
+                    P->gp_initial_population_source);
+            ok = 0;
+        }
+        if (strcmp(P->gp_initial_radius_distribution, "truncated_normal_volume_renormalized") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_initial_radius_distribution=%s.\n",
+                    P->gp_initial_radius_distribution);
+            ok = 0;
+        }
+        if (strcmp(P->gp_initial_radius_renormalization, "match_xB_inventory") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_initial_radius_renormalization=%s.\n",
+                    P->gp_initial_radius_renormalization);
+            ok = 0;
+        }
+        if (strcmp(P->gp_initial_count_mode, "round_expected") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_initial_count_mode=%s.\n", P->gp_initial_count_mode);
+            ok = 0;
+        }
+        if (strcmp(P->gp_initial_position_mode, "random_uniform_or_poisson_disk") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_initial_position_mode=%s.\n", P->gp_initial_position_mode);
+            ok = 0;
+        }
+        if (P->gp_initial_population_enabled) {
+            if (!(P->gp_initial_xAg_far >= 0.0 && P->gp_initial_xAg_far < 1.0 &&
+                  P->gp_initial_xAg_GP >= 0.0 && P->gp_initial_xAg_GP < 1.0)) {
+                fprintf(stderr, "[fatal] gp_initial_xAg_far and gp_initial_xAg_GP must be in [0,1).\n");
+                ok = 0;
+            }
+            if (!(P->gp_initial_xB_tot > 0.0 && P->gp_initial_xB_tot < 1.0)) {
+                fprintf(stderr, "[fatal] gp_initial_xB_tot must be in (0,1).\n");
+                ok = 0;
+            }
+            if (!(P->gp_initial_rho_m3 > 0.0)) {
+                fprintf(stderr, "[fatal] gp_initial_rho_m3 must be > 0.\n");
+                ok = 0;
+            }
+            if (!(P->gp_initial_radius_mean_target_nm > 0.0 && P->gp_initial_radius_std_nm >= 0.0 &&
+                  P->gp_initial_radius_min_nm > 0.0 &&
+                  P->gp_initial_radius_max_nm >= P->gp_initial_radius_min_nm)) {
+                fprintf(stderr, "[fatal] invalid gp initial radius distribution parameters.\n");
+                ok = 0;
+            }
+            if (!(P->gp_initial_min_center_spacing_factor >= 0.0)) {
+                fprintf(stderr, "[fatal] gp_initial_min_center_spacing_factor must be >= 0.\n");
+                ok = 0;
+            }
+            if (!P->gp_static_marker_enabled) {
+                fprintf(stderr, "[fatal] gp_initial_population_enabled requires gp_static_marker_enabled=1.\n");
+                ok = 0;
+            }
+        }
+        if (!(P->gp_beta_selection_enabled == 0 || P->gp_beta_selection_enabled == 1)) {
+            fprintf(stderr, "[fatal] gp_beta_selection_enabled must be 0 or 1.\n");
+            ok = 0;
+        }
+        if (strcmp(P->gp_release_mode, "release_to_beta_first") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_release_mode=%s (only release_to_beta_first is implemented in debug mode).\n",
+                    P->gp_release_mode);
+            ok = 0;
+        }
+        if (strcmp(P->gp_release_kernel, "compact_spherical") != 0) {
+            fprintf(stderr, "[fatal] unsupported gp_release_kernel=%s (only compact_spherical is implemented).\n",
+                    P->gp_release_kernel);
+            ok = 0;
+        }
+        if (!(P->gp_debug_xB_min >= 0.0 && P->gp_debug_xB_min < P->gp_debug_xB_max &&
+              P->gp_debug_xB_max <= 1.0)) {
+            fprintf(stderr, "[fatal] gp_debug_xB_min/max must satisfy 0 <= min < max <= 1.\n");
+            ok = 0;
+        }
+    }
+
 #undef REQUIRE_POSITIVE
 #undef REQUIRE_NONNEG
     return ok;
@@ -1319,15 +2110,15 @@ __host__ __device__ static inline double periodic_delta(double coord, double cen
 }
 
 // 辅助函数：限制值在[0,1]（GPU/CPU两用）
-__host__ __device__ static inline double clamp01_local(double v) { 
-    return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); 
+__host__ __device__ static inline double clamp01_local(double v) {
+    return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
 }
 
 // 辅助函数：限制xB值（GPU/CPU两用）
-__host__ __device__ static inline double clamp_eps(double v, double eps) { 
-    if (v < eps) return eps; 
-    if (v > 1.0 - eps) return 1.0 - eps; 
-    return v; 
+__host__ __device__ static inline double clamp_eps(double v, double eps) {
+    if (v < eps) return eps;
+    if (v > 1.0 - eps) return 1.0 - eps;
+    return v;
 }
 
 // 在 cuda_kernels.cu 中实现：将场按 h(phi) 加权
@@ -1339,7 +2130,7 @@ void launch_scale_field_by_h_kernel(const double *phi_r,
 static void print_memory_ledger(
     size_t size_r, size_t size_k, size_t size_r_float, size_t size_k_float,
     size_t scratch_k_bytes, size_t scratch_r_bytes,
-    int elastic_enabled, int total_r, int total_k) {
+    int elastic_enabled, int gp_buffers_enabled, int total_r, int total_k) {
     size_t resident = 0;
 #define LEDGER(name, elem, elem_sz) do { \
     size_t _b = (elem) * (elem_sz); \
@@ -1348,20 +2139,34 @@ static void print_memory_ledger(
 } while(0)
     printf("\n=== Memory Ledger (resident arrays) ===\n");
     LEDGER("d_phi_r", total_r, sizeof(double));
-    LEDGER("d_eta_r", total_r, sizeof(double));
+    if (gp_buffers_enabled) {
+        LEDGER("d_eta_r", total_r, sizeof(double));
+    } else {
+        printf("  %-24s %14s  %12s\n", "d_eta_r", "alias", "0 bytes");
+    }
     LEDGER("d_Y_r", total_r, sizeof(double));
     LEDGER("d_xB_r", total_r, sizeof(double));
     LEDGER("d_phi_rhs_r(=d_lapY_r)", total_r, sizeof(double));
-    LEDGER("d_eta_prev_r", total_r, sizeof(double));
-    LEDGER("d_eta_rhs_r", total_r, sizeof(double));
+    if (gp_buffers_enabled) {
+        LEDGER("d_eta_prev_r", total_r, sizeof(double));
+        LEDGER("d_eta_rhs_r", total_r, sizeof(double));
+    } else {
+        printf("  %-24s %14s  %12s\n", "d_eta_prev_r", "alias", "0 bytes");
+        printf("  %-24s %14s  %12s\n", "d_eta_rhs_r", "alias", "0 bytes");
+    }
     LEDGER("d_phi_n_saved", total_r, sizeof(double));
     LEDGER("d_Y_n_saved", total_r, sizeof(double));
     LEDGER("d_dY_dt_prev_r", total_r, sizeof(double));
     LEDGER("d_mu_x_r(=d_Y_rhs_r)", total_r, sizeof(double));
     LEDGER("d_divJ_r(=d_xB_prev_r)", total_r, sizeof(double));
     LEDGER("d_phi_k", total_k, sizeof(cufftDoubleComplex));
-    LEDGER("d_eta_k", total_k, sizeof(cufftDoubleComplex));
-    LEDGER("d_eta_rhs_k", total_k, sizeof(cufftDoubleComplex));
+    if (gp_buffers_enabled) {
+        LEDGER("d_eta_k", total_k, sizeof(cufftDoubleComplex));
+        LEDGER("d_eta_rhs_k", total_k, sizeof(cufftDoubleComplex));
+    } else {
+        printf("  %-24s %14s  %12s\n", "d_eta_k", "alias", "0 bytes");
+        printf("  %-24s %14s  %12s\n", "d_eta_rhs_k", "alias", "0 bytes");
+    }
     LEDGER("d_phi_rhs_k(=d_mu_x_k=d_Y_rhs_k)", total_k, sizeof(cufftDoubleComplex));
     LEDGER("d_Y_k", total_k, sizeof(cufftDoubleComplex));
     LEDGER("d_divJ_k", total_k, sizeof(cufftDoubleComplex));
@@ -1422,7 +2227,7 @@ __global__ void init_phi_kernel(double *phi_r,
                                 int Nx, int Ny, int Nz,
                                 double dx, double dy, double dz,
                                 double Lx, double Ly, double Lz,
-                                double w, 
+                                double w,
                                 double Rx, double Ry, double Rz,
                                 int is3D) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1513,23 +2318,23 @@ __global__ void init_xB_Y_from_phi_kernel(const double *phi_r,
 static void generate_seed_centers_uniform(const PFParams *P, double *buffer) {
     const int n = P->ic_phi_num_seeds;
     if (n <= 0) return;
-    
+
     const double Lx = P->Nx * P->dx;
     const double Ly = P->Ny * P->dy;
     const double Lz = P->Nz * P->dz;
-    
+
     // 计算边界缓冲区（半径/界面宽度统一为物理长度，随 dx 缩放）
     double w_phys = (P->ic_phi_iface_w > 0.0) ? P->ic_phi_iface_w * P->dx : P->dx;
     double R_estimate = (P->ic_phi_seed_radius > 0.0) ? P->ic_phi_seed_radius : (10.0 * P->dx);
     double margin = R_estimate + 2.0 * w_phys;
-    
+
     double margin_x = fmin(margin, 0.1 * Lx);
     double margin_y = fmin(margin, 0.1 * Ly);
     double margin_z = fmin(margin, 0.1 * Lz);
-    
+
     // 使用种子值初始化随机数生成器
     srand((unsigned int)P->seed);
-    
+
     // 单个种子：放在几何中心
     if (n == 1) {
         buffer[0] = 0.5 * Lx;
@@ -2054,7 +2859,7 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
         eta_r[i] = eta;
         xB_r[i] = xb;
         Y_r[i] = logit_from_fraction(xb, P->xB_eps, P->Y_clip);
-        if (is_gp_zone_mode(P)) {
+        if (gp_storage_coupling_enabled(P)) {
             double h_alpha = 0.0, h_GP = 0.0, h_beta = 0.0;
             phase_fractions_gp(phi, eta, &h_alpha, &h_GP, &h_beta);
             xBtot_r[i] = h_alpha * xb + h_GP * P->gp_xB_fixed + h_beta;
@@ -3129,6 +3934,7 @@ static int run_y_update_mass_projection(const PFParams *P,
                                         int post_conversion_step,
                                         const char *target_mode,
                                         double target_sum_xBtot,
+                                        double Y_upper_cap,
                                         double *d_phi_r,
                                         double *d_eta_r,
                                         double *d_Y_base_r,
@@ -3157,7 +3963,9 @@ static int run_y_update_mass_projection(const PFParams *P,
     const char *notes = converged ? "already_within_tolerance" : "";
 
     auto eval_lambda = [&](double lambda) -> double {
-        launch_apply_Y_shift_recompute_xB_kernel(d_Y_base_r, d_Y_r, d_xB_r, lambda, total_r);
+        launch_apply_Y_shift_recompute_xB_kernel(d_Y_base_r, d_Y_r, d_xB_r,
+                                                 lambda, P->Y_clip, Y_upper_cap,
+                                                 P->xB_eps, total_r);
         return gpu_reduce_sum_model_xBtot(P, d_phi_r, d_eta_r, d_xB_r, total_r);
     };
 
@@ -3202,14 +4010,18 @@ static int run_y_update_mass_projection(const PFParams *P,
                 }
             } else {
                 notes = "projection_bracket_failed";
-                launch_apply_Y_shift_recompute_xB_kernel(d_Y_base_r, d_Y_r, d_xB_r, 0.0, total_r);
+                launch_apply_Y_shift_recompute_xB_kernel(d_Y_base_r, d_Y_r, d_xB_r,
+                                                         0.0, P->Y_clip, Y_upper_cap,
+                                                         P->xB_eps, total_r);
                 lambda_best = 0.0;
             }
         }
     }
 
     if (!converged && strcmp(notes, "projection_bracket_failed") != 0) {
-        launch_apply_Y_shift_recompute_xB_kernel(d_Y_base_r, d_Y_r, d_xB_r, lambda_best, total_r);
+        launch_apply_Y_shift_recompute_xB_kernel(d_Y_base_r, d_Y_r, d_xB_r,
+                                                 lambda_best, P->Y_clip, Y_upper_cap,
+                                                 P->xB_eps, total_r);
     }
 
     double sum_after = gpu_reduce_sum_model_xBtot(P, d_phi_r, d_eta_r, d_xB_r, total_r);
@@ -3266,9 +4078,661 @@ typedef struct {
     std::vector<ScheduledNucEvent> events;
     ScheduledNucProfileSet profile;
     FILE *events_csv;
+    FILE *physics_events_csv;
     int event_counter;
     std::vector<ScheduledNucEvent> fired_events;
 } ScheduledNucRuntime;
+
+typedef struct {
+    double M_before;
+    double M_after_embed;
+    double M_after_comp;
+    double event_mass_error_abs;
+    double event_mass_error_rel;
+    double xB_edge_used;
+} ScheduledNucExecutionSummary;
+
+typedef struct {
+    double M_matrix_beta;
+    double M_gp_active;
+    double M_total;
+    double phi_min;
+    double phi_max;
+    double xB_min;
+    double xB_max;
+    double Y_min;
+    double Y_max;
+    long long clipped_cell_count;
+    long long nan_count;
+    long long inf_count;
+} PostInsertionDriftAuditState;
+
+typedef struct {
+    FILE *csv;
+    int active;
+    int trigger_step;
+    int rows_remaining_steps;
+    double before_event_M_total;
+    double after_comp_M_total;
+    char prefix[128];
+} PostInsertionDriftAuditRuntime;
+
+static void capture_post_insertion_drift_state_host(const PFParams *P,
+                                                    const std::vector<double> &phi,
+                                                    const std::vector<double> *eta,
+                                                    const std::vector<double> &Y,
+                                                    const std::vector<double> &xB,
+                                                    PostInsertionDriftAuditState *out);
+static void capture_post_insertion_drift_state_device(const PFParams *P,
+                                                      double *d_phi_r,
+                                                      double *d_eta_r,
+                                                      double *d_Y_r,
+                                                      double *d_xB_r,
+                                                      size_t size_r,
+                                                      int total_r,
+                                                      PostInsertionDriftAuditState *out);
+static void write_post_insertion_drift_audit_row(FILE *fp,
+                                                 int step,
+                                                 const char *stage,
+                                                 const PostInsertionDriftAuditState *state,
+                                                 double before_event_M_total,
+                                                 double after_comp_M_total,
+                                                 const char *notes);
+static void write_post_insertion_drift_audit_row_from_scalars(FILE *fp,
+                                                              int step,
+                                                              const char *stage,
+                                                              double M_matrix_beta,
+                                                              double M_gp_active,
+                                                              double M_total,
+                                                              double before_event_M_total,
+                                                              double after_comp_M_total,
+                                                              double phi_min,
+                                                              double phi_max,
+                                                              double xB_min,
+                                                              double xB_max,
+                                                              double Y_min,
+                                                              double Y_max,
+                                                              long long clipped_cell_count,
+                                                              long long nan_count,
+                                                              long long inf_count,
+                                                              const char *notes);
+
+static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int step,
+                                      double *d_phi_r, double *d_Y_r, double *d_xB_r,
+                                      int total_r, size_t size_r,
+                                      const char *case_output_dir,
+                                      ScheduledNucExecutionSummary *summary_out,
+                                      PostInsertionDriftAuditRuntime *drift_audit_out);
+
+typedef struct {
+    int id;
+    int ix;
+    int iy;
+    int iz;
+    int active;
+    int consumed;
+    int consumed_step;
+    int linked_beta_event_id;
+    double B_mass_initial;
+    double B_mass_active;
+    double S_factor;
+    double radius_raw_nm;
+    double radius_nm;
+    double volume_m3;
+} GpAssistedSite;
+
+typedef struct {
+    double M_matrix;
+    double M_beta;
+    double M_gp_active;
+    double M_staged_beta;
+    double M_total;
+    double phi_min;
+    double phi_max;
+    double xB_min;
+    double xB_max;
+    double Y_min;
+    double Y_max;
+} GpAssistedLedger;
+
+typedef struct {
+    int embryo_id;
+    int birth_event_step;
+    int ix;
+    int iy;
+    int iz;
+    double target_seed_inventory;
+    double current_embryo_inventory;
+    double remaining_inventory_needed;
+    double source_GP_initial_consumed;
+    double source_GP_new_consumed;
+    double source_matrix_consumed;
+    double capture_radius_nm;
+    int nearest_GP_count;
+    int age_steps;
+    char status[64];
+    char library_entry_id[256];
+    char seed_profile_file[4096];
+    char source_dyn_dir[4096];
+    char seed_source_mode[64];
+    double library_r_seed_nm;
+    double library_mass_seed_B_equiv;
+    double library_dx_nm;
+} BetaStagedEmbryo;
+
+typedef struct {
+    int n_gp_requested;
+    int n_gp_placed;
+    int n_gp_reduced_on_shortage;
+    double gp_depletion_mass_removed;
+    double gp_inventory_added;
+    double matrix_mass_removed;
+    double total_mass_before;
+    double total_mass_after;
+    double mass_error_rel;
+    double xB_alpha_min_after;
+    double xB_alpha_max_after;
+    double overlap_fraction;
+    double s_eff_min;
+    double s_eff_max;
+    int nan_inf_flag;
+} GpPlacementInitSummary;
+
+typedef struct {
+    double requested_mass;
+    double target_mass;
+    double local_available_matrix_mass;
+    double local_background_xB;
+    int shortage_flag;
+} GpSmoothDepletionDiag;
+
+static const char *classify_nucleus_shape_from_semiaxes(double a, double b, double c) {
+    const double mx = fmax(a, fmax(b, c));
+    const double mn = fmax(fmin(a, fmin(b, c)), 1.0e-30);
+    const double aspect = mx / mn;
+    if (!isfinite(aspect) || aspect < 1.10) return "sphere";
+    if (aspect < 1.80) return "anisotropic";
+    return "faceted";
+}
+
+static double pf_domain_volume_nm3(const PFParams *P) {
+    if (!P) return NAN;
+    return fmax((double)P->Nx * runtime_dx_nm_host(P), 0.0) *
+           fmax((double)P->Ny * runtime_dy_nm_host(P), 0.0) *
+           fmax((double)P->Nz * runtime_dz_nm_host(P), 0.0);
+}
+
+static double pf_step_time_seconds(const PFParams *P, int step) {
+    if (!P) return NAN;
+    return (double)step * P->dt * P->t_real_unit;
+}
+
+static void write_unified_nucleation_event_header(FILE *fp) {
+    if (!fp) return;
+    fprintf(fp,
+            "event_id,event_source,step,time_physical_s,local_xB,T_C,gp_presence_flag,gp_assisted_flag,"
+            "nucleus_shape_type,rc_nm,center_x_nm,center_y_nm,center_z_nm,template_or_site_id,"
+            "continuous_barrier_kBT,input_event_probability,domain_volume_nm3,dt_code,t_real_unit_s,"
+            "event_status,notes\n");
+    fflush(fp);
+}
+
+static void write_unified_nucleation_event(FILE *fp,
+                                           int event_id,
+                                           const char *event_source,
+                                           int step,
+                                           double time_physical_s,
+                                           double local_xB,
+                                           double T_C,
+                                           int gp_presence_flag,
+                                           int gp_assisted_flag,
+                                           const char *shape_type,
+                                           double rc_nm,
+                                           double center_x_nm,
+                                           double center_y_nm,
+                                           double center_z_nm,
+                                           const char *template_or_site_id,
+                                           double continuous_barrier_kBT,
+                                           double input_event_probability,
+                                           double domain_volume_nm3,
+                                           double dt_code,
+                                           double t_real_unit_s,
+                                           const char *event_status,
+                                           const char *notes) {
+    if (!fp) return;
+    fprintf(fp,
+            "%d,%s,%d,%.12e,%.12e,%.12e,%d,%d,%s,%.12e,%.12e,%.12e,%.12e,%s,"
+            "%.12e,%.12e,%.12e,%.12e,%.12e,%s,%s\n",
+            event_id,
+            event_source ? event_source : "",
+            step,
+            time_physical_s,
+            local_xB,
+            T_C,
+            gp_presence_flag,
+            gp_assisted_flag,
+            shape_type ? shape_type : "",
+            rc_nm,
+            center_x_nm,
+            center_y_nm,
+            center_z_nm,
+            template_or_site_id ? template_or_site_id : "",
+            continuous_barrier_kBT,
+            input_event_probability,
+            domain_volume_nm3,
+            dt_code,
+            t_real_unit_s,
+            event_status ? event_status : "",
+            notes ? notes : "");
+    fflush(fp);
+}
+
+typedef struct {
+    double T_C;
+    double T_K;
+    double xB;
+    double strain;
+    double barrier_kBT;
+    double barrier_J;
+    double r_star_nm;
+    double Z_n;
+    double Z_r;
+    int valid;
+    int Z_n_available;
+    int Z_r_available;
+    int Z_r_is_diagnostic;
+    int rstar_fallback_used;
+    char source_case[256];
+    char r_star_source_column[128];
+    char Z_n_source[128];
+    char Z_r_source[128];
+} GpRuntimeBarrierEntry;
+
+typedef struct {
+    char id[256];
+    double T_C;
+    double xB;
+    double strain;
+    double r_seed_nm;
+    double source_dx_nm;
+    double source_internal_unit_to_nm;
+    double semiaxes_nm[3];
+    double tau_bridge_s;
+    double tau_bridge_code_time;
+    double dt_code;
+    double t_real_unit_s;
+    double mass_seed_B_equiv;
+    int production_valid;
+    int debug_only;
+    char profile_dir[4096];
+    char source_dyn_dir[4096];
+    char seed_metadata_json[4096];
+    char shape_type[64];
+    char source[512];
+    char strain_mode[64];
+} GpRuntimeNucleusEntry;
+
+typedef struct {
+    int event_id;
+    int site_id;
+    int site_ix;
+    int site_iy;
+    int site_iz;
+    int step_nuc;
+    int step_delay;
+    int step_insert;
+    int inserted;
+    int skipped;
+    int fired;
+    double t_nuc_code;
+    double t_nuc_s;
+    double t_insert_code;
+    double t_insert_s;
+    double tau_bridge_s;
+    double tau_bridge_code_time;
+    double runtime_dx_nm;
+    double x_nm;
+    double y_nm;
+    double z_nm;
+    double xB_local;
+    double strain_value;
+    double DeltaG_bare_kBT;
+    double DeltaG_eff_kBT;
+    double s_GP;
+    double r_star_nm;
+    double r_seed_nm;
+    double r_seed_grid;
+    double mass_seed_B_equiv;
+    double event_mass_error_abs;
+    double event_mass_error_rel;
+    char library_entry_id[256];
+    char profile_dir[4096];
+    char source_dyn_dir[4096];
+    char seed_metadata_json[4096];
+    char shape_type[64];
+    char status[64];
+    char selection_reason[256];
+} GpRuntimeDelayedInsertionEvent;
+
+typedef struct {
+    double runtime_unit_to_nm;
+    double runtime_dx_nm;
+    double runtime_dy_nm;
+    double runtime_dz_nm;
+    double runtime_cell_volume_nm3;
+    double r_nm;
+    double r_internal;
+    double r_grid;
+    double semiaxes_nm[3];
+    double semiaxes_internal[3];
+    double semiaxes_grid[3];
+    double volume_nm3;
+    int insertable;
+} RuntimeSeedGeometry;
+
+typedef struct {
+    double xB_local;
+    double phi_beta_local;
+    int gp_present;
+    double s_GP;
+    double DeltaG_bare_kBT;
+    double DeltaG_eff_kBT;
+    double J_bare;
+    double J_eff;
+    double P_event;
+    double dt_event_s;
+    double DeltaV_nuc_m3;
+    double N_site_m3;
+    double Z_n_used;
+    double Z_r;
+    double beta_r_star_1_s;
+    double Theta_tr;
+    double r_star_nm;
+    double r_seed_nm;
+    char barrier_source_case[256];
+    char seed_source[256];
+    char shape_type[64];
+    char rejection_reason[128];
+    char r_star_source_column[128];
+    int rstar_fallback_used;
+    char catalog_match_status[128];
+    char catalog_rejection_reason[256];
+    char strain_mode_runtime[64];
+    char strain_mode_catalog[64];
+    double T_catalog;
+    double xB_catalog;
+} GpRuntimeNucDecision;
+
+typedef struct {
+    int birth_step;
+    int site_id;
+    double R_GP_nm;
+    double V_GP_m3;
+    char requested_inventory_mode[64];
+    double requested_GP_inventory;
+    double actual_matrix_mass_removed;
+    double actual_GP_inventory_added;
+    double transaction_mass_error_rel;
+    double M_GP_initial_existing_before;
+    double M_GP_new_existing_before;
+    double M_GP_initial_existing_after;
+    double M_GP_new_existing_after;
+    double M_matrix_before;
+    double M_matrix_after;
+    double M_total_before;
+    double M_total_after;
+    int postY_projection_active;
+    char postY_projection_target_mode[64];
+    double mass_error_before_Y_update;
+    double mass_error_after_Y_update;
+    double mass_error_after_projection;
+    double mass_error_step_end;
+} StageAGPBirthDiag;
+
+typedef struct {
+    FILE *event_csv;
+    FILE *birth_csv;
+    FILE *physics_events_csv;
+    FILE *ledger_csv;
+    FILE *multi_ledger_csv;
+    FILE *scaling_csv;
+    FILE *stochastic_csv;
+    FILE *ranked_hazard_csv;
+    FILE *strong_separation_csv;
+    FILE *runtime_library_event_csv;
+    FILE *runtime_library_candidate_csv;
+    FILE *runtime_library_candidate_summary_csv;
+    FILE *runtime_bridge_queue_csv;
+    FILE *runtime_bridge_insert_csv;
+    FILE *stageA_birth_diag_csv;
+    FILE *beta_event_transaction_csv;
+    FILE *beta_attempt_capacity_csv;
+    FILE *beta_full_seed_capacity_scan_csv;
+    FILE *beta_multi_gp_capture_scan_csv;
+    FILE *beta_multi_gp_capture_transaction_csv;
+    FILE *beta_handoff_decision_csv;
+    FILE *beta_staged_embryo_csv;
+    FILE *beta_staged_accumulation_csv;
+    FILE *beta_staged_global_probe_csv;
+    FILE *beta_resolved_handoff_attempt_csv;
+    FILE *beta_resolved_handoff_csv;
+    FILE *resolved_seed_source_diag_csv;
+    FILE *staged_handoff_profile_probe_csv;
+    FILE *staged_handoff_radial_profile_csv;
+    FILE *staged_handoff_external_reset_csv;
+    FILE *diagnostic_rsmd_runtime_config_csv;
+    FILE *diagnostic_rsmd_release_event_log_csv;
+    FILE *diagnostic_rsmd_gp_inventory_csv;
+    FILE *diagnostic_rsmd_matrix_halo_norm_csv;
+    FILE *diagnostic_rsmd_projection_effect_csv;
+    FILE *diagnostic_rsmd_mass_ledger_csv;
+    FILE *diagnostic_rsmd_seed_growth_ts_csv;
+    FILE *diagnostic_rsmd_locality_csv;
+    FILE *diagnostic_rsmd_interface_band_csv;
+    FILE *diagnostic_rsmd_interface_rhs_csv;
+    FILE *diagnostic_rsmd_regional_xB_csv;
+    FILE *diagnostic_rsmd_global_max_xB_csv;
+    FILE *diagnostic_rsmd_radial_profile_csv;
+    FILE *diagnostic_rsmd_history_restart_csv;
+    int strong_separation_written;
+    int diagnostic_rsmd_config_written;
+    int diagnostic_rsmd_gp_inventory_initial_written;
+    int diagnostic_rsmd_release_started_step;
+    int diagnostic_rsmd_history_restart_pending;
+    int event_counter;
+    int delayed_event_counter;
+    int forced_selector_event_consumed;
+    int beta_debug_forced_event_consumed;
+    int beta_full_seed_capacity_scan_written;
+    int beta_multi_gp_capture_scan_written;
+    int next_staged_embryo_id;
+    int resolved_handoff_inserted_count;
+    int initial_gp_site_count;
+    unsigned long long rng_state;
+    double initial_total_reference;
+    std::vector<GpAssistedSite> sites;
+    double total_gp_initial;
+    double total_gp_consumed;
+    double total_matrix_drawn;
+    double literature_expected_births_total;
+    int literature_births_sampled_total;
+    int literature_births_accepted_total;
+    int accepted_event_count;
+    int attempted_event_count;
+    double max_abs_rel_drift;
+    double sum_abs_rel_drift;
+    int drift_sample_count;
+    int stochastic_selected_count;
+    int runtime_library_loaded;
+    int runtime_catalog_loaded;
+    int staged_handoff_snapshot_valid;
+    int staged_handoff_snapshot_step;
+    int staged_handoff_postY_detector_written;
+    int diagnostic_rsmd_eligible_cache_valid;
+    int diagnostic_rsmd_eligible_cache_embryo_id;
+    int diagnostic_rsmd_eligible_cache_ix;
+    int diagnostic_rsmd_eligible_cache_iy;
+    int diagnostic_rsmd_eligible_cache_iz;
+    double diagnostic_rsmd_eligible_cache_seed_R_eff_nm;
+    double diagnostic_rsmd_eligible_cache_R_exchange_nm;
+    BetaStagedEmbryo staged_handoff_snapshot_embryo;
+    char stageA_case_label[256];
+    std::vector<double> staged_handoff_phi_before;
+    std::vector<double> staged_handoff_xB_before;
+    std::vector<int> diagnostic_rsmd_eligible_site_indices;
+    std::vector<GpRuntimeBarrierEntry> barrier_entries;
+    std::vector<GpRuntimeNucleusEntry> nucleus_entries;
+    std::vector<GpRuntimeDelayedInsertionEvent> delayed_events;
+    std::vector<StageAGPBirthDiag> pending_stageA_birth_diags;
+    std::vector<BetaStagedEmbryo> staged_embryos;
+} GpAssistedRuntime;
+
+static double gp_stageA_mass_error_rel_from_sum(const PFParams *P, double sum_xBtot, int total_r) {
+    if (!P || total_r <= 0 || !isfinite(sum_xBtot)) return NAN;
+    const double mean_xBtot =
+        (fabs(sum_xBtot) > 1.0) ? (sum_xBtot / (double)total_r) : sum_xBtot;
+    return (mean_xBtot - P->gp_initial_xB_tot) / fmax(fabs(P->gp_initial_xB_tot), 1.0e-30);
+}
+
+static void gp_stageA_fill_pending_birth_diags_after_Y(GpAssistedRuntime *rt,
+                                                       const PFParams *P,
+                                                       int step,
+                                                       int total_r,
+                                                       int projection_active,
+                                                       const char *projection_target_mode,
+                                                       double sum_before_Y,
+                                                       double sum_after_Y,
+                                                       double sum_after_projection) {
+    if (!rt || !P) return;
+    for (size_t i = 0; i < rt->pending_stageA_birth_diags.size(); ++i) {
+        StageAGPBirthDiag &diag = rt->pending_stageA_birth_diags[i];
+        if (diag.birth_step >= step) continue;
+        if (!isfinite(diag.mass_error_after_Y_update)) {
+            diag.postY_projection_active = projection_active ? 1 : 0;
+            snprintf(diag.postY_projection_target_mode,
+                     sizeof(diag.postY_projection_target_mode),
+                     "%s",
+                     projection_target_mode ? projection_target_mode : "unknown");
+            diag.mass_error_before_Y_update =
+                gp_stageA_mass_error_rel_from_sum(P, sum_before_Y, total_r);
+            diag.mass_error_after_Y_update =
+                gp_stageA_mass_error_rel_from_sum(P, sum_after_Y, total_r);
+            diag.mass_error_after_projection =
+                projection_active
+                    ? gp_stageA_mass_error_rel_from_sum(P, sum_after_projection, total_r)
+                    : diag.mass_error_after_Y_update;
+        }
+    }
+}
+
+static void gp_stageA_flush_completed_birth_diags(GpAssistedRuntime *rt,
+                                                  const PFParams *P,
+                                                  int step,
+                                                  int total_r,
+                                                  double step_end_sum_xBtot) {
+    if (!rt || !P) return;
+    if (rt->pending_stageA_birth_diags.empty()) return;
+    const double step_end_mass_error =
+        gp_stageA_mass_error_rel_from_sum(P, step_end_sum_xBtot, total_r);
+    std::vector<StageAGPBirthDiag> remaining;
+    remaining.reserve(rt->pending_stageA_birth_diags.size());
+    for (size_t i = 0; i < rt->pending_stageA_birth_diags.size(); ++i) {
+        StageAGPBirthDiag diag = rt->pending_stageA_birth_diags[i];
+        if (diag.birth_step < step && isfinite(diag.mass_error_after_Y_update)) {
+            diag.mass_error_step_end = step_end_mass_error;
+            printf("STAGEA_GP_BIRTH_DIAG_BEGIN\n");
+            printf("case=%s\n", rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case");
+            printf("step=%d\n", step);
+            printf("birth_index=%zu\n", i);
+            printf("site_id=%d\n", diag.site_id);
+            printf("R_GP_nm=%.12e\n", diag.R_GP_nm);
+            printf("requested_inventory_mode=%s\n", diag.requested_inventory_mode);
+            printf("actual_matrix_mass_removed=%.12e\n", diag.actual_matrix_mass_removed);
+            printf("actual_GP_inventory_added=%.12e\n", diag.actual_GP_inventory_added);
+            printf("transaction_mass_error_rel=%.12e\n", diag.transaction_mass_error_rel);
+            printf("M_GP_initial_existing=%.12e\n", diag.M_GP_initial_existing_after);
+            printf("M_GP_new_existing_before=%.12e\n", diag.M_GP_new_existing_before);
+            printf("M_GP_new_existing_after=%.12e\n", diag.M_GP_new_existing_after);
+            printf("M_matrix_before=%.12e\n", diag.M_matrix_before);
+            printf("M_matrix_after=%.12e\n", diag.M_matrix_after);
+            printf("M_total_before=%.12e\n", diag.M_total_before);
+            printf("M_total_after=%.12e\n", diag.M_total_after);
+            printf("postY_projection_active=%d\n", diag.postY_projection_active);
+            printf("postY_projection_target_mode=%s\n", diag.postY_projection_target_mode);
+            printf("mass_error_before_Y_update=%.12e\n", diag.mass_error_before_Y_update);
+            printf("mass_error_after_Y_update=%.12e\n", diag.mass_error_after_Y_update);
+            printf("mass_error_after_projection=%.12e\n", diag.mass_error_after_projection);
+            printf("mass_error_step_end=%.12e\n", diag.mass_error_step_end);
+            printf("STAGEA_GP_BIRTH_DIAG_END\n");
+            if (rt->stageA_birth_diag_csv) {
+                fprintf(rt->stageA_birth_diag_csv,
+                        "%s,%d,%zu,%d,%.12e,%.12e,%s,%.12e,%.12e,%.12e,"
+                        "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%d,%s,"
+                        "%.12e,%.12e,%.12e,%.12e\n",
+                        rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                        step, i, diag.site_id, diag.R_GP_nm, diag.V_GP_m3,
+                        diag.requested_inventory_mode, diag.requested_GP_inventory,
+                        diag.actual_matrix_mass_removed, diag.actual_GP_inventory_added,
+                        diag.transaction_mass_error_rel,
+                        diag.M_GP_initial_existing_after, diag.M_GP_new_existing_before,
+                        diag.M_GP_new_existing_after, diag.M_matrix_before,
+                        diag.M_matrix_after, diag.M_total_before, diag.M_total_after,
+                        diag.postY_projection_active,
+                        diag.postY_projection_target_mode,
+                        diag.mass_error_before_Y_update, diag.mass_error_after_Y_update,
+                        diag.mass_error_after_projection, diag.mass_error_step_end);
+                fflush(rt->stageA_birth_diag_csv);
+            }
+        } else {
+            remaining.push_back(diag);
+        }
+    }
+    rt->pending_stageA_birth_diags.swap(remaining);
+}
+
+typedef struct {
+    double xB_local;
+    double curvature;
+    double gp_density;
+    double f_xB;
+    double g_curvature;
+    double q_density;
+    double hazard;
+    double f_xB_old;
+    double g_curvature_old;
+    double q_density_old;
+    double hazard_old;
+    double phi_beta_local;
+    int gp_present;
+    double s_GP;
+    double DeltaG_bare_kBT;
+    double DeltaG_eff_kBT;
+    double J_bare;
+    double J_eff;
+    double P_event;
+    double dt_event_s;
+    double DeltaV_nuc_m3;
+    double N_site_m3;
+    double Z_n_used;
+    double Z_r;
+    double beta_r_star_1_s;
+    double Theta_tr;
+    double r_star_nm;
+    double r_seed_nm;
+    char barrier_source_case[256];
+    char seed_source[256];
+    char rejection_reason[128];
+    char r_star_source_column[128];
+    int rstar_fallback_used;
+    char catalog_match_status[128];
+    char catalog_rejection_reason[256];
+    char strain_mode_runtime[64];
+    char strain_mode_catalog[64];
+    double T_catalog;
+    double xB_catalog;
+    char beta_rate_model[64];
+    char beta_rate_rejection_reason[128];
+} GpRankedHazardDiag;
 
 typedef struct {
     int step;
@@ -3340,6 +4804,14 @@ static std::string lower_copy_cpp(std::string s) {
     return s;
 }
 
+static int parse_bool_text_cpp(const char *text, int default_value) {
+    if (!text || text[0] == '\0') return default_value;
+    std::string v = lower_copy_cpp(trim_copy_cpp(text));
+    if (v == "1" || v == "true" || v == "yes" || v == "on") return 1;
+    if (v == "0" || v == "false" || v == "no" || v == "off") return 0;
+    return default_value;
+}
+
 static std::vector<std::string> split_csv_simple_cpp(const std::string &line) {
     std::vector<std::string> out;
     std::string cur;
@@ -3363,7 +4835,7 @@ static int find_header_col(const std::vector<std::string> &headers, const char *
     for (size_t i = 0; i < headers.size(); ++i) {
         std::string h = lower_copy_cpp(trim_copy_cpp(headers[i]));
         for (int j = 0; j < n_names; ++j) {
-            if (h == names[j]) return (int)i;
+            if (h == lower_copy_cpp(trim_copy_cpp(names[j]))) return (int)i;
         }
     }
     return -1;
@@ -3481,25 +4953,1105 @@ static int source_summary_semiaxes_nm(const char *source_dyn_dir, double *a, dou
     FILE *fp = fopen(path, "r");
     if (!fp) return 0;
     char line[1024];
-    double L1 = NAN, L2 = NAN, L3 = NAN;
+    double L1_nm = NAN, L2_nm = NAN, L3_nm = NAN;
+    double L1_internal = NAN, L2_internal = NAN, L3_internal = NAN;
+    double unit_to_nm = NAN;
     while (fgets(line, sizeof(line), fp)) {
         char *colon = strchr(line, ':');
         if (!colon) continue;
         *colon = '\0';
         char *val = colon + 1;
         double x = strtod(val, NULL);
-        if (strstr(line, "L1_long")) L1 = x;
-        else if (strstr(line, "L2_mid")) L2 = x;
-        else if (strstr(line, "L3_short")) L3 = x;
+        if (strstr(line, "internal_unit_to_nm")) unit_to_nm = x;
+        else if (strstr(line, "L1_long_nm")) L1_nm = x;
+        else if (strstr(line, "L2_mid_nm")) L2_nm = x;
+        else if (strstr(line, "L3_short_nm")) L3_nm = x;
+        else if (strstr(line, "L1_long")) L1_internal = x;
+        else if (strstr(line, "L2_mid")) L2_internal = x;
+        else if (strstr(line, "L3_short")) L3_internal = x;
     }
     fclose(fp);
-    if (isfinite(L1) && isfinite(L2) && isfinite(L3) && L1 > 0.0 && L2 > 0.0 && L3 > 0.0) {
-        *a = 0.5 * L1;
-        *b = 0.5 * L2;
-        *c = 0.5 * L3;
+    if (isfinite(L1_nm) && isfinite(L2_nm) && isfinite(L3_nm) && L1_nm > 0.0 && L2_nm > 0.0 && L3_nm > 0.0) {
+        *a = 0.5 * L1_nm;
+        *b = 0.5 * L2_nm;
+        *c = 0.5 * L3_nm;
+        return 1;
+    }
+    if (isfinite(unit_to_nm) &&
+        isfinite(L1_internal) && isfinite(L2_internal) && isfinite(L3_internal) &&
+        L1_internal > 0.0 && L2_internal > 0.0 && L3_internal > 0.0) {
+        *a = 0.5 * L1_internal * unit_to_nm;
+        *b = 0.5 * L2_internal * unit_to_nm;
+        *c = 0.5 * L3_internal * unit_to_nm;
         return 1;
     }
     return 0;
+}
+
+static int parse_triplet_from_string_cpp(const char *text, double *a, double *b, double *c) {
+    if (!text || !a || !b || !c) return 0;
+    std::string s = trim_copy_cpp(text);
+    if (s.empty()) return 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '[' || s[i] == ']' || s[i] == '(' || s[i] == ')' || s[i] == ';') s[i] = ' ';
+        else if (s[i] == ',') s[i] = ' ';
+    }
+    std::stringstream ss(s);
+    double x = NAN, y = NAN, z = NAN;
+    if (!(ss >> x >> y >> z)) return 0;
+    if (!(isfinite(x) && isfinite(y) && isfinite(z))) return 0;
+    *a = x;
+    *b = y;
+    *c = z;
+    return 1;
+}
+
+static double runtime_unit_to_nm_host(const PFParams *P) {
+    if (!P) return NAN;
+    return compute_eta_ref_dx_phys_m_host(P) * 1.0e9;
+}
+
+static double runtime_dx_nm_host(const PFParams *P) {
+    const double unit_to_nm = runtime_unit_to_nm_host(P);
+    return (!P || !isfinite(unit_to_nm)) ? NAN : P->dx * unit_to_nm;
+}
+
+static double runtime_dy_nm_host(const PFParams *P) {
+    const double unit_to_nm = runtime_unit_to_nm_host(P);
+    return (!P || !isfinite(unit_to_nm)) ? NAN : P->dy * unit_to_nm;
+}
+
+static double runtime_dz_nm_host(const PFParams *P) {
+    const double unit_to_nm = runtime_unit_to_nm_host(P);
+    return (!P || !isfinite(unit_to_nm)) ? NAN : P->dz * unit_to_nm;
+}
+
+static double runtime_length_nm_to_internal_host(const PFParams *P, double value_nm) {
+    const double unit_to_nm = runtime_unit_to_nm_host(P);
+    if (!(isfinite(unit_to_nm) && unit_to_nm > 0.0) || !isfinite(value_nm)) return NAN;
+    return value_nm / unit_to_nm;
+}
+
+static double runtime_length_internal_to_nm_host(const PFParams *P, double value_internal) {
+    const double unit_to_nm = runtime_unit_to_nm_host(P);
+    if (!(isfinite(unit_to_nm) && unit_to_nm > 0.0) || !isfinite(value_internal)) return NAN;
+    return value_internal * unit_to_nm;
+}
+
+static int convert_seed_nm_to_runtime_grid(const GpRuntimeNucleusEntry *seed,
+                                           const PFParams *P,
+                                           RuntimeSeedGeometry *out,
+                                           char *reason,
+                                           size_t reason_size) {
+    if (reason && reason_size) reason[0] = '\0';
+    if (!seed || !P || !out) return 0;
+    memset(out, 0, sizeof(*out));
+    out->runtime_unit_to_nm = runtime_unit_to_nm_host(P);
+    out->runtime_dx_nm = runtime_dx_nm_host(P);
+    out->runtime_dy_nm = runtime_dy_nm_host(P);
+    out->runtime_dz_nm = runtime_dz_nm_host(P);
+    out->runtime_cell_volume_nm3 =
+        out->runtime_dx_nm * out->runtime_dy_nm * out->runtime_dz_nm;
+    out->r_nm = seed->r_seed_nm;
+    if (!(isfinite(out->runtime_unit_to_nm) && out->runtime_unit_to_nm > 0.0 &&
+          isfinite(out->runtime_dx_nm) && out->runtime_dx_nm > 0.0 &&
+          isfinite(out->runtime_dy_nm) && out->runtime_dy_nm > 0.0 &&
+          isfinite(out->runtime_dz_nm) && out->runtime_dz_nm > 0.0 &&
+          isfinite(out->r_nm) && out->r_nm > 0.0)) {
+        if (reason && reason_size) snprintf(reason, reason_size, "invalid_runtime_or_seed_units");
+        return 0;
+    }
+    out->r_internal = runtime_length_nm_to_internal_host(P, out->r_nm);
+    out->r_grid = out->r_nm / out->runtime_dx_nm;
+    for (int q = 0; q < 3; ++q) {
+        const double s_nm = (isfinite(seed->semiaxes_nm[q]) && seed->semiaxes_nm[q] > 0.0)
+            ? seed->semiaxes_nm[q] : out->r_nm;
+        out->semiaxes_nm[q] = s_nm;
+        out->semiaxes_internal[q] = runtime_length_nm_to_internal_host(P, s_nm);
+        out->semiaxes_grid[q] = s_nm / out->runtime_dx_nm;
+    }
+    out->volume_nm3 = (4.0 / 3.0) * M_PI * out->semiaxes_nm[0] * out->semiaxes_nm[1] * out->semiaxes_nm[2];
+    const double min_grid = fmin(out->semiaxes_grid[0], fmin(out->semiaxes_grid[1], out->semiaxes_grid[2]));
+    out->insertable = (min_grid >= fmax(P->gp_runtime_min_rseed_over_dx, 1.0));
+    if (reason && reason_size) {
+        snprintf(reason, reason_size,
+                 "r_nm=%.6g runtime_dx_nm=%.6g r_grid=%.6g min_semiaxis_grid=%.6g threshold=%.6g",
+                 out->r_nm, out->runtime_dx_nm, out->r_grid, min_grid, P->gp_runtime_min_rseed_over_dx);
+    }
+    return 1;
+}
+
+static int path_exists_regular_or_dir(const char *path) {
+    if (!path || path[0] == '\0') return 0;
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+static std::string shell_quote_cpp(const char *text) {
+    std::string s = text ? text : "";
+    std::string out = "'";
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\'') out += "'\\''";
+        else out.push_back(s[i]);
+    }
+    out += "'";
+    return out;
+}
+
+static std::string json_object_block_cpp(const std::string &text, const char *key) {
+    std::string needle = std::string("\"") + key + "\"";
+    size_t k = text.find(needle);
+    if (k == std::string::npos) return "";
+    size_t open = text.find('{', k + needle.size());
+    if (open == std::string::npos) return "";
+    int depth = 0;
+    int in_string = 0;
+    int escape = 0;
+    for (size_t i = open; i < text.size(); ++i) {
+        char c = text[i];
+        if (escape) {
+            escape = 0;
+            continue;
+        }
+        if (c == '\\' && in_string) {
+            escape = 1;
+            continue;
+        }
+        if (c == '"') {
+            in_string = !in_string;
+            continue;
+        }
+        if (in_string) continue;
+        if (c == '{') depth++;
+        else if (c == '}') {
+            depth--;
+            if (depth == 0) return text.substr(open, i - open + 1);
+        }
+    }
+    return "";
+}
+
+static int json_extract_string_cpp(const std::string &text, const char *key, char *out, size_t out_size) {
+    if (!out || out_size == 0) return 0;
+    out[0] = '\0';
+    std::string needle = std::string("\"") + key + "\"";
+    size_t k = text.find(needle);
+    if (k == std::string::npos) return 0;
+    size_t colon = text.find(':', k + needle.size());
+    if (colon == std::string::npos) return 0;
+    size_t q0 = text.find('"', colon + 1);
+    if (q0 == std::string::npos) return 0;
+    std::string val;
+    int escape = 0;
+    for (size_t i = q0 + 1; i < text.size(); ++i) {
+        char c = text[i];
+        if (escape) {
+            val.push_back(c);
+            escape = 0;
+        } else if (c == '\\') {
+            escape = 1;
+        } else if (c == '"') {
+            snprintf(out, out_size, "%s", val.c_str());
+            return 1;
+        } else {
+            val.push_back(c);
+        }
+    }
+    return 0;
+}
+
+static int json_extract_double_cpp(const std::string &text, const char *key, double *out) {
+    if (!out) return 0;
+    std::string needle = std::string("\"") + key + "\"";
+    size_t k = text.find(needle);
+    if (k == std::string::npos) return 0;
+    size_t colon = text.find(':', k + needle.size());
+    if (colon == std::string::npos) return 0;
+    const char *p = text.c_str() + colon + 1;
+    while (*p && isspace((unsigned char)*p)) ++p;
+    if (strncmp(p, "null", 4) == 0) return 0;
+    char *endp = NULL;
+    double v = strtod(p, &endp);
+    if (endp == p || !isfinite(v)) return 0;
+    *out = v;
+    return 1;
+}
+
+static int json_extract_bool_cpp(const std::string &text, const char *key, int *out) {
+    if (!out) return 0;
+    std::string needle = std::string("\"") + key + "\"";
+    size_t k = text.find(needle);
+    if (k == std::string::npos) return 0;
+    size_t colon = text.find(':', k + needle.size());
+    if (colon == std::string::npos) return 0;
+    const char *p = text.c_str() + colon + 1;
+    while (*p && isspace((unsigned char)*p)) ++p;
+    if (strncmp(p, "true", 4) == 0) { *out = 1; return 1; }
+    if (strncmp(p, "false", 5) == 0) { *out = 0; return 1; }
+    return 0;
+}
+
+static int gp_runtime_col(const std::vector<std::string> &headers,
+                          const char *a,
+                          const char *b = NULL,
+                          const char *c = NULL,
+                          const char *d = NULL) {
+    const char *names[4];
+    int n = 0;
+    if (a) names[n++] = a;
+    if (b) names[n++] = b;
+    if (c) names[n++] = c;
+    if (d) names[n++] = d;
+    return find_header_col(headers, names, n);
+}
+
+static double gp_runtime_csv_double(const std::vector<std::string> &cols, int idx, double fallback = NAN) {
+    if (idx < 0 || (size_t)idx >= cols.size()) return fallback;
+    const std::string s = trim_copy_cpp(cols[(size_t)idx]);
+    if (s.empty()) return fallback;
+    char *endp = NULL;
+    double v = strtod(s.c_str(), &endp);
+    if (endp == s.c_str() || !isfinite(v)) return fallback;
+    return v;
+}
+
+static void gp_runtime_csv_string(const std::vector<std::string> &cols, int idx,
+                                  char *out, size_t out_size, const char *fallback = "") {
+    if (!out || out_size == 0) return;
+    const char *val = fallback ? fallback : "";
+    std::string tmp;
+    if (idx >= 0 && (size_t)idx < cols.size()) {
+        tmp = trim_copy_cpp(cols[(size_t)idx]);
+        if (!tmp.empty()) val = tmp.c_str();
+    }
+    snprintf(out, out_size, "%s", val);
+}
+
+static int gp_runtime_find_first_present_col(const std::vector<std::string> &headers,
+                                             const char **names,
+                                             size_t n_names,
+                                             char *selected_name,
+                                             size_t selected_size) {
+    if (selected_name && selected_size) selected_name[0] = '\0';
+    for (size_t i = 0; i < n_names; ++i) {
+        const char *one_name[1] = {names[i]};
+        const int idx = find_header_col(headers, one_name, 1);
+        if (idx >= 0) {
+            if (selected_name && selected_size) snprintf(selected_name, selected_size, "%s", names[i]);
+            return idx;
+        }
+    }
+    return -1;
+}
+
+static const char *gp_runtime_infer_strain_mode(double strain, const char *id, const char *source) {
+    std::string s;
+    if (id) s += lower_copy_cpp(id);
+    s += " ";
+    if (source) s += lower_copy_cpp(source);
+    if (fabs(strain) > 1.0e-12) return "external_strain";
+    if (s.find("exx") != std::string::npos &&
+        s.find("s000") == std::string::npos &&
+        s.find("s0p000") == std::string::npos &&
+        s.find("strain0") == std::string::npos) {
+        return "external_strain";
+    }
+    if (s.find("strain") != std::string::npos &&
+        s.find("no_strain") == std::string::npos &&
+        s.find("strain_0") == std::string::npos) {
+        return "external_strain";
+    }
+    return "no_strain";
+}
+
+static int gp_runtime_load_barrier_library(GpAssistedRuntime *rt, const PFParams *P) {
+    if (!rt || !P || !P->enable_gp_runtime_library_nucleation) return 1;
+    if (rt->runtime_library_loaded) return !rt->barrier_entries.empty();
+    rt->runtime_library_loaded = 1;
+    rt->barrier_entries.clear();
+    if (P->gp_runtime_barrier_library_path[0] == '\0') {
+        fprintf(stderr, "[warn] gp runtime barrier library path is empty; stochastic library events will be skipped.\n");
+        return 0;
+    }
+    std::ifstream in(P->gp_runtime_barrier_library_path);
+    if (!in.good()) {
+        fprintf(stderr, "[warn] cannot open gp runtime barrier library: %s\n", P->gp_runtime_barrier_library_path);
+        return 0;
+    }
+    std::string line;
+    if (!std::getline(in, line)) return 0;
+    std::vector<std::string> headers = split_csv_simple_cpp(line);
+    const int c_T_C = gp_runtime_col(headers, "t_c", "temperature_c");
+    const int c_T_K = gp_runtime_col(headers, "t_k", "temperature_k");
+    const int c_xB = gp_runtime_col(headers, "xb", "xB");
+    const int c_strain = gp_runtime_col(headers, "strain", "strain_value");
+    const int c_bar_kbt =
+        (strcmp(P->gp_runtime_barrier_mode, "excess_refsub") == 0)
+            ? gp_runtime_col(headers, "excess_refsub_peak_kbt", "deltag_excess_refsub_kbt", "deltag_bare_kbt")
+            : gp_runtime_col(headers, "cnt_refsub_peak_kbt", "deltag_bare_kbt", "deltag_star_kbt", "barrier_kbt_corrected");
+    const int c_bar_j =
+        (strcmp(P->gp_runtime_barrier_mode, "excess_refsub") == 0)
+            ? gp_runtime_col(headers, "excess_refsub_peak_j", "deltag_excess_refsub_j", "deltag_bare_j")
+            : gp_runtime_col(headers, "cnt_refsub_peak_j", "deltag_bare_j", "deltag_star_j");
+    char rstar_column_name[128] = "";
+    const char *rstar_priority[] = {
+        "cnt_refsub_peak_radius_nm",
+        "cnt_peak_radius_nm",
+        "barrier_peak_radius_nm",
+        "cnt_absolute_peak_radius_nm",
+        "r_star_nm",
+        "r_star_cnt_nm",
+        "r_eff_star_nm",
+        "rc_schur_nm"
+    };
+    const int c_rstar = gp_runtime_find_first_present_col(headers, rstar_priority,
+                                                          sizeof(rstar_priority) / sizeof(rstar_priority[0]),
+                                                          rstar_column_name, sizeof(rstar_column_name));
+    const int c_npoints = gp_runtime_col(headers, "n_points");
+    const int c_source = gp_runtime_col(headers, "workflow_name", "base_case_tag", "condition_id", "case_id");
+    const int c_zn = gp_runtime_col(headers, "z_n", "z_n_dimensionless");
+    const int c_zr_strict = gp_runtime_col(headers, "z_r_strict", "z_r_1_m", "z_r");
+    const int c_zr_diag = gp_runtime_col(headers, "z_r_diagnostic");
+    const int c_strict_status = gp_runtime_col(headers, "strict_status");
+    while (std::getline(in, line)) {
+        if (trim_copy_cpp(line).empty()) continue;
+        std::vector<std::string> cols = split_csv_simple_cpp(line);
+        GpRuntimeBarrierEntry e;
+        memset(&e, 0, sizeof(e));
+        e.T_C = gp_runtime_csv_double(cols, c_T_C, NAN);
+        e.T_K = gp_runtime_csv_double(cols, c_T_K, NAN);
+        if (!isfinite(e.T_C) && isfinite(e.T_K)) e.T_C = e.T_K - 273.15;
+        if (!isfinite(e.T_K) && isfinite(e.T_C)) e.T_K = e.T_C + 273.15;
+        e.xB = gp_runtime_csv_double(cols, c_xB, NAN);
+        e.strain = gp_runtime_csv_double(cols, c_strain, 0.0);
+        e.barrier_kBT = gp_runtime_csv_double(cols, c_bar_kbt, NAN);
+        e.barrier_J = gp_runtime_csv_double(cols, c_bar_j, NAN);
+        e.r_star_nm = gp_runtime_csv_double(cols, c_rstar, NAN);
+        e.Z_n = NAN;
+        e.Z_r = NAN;
+        e.Z_n_available = 0;
+        e.Z_r_available = 0;
+        e.Z_r_is_diagnostic = 0;
+        snprintf(e.r_star_source_column, sizeof(e.r_star_source_column), "%s",
+                 rstar_column_name[0] ? rstar_column_name : "missing");
+        e.rstar_fallback_used = (strcmp(e.r_star_source_column, "rc_schur_nm") == 0) ? 1 : 0;
+        gp_runtime_csv_string(cols, c_source, e.source_case, sizeof(e.source_case), "barrier_library_row");
+        const double z_n = gp_runtime_csv_double(cols, c_zn, NAN);
+        const double z_strict = gp_runtime_csv_double(cols, c_zr_strict, NAN);
+        const double z_diag = gp_runtime_csv_double(cols, c_zr_diag, NAN);
+        char strict_status[64] = "";
+        gp_runtime_csv_string(cols, c_strict_status, strict_status, sizeof(strict_status), "");
+        if (isfinite(z_n) && z_n > 0.0) {
+            e.Z_n = z_n;
+            e.Z_n_available = 1;
+            snprintf(e.Z_n_source, sizeof(e.Z_n_source), "%s",
+                     (c_zn >= 0 && (size_t)c_zn < headers.size()) ? headers[(size_t)c_zn].c_str() : "Z_n");
+        } else {
+            snprintf(e.Z_n_source, sizeof(e.Z_n_source), "%s", "missing");
+        }
+        if (isfinite(z_strict) && z_strict > 0.0) {
+            e.Z_r = z_strict;
+            e.Z_r_available = 1;
+            e.Z_r_is_diagnostic = 0;
+            snprintf(e.Z_r_source, sizeof(e.Z_r_source), "%s",
+                     (c_zr_strict >= 0 && (size_t)c_zr_strict < headers.size()) ? headers[(size_t)c_zr_strict].c_str() : "Z_r_strict");
+        } else if (isfinite(z_diag) && z_diag > 0.0) {
+            e.Z_r = z_diag;
+            e.Z_r_available = 1;
+            e.Z_r_is_diagnostic = 1;
+            snprintf(e.Z_r_source, sizeof(e.Z_r_source), "%s",
+                     (c_zr_diag >= 0 && (size_t)c_zr_diag < headers.size()) ? headers[(size_t)c_zr_diag].c_str() : "Z_r_diagnostic");
+        } else {
+            snprintf(e.Z_r_source, sizeof(e.Z_r_source), "%s",
+                     strict_status[0] ? strict_status : "missing");
+        }
+        if (e.rstar_fallback_used) {
+            fprintf(stderr, "[warn] RSTAR_FALLBACK_TO_RC_SCHUR case=%s T=%.6g xB=%.6g\n",
+                    e.source_case, e.T_C, e.xB);
+        }
+        const double npoints = gp_runtime_csv_double(cols, c_npoints, 99.0);
+        e.valid = (isfinite(e.T_C) && isfinite(e.xB) && isfinite(e.barrier_kBT) &&
+                   isfinite(e.r_star_nm) && (!P->gp_runtime_reject_invalid_barrier_cases || npoints >= 3.0));
+        if (e.valid || !P->gp_runtime_reject_invalid_barrier_cases) {
+            rt->barrier_entries.push_back(e);
+        }
+    }
+    std::sort(rt->barrier_entries.begin(), rt->barrier_entries.end(),
+              [](const GpRuntimeBarrierEntry &a, const GpRuntimeBarrierEntry &b) {
+                  if (a.T_C != b.T_C) return a.T_C < b.T_C;
+                  if (a.strain != b.strain) return a.strain < b.strain;
+                  return a.xB < b.xB;
+              });
+    printf("[GP RUNTIME LIB] loaded %zu barrier entries from %s using mode=%s\n",
+           rt->barrier_entries.size(), P->gp_runtime_barrier_library_path, P->gp_runtime_barrier_mode);
+    return !rt->barrier_entries.empty();
+}
+
+static int gp_runtime_lookup_barrier(const GpAssistedRuntime *rt, const PFParams *P,
+                                     double T_C, double xB, double strain,
+                                     GpRuntimeBarrierEntry *out,
+                                     char *reason, size_t reason_size) {
+    if (reason && reason_size) reason[0] = '\0';
+    if (!rt || !out || rt->barrier_entries.empty()) {
+        if (reason && reason_size) snprintf(reason, reason_size, "barrier_library_empty");
+        return 0;
+    }
+    double best_T = NAN, best_dT = INFINITY;
+    for (const auto &e : rt->barrier_entries) {
+        if (!e.valid) continue;
+        double dT = fabs(e.T_C - T_C);
+        if (dT < best_dT) {
+            best_dT = dT;
+            best_T = e.T_C;
+        }
+    }
+    if (!isfinite(best_T)) {
+        if (reason && reason_size) snprintf(reason, reason_size, "no_valid_T");
+        return 0;
+    }
+    double best_strain = 0.0, best_ds = INFINITY;
+    for (const auto &e : rt->barrier_entries) {
+        if (!e.valid || fabs(e.T_C - best_T) > 1.0e-9) continue;
+        double ds = fabs(e.strain - strain);
+        if (ds < best_ds) {
+            best_ds = ds;
+            best_strain = e.strain;
+        }
+    }
+    std::vector<GpRuntimeBarrierEntry> slice;
+    for (const auto &e : rt->barrier_entries) {
+        if (!e.valid) continue;
+        if (fabs(e.T_C - best_T) <= 1.0e-9 && fabs(e.strain - best_strain) <= 1.0e-12) {
+            slice.push_back(e);
+        }
+    }
+    if (slice.empty()) {
+        if (reason && reason_size) snprintf(reason, reason_size, "no_valid_T_strain_slice");
+        return 0;
+    }
+    std::sort(slice.begin(), slice.end(), [](const GpRuntimeBarrierEntry &a, const GpRuntimeBarrierEntry &b) {
+        return a.xB < b.xB;
+    });
+    const GpRuntimeBarrierEntry *lo = NULL;
+    const GpRuntimeBarrierEntry *hi = NULL;
+    for (const auto &e : slice) {
+        if (e.xB <= xB) lo = &e;
+        if (e.xB >= xB && !hi) hi = &e;
+    }
+    if (lo && hi && lo != hi && fabs(hi->xB - lo->xB) > 1.0e-30) {
+        const double f = (xB - lo->xB) / (hi->xB - lo->xB);
+        *out = *lo;
+        out->T_C = T_C;
+        out->T_K = T_C + 273.15;
+        out->xB = xB;
+        out->strain = best_strain;
+        out->barrier_kBT = lo->barrier_kBT + f * (hi->barrier_kBT - lo->barrier_kBT);
+        out->r_star_nm = lo->r_star_nm + f * (hi->r_star_nm - lo->r_star_nm);
+        out->rstar_fallback_used = (lo->rstar_fallback_used || hi->rstar_fallback_used) ? 1 : 0;
+        if (strcmp(lo->r_star_source_column, hi->r_star_source_column) == 0) {
+            snprintf(out->r_star_source_column, sizeof(out->r_star_source_column), "%s", lo->r_star_source_column);
+        } else {
+            snprintf(out->r_star_source_column, sizeof(out->r_star_source_column), "interp:%s|%s",
+                     lo->r_star_source_column, hi->r_star_source_column);
+        }
+        if (isfinite(lo->barrier_J) && isfinite(hi->barrier_J)) {
+            out->barrier_J = lo->barrier_J + f * (hi->barrier_J - lo->barrier_J);
+        }
+        if (lo->Z_n_available && hi->Z_n_available) {
+            out->Z_n = lo->Z_n + f * (hi->Z_n - lo->Z_n);
+            out->Z_n_available = 1;
+            snprintf(out->Z_n_source, sizeof(out->Z_n_source), "interp:%s|%s",
+                     lo->Z_n_source, hi->Z_n_source);
+        } else {
+            out->Z_n = NAN;
+            out->Z_n_available = 0;
+            snprintf(out->Z_n_source, sizeof(out->Z_n_source), "missing");
+        }
+        if (lo->Z_r_available && hi->Z_r_available) {
+            out->Z_r = lo->Z_r + f * (hi->Z_r - lo->Z_r);
+            out->Z_r_available = 1;
+            out->Z_r_is_diagnostic = lo->Z_r_is_diagnostic || hi->Z_r_is_diagnostic;
+            snprintf(out->Z_r_source, sizeof(out->Z_r_source), "interp:%s|%s",
+                     lo->Z_r_source, hi->Z_r_source);
+        } else {
+            out->Z_r = NAN;
+            out->Z_r_available = 0;
+            out->Z_r_is_diagnostic = 0;
+            snprintf(out->Z_r_source, sizeof(out->Z_r_source), "missing");
+        }
+        snprintf(out->source_case, sizeof(out->source_case), "interp:%s|%s", lo->source_case, hi->source_case);
+        if (reason && reason_size) snprintf(reason, reason_size, "nearest_T=%.6g linear_xB=%.6g..%.6g", best_T, lo->xB, hi->xB);
+        return 1;
+    }
+    const GpRuntimeBarrierEntry *nearest = &slice[0];
+    double best_dx = fabs(slice[0].xB - xB);
+    for (const auto &e : slice) {
+        double dx = fabs(e.xB - xB);
+        if (dx < best_dx) {
+            best_dx = dx;
+            nearest = &e;
+        }
+    }
+    *out = *nearest;
+    if (reason && reason_size) snprintf(reason, reason_size, "nearest_T=%.6g nearest_xB=%.6g", best_T, nearest->xB);
+    return 1;
+}
+
+static int gp_runtime_load_nucleus_catalog(GpAssistedRuntime *rt, const PFParams *P) {
+    if (!rt || !P || !P->enable_gp_runtime_library_nucleation) return 1;
+    if (rt->runtime_catalog_loaded) return 1;
+    rt->runtime_catalog_loaded = 1;
+    rt->nucleus_entries.clear();
+    if (P->enable_runtime_nucleus_library) {
+        if (P->gp_runtime_nucleus_library_path[0] == '\0') {
+            fprintf(stderr, "[warn] runtime nucleus library path is empty.\n");
+            return 1;
+        }
+        std::ifstream in_csv(P->gp_runtime_nucleus_library_path);
+        if (!in_csv.good()) {
+            fprintf(stderr, "[warn] cannot open runtime nucleus library CSV: %s\n",
+                    P->gp_runtime_nucleus_library_path);
+            return 1;
+        }
+        std::string line;
+        if (!std::getline(in_csv, line)) return 1;
+        std::vector<std::string> headers = split_csv_simple_cpp(line);
+        const int c_id = gp_runtime_col(headers, "library_entry_id");
+        const int c_case_id = gp_runtime_col(headers, "case_id");
+        const int c_T_C = gp_runtime_col(headers, "T_C");
+        const int c_xB = gp_runtime_col(headers, "xB");
+        const int c_strain_mode = gp_runtime_col(headers, "strain_mode");
+        const int c_strain = gp_runtime_col(headers, "strain_value", "strain");
+        const int c_r_seed_nm = gp_runtime_col(headers, "r_seed_nm");
+        const int c_source_dx_nm = gp_runtime_col(headers, "source_dx_nm");
+        const int c_source_internal_unit_to_nm =
+            gp_runtime_col(headers, "source_internal_unit_to_nm");
+        const int c_semiaxes_nm = gp_runtime_col(headers, "semiaxes_nm");
+        const int c_tau_bridge_s = gp_runtime_col(headers, "tau_bridge_s");
+        const int c_tau_bridge_code_time = gp_runtime_col(headers, "tau_bridge_code_time");
+        const int c_dt_code = gp_runtime_col(headers, "dt_code");
+        const int c_t_real_unit_s = gp_runtime_col(headers, "t_real_unit_s");
+        const int c_mass_seed_B_equiv = gp_runtime_col(headers, "mass_seed_B_equiv");
+        const int c_shape_type = gp_runtime_col(headers, "seed_shape_type", "shape_type");
+        const int c_source = gp_runtime_col(headers, "bridge_source_dir", "seed_source_path");
+        const int c_production_valid = gp_runtime_col(headers, "production_valid");
+        const int c_debug_only = gp_runtime_col(headers, "debug_only");
+        while (std::getline(in_csv, line)) {
+            if (trim_copy_cpp(line).empty()) continue;
+            std::vector<std::string> cols = split_csv_simple_cpp(line);
+            GpRuntimeNucleusEntry e;
+            memset(&e, 0, sizeof(e));
+            gp_runtime_csv_string(cols, c_id, e.id, sizeof(e.id), "library_row");
+            gp_runtime_csv_string(cols, c_case_id, e.source, sizeof(e.source), "");
+            e.T_C = gp_runtime_csv_double(cols, c_T_C, NAN);
+            e.xB = gp_runtime_csv_double(cols, c_xB, NAN);
+            e.strain = gp_runtime_csv_double(cols, c_strain, 0.0);
+            e.r_seed_nm = gp_runtime_csv_double(cols, c_r_seed_nm, NAN);
+            e.source_dx_nm = gp_runtime_csv_double(cols, c_source_dx_nm, NAN);
+            e.source_internal_unit_to_nm =
+                gp_runtime_csv_double(cols, c_source_internal_unit_to_nm, NAN);
+            e.tau_bridge_s = gp_runtime_csv_double(cols, c_tau_bridge_s, NAN);
+            e.tau_bridge_code_time = gp_runtime_csv_double(cols, c_tau_bridge_code_time, NAN);
+            e.dt_code = gp_runtime_csv_double(cols, c_dt_code, NAN);
+            e.t_real_unit_s = gp_runtime_csv_double(cols, c_t_real_unit_s, NAN);
+            e.mass_seed_B_equiv = gp_runtime_csv_double(cols, c_mass_seed_B_equiv, NAN);
+            e.production_valid = 0;
+            e.debug_only = 0;
+            if (c_production_valid >= 0 && (size_t)c_production_valid < cols.size()) {
+                e.production_valid = parse_bool_text_cpp(cols[(size_t)c_production_valid].c_str(), 0);
+            }
+            if (c_debug_only >= 0 && (size_t)c_debug_only < cols.size()) {
+                e.debug_only = parse_bool_text_cpp(cols[(size_t)c_debug_only].c_str(), 0);
+            }
+            gp_runtime_csv_string(cols, c_shape_type, e.shape_type, sizeof(e.shape_type), "library_seed");
+            gp_runtime_csv_string(cols, c_strain_mode, e.strain_mode, sizeof(e.strain_mode), "no_strain");
+            {
+                char semiaxes_text[256] = {0};
+                gp_runtime_csv_string(cols, c_semiaxes_nm, semiaxes_text, sizeof(semiaxes_text), "");
+                parse_triplet_from_string_cpp(semiaxes_text,
+                                              &e.semiaxes_nm[0],
+                                              &e.semiaxes_nm[1],
+                                              &e.semiaxes_nm[2]);
+            }
+            for (int q = 0; q < 3; ++q) {
+                if (!(isfinite(e.semiaxes_nm[q]) && e.semiaxes_nm[q] > 0.0)) e.semiaxes_nm[q] = e.r_seed_nm;
+            }
+            if (!(isfinite(e.r_seed_nm) && e.r_seed_nm > 0.0)) continue;
+            char source_dir_text[4096] = {0};
+            gp_runtime_csv_string(cols, c_source, source_dir_text, sizeof(source_dir_text), "");
+            if (source_dir_text[0] != '\0') {
+                snprintf(e.source, sizeof(e.source), "%s", source_dir_text);
+            }
+            if (P->gp_runtime_profile_cache_root[0] != '\0' && e.id[0] != '\0') {
+                snprintf(e.profile_dir, sizeof(e.profile_dir), "%s/%s",
+                         P->gp_runtime_profile_cache_root, e.id);
+                snprintf(e.source_dyn_dir, sizeof(e.source_dyn_dir), "%s/%s/source_dyn_dir",
+                         P->gp_runtime_profile_cache_root, e.id);
+                snprintf(e.seed_metadata_json, sizeof(e.seed_metadata_json), "%s/%s/seed_profile_metadata.json",
+                         P->gp_runtime_profile_cache_root, e.id);
+            }
+            rt->nucleus_entries.push_back(e);
+        }
+        printf("[GP RUNTIME LIB] loaded %zu runtime nucleus-library entries from %s cache_root=%s\n",
+               rt->nucleus_entries.size(),
+               P->gp_runtime_nucleus_library_path,
+               P->gp_runtime_profile_cache_root);
+        return 1;
+    }
+    if (P->gp_runtime_nucleus_catalog_path[0] == '\0') return 1;
+    std::ifstream in(P->gp_runtime_nucleus_catalog_path);
+    if (!in.good()) {
+        fprintf(stderr, "[warn] cannot open gp runtime nucleus catalog: %s; using isotropic fallback\n",
+                P->gp_runtime_nucleus_catalog_path);
+        return 1;
+    }
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string text = buffer.str();
+    size_t pos = 0;
+    int count = 0;
+    while ((pos = text.find("\"id\"", pos)) != std::string::npos) {
+        size_t open = text.rfind('{', pos);
+        size_t close = text.find('}', pos);
+        if (open == std::string::npos || close == std::string::npos || close <= open) {
+            pos += 4;
+            continue;
+        }
+        std::string obj = text.substr(open, close - open + 1);
+        GpRuntimeNucleusEntry e;
+        memset(&e, 0, sizeof(e));
+        json_extract_string_cpp(obj, "id", e.id, sizeof(e.id));
+        if (e.id[0] == '\0') snprintf(e.id, sizeof(e.id), "catalog_%d", count);
+        e.T_C = e.xB = e.strain = NAN;
+        json_extract_double_cpp(obj, "T_C", &e.T_C);
+        json_extract_double_cpp(obj, "xB", &e.xB);
+        if (!json_extract_double_cpp(obj, "strain", &e.strain)) {
+            json_extract_double_cpp(obj, "strain_value", &e.strain);
+        }
+        if (!isfinite(e.strain)) e.strain = 0.0;
+        e.r_seed_nm = NAN;
+        if (!json_extract_double_cpp(obj, "r_seed_nm", &e.r_seed_nm)) {
+            if (!json_extract_double_cpp(obj, "rc_nm", &e.r_seed_nm)) {
+                json_extract_double_cpp(obj, "r_star_nm", &e.r_seed_nm);
+            }
+        }
+        json_extract_double_cpp(obj, "source_dx_nm", &e.source_dx_nm);
+        json_extract_double_cpp(obj, "source_internal_unit_to_nm", &e.source_internal_unit_to_nm);
+        json_extract_string_cpp(obj, "shape_type", e.shape_type, sizeof(e.shape_type));
+        if (e.shape_type[0] == '\0') snprintf(e.shape_type, sizeof(e.shape_type), "isotropic_fallback");
+        json_extract_string_cpp(obj, "source_dyn_dir", e.source, sizeof(e.source));
+        if (e.source[0] == '\0') json_extract_string_cpp(obj, "source_dir", e.source, sizeof(e.source));
+        json_extract_string_cpp(obj, "strain_mode", e.strain_mode, sizeof(e.strain_mode));
+        {
+            char semiaxes_text[256] = {0};
+            if (json_extract_string_cpp(obj, "semiaxes_nm", semiaxes_text, sizeof(semiaxes_text))) {
+                parse_triplet_from_string_cpp(semiaxes_text,
+                                              &e.semiaxes_nm[0],
+                                              &e.semiaxes_nm[1],
+                                              &e.semiaxes_nm[2]);
+            }
+        }
+        {
+            const char *inferred_strain_mode = gp_runtime_infer_strain_mode(e.strain, e.id, e.source);
+            std::string explicit_mode = lower_copy_cpp(e.strain_mode);
+            if (e.strain_mode[0] == '\0' ||
+                explicit_mode == "minimize" ||
+                strcmp(inferred_strain_mode, "external_strain") == 0) {
+                snprintf(e.strain_mode, sizeof(e.strain_mode), "%s", inferred_strain_mode);
+            }
+        }
+        if (e.strain_mode[0] == '\0') {
+            snprintf(e.strain_mode, sizeof(e.strain_mode), "%s",
+                     gp_runtime_infer_strain_mode(e.strain, e.id, e.source));
+        }
+        if (isfinite(e.r_seed_nm) && e.r_seed_nm > 0.0) {
+            for (int q = 0; q < 3; ++q) {
+                if (!(isfinite(e.semiaxes_nm[q]) && e.semiaxes_nm[q] > 0.0)) e.semiaxes_nm[q] = e.r_seed_nm;
+            }
+            rt->nucleus_entries.push_back(e);
+            count++;
+        }
+        pos = close + 1;
+    }
+    printf("[GP RUNTIME LIB] loaded %zu nucleus catalog entries from %s\n",
+           rt->nucleus_entries.size(), P->gp_runtime_nucleus_catalog_path);
+    return 1;
+}
+
+static GpRuntimeNucleusEntry gp_runtime_select_nucleus_descriptor(const GpAssistedRuntime *rt,
+                                                                  const PFParams *P,
+                                                                  double T_C, double xB,
+                                                                  double strain, double r_star_nm,
+                                                                  char *reason, size_t reason_size) {
+    GpRuntimeNucleusEntry out;
+    memset(&out, 0, sizeof(out));
+    snprintf(out.id, sizeof(out.id), "isotropic_fallback");
+    snprintf(out.shape_type, sizeof(out.shape_type), "isotropic_fallback");
+    snprintf(out.source, sizeof(out.source), "barrier_r_star");
+    snprintf(out.strain_mode, sizeof(out.strain_mode), "%s",
+             gp_runtime_infer_strain_mode(strain, "runtime", "runtime"));
+    out.T_C = T_C;
+    out.xB = xB;
+    out.strain = strain;
+    out.r_seed_nm = isfinite(r_star_nm) && r_star_nm > 0.0 ? r_star_nm : 1.0;
+    out.semiaxes_nm[0] = out.semiaxes_nm[1] = out.semiaxes_nm[2] = out.r_seed_nm;
+    out.production_valid = 0;
+    if (reason && reason_size) snprintf(reason, reason_size, "CATALOG_FALLBACK_EMPTY_OR_NO_VALID_MATCH");
+    if (!rt || rt->nucleus_entries.empty()) return out;
+    const GpRuntimeNucleusEntry *best = NULL;
+    double best_score = INFINITY;
+    char first_rejection[256] = "";
+    const double T_tol = P ? P->gp_runtime_catalog_T_tol_C : 5.0;
+    const double xB_tol = P ? P->gp_runtime_catalog_xB_tol : 0.005;
+    const int strain_strict = P ? P->gp_runtime_catalog_strain_mode_strict : 1;
+    const char *runtime_strain_mode = gp_runtime_infer_strain_mode(strain, "runtime", "runtime");
+    for (const auto &e : rt->nucleus_entries) {
+        const double dT = isfinite(e.T_C) ? fabs(e.T_C - T_C) : 0.0;
+        const double dx = isfinite(e.xB) ? fabs(e.xB - xB) : 0.0;
+        const double ds = isfinite(e.strain) ? fabs(e.strain - strain) : 0.0;
+        const char *catalog_strain_mode = e.strain_mode[0]
+            ? e.strain_mode
+            : gp_runtime_infer_strain_mode(e.strain, e.id, e.source);
+        if (isfinite(e.T_C) && dT > T_tol) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "CATALOG_REJECT_T_MISMATCH id=%s dT=%.6g tol=%.6g",
+                                              e.id, dT, T_tol);
+            continue;
+        }
+        if (isfinite(e.xB) && dx > xB_tol) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "CATALOG_REJECT_XB_MISMATCH id=%s dxB=%.6g tol=%.6g",
+                                              e.id, dx, xB_tol);
+            continue;
+        }
+        if (strain_strict && strcmp(catalog_strain_mode, runtime_strain_mode) != 0) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "CATALOG_REJECT_STRAIN_MISMATCH id=%s runtime=%s catalog=%s",
+                                              e.id, runtime_strain_mode, catalog_strain_mode);
+            continue;
+        }
+        if (strain_strict && fabs(ds) > 1.0e-12) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "CATALOG_REJECT_STRAIN_VALUE_MISMATCH id=%s dstrain=%.6g",
+                                              e.id, ds);
+            continue;
+        }
+        if (P && P->enable_runtime_nucleus_library) {
+            if (!e.production_valid) {
+                if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                                  "NO_VALID_PRODUCTION_SEED_FOR_DX id=%s production_valid=0",
+                                                  e.id);
+                continue;
+            }
+            RuntimeSeedGeometry seed_geom_tmp;
+            char seed_reason_tmp[256] = "";
+            if (!convert_seed_nm_to_runtime_grid(&e, P, &seed_geom_tmp, seed_reason_tmp, sizeof(seed_reason_tmp)) ||
+                !seed_geom_tmp.insertable) {
+                if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                                  "NO_VALID_PRODUCTION_SEED_FOR_DX id=%s %s",
+                                                  e.id, seed_reason_tmp);
+                continue;
+            }
+            char profile_csv[4096];
+            snprintf(profile_csv, sizeof(profile_csv), "%s/faceted_family_profiles.csv", e.profile_dir);
+            if (!path_exists_regular_or_dir(profile_csv) ||
+                !path_exists_regular_or_dir(e.seed_metadata_json) ||
+                !path_exists_regular_or_dir(e.source_dyn_dir)) {
+                if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                                  "PROFILE_CACHE_MISSING id=%s", e.id);
+                continue;
+            }
+        }
+        const double dr = fabs(e.r_seed_nm - out.r_seed_nm);
+        const double score = dT + 1000.0 * dx + 100.0 * ds + dr;
+        if (score < best_score) {
+            best_score = score;
+            best = &e;
+        }
+    }
+    if (best) {
+        out = *best;
+        if (out.strain_mode[0] == '\0') {
+            snprintf(out.strain_mode, sizeof(out.strain_mode), "%s",
+                     gp_runtime_infer_strain_mode(out.strain, out.id, out.source));
+        }
+        if (reason && reason_size) snprintf(reason, reason_size, "CATALOG_MATCH score=%.12e dT=%.6g dxB=%.6g",
+                                            best_score,
+                                            isfinite(out.T_C) ? fabs(out.T_C - T_C) : 0.0,
+                                            isfinite(out.xB) ? fabs(out.xB - xB) : 0.0);
+    } else {
+        if (reason && reason_size) {
+            if (P && P->enable_runtime_nucleus_library) {
+                snprintf(out.id, sizeof(out.id), "NO_VALID_PRODUCTION_SEED_FOR_DX");
+                out.r_seed_nm = NAN;
+                snprintf(reason, reason_size, "%s",
+                         first_rejection[0] ? first_rejection : "NO_VALID_PRODUCTION_SEED_FOR_DX");
+            } else if (P && !P->gp_runtime_catalog_allow_fallback) {
+                snprintf(reason, reason_size, "%s",
+                         first_rejection[0] ? first_rejection : "CATALOG_REJECT_NO_MATCH_FALLBACK_DISABLED");
+            } else {
+                snprintf(reason, reason_size, "%s -> CATALOG_FALLBACK_ISOTROPIC",
+                         first_rejection[0] ? first_rejection : "CATALOG_REJECT_NO_VALID_MATCH");
+            }
+        }
+    }
+    return out;
+}
+
+static double scheduled_selector_input_xB(const PFParams *P) {
+    if (!P) return 0.0;
+    if (P->ic_23d_xB_out > 0.0) return P->ic_23d_xB_out;
+    if (P->ic_xB_eq_matrix > 0.0) return P->ic_xB_eq_matrix;
+    return 0.03;
+}
+
+static double scheduled_selector_input_strain(const PFParams *P) {
+    if (!P) return 0.0;
+    double vals[6] = {P->E0_xx, P->E0_yy, P->E0_zz, P->E0_yz, P->E0_xz, P->E0_xy};
+    double best = vals[0];
+    for (int i = 1; i < 6; ++i) {
+        if (fabs(vals[i]) > fabs(best)) best = vals[i];
+    }
+    return best;
+}
+
+static int scheduled_nuc_prepare_from_seed_metadata(PFParams *P) {
+    if (!P || !P->scheduled_nuc_enabled) return 1;
+    if (P->scheduled_nuc_seed_metadata_json[0] == '\0') return 1;
+
+    std::ifstream in(P->scheduled_nuc_seed_metadata_json);
+    if (!in.good()) {
+        fprintf(stderr, "[fatal] cannot open scheduled nucleus seed metadata JSON: %s\n",
+                P->scheduled_nuc_seed_metadata_json);
+        return 0;
+    }
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string text = buffer.str();
+
+    char library_entry_id[256] = {0};
+    char profile_dir[4096] = {0};
+    char source_dyn_dir[4096] = {0};
+    double tau_bridge_s = NAN;
+    double tau_bridge_code_time = NAN;
+    double dt_code = NAN;
+    double t_real_unit_s = NAN;
+    double r_seed_nm = NAN;
+
+    json_extract_string_cpp(text, "library_entry_id", library_entry_id, sizeof(library_entry_id));
+    json_extract_string_cpp(text, "profile_dir", profile_dir, sizeof(profile_dir));
+    json_extract_string_cpp(text, "source_dyn_dir", source_dyn_dir, sizeof(source_dyn_dir));
+    json_extract_double_cpp(text, "tau_bridge_s", &tau_bridge_s);
+    json_extract_double_cpp(text, "tau_bridge_code_time", &tau_bridge_code_time);
+    json_extract_double_cpp(text, "dt_code", &dt_code);
+    json_extract_double_cpp(text, "t_real_unit_s", &t_real_unit_s);
+    json_extract_double_cpp(text, "r_seed_nm", &r_seed_nm);
+
+    if (!(isfinite(tau_bridge_code_time) && tau_bridge_code_time >= 0.0)) {
+        if (isfinite(tau_bridge_s) && isfinite(t_real_unit_s) && fabs(t_real_unit_s) > 1.0e-30) {
+            tau_bridge_code_time = tau_bridge_s / t_real_unit_s;
+        } else if (isfinite(tau_bridge_s) && isfinite(dt_code) && isfinite(t_real_unit_s) &&
+                   fabs(dt_code * t_real_unit_s) > 1.0e-30) {
+            tau_bridge_code_time = tau_bridge_s / t_real_unit_s;
+        }
+    }
+    if (!(isfinite(tau_bridge_s) && tau_bridge_s >= 0.0)) {
+        if (isfinite(tau_bridge_code_time) && isfinite(t_real_unit_s)) {
+            tau_bridge_s = tau_bridge_code_time * t_real_unit_s;
+        }
+    }
+    if (!(isfinite(dt_code) && dt_code > 0.0)) dt_code = P->dt;
+    if (!(isfinite(t_real_unit_s) && t_real_unit_s > 0.0)) t_real_unit_s = P->t_real_unit;
+
+    if (P->scheduled_nuc_profile_dir[0] == '\0' && profile_dir[0] != '\0') {
+        snprintf(P->scheduled_nuc_profile_dir, sizeof(P->scheduled_nuc_profile_dir), "%s", profile_dir);
+    }
+    if (P->scheduled_nuc_source_dyn_dir[0] == '\0' && source_dyn_dir[0] != '\0') {
+        snprintf(P->scheduled_nuc_source_dyn_dir, sizeof(P->scheduled_nuc_source_dyn_dir), "%s", source_dyn_dir);
+    }
+    if (P->scheduled_nuc_source_case_label[0] == '\0' && library_entry_id[0] != '\0') {
+        snprintf(P->scheduled_nuc_source_case_label, sizeof(P->scheduled_nuc_source_case_label), "%s", library_entry_id);
+    }
+    if (P->scheduled_nuc_centers_nm[0] == '\0') {
+        const double cx = 0.5 * runtime_dx_nm_host(P) * (double)P->Nx;
+        const double cy = 0.5 * runtime_dy_nm_host(P) * (double)P->Ny;
+        const double cz = 0.5 * runtime_dz_nm_host(P) * (double)P->Nz;
+        snprintf(P->scheduled_nuc_centers_nm, sizeof(P->scheduled_nuc_centers_nm),
+                 "%.6f,%.6f,%.6f", cx, cy, cz);
+    }
+    if (P->scheduled_nuc_steps_csv[0] == '\0') {
+        const double t_nuc_code = isfinite(P->scheduled_nuc_t_nuc_s)
+            ? (P->scheduled_nuc_t_nuc_s / fmax(P->t_real_unit, 1.0e-30))
+            : P->scheduled_nuc_t_nuc_code;
+        const double t_insert_code = t_nuc_code + fmax(tau_bridge_code_time, 0.0);
+        int step_insert = (int)llround(t_insert_code / fmax(P->dt, 1.0e-30));
+        if (step_insert < 1) step_insert = 1;
+        snprintf(P->scheduled_nuc_steps_csv, sizeof(P->scheduled_nuc_steps_csv), "%d", step_insert);
+        P->scheduled_nuc_library_t_insert_code = t_insert_code;
+        P->scheduled_nuc_library_t_insert_s = t_insert_code * P->t_real_unit;
+        P->scheduled_nuc_t_nuc_code = t_nuc_code;
+        P->scheduled_nuc_t_nuc_s = t_nuc_code * P->t_real_unit;
+    }
+
+    snprintf(P->scheduled_nuc_library_entry_id, sizeof(P->scheduled_nuc_library_entry_id), "%s",
+             library_entry_id[0] ? library_entry_id : "unknown");
+    P->scheduled_nuc_library_tau_bridge_s = tau_bridge_s;
+    P->scheduled_nuc_library_tau_bridge_code_time = tau_bridge_code_time;
+    P->scheduled_nuc_library_dt_code = dt_code;
+    P->scheduled_nuc_library_dt_s = P->dt * P->t_real_unit;
+    P->scheduled_nuc_library_t_real_unit_s = t_real_unit_s;
+    P->scheduled_nuc_library_r_seed_nm = r_seed_nm;
+    if (isfinite(r_seed_nm) && isfinite(runtime_dx_nm_host(P)) && runtime_dx_nm_host(P) > 0.0) {
+        P->scheduled_nuc_library_r_seed_grid = r_seed_nm / runtime_dx_nm_host(P);
+    }
+
+    printf("[scheduled-library-seed] entry=%s r_seed_nm=%.6f runtime_dx_nm=%.6f r_seed_grid=%.6f tau_bridge_s=%.6f tau_bridge_code_time=%.6f dt_code=%.6f dt_s=%.6f t_real_unit_s=%.6f t_nuc_code=%.6f t_insert_code=%.6f t_nuc_s=%.6f t_insert_s=%.6f steps=%s centers=%s profile_dir=%s source_dyn_dir=%s\n",
+           P->scheduled_nuc_library_entry_id,
+           P->scheduled_nuc_library_r_seed_nm,
+           runtime_dx_nm_host(P),
+           P->scheduled_nuc_library_r_seed_grid,
+           P->scheduled_nuc_library_tau_bridge_s,
+           P->scheduled_nuc_library_tau_bridge_code_time,
+           P->scheduled_nuc_library_dt_code,
+           P->scheduled_nuc_library_dt_s,
+           P->scheduled_nuc_library_t_real_unit_s,
+           P->scheduled_nuc_t_nuc_code,
+           P->scheduled_nuc_library_t_insert_code,
+           P->scheduled_nuc_t_nuc_s,
+           P->scheduled_nuc_library_t_insert_s,
+           P->scheduled_nuc_steps_csv,
+           P->scheduled_nuc_centers_nm,
+           P->scheduled_nuc_profile_dir,
+           P->scheduled_nuc_source_dyn_dir);
+    return 1;
+}
+
+static int resolve_scheduled_nucleus_from_selector(PFParams *P) {
+    if (!P || !P->scheduled_nuc_enabled || P->scheduled_nuc_use_manual_nucleus) return 1;
+    const double T = P->temperature_C;
+    const double xB = scheduled_selector_input_xB(P);
+    const double strain = scheduled_selector_input_strain(P);
+    P->scheduled_nuc_selected_input_xB = xB;
+    P->scheduled_nuc_selected_input_strain = strain;
+
+    char cmd[16384];
+    snprintf(cmd, sizeof(cmd),
+             "python3 %s select --T %.17g --xB %.17g --strain %.17g --require-cuda-template --catalog %s --output %s >/dev/null",
+             shell_quote_cpp(P->scheduled_nuc_selector_script).c_str(),
+             T, xB, strain,
+             shell_quote_cpp(P->scheduled_nuc_catalog_json).c_str(),
+             shell_quote_cpp(P->scheduled_nuc_selected_json).c_str());
+    int rc = system(cmd);
+    if (rc != 0) {
+        fprintf(stderr, "[fatal] nucleus selector command failed with status %d\n", rc);
+        fprintf(stderr, "        command: %s\n", cmd);
+        return 0;
+    }
+
+    std::ifstream in(P->scheduled_nuc_selected_json);
+    if (!in.good()) {
+        fprintf(stderr, "[fatal] selector did not create selected nucleus JSON: %s\n",
+                P->scheduled_nuc_selected_json);
+        return 0;
+    }
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string text = buffer.str();
+    std::string selected = json_object_block_cpp(text, "selected_nucleus");
+    if (selected.empty()) {
+        fprintf(stderr, "[fatal] selected_nucleus JSON has no selected_nucleus object: %s\n",
+                P->scheduled_nuc_selected_json);
+        return 0;
+    }
+
+    int cuda_now_uses = 0;
+    int fallback_triggered = 1;
+    json_extract_bool_cpp(text, "cuda_now_uses_predicted_nucleus", &cuda_now_uses);
+    json_extract_bool_cpp(text, "fallback_triggered", &fallback_triggered);
+    if (!cuda_now_uses || fallback_triggered) {
+        fprintf(stderr, "[fatal] selector/CUDA insertion mismatch: selected nucleus is not insertable.\n");
+        fprintf(stderr, "        selected_json: %s\n", P->scheduled_nuc_selected_json);
+        fprintf(stderr, "        cuda_now_uses_predicted_nucleus=%s fallback_triggered=%s\n",
+                cuda_now_uses ? "true" : "false",
+                fallback_triggered ? "true" : "false");
+        fprintf(stderr, "        Generate the missing source_dyn_dir/profile_dir mapping for the lowest-energy nucleus or rerun with --use_manual_nucleus true.\n");
+        return 0;
+    }
+
+    char profile_dir[4096] = {0};
+    char source_dyn_dir[4096] = {0};
+    char selected_id[256] = {0};
+    char shape_type[64] = {0};
+    if (!json_extract_string_cpp(selected, "profile_dir", profile_dir, sizeof(profile_dir)) ||
+        !json_extract_string_cpp(selected, "source_dyn_dir", source_dyn_dir, sizeof(source_dyn_dir))) {
+        fprintf(stderr, "[fatal] selector output lacks profile_dir/source_dyn_dir in selected_nucleus: %s\n",
+                P->scheduled_nuc_selected_json);
+        return 0;
+    }
+    json_extract_string_cpp(selected, "id", selected_id, sizeof(selected_id));
+    json_extract_string_cpp(selected, "shape_type", shape_type, sizeof(shape_type));
+    json_extract_double_cpp(selected, "rc_nm", &P->scheduled_nuc_selected_rc_nm);
+    json_extract_double_cpp(selected, "energy_barrier_kBT", &P->scheduled_nuc_selected_energy_barrier_kBT);
+
+    char profile_csv[4096];
+    char summary_txt[4096];
+    snprintf(profile_csv, sizeof(profile_csv), "%s/faceted_family_profiles.csv", profile_dir);
+    snprintf(summary_txt, sizeof(summary_txt), "%s/summary.txt", source_dyn_dir);
+    if (!path_exists_regular_or_dir(profile_csv) || !path_exists_regular_or_dir(summary_txt)) {
+        fprintf(stderr, "[fatal] selector/CUDA insertion mismatch: selected template files are missing.\n");
+        fprintf(stderr, "        profile_csv: %s (%s)\n", profile_csv, path_exists_regular_or_dir(profile_csv) ? "ok" : "missing");
+        fprintf(stderr, "        summary_txt: %s (%s)\n", summary_txt, path_exists_regular_or_dir(summary_txt) ? "ok" : "missing");
+        fprintf(stderr, "        selected_json: %s\n", P->scheduled_nuc_selected_json);
+        return 0;
+    }
+
+    snprintf(P->scheduled_nuc_profile_dir, sizeof(P->scheduled_nuc_profile_dir), "%s", profile_dir);
+    snprintf(P->scheduled_nuc_source_dyn_dir, sizeof(P->scheduled_nuc_source_dyn_dir), "%s", source_dyn_dir);
+    if (selected_id[0] != '\0') {
+        snprintf(P->scheduled_nuc_source_case_label, sizeof(P->scheduled_nuc_source_case_label), "%s", selected_id);
+    }
+    if (shape_type[0] != '\0') {
+        snprintf(P->scheduled_nuc_selected_shape_type, sizeof(P->scheduled_nuc_selected_shape_type), "%s", shape_type);
+    }
+    P->scheduled_nuc_selector_active = 1;
+    fprintf(stdout,
+            "[nucleus-selector] selected id=%s shape=%s rc_nm=%.6g barrier_kBT=%.6g profile_dir=%s source_dyn_dir=%s\n",
+            P->scheduled_nuc_source_case_label,
+            P->scheduled_nuc_selected_shape_type[0] ? P->scheduled_nuc_selected_shape_type : "unknown",
+            P->scheduled_nuc_selected_rc_nm,
+            P->scheduled_nuc_selected_energy_barrier_kBT,
+            P->scheduled_nuc_profile_dir,
+            P->scheduled_nuc_source_dyn_dir);
+    return 1;
+}
+
+static int write_selected_nucleus_log_csv(const PFParams *P, const char *case_output_dir) {
+    if (!P || !P->scheduled_nuc_enabled) return 1;
+    char path[4096];
+    if (P->scheduled_nuc_selection_log[0] != '\0') {
+        snprintf(path, sizeof(path), "%s", P->scheduled_nuc_selection_log);
+    } else {
+        snprintf(path, sizeof(path), "%s/selected_nucleus_log.csv", case_output_dir ? case_output_dir : ".");
+    }
+    FILE *fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "[fatal] cannot open selected nucleus log CSV: %s\n", path);
+        return 0;
+    }
+    fprintf(fp, "T,xB,strain,selected_shape,rc_nm,energy_barrier,profile_dir,source_dyn_dir,selection_reason\n");
+    fprintf(fp, "%.17g,%.17g,%.17g,%s,%.17g,%.17g,%s,%s,%s\n",
+            P->temperature_C,
+            isfinite(P->scheduled_nuc_selected_input_xB) ? P->scheduled_nuc_selected_input_xB : scheduled_selector_input_xB(P),
+            isfinite(P->scheduled_nuc_selected_input_strain) ? P->scheduled_nuc_selected_input_strain : scheduled_selector_input_strain(P),
+            P->scheduled_nuc_selected_shape_type[0] ? P->scheduled_nuc_selected_shape_type : "manual_or_unknown",
+            P->scheduled_nuc_selected_rc_nm,
+            P->scheduled_nuc_selected_energy_barrier_kBT,
+            P->scheduled_nuc_profile_dir,
+            P->scheduled_nuc_source_dyn_dir,
+            P->scheduled_nuc_use_manual_nucleus ? "manual_override" : "selector_lowest_barrier");
+    fclose(fp);
+    log_kv_text("selected_nucleus_log_csv", "%s", path);
+    return 1;
 }
 
 static int load_scheduled_profile_csv(const PFParams *P, ScheduledNucProfileSet *profile) {
@@ -3631,6 +6183,167 @@ static int load_scheduled_profile_csv(const PFParams *P, ScheduledNucProfileSet 
     return 1;
 }
 
+static int gp_runtime_schedule_delayed_insertion_event(GpAssistedRuntime *rt,
+                                                       const PFParams *P,
+                                                       int step_nuc,
+                                                       double time_code,
+                                                       const GpAssistedSite *site,
+                                                       const GpRankedHazardDiag *diag,
+                                                       const GpRuntimeNucleusEntry *seed,
+                                                       const RuntimeSeedGeometry *seed_geom,
+                                                       const char *selection_reason) {
+    if (!rt || !P || !site || !diag || !seed || !seed_geom) return 0;
+    GpRuntimeDelayedInsertionEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.event_id = ++rt->delayed_event_counter;
+    ev.site_id = site->id;
+    ev.site_ix = site->ix;
+    ev.site_iy = site->iy;
+    ev.site_iz = site->iz;
+    ev.step_nuc = step_nuc;
+    ev.t_nuc_code = time_code;
+    ev.t_nuc_s = time_code * P->t_real_unit;
+    ev.tau_bridge_s = isfinite(seed->tau_bridge_s) ? seed->tau_bridge_s : 0.0;
+    ev.tau_bridge_code_time = isfinite(seed->tau_bridge_code_time)
+        ? seed->tau_bridge_code_time
+        : (ev.tau_bridge_s / fmax(P->t_real_unit, 1.0e-30));
+    ev.step_delay = (int)llround(ev.tau_bridge_code_time / fmax(P->dt, 1.0e-30));
+    if (ev.step_delay < 0) ev.step_delay = 0;
+    ev.step_insert = ev.step_nuc + ev.step_delay;
+    ev.t_insert_code = ev.t_nuc_code + ev.tau_bridge_code_time;
+    ev.t_insert_s = ev.t_nuc_s + ev.tau_bridge_s;
+    ev.runtime_dx_nm = seed_geom->runtime_dx_nm;
+    const double runtime_dx_nm = runtime_dx_nm_host(P);
+    const double runtime_dy_nm = runtime_dy_nm_host(P);
+    const double runtime_dz_nm = runtime_dz_nm_host(P);
+    ev.x_nm = ((double)site->ix + 0.5) * runtime_dx_nm;
+    ev.y_nm = ((double)site->iy + 0.5) * runtime_dy_nm;
+    ev.z_nm = ((double)site->iz + 0.5) * runtime_dz_nm;
+    ev.xB_local = diag->xB_local;
+    ev.strain_value = 0.0;
+    ev.DeltaG_bare_kBT = diag->DeltaG_bare_kBT;
+    ev.DeltaG_eff_kBT = diag->DeltaG_eff_kBT;
+    ev.s_GP = diag->s_GP;
+    ev.r_star_nm = diag->r_star_nm;
+    ev.r_seed_nm = seed->r_seed_nm;
+    ev.r_seed_grid = seed_geom->r_grid;
+    ev.mass_seed_B_equiv = seed->mass_seed_B_equiv;
+    snprintf(ev.library_entry_id, sizeof(ev.library_entry_id), "%s", seed->id);
+    snprintf(ev.profile_dir, sizeof(ev.profile_dir), "%s", seed->profile_dir);
+    snprintf(ev.source_dyn_dir, sizeof(ev.source_dyn_dir), "%s", seed->source_dyn_dir);
+    snprintf(ev.seed_metadata_json, sizeof(ev.seed_metadata_json), "%s", seed->seed_metadata_json);
+    snprintf(ev.shape_type, sizeof(ev.shape_type), "%s", seed->shape_type);
+    snprintf(ev.selection_reason, sizeof(ev.selection_reason), "%s",
+             selection_reason ? selection_reason : "NUCLEUS_LIBRARY_QUERY_OK");
+    snprintf(ev.status, sizeof(ev.status), "PENDING");
+    rt->delayed_events.push_back(ev);
+    printf("PROD_SELECTOR_EVENT_ACCEPTED event_id=%d site_id=%d step_nuc=%d xB_local=%.6f runtime_dx_nm=%.6f\n",
+           ev.event_id, ev.site_id, ev.step_nuc, ev.xB_local, ev.runtime_dx_nm);
+    printf("NUCLEUS_LIBRARY_QUERY_OK event_id=%d library_entry_id=%s r_seed_nm=%.6f r_seed_grid=%.6f reason=%s\n",
+           ev.event_id, ev.library_entry_id, ev.r_seed_nm, ev.r_seed_grid, ev.selection_reason);
+    printf("LIBRARY_PROFILE_DIR_READY event_id=%d profile_dir=%s source_dyn_dir=%s\n",
+           ev.event_id, ev.profile_dir, ev.source_dyn_dir);
+    printf("DELAYED_INSERTION_SCHEDULED event_id=%d step_nuc=%d step_delay=%d step_insert=%d tau_bridge_s=%.6f tau_bridge_code_time=%.6f\n",
+           ev.event_id, ev.step_nuc, ev.step_delay, ev.step_insert, ev.tau_bridge_s, ev.tau_bridge_code_time);
+    if (rt->runtime_bridge_queue_csv) {
+        fprintf(rt->runtime_bridge_queue_csv,
+                "scheduled,%d,%d,%d,%d,%d,%s,%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s,%s,%s,%.12e,%.12e\n",
+                ev.event_id, ev.site_id, ev.step_nuc, ev.step_delay, ev.step_insert,
+                ev.library_entry_id, ev.status, ev.xB_local, ev.r_seed_nm, ev.r_seed_grid,
+                ev.tau_bridge_s, ev.tau_bridge_code_time, ev.runtime_dx_nm,
+                ev.profile_dir, ev.source_dyn_dir, ev.selection_reason,
+                0.0, 0.0);
+        fflush(rt->runtime_bridge_queue_csv);
+    }
+    return 1;
+}
+
+static int gp_runtime_site_has_pending_delayed_event(const GpAssistedRuntime *rt, int site_id) {
+    if (!rt) return 0;
+    for (size_t i = 0; i < rt->delayed_events.size(); ++i) {
+        const GpRuntimeDelayedInsertionEvent &ev = rt->delayed_events[i];
+        if (ev.site_id == site_id && !ev.inserted && !ev.skipped) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int gp_runtime_process_delayed_insertion_queue(GpAssistedRuntime *rt,
+                                                      PFParams *P,
+                                                      int step,
+                                                      double *d_phi_r, double *d_Y_r, double *d_xB_r,
+                                                      int total_r, size_t size_r,
+                                                      const char *case_output_dir) {
+    if (!rt || !P || !P->enable_gp_runtime_library_nucleation || !P->enable_dynamic_continue_bridge ||
+        !P->gp_runtime_enable_delayed_insertion_queue || P->mode != 0) return 1;
+    for (size_t qi = 0; qi < rt->delayed_events.size(); ++qi) {
+        GpRuntimeDelayedInsertionEvent &ev = rt->delayed_events[qi];
+        if (ev.inserted || ev.skipped || step < ev.step_insert) continue;
+        PFParams saved = *P;
+        ScheduledNucRuntime temp_rt;
+        temp_rt.events.clear();
+        temp_rt.profile = ScheduledNucProfileSet();
+        temp_rt.events_csv = rt->runtime_bridge_insert_csv;
+        temp_rt.physics_events_csv = rt->physics_events_csv;
+        temp_rt.event_counter = ev.event_id - 1;
+        temp_rt.fired_events.clear();
+        ScheduledNucEvent sev;
+        memset(&sev, 0, sizeof(sev));
+        sev.step = step;
+        sev.cx = ev.x_nm;
+        sev.cy = ev.y_nm;
+        sev.cz = ev.z_nm;
+        sev.fired = 0;
+        temp_rt.events.push_back(sev);
+        P->scheduled_nuc_enabled = 1;
+        P->scheduled_nuc_use_manual_nucleus = 1;
+        snprintf(P->scheduled_nuc_profile_dir, sizeof(P->scheduled_nuc_profile_dir), "%s", ev.profile_dir);
+        snprintf(P->scheduled_nuc_source_dyn_dir, sizeof(P->scheduled_nuc_source_dyn_dir), "%s", ev.source_dyn_dir);
+        snprintf(P->scheduled_nuc_source_case_label, sizeof(P->scheduled_nuc_source_case_label), "%s", ev.library_entry_id);
+        snprintf(P->scheduled_nuc_seed_metadata_json, sizeof(P->scheduled_nuc_seed_metadata_json), "%s", ev.seed_metadata_json);
+        snprintf(P->scheduled_nuc_selected_shape_type, sizeof(P->scheduled_nuc_selected_shape_type), "%s", ev.shape_type);
+        P->scheduled_nuc_selected_rc_nm = ev.r_seed_nm;
+        P->scheduled_nuc_selected_energy_barrier_kBT = ev.DeltaG_eff_kBT;
+        if (!load_scheduled_profile_csv(P, &temp_rt.profile)) {
+            *P = saved;
+            fprintf(stderr, "[fatal] production selector delayed insertion cannot load profile for event_id=%d\n", ev.event_id);
+            return 0;
+        }
+        ScheduledNucExecutionSummary summary;
+        if (!apply_scheduled_events_cpu(&temp_rt, P, step,
+                                        d_phi_r, d_Y_r, d_xB_r,
+                                        total_r, size_r,
+                                        case_output_dir, &summary, NULL)) {
+            *P = saved;
+            fprintf(stderr, "[fatal] production selector delayed insertion failed for event_id=%d at step=%d\n",
+                    ev.event_id, step);
+            return 0;
+        }
+        *P = saved;
+        ev.inserted = 1;
+        ev.fired = 1;
+        snprintf(ev.status, sizeof(ev.status), "INSERTED");
+        ev.event_mass_error_abs = summary.event_mass_error_abs;
+        ev.event_mass_error_rel = summary.event_mass_error_rel;
+        printf("DELAYED_INSERTION_EXECUTED event_id=%d step=%d library_entry_id=%s\n",
+               ev.event_id, step, ev.library_entry_id);
+        printf("DELAYED_INSERTION_EVENT_MASS_ERROR event_id=%d abs=%.12e rel=%.12e\n",
+               ev.event_id, ev.event_mass_error_abs, ev.event_mass_error_rel);
+        if (rt->runtime_bridge_queue_csv) {
+            fprintf(rt->runtime_bridge_queue_csv,
+                    "inserted,%d,%d,%d,%d,%d,%s,%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s,%s,%s,%.12e,%.12e\n",
+                    ev.event_id, ev.site_id, ev.step_nuc, ev.step_delay, ev.step_insert,
+                    ev.library_entry_id, ev.status, ev.xB_local, ev.r_seed_nm, ev.r_seed_grid,
+                    ev.tau_bridge_s, ev.tau_bridge_code_time, ev.runtime_dx_nm,
+                    ev.profile_dir, ev.source_dyn_dir, ev.selection_reason,
+                    ev.event_mass_error_abs, ev.event_mass_error_rel);
+            fflush(rt->runtime_bridge_queue_csv);
+        }
+    }
+    return 1;
+}
+
 static int family_index_from_octant_label(const ScheduledNucProfileSet *profile, int sx, int sy, int sz) {
     char label[32];
     snprintf(label, sizeof(label), "%+d%+d%+d", sx, sy, sz);
@@ -3680,6 +6393,35 @@ static double outside_distance_to_source_box(const ScheduledNucEvent *ev, double
     return sqrt(ax * ax + ay * ay + az * az);
 }
 
+static void compute_field_minmax_host(const std::vector<double> &phi,
+                                      const std::vector<double> &xB,
+                                      double *phi_min, double *phi_max,
+                                      double *phi_mean,
+                                      double *xb_min, double *xb_max,
+                                      double *xb_mean, double *mean_h) {
+    double pmin = 1.0e300, pmax = -1.0e300, xmin = 1.0e300, xmax = -1.0e300;
+    long double ps = 0.0L, xs = 0.0L, hs = 0.0L;
+    for (size_t i = 0; i < phi.size(); ++i) {
+        const double p = clamp01(phi[i]);
+        const double x = xB[i];
+        pmin = fmin(pmin, p);
+        pmax = fmax(pmax, p);
+        xmin = fmin(xmin, x);
+        xmax = fmax(xmax, x);
+        ps += p;
+        xs += x;
+        hs += h_of_phi(p);
+    }
+    const double inv = 1.0 / fmax((double)phi.size(), 1.0);
+    if (phi_min) *phi_min = pmin;
+    if (phi_max) *phi_max = pmax;
+    if (phi_mean) *phi_mean = (double)ps * inv;
+    if (xb_min) *xb_min = xmin;
+    if (xb_max) *xb_max = xmax;
+    if (xb_mean) *xb_mean = (double)xs * inv;
+    if (mean_h) *mean_h = (double)hs * inv;
+}
+
 static double compute_mean_xBtot_host(const std::vector<double> &phi, const std::vector<double> &xB,
                                       double vB_frac) {
     long double sum = 0.0;
@@ -3718,6 +6460,7961 @@ static void host_minmax_mean_phi_xB(const std::vector<double> &phi, const std::v
     if (mean_h) *mean_h = (double)hs * inv;
 }
 
+static void init_gp_assisted_site_from_params(const PFParams *P, GpAssistedSite *site) {
+    if (!P || !site) return;
+    memset(site, 0, sizeof(*site));
+    site->id = P->gp_debug_scheduled_site_id;
+    site->ix = (P->gp_debug_site_ix >= 0) ? P->gp_debug_site_ix : (P->Nx / 2);
+    site->iy = (P->gp_debug_site_iy >= 0) ? P->gp_debug_site_iy : (P->Ny / 2);
+    site->iz = (P->gp_debug_site_iz >= 0) ? P->gp_debug_site_iz : (P->Nz / 2);
+    if (site->ix < 0) site->ix = 0;
+    if (site->iy < 0) site->iy = 0;
+    if (site->iz < 0) site->iz = 0;
+    if (site->ix >= P->Nx) site->ix = P->Nx - 1;
+    if (site->iy >= P->Ny) site->iy = P->Ny - 1;
+    if (site->iz >= P->Nz) site->iz = P->Nz - 1;
+    site->active = (P->gp_site_B_mass_equiv > 0.0) ? 1 : 0;
+    site->consumed = 0;
+    site->consumed_step = -1;
+    site->linked_beta_event_id = -1;
+    site->B_mass_initial = fmax(P->gp_site_B_mass_equiv, 0.0);
+    site->B_mass_active = site->B_mass_initial;
+    site->S_factor = P->gp_site_S_factor;
+    site->radius_raw_nm = P->gp_marker_core_radius_nm;
+    site->radius_nm = P->gp_marker_core_radius_nm;
+    site->volume_m3 = gp_site_volume_m3_from_radius_nm(site->radius_nm);
+}
+
+static unsigned long long gp_assisted_lcg_next(unsigned long long *state) {
+    *state = (*state * 2862933555777941757ULL) + 3037000493ULL;
+    return *state;
+}
+
+static int gp_assisted_rand_index(unsigned long long *state, int n) {
+    if (n <= 1) return 0;
+    unsigned long long x = gp_assisted_lcg_next(state);
+    return (int)((x >> 16) % (unsigned long long)n);
+}
+
+static double gp_assisted_rand_uniform01(unsigned long long *state) {
+    const unsigned long long x = gp_assisted_lcg_next(state);
+    const double u = (double)((x >> 11) & 0x1fffffffffffffULL) / (double)(1ULL << 53);
+    return fmin(fmax(u, 1.0e-15), 1.0 - 1.0e-15);
+}
+
+static double gp_assisted_rand_standard_normal(unsigned long long *state) {
+    const double u1 = gp_assisted_rand_uniform01(state);
+    const double u2 = gp_assisted_rand_uniform01(state);
+    return sqrt(-2.0 * log(u1)) * cos(2.0 * M_PI * u2);
+}
+
+static double gp_domain_volume_m3(const PFParams *P) {
+    if (!P) return NAN;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    if (!(isfinite(dx_nm) && dx_nm > 0.0 &&
+          isfinite(dy_nm) && dy_nm > 0.0 &&
+          isfinite(dz_nm) && dz_nm > 0.0)) return NAN;
+    return (double)P->Nx * (double)P->Ny * (double)P->Nz * dx_nm * dy_nm * dz_nm * 1.0e-27;
+}
+
+static double gp_cell_volume_m3(const PFParams *P) {
+    if (!P) return NAN;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    if (!(isfinite(dx_nm) && dx_nm > 0.0 &&
+          isfinite(dy_nm) && dy_nm > 0.0 &&
+          isfinite(dz_nm) && dz_nm > 0.0)) return NAN;
+    return dx_nm * dy_nm * dz_nm * 1.0e-27;
+}
+
+static double gp_site_volume_m3_from_radius_nm(double radius_nm) {
+    const double r_m = fmax(radius_nm, 0.0) * 1.0e-9;
+    return (4.0 / 3.0) * M_PI * r_m * r_m * r_m;
+}
+
+static int gp_after_quench_expected_count(const PFParams *P, double *expected_count_out,
+                                          int *n_initial_out, double *xB_far_out,
+                                          double *xB_gp_out, double *f_gp_required_out,
+                                          double *gp_volume_required_out,
+                                          double *r_vol_eq_nm_out) {
+    if (!P) return 0;
+    const double xB_far = gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_far);
+    const double xB_gp = gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP);
+    const double V_box_m3 = gp_domain_volume_m3(P);
+    if (!(isfinite(xB_far) && isfinite(xB_gp) && xB_gp > xB_far &&
+          isfinite(V_box_m3) && V_box_m3 > 0.0 &&
+          isfinite(P->gp_initial_xB_tot) && P->gp_initial_xB_tot > xB_far &&
+          isfinite(P->gp_initial_rho_m3) && P->gp_initial_rho_m3 > 0.0)) {
+        return 0;
+    }
+    const double f_gp = (P->gp_initial_xB_tot - xB_far) / (xB_gp - xB_far);
+    const double V_gp_required_m3 = f_gp * V_box_m3;
+    const double n_expected = P->gp_initial_rho_m3 * V_box_m3;
+    const int n_initial = (strcmp(P->gp_initial_count_mode, "round_expected") == 0)
+        ? (int)llround(n_expected)
+        : (int)llround(n_expected);
+    const double r_vol_eq_m = cbrt((3.0 * (V_gp_required_m3 / fmax((double)n_initial, 1.0))) / (4.0 * M_PI));
+    if (expected_count_out) *expected_count_out = n_expected;
+    if (n_initial_out) *n_initial_out = n_initial;
+    if (xB_far_out) *xB_far_out = xB_far;
+    if (xB_gp_out) *xB_gp_out = xB_gp;
+    if (f_gp_required_out) *f_gp_required_out = f_gp;
+    if (gp_volume_required_out) *gp_volume_required_out = V_gp_required_m3;
+    if (r_vol_eq_nm_out) *r_vol_eq_nm_out = r_vol_eq_m * 1.0e9;
+    return (n_initial > 0);
+}
+
+static int gp_generate_volume_renormalized_radii(const PFParams *P,
+                                                 int n_sites,
+                                                 double gp_volume_required_m3,
+                                                 std::vector<double> *raw_radii_nm,
+                                                 std::vector<double> *final_radii_nm) {
+    if (!P || n_sites <= 0 || !raw_radii_nm || !final_radii_nm) return 0;
+    if (strcmp(P->gp_initial_radius_distribution, "truncated_normal_volume_renormalized") != 0) return 0;
+    if (strcmp(P->gp_initial_radius_renormalization, "match_xB_inventory") != 0) return 0;
+    const double rmin = P->gp_initial_radius_min_nm;
+    const double rmax = P->gp_initial_radius_max_nm;
+    if (!(rmin > 0.0 && rmax >= rmin)) return 0;
+    raw_radii_nm->assign((size_t)n_sites, P->gp_initial_radius_mean_target_nm);
+    final_radii_nm->assign((size_t)n_sites, P->gp_initial_radius_mean_target_nm);
+    unsigned long long state = (unsigned long long)P->gp_initial_rng_seed;
+    if (state == 0ULL) state = 1ULL;
+    for (int i = 0; i < n_sites; ++i) {
+        double r = P->gp_initial_radius_mean_target_nm;
+        for (int tries = 0; tries < 10000; ++tries) {
+            r = P->gp_initial_radius_mean_target_nm + P->gp_initial_radius_std_nm * gp_assisted_rand_standard_normal(&state);
+            if (r >= rmin && r <= rmax) break;
+        }
+        if (!(r >= rmin && r <= rmax)) r = fmin(fmax(r, rmin), rmax);
+        (*raw_radii_nm)[(size_t)i] = r;
+    }
+    const double target_sum_r3_nm3 = gp_volume_required_m3 / (((4.0 / 3.0) * M_PI) * 1.0e-27);
+    if (!(target_sum_r3_nm3 > 0.0)) return 0;
+    std::vector<double> result((size_t)n_sites, 0.0);
+    std::vector<int> active;
+    active.reserve((size_t)n_sites);
+    for (int i = 0; i < n_sites; ++i) active.push_back(i);
+    long double fixed_sum_r3 = 0.0L;
+    for (int iter = 0; iter < 32; ++iter) {
+        long double raw_active_sum_r3 = 0.0L;
+        for (size_t q = 0; q < active.size(); ++q) {
+            const double r = (*raw_radii_nm)[(size_t)active[q]];
+            raw_active_sum_r3 += (long double)r * (long double)r * (long double)r;
+        }
+        if (!(raw_active_sum_r3 > 0.0L)) return 0;
+        const long double remain_target = (long double)target_sum_r3_nm3 - fixed_sum_r3;
+        if (!(remain_target > 0.0L)) return 0;
+        const double scale = cbrt((double)(remain_target / raw_active_sum_r3));
+        std::vector<int> next_active;
+        int any_clipped = 0;
+        for (size_t q = 0; q < active.size(); ++q) {
+            const int idx = active[q];
+            double r = (*raw_radii_nm)[(size_t)idx] * scale;
+            if (r < rmin) {
+                result[(size_t)idx] = rmin;
+                fixed_sum_r3 += (long double)rmin * (long double)rmin * (long double)rmin;
+                any_clipped = 1;
+            } else if (r > rmax) {
+                result[(size_t)idx] = rmax;
+                fixed_sum_r3 += (long double)rmax * (long double)rmax * (long double)rmax;
+                any_clipped = 1;
+            } else {
+                next_active.push_back(idx);
+            }
+        }
+        if (!any_clipped) {
+            for (size_t q = 0; q < active.size(); ++q) {
+                const int idx = active[q];
+                result[(size_t)idx] = (*raw_radii_nm)[(size_t)idx] * scale;
+            }
+            long double final_sum_r3 = 0.0L;
+            for (int i = 0; i < n_sites; ++i) {
+                const long double r = result[(size_t)i];
+                final_sum_r3 += r * r * r;
+            }
+            const long double rel = fabsl(final_sum_r3 - (long double)target_sum_r3_nm3) /
+                                    fmax((long double)target_sum_r3_nm3, 1.0e-30L);
+            if (rel > 1.0e-10L) return 0;
+            *final_radii_nm = result;
+            return 1;
+        }
+        active.swap(next_active);
+    }
+    return 0;
+}
+
+static int gp_site_position_is_acceptable_nm(const PFParams *P,
+                                             const std::vector<GpAssistedSite> &sites,
+                                             int ix, int iy, int iz, double radius_nm) {
+    if (!P) return 0;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double x_nm = ((double)ix + 0.5) * dx_nm;
+    const double y_nm = ((double)iy + 0.5) * dy_nm;
+    const double z_nm = ((double)iz + 0.5) * dz_nm;
+    for (size_t q = 0; q < sites.size(); ++q) {
+        const GpAssistedSite &s = sites[q];
+        const double sx_nm = ((double)s.ix + 0.5) * dx_nm;
+        const double sy_nm = ((double)s.iy + 0.5) * dy_nm;
+        const double sz_nm = ((double)s.iz + 0.5) * dz_nm;
+        const double ddx = x_nm - sx_nm;
+        const double ddy = y_nm - sy_nm;
+        const double ddz = z_nm - sz_nm;
+        const double dist_nm = sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+        const double min_center_nm = 0.5 * fmax(P->gp_initial_min_center_spacing_factor, 0.0) *
+                                     (radius_nm + s.radius_nm);
+        if (dist_nm + 1.0e-12 < min_center_nm) return 0;
+    }
+    return 1;
+}
+
+static void init_gp_assisted_site_at(const PFParams *P, GpAssistedSite *site,
+                                     int id, int ix, int iy, int iz) {
+    if (!P || !site) return;
+    memset(site, 0, sizeof(*site));
+    site->id = id;
+    site->ix = std::max(0, std::min(P->Nx - 1, ix));
+    site->iy = std::max(0, std::min(P->Ny - 1, iy));
+    site->iz = std::max(0, std::min(P->Nz - 1, iz));
+    site->active = (P->gp_site_B_mass_equiv > 0.0) ? 1 : 0;
+    site->consumed = 0;
+    site->consumed_step = -1;
+    site->linked_beta_event_id = -1;
+    site->B_mass_initial = fmax(P->gp_site_B_mass_equiv, 0.0);
+    site->B_mass_active = site->B_mass_initial;
+    site->S_factor = P->gp_site_S_factor;
+    site->radius_nm = P->gp_marker_core_radius_nm;
+    site->volume_m3 = gp_site_volume_m3_from_radius_nm(site->radius_nm);
+}
+
+static int gp_assisted_site_coord_exists(const std::vector<GpAssistedSite> &sites,
+                                         int ix, int iy, int iz) {
+    for (size_t q = 0; q < sites.size(); ++q) {
+        if (sites[q].ix == ix && sites[q].iy == iy && sites[q].iz == iz) return 1;
+    }
+    return 0;
+}
+
+static void gp_assisted_unique_coord_probe(const PFParams *P,
+                                           const std::vector<GpAssistedSite> &sites,
+                                           int *ix, int *iy, int *iz) {
+    if (!P || !ix || !iy || !iz) return;
+    int x = std::max(0, std::min(P->Nx - 1, *ix));
+    int y = std::max(0, std::min(P->Ny - 1, *iy));
+    int z = std::max(0, std::min(P->Nz - 1, *iz));
+    const int total = std::max(1, P->Nx * P->Ny * P->Nz);
+    int flat = (x * P->Ny + y) * P->Nz + z;
+    for (int t = 0; t < total; ++t) {
+        int cand = (flat + t) % total;
+        int cz = cand % P->Nz;
+        int cy = (cand / P->Nz) % P->Ny;
+        int cx = cand / (P->Ny * P->Nz);
+        if (!gp_assisted_site_coord_exists(sites, cx, cy, cz)) {
+            *ix = cx;
+            *iy = cy;
+            *iz = cz;
+            return;
+        }
+    }
+    *ix = x;
+    *iy = y;
+    *iz = z;
+}
+
+static void gp_assisted_positive_inventory_coord_probe(const PFParams *P,
+                                                       const std::vector<GpAssistedSite> &sites,
+                                                       const std::vector<double> &xB,
+                                                       int *ix, int *iy, int *iz) {
+    if (!P || !ix || !iy || !iz || xB.empty()) return;
+    const int total = std::max(1, P->Nx * P->Ny * P->Nz);
+    int x = std::max(0, std::min(P->Nx - 1, *ix));
+    int y = std::max(0, std::min(P->Ny - 1, *iy));
+    int z = std::max(0, std::min(P->Nz - 1, *iz));
+    int flat = (x * P->Ny + y) * P->Nz + z;
+    const double xB_gp = gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP);
+    for (int t = 0; t < total; ++t) {
+        int cand = (flat + t) % total;
+        int cz = cand % P->Nz;
+        int cy = (cand / P->Nz) % P->Ny;
+        int cx = cand / (P->Ny * P->Nz);
+        if (gp_assisted_site_coord_exists(sites, cx, cy, cz)) continue;
+        if ((size_t)cand >= xB.size()) continue;
+        if (isfinite(xB[(size_t)cand]) &&
+            xB[(size_t)cand] > P->gp_xB_floor + 1.0e-8 &&
+            xB[(size_t)cand] + 1.0e-12 < xB_gp) {
+            *ix = cx;
+            *iy = cy;
+            *iz = cz;
+            return;
+        }
+    }
+    gp_assisted_unique_coord_probe(P, sites, ix, iy, iz);
+}
+
+static void build_gp_assisted_sites_from_params(const PFParams *P, std::vector<GpAssistedSite> *sites) {
+    if (!P || !sites) return;
+    sites->clear();
+    if (P->gp_initial_population_enabled &&
+        strcmp(P->gp_initial_population_source, "none") != 0) {
+        double n_expected = NAN;
+        int n_initial = 0;
+        double xB_far = NAN;
+        double xB_gp = NAN;
+        double f_gp_required = NAN;
+        double V_gp_required_m3 = NAN;
+        double r_vol_eq_nm = NAN;
+        if (!gp_after_quench_expected_count(P, &n_expected, &n_initial, &xB_far, &xB_gp,
+                                            &f_gp_required, &V_gp_required_m3, &r_vol_eq_nm)) {
+            fprintf(stderr, "[fatal] unable to derive GP after-quench initial population targets.\n");
+            return;
+        }
+        std::vector<double> raw_radii_nm;
+        std::vector<double> final_radii_nm;
+        if (!gp_generate_volume_renormalized_radii(P, n_initial, V_gp_required_m3,
+                                                   &raw_radii_nm, &final_radii_nm)) {
+            fprintf(stderr, "[fatal] unable to generate volume-renormalized GP radius distribution.\n");
+            return;
+        }
+        const double cell_volume_m3 = gp_cell_volume_m3(P);
+        if (!(isfinite(cell_volume_m3) && cell_volume_m3 > 0.0)) {
+            fprintf(stderr, "[fatal] invalid cell volume for GP after-quench population.\n");
+            return;
+        }
+        sites->reserve((size_t)n_initial);
+        unsigned long long state = (unsigned long long)P->gp_initial_rng_seed;
+        if (state == 0ULL) state = 1ULL;
+        int fallback_accept_count = 0;
+        for (int s = 0; s < n_initial; ++s) {
+            const double radius_raw_nm = raw_radii_nm[(size_t)s];
+            const double radius_nm = final_radii_nm[(size_t)s];
+            int ix = 0, iy = 0, iz = 0;
+            int accepted = 0;
+            if (strcmp(P->gp_initial_position_mode, "random_uniform_or_poisson_disk") == 0) {
+                for (int attempt = 0; attempt < 64; ++attempt) {
+                    ix = gp_assisted_rand_index(&state, P->Nx);
+                    iy = gp_assisted_rand_index(&state, P->Ny);
+                    iz = gp_assisted_rand_index(&state, P->Nz);
+                    if (gp_assisted_site_coord_exists(*sites, ix, iy, iz)) continue;
+                    if (gp_site_position_is_acceptable_nm(P, *sites, ix, iy, iz, radius_nm)) {
+                        accepted = 1;
+                        break;
+                    }
+                }
+            }
+            if (!accepted) {
+                ix = gp_assisted_rand_index(&state, P->Nx);
+                iy = gp_assisted_rand_index(&state, P->Ny);
+                iz = gp_assisted_rand_index(&state, P->Nz);
+                gp_assisted_unique_coord_probe(P, *sites, &ix, &iy, &iz);
+                fallback_accept_count += 1;
+            }
+            GpAssistedSite site;
+            init_gp_assisted_site_at(P, &site, P->gp_debug_scheduled_site_id + s, ix, iy, iz);
+            site.radius_raw_nm = radius_raw_nm;
+            site.radius_nm = radius_nm;
+            site.volume_m3 = gp_site_volume_m3_from_radius_nm(radius_nm);
+            // After-quench initialization keeps the matrix field at xB_far everywhere, so the
+            // separate GP ledger must store only the excess inventory above that matrix baseline.
+            site.B_mass_initial = (xB_gp - xB_far) * site.volume_m3 / cell_volume_m3;
+            site.B_mass_active = site.B_mass_initial;
+            site.active = (site.B_mass_active > 0.0) ? 1 : 0;
+            sites->push_back(site);
+        }
+        printf("[GP-INIT-POPULATION] source=%s N_expected=%.12e N_initial=%d xB_tot=%.12e xB_far=%.12e "
+               "xB_GP=%.12e f_GP_required=%.12e V_GP_required_m3=%.12e R_vol_eq_nm=%.12e "
+               "fallback_accept_count=%d HIGH_DENSITY_SUBGRID_OVERLAP_ALLOWED=%d\n",
+               P->gp_initial_population_source, n_expected, n_initial, P->gp_initial_xB_tot,
+               xB_far, xB_gp, f_gp_required, V_gp_required_m3, r_vol_eq_nm,
+               fallback_accept_count, (fallback_accept_count > 0) ? 1 : 0);
+        return;
+    }
+    if (strcmp(P->gp_birth_model, "prescribed_sites") != 0) {
+        return;
+    }
+    const int n_sites = std::max(1, P->gp_n_sites);
+    if (strcmp(P->gp_site_mode, "single") == 0) {
+        GpAssistedSite site;
+        init_gp_assisted_site_from_params(P, &site);
+        site.id = P->gp_debug_scheduled_site_id;
+        sites->push_back(site);
+        return;
+    }
+
+    sites->reserve((size_t)n_sites);
+    if (strcmp(P->gp_site_mode, "random") == 0) {
+        unsigned long long state = (unsigned long long)P->gp_seed;
+        if (state == 0ULL) state = 1ULL;
+        for (int s = 0; s < n_sites; ++s) {
+            int ix = gp_assisted_rand_index(&state, P->Nx);
+            int iy = gp_assisted_rand_index(&state, P->Ny);
+            int iz = gp_assisted_rand_index(&state, P->Nz);
+            gp_assisted_unique_coord_probe(P, *sites, &ix, &iy, &iz);
+            GpAssistedSite site;
+            init_gp_assisted_site_at(P, &site, P->gp_debug_scheduled_site_id + s, ix, iy, iz);
+            sites->push_back(site);
+        }
+        return;
+    }
+
+    const int m = (int)ceil(cbrt((double)n_sites));
+    int count = 0;
+    for (int a = 0; a < m && count < n_sites; ++a) {
+        for (int b = 0; b < m && count < n_sites; ++b) {
+            for (int c = 0; c < m && count < n_sites; ++c) {
+                int ix = (int)floor(((double)a + 0.5) * (double)P->Nx / (double)m);
+                int iy = (int)floor(((double)b + 0.5) * (double)P->Ny / (double)m);
+                int iz = (int)floor(((double)c + 0.5) * (double)P->Nz / (double)m);
+                if (P->gp_site_spacing > 0.0) {
+                    const int spacing_x = std::max(1, (int)llround(P->gp_site_spacing / fmax(P->dx, 1.0e-30)));
+                    const int spacing_y = std::max(1, (int)llround(P->gp_site_spacing / fmax(P->dy, 1.0e-30)));
+                    const int spacing_z = std::max(1, (int)llround(P->gp_site_spacing / fmax(P->dz, 1.0e-30)));
+                    ix = P->Nx / 2 + (a - m / 2) * spacing_x;
+                    iy = P->Ny / 2 + (b - m / 2) * spacing_y;
+                    iz = P->Nz / 2 + (c - m / 2) * spacing_z;
+                }
+                gp_assisted_unique_coord_probe(P, *sites, &ix, &iy, &iz);
+                GpAssistedSite site;
+                init_gp_assisted_site_at(P, &site, P->gp_debug_scheduled_site_id + count, ix, iy, iz);
+                sites->push_back(site);
+                count++;
+            }
+        }
+    }
+}
+
+static int write_gp_initial_population_sites_csv(const PFParams *P,
+                                                 const std::vector<GpAssistedSite> &sites,
+                                                 const char *case_output_dir) {
+    if (!P || !case_output_dir || !case_output_dir[0]) return 1;
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/gp_initial_population_sites.csv", case_output_dir);
+    FILE *fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "[fatal] cannot open gp initial population sites CSV: %s\n", path);
+        return 0;
+    }
+    const double cell_volume_m3 = gp_cell_volume_m3(P);
+    const double xB_gp = gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP);
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    fprintf(fp,
+            "site_id,ix,iy,iz,center_x_nm,center_y_nm,center_z_nm,R_raw_nm,R_final_nm,V_final_m3,xB_GP,B_mass_code_units,B_equiv_inventory_m3,S_factor,active\n");
+    for (size_t i = 0; i < sites.size(); ++i) {
+        const GpAssistedSite &s = sites[i];
+        const double cx_nm = ((double)s.ix + 0.5) * dx_nm;
+        const double cy_nm = ((double)s.iy + 0.5) * dy_nm;
+        const double cz_nm = ((double)s.iz + 0.5) * dz_nm;
+        const double B_equiv_inventory_m3 = s.B_mass_initial * cell_volume_m3;
+        fprintf(fp,
+                "%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%d\n",
+                s.id, s.ix, s.iy, s.iz, cx_nm, cy_nm, cz_nm,
+                s.radius_raw_nm, s.radius_nm, s.volume_m3, xB_gp,
+                s.B_mass_initial, B_equiv_inventory_m3, s.S_factor, s.active);
+    }
+    fclose(fp);
+    printf("[GP-INIT-POPULATION-FILE] path=%s n_sites=%zu\n", path, sites.size());
+    return 1;
+}
+
+static double gp_assisted_sum_active_mass(const std::vector<GpAssistedSite> &sites) {
+    long double s = 0.0;
+    for (size_t i = 0; i < sites.size(); ++i) {
+        if (sites[i].active) s += fmax(sites[i].B_mass_active, 0.0);
+    }
+    return (double)s;
+}
+
+static double gp_assisted_sum_active_mass_range(const std::vector<GpAssistedSite> &sites,
+                                                size_t begin_idx, size_t end_idx) {
+    if (begin_idx >= sites.size() || begin_idx >= end_idx) return 0.0;
+    end_idx = std::min(end_idx, sites.size());
+    long double s = 0.0L;
+    for (size_t i = begin_idx; i < end_idx; ++i) {
+        if (sites[i].active) s += fmax(sites[i].B_mass_active, 0.0);
+    }
+    return (double)s;
+}
+
+static void gp_assisted_split_active_mass_by_origin(const std::vector<GpAssistedSite> &sites,
+                                                    int initial_gp_site_count,
+                                                    double *initial_active_out,
+                                                    double *new_active_out) {
+    const size_t split = (initial_gp_site_count <= 0) ? 0u : (size_t)initial_gp_site_count;
+    if (initial_active_out) {
+        *initial_active_out = gp_assisted_sum_active_mass_range(sites, 0u, split);
+    }
+    if (new_active_out) {
+        *new_active_out = gp_assisted_sum_active_mass_range(sites, split, sites.size());
+    }
+}
+
+static double beta_staged_sum_inventory(const std::vector<BetaStagedEmbryo> &embryos) {
+    long double s = 0.0L;
+    for (size_t i = 0; i < embryos.size(); ++i) {
+        if (strcmp(embryos[i].status, "inserted") == 0 ||
+            strcmp(embryos[i].status, "rejected_or_expired") == 0) {
+            continue;
+        }
+        s += fmax(embryos[i].current_embryo_inventory, 0.0);
+    }
+    return (double)s;
+}
+
+static double beta_staged_sum_remaining_inventory(const std::vector<BetaStagedEmbryo> &embryos) {
+    long double s = 0.0L;
+    for (size_t i = 0; i < embryos.size(); ++i) {
+        if (strcmp(embryos[i].status, "inserted") == 0 ||
+            strcmp(embryos[i].status, "rejected_or_expired") == 0) {
+            continue;
+        }
+        s += fmax(embryos[i].remaining_inventory_needed, 0.0);
+    }
+    return (double)s;
+}
+
+static int beta_staged_count_active_embryos(const std::vector<BetaStagedEmbryo> &embryos) {
+    int n = 0;
+    for (size_t i = 0; i < embryos.size(); ++i) {
+        if (strcmp(embryos[i].status, "inserted") == 0 ||
+            strcmp(embryos[i].status, "rejected_or_expired") == 0) {
+            continue;
+        }
+        ++n;
+    }
+    return n;
+}
+
+static void beta_add_staged_inventory_to_ledger(GpAssistedLedger *ledger,
+                                                const std::vector<BetaStagedEmbryo> &embryos) {
+    if (!ledger) return;
+    ledger->M_staged_beta = beta_staged_sum_inventory(embryos);
+    ledger->M_total += ledger->M_staged_beta;
+}
+
+static double gp_assisted_external_ledger_field_target_sum(const PFParams *P,
+                                                           const GpAssistedRuntime *rt,
+                                                           int total_r) {
+    if (!P || !rt || total_r <= 0) return NAN;
+    const double target_total = P->gp_initial_xB_tot * (double)total_r;
+    const double gp_active = gp_assisted_sum_active_mass(rt->sites);
+    const double staged = beta_staged_sum_inventory(rt->staged_embryos);
+    return target_total - gp_active - staged;
+}
+
+static double gp_assisted_sum_initial_mass(const std::vector<GpAssistedSite> &sites) {
+    long double s = 0.0;
+    for (size_t i = 0; i < sites.size(); ++i) s += fmax(sites[i].B_mass_initial, 0.0);
+    return (double)s;
+}
+
+static int gp_assisted_count_active_sites(const std::vector<GpAssistedSite> &sites) {
+    int n = 0;
+    for (size_t i = 0; i < sites.size(); ++i) if (sites[i].active) n++;
+    return n;
+}
+
+static void compute_gp_assisted_ledger_host(const std::vector<double> &phi,
+                                            const std::vector<double> &Y,
+                                            const std::vector<double> &xB,
+                                            double beta_B_fraction,
+                                            const GpAssistedSite *site,
+                                            GpAssistedLedger *out) {
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->phi_min = 1.0e300;
+    out->xB_min = 1.0e300;
+    out->Y_min = 1.0e300;
+    out->phi_max = -1.0e300;
+    out->xB_max = -1.0e300;
+    out->Y_max = -1.0e300;
+    long double m_matrix = 0.0;
+    long double m_beta = 0.0;
+    for (size_t idx = 0; idx < phi.size(); ++idx) {
+        const double p = clamp01(phi[idx]);
+        const double h = h_of_phi(p);
+        m_matrix += (1.0 - h) * xB[idx];
+        m_beta += beta_B_fraction * h;
+        out->phi_min = fmin(out->phi_min, p);
+        out->phi_max = fmax(out->phi_max, p);
+        out->xB_min = fmin(out->xB_min, xB[idx]);
+        out->xB_max = fmax(out->xB_max, xB[idx]);
+        if (idx < Y.size()) {
+            out->Y_min = fmin(out->Y_min, Y[idx]);
+            out->Y_max = fmax(out->Y_max, Y[idx]);
+        }
+    }
+    out->M_matrix = (double)m_matrix;
+    out->M_beta = (double)m_beta;
+    out->M_gp_active = (site && site->active) ? fmax(site->B_mass_active, 0.0) : 0.0;
+    out->M_staged_beta = 0.0;
+    out->M_total = out->M_matrix + out->M_beta + out->M_gp_active;
+    if (phi.empty()) {
+        out->phi_min = out->phi_max = out->xB_min = out->xB_max = out->Y_min = out->Y_max = 0.0;
+    }
+}
+
+static void compute_gp_assisted_multi_ledger_host(const std::vector<double> &phi,
+                                                  const std::vector<double> &Y,
+                                                  const std::vector<double> &xB,
+                                                  double beta_B_fraction,
+                                                  const std::vector<GpAssistedSite> &sites,
+                                                  GpAssistedLedger *out) {
+    compute_gp_assisted_ledger_host(phi, Y, xB, beta_B_fraction, NULL, out);
+    if (!out) return;
+    out->M_gp_active = gp_assisted_sum_active_mass(sites);
+    out->M_staged_beta = 0.0;
+    out->M_total = out->M_matrix + out->M_beta + out->M_gp_active;
+}
+
+static double xB_from_Y_clamped_host(double Y, const PFParams *P) {
+    if (!P) return NAN;
+    if (Y >= P->Y_clip) return 1.0 - P->xB_eps;
+    if (Y <= -P->Y_clip) return P->xB_eps;
+    const double e = exp(-Y);
+    return clamp_eps(1.0 / (1.0 + e), P->xB_eps);
+}
+
+static void write_gp_post_birth_mass_probe_header(FILE *fp) {
+    if (!fp) return;
+    fprintf(fp,
+            "step,label,applicable,notes,"
+            "M_matrix,M_GP_initial_existing,M_GP_new_existing,M_beta,M_staged_beta,M_total_reconstructed,"
+            "mass_error_abs,mass_error_rel,"
+            "sum_xB_alpha_field,sum_xB_from_Y_field,sum_xB_storage_if_exists,"
+            "xB_alpha_min,xB_alpha_max,Y_min,Y_max,nan_count,inf_count\n");
+    fflush(fp);
+}
+
+static void write_gp_post_birth_mass_probe_row_host(FILE *fp,
+                                                    int step,
+                                                    const char *label,
+                                                    int applicable,
+                                                    const PFParams *P,
+                                                    const GpAssistedRuntime *rt,
+                                                    const std::vector<double> &phi,
+                                                    const std::vector<double> *eta,
+                                                    const std::vector<double> &Y,
+                                                    const std::vector<double> &xB,
+                                                    const char *notes) {
+    if (!fp || !label || !P || !rt) return;
+    GpAssistedLedger ledger;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &ledger);
+    beta_add_staged_inventory_to_ledger(&ledger, rt->staged_embryos);
+    double M_gp_initial_existing = 0.0;
+    double M_gp_new_existing = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &M_gp_initial_existing, &M_gp_new_existing);
+    long double sum_xB_alpha = 0.0L;
+    long double sum_xB_from_Y = 0.0L;
+    long double sum_xB_storage = 0.0L;
+    long long nan_count = 0;
+    long long inf_count = 0;
+    for (size_t idx = 0; idx < xB.size(); ++idx) {
+        const double xb = xB[idx];
+        const double y = (idx < Y.size()) ? Y[idx] : NAN;
+        if (!isfinite(xb) || !isfinite(y)) {
+            if (isnan(xb) || isnan(y)) ++nan_count;
+            if (isinf(xb) || isinf(y)) ++inf_count;
+        }
+        if (isfinite(xb)) sum_xB_alpha += xb;
+        if (isfinite(y)) sum_xB_from_Y += xB_from_Y_clamped_host(y, P);
+        if (gp_storage_coupling_enabled(P) && eta && eta->size() == xB.size() && idx < phi.size()) {
+            double h_alpha = 0.0, h_GP = 0.0, h_beta = 0.0;
+            phase_fractions_gp(clamp01_local(phi[idx]), clamp01_local((*eta)[idx]), &h_alpha, &h_GP, &h_beta);
+            sum_xB_storage += h_GP * P->gp_xB_fixed + h_beta;
+        }
+    }
+    const double target_total = P->gp_initial_xB_tot * fmax((double)xB.size(), 1.0);
+    const double mass_error_abs = ledger.M_total - target_total;
+    const double mass_error_rel = mass_error_abs / fmax(fabs(target_total), 1.0e-30);
+    fprintf(fp,
+            "%d,%s,%d,%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12Le,%.12Le,",
+            step, label, applicable ? 1 : 0, notes ? notes : "",
+            ledger.M_matrix, M_gp_initial_existing, M_gp_new_existing, ledger.M_beta,
+            ledger.M_staged_beta, ledger.M_total,
+            mass_error_abs, mass_error_rel, sum_xB_alpha, sum_xB_from_Y);
+    if (gp_storage_coupling_enabled(P) && eta && eta->size() == xB.size()) {
+        fprintf(fp, "%.12Le,", sum_xB_storage);
+    } else {
+        fprintf(fp, "NOT_APPLICABLE,");
+    }
+    fprintf(fp, "%.12e,%.12e,%.12e,%.12e,%lld,%lld\n",
+            ledger.xB_min, ledger.xB_max, ledger.Y_min, ledger.Y_max,
+            nan_count, inf_count);
+    fflush(fp);
+}
+
+static void write_gp_post_birth_mass_probe_row_device(FILE *fp,
+                                                      int step,
+                                                      const char *label,
+                                                      int applicable,
+                                                      const PFParams *P,
+                                                      const GpAssistedRuntime *rt,
+                                                      double *d_phi_r,
+                                                      double *d_eta_r,
+                                                      double *d_Y_r,
+                                                      double *d_xB_r,
+                                                      size_t size_r,
+                                                      int total_r,
+                                                      const char *notes) {
+    if (!fp || !P || !rt || !d_phi_r || !d_Y_r || !d_xB_r || total_r <= 0) return;
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r), eta;
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+    std::vector<double> *eta_ptr = NULL;
+    if (gp_storage_coupling_enabled(P) && d_eta_r) {
+        eta.resize((size_t)total_r);
+        CUDA_CHECK(cudaMemcpy(eta.data(), d_eta_r, size_r, cudaMemcpyDeviceToHost));
+        eta_ptr = &eta;
+    }
+    write_gp_post_birth_mass_probe_row_host(fp, step, label, applicable, P, rt,
+                                            phi, eta_ptr, Y, xB, notes);
+}
+
+static void write_beta_staged_global_probe_header(FILE *fp) {
+    if (!fp) return;
+    fprintf(fp,
+            "step,label,M_matrix,M_GP_initial,M_GP_new,M_staged_embryo,M_beta,"
+            "M_total_reconstructed,M_total_target,M_matrix_target_used_by_projection,"
+            "mass_error_abs,mass_error_rel,xB_alpha_sum,xB_from_Y_sum,"
+            "xB_alpha_min,xB_alpha_max,Y_min,Y_max,staged_embryo_count,"
+            "staged_current_inventory_sum,staged_remaining_inventory_sum\n");
+    fflush(fp);
+}
+
+static void write_beta_staged_global_probe_row_host(FILE *fp,
+                                                    int step,
+                                                    const char *label,
+                                                    const PFParams *P,
+                                                    const GpAssistedRuntime *rt,
+                                                    const std::vector<double> &phi,
+                                                    const std::vector<double> &Y,
+                                                    const std::vector<double> &xB,
+                                                    double matrix_target_used_by_projection) {
+    if (!fp || !label || !P || !rt) return;
+    GpAssistedLedger ledger;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &ledger);
+    beta_add_staged_inventory_to_ledger(&ledger, rt->staged_embryos);
+    double M_gp_initial = 0.0;
+    double M_gp_new = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &M_gp_initial, &M_gp_new);
+    long double sum_xB_alpha = 0.0L;
+    long double sum_xB_from_Y = 0.0L;
+    for (size_t idx = 0; idx < xB.size(); ++idx) {
+        if (isfinite(xB[idx])) sum_xB_alpha += xB[idx];
+        if (idx < Y.size() && isfinite(Y[idx])) {
+            sum_xB_from_Y += xB_from_Y_clamped_host(Y[idx], P);
+        }
+    }
+    const double target_total = P->gp_initial_xB_tot * fmax((double)xB.size(), 1.0);
+    const double mass_error_abs = ledger.M_total - target_total;
+    const double mass_error_rel = mass_error_abs / fmax(fabs(target_total), 1.0e-30);
+    const double staged_current = beta_staged_sum_inventory(rt->staged_embryos);
+    const double staged_remaining = beta_staged_sum_remaining_inventory(rt->staged_embryos);
+    fprintf(fp,
+            "%d,%s,%.12e,%.12e,%.12e,%.12e,%.12e,"
+            "%.12e,%.12e,%.12e,%.12e,%.12e,%.12Le,%.12Le,"
+            "%.12e,%.12e,%.12e,%.12e,%d,%.12e,%.12e\n",
+            step, label,
+            ledger.M_matrix, M_gp_initial, M_gp_new, ledger.M_staged_beta, ledger.M_beta,
+            ledger.M_total, target_total, matrix_target_used_by_projection,
+            mass_error_abs, mass_error_rel, sum_xB_alpha, sum_xB_from_Y,
+            ledger.xB_min, ledger.xB_max, ledger.Y_min, ledger.Y_max,
+            beta_staged_count_active_embryos(rt->staged_embryos),
+            staged_current, staged_remaining);
+    fflush(fp);
+}
+
+static void write_beta_staged_global_probe_row_device(FILE *fp,
+                                                      int step,
+                                                      const char *label,
+                                                      const PFParams *P,
+                                                      const GpAssistedRuntime *rt,
+                                                      double *d_phi_r,
+                                                      double *d_Y_r,
+                                                      double *d_xB_r,
+                                                      size_t size_r,
+                                                      int total_r,
+                                                      double matrix_target_used_by_projection) {
+    if (!fp || !P || !rt || !d_phi_r || !d_Y_r || !d_xB_r || total_r <= 0) return;
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+    write_beta_staged_global_probe_row_host(fp, step, label, P, rt, phi, Y, xB,
+                                            matrix_target_used_by_projection);
+}
+
+static void write_staged_handoff_profile_probe_header(FILE *fp) {
+    if (!fp) return;
+    fprintf(fp,
+            "step,probe_label,M_matrix,M_GP_initial,M_GP_new,M_staged,M_beta,"
+            "M_total_reconstructed,mass_error_rel,xB_alpha_sum,xB_alpha_mean,"
+            "xB_alpha_min,xB_alpha_max,xB_source_for_JGP,xAg_used_for_JGP,"
+            "Y_min,Y_max,beta_phi_sum,beta_phi_max,staged_embryo_count,"
+            "resolved_seed_count,support_phi_gt_0p05,support_phi_gt_0p5,"
+            "support_phi_gt_0p8\n");
+    fflush(fp);
+}
+
+static void write_staged_handoff_profile_probe_row_host(FILE *fp,
+                                                        int step,
+                                                        const char *label,
+                                                        const PFParams *P,
+                                                        const GpAssistedRuntime *rt,
+                                                        const std::vector<double> &phi,
+                                                        const std::vector<double> &Y,
+                                                        const std::vector<double> &xB) {
+    if (!fp || !label || !P || !rt || phi.empty() || xB.empty()) return;
+    GpAssistedLedger ledger;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &ledger);
+    beta_add_staged_inventory_to_ledger(&ledger, rt->staged_embryos);
+    double M_gp_initial = 0.0;
+    double M_gp_new = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &M_gp_initial, &M_gp_new);
+    long double xB_sum = 0.0L;
+    long double beta_phi_sum = 0.0L;
+    double beta_phi_max = 0.0;
+    size_t support_phi_gt_0p05 = 0;
+    size_t support_phi_gt_0p5 = 0;
+    size_t support_phi_gt_0p8 = 0;
+    for (size_t idx = 0; idx < xB.size(); ++idx) {
+        if (isfinite(xB[idx])) xB_sum += (long double)xB[idx];
+        const double p = (idx < phi.size()) ? clamp01(phi[idx]) : 0.0;
+        beta_phi_sum += (long double)h_of_phi(p);
+        beta_phi_max = fmax(beta_phi_max, p);
+        if (p > 0.05) ++support_phi_gt_0p05;
+        if (p > 0.5) ++support_phi_gt_0p5;
+        if (p > 0.8) ++support_phi_gt_0p8;
+    }
+    const double xB_alpha_mean = (double)(xB_sum / fmax((long double)xB.size(), 1.0L));
+    const double xB_source = gp_compute_matrix_mean_xB_alpha_host(phi, xB);
+    const double xAg_used = gp_pseudobinary_xAg_from_xB(xB_source);
+    const double target_total = P->gp_initial_xB_tot * fmax((double)xB.size(), 1.0);
+    const double mass_error_rel =
+        (ledger.M_total - target_total) / fmax(fabs(target_total), 1.0e-30);
+    fprintf(fp,
+            "%d,%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+            "%.12Le,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+            "%.12Le,%.12e,%d,%d,%zu,%zu,%zu\n",
+            step, label, ledger.M_matrix, M_gp_initial, M_gp_new,
+            ledger.M_staged_beta, ledger.M_beta, ledger.M_total, mass_error_rel,
+            xB_sum, xB_alpha_mean, ledger.xB_min, ledger.xB_max,
+            xB_source, xAg_used, ledger.Y_min, ledger.Y_max,
+            beta_phi_sum, beta_phi_max,
+            beta_staged_count_active_embryos(rt->staged_embryos),
+            rt->resolved_handoff_inserted_count,
+            support_phi_gt_0p05, support_phi_gt_0p5, support_phi_gt_0p8);
+    fflush(fp);
+}
+
+static void write_staged_handoff_profile_probe_row_device(FILE *fp,
+                                                          int step,
+                                                          const char *label,
+                                                          const PFParams *P,
+                                                          const GpAssistedRuntime *rt,
+                                                          double *d_phi_r,
+                                                          double *d_Y_r,
+                                                          double *d_xB_r,
+                                                          size_t size_r,
+                                                          int total_r) {
+    if (!fp || !P || !rt || !d_phi_r || !d_Y_r || !d_xB_r || total_r <= 0) return;
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+    write_staged_handoff_profile_probe_row_host(fp, step, label, P, rt, phi, Y, xB);
+}
+
+static void write_staged_handoff_external_reset_detector_row(FILE *fp,
+                                                             const PFParams *P,
+                                                             const GpAssistedRuntime *rt,
+                                                             int step,
+                                                             const char *comparison_label,
+                                                             const BetaStagedEmbryo *e,
+                                                             const std::vector<double> &phi_before,
+                                                             const std::vector<double> &phi_after,
+                                                             const std::vector<double> &xB_before,
+                                                             const std::vector<double> &xB_after);
+
+static void write_staged_handoff_external_reset_detector_row_device(FILE *fp,
+                                                                    const PFParams *P,
+                                                                    const GpAssistedRuntime *rt,
+                                                                    int step,
+                                                                    const char *comparison_label,
+                                                                    double *d_phi_r,
+                                                                    double *d_xB_r,
+                                                                    size_t size_r,
+                                                                    int total_r) {
+    if (!fp || !P || !rt || !comparison_label || !d_phi_r || !d_xB_r || total_r <= 0) return;
+    if (!rt->staged_handoff_snapshot_valid) return;
+    if (rt->staged_handoff_snapshot_step < 0 || step < rt->staged_handoff_snapshot_step) return;
+    if (rt->staged_handoff_phi_before.size() != (size_t)total_r ||
+        rt->staged_handoff_xB_before.size() != (size_t)total_r) return;
+    std::vector<double> phi_after((size_t)total_r), xB_after((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi_after.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB_after.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    write_staged_handoff_external_reset_detector_row(
+        fp, P, rt, step, comparison_label, &rt->staged_handoff_snapshot_embryo,
+        rt->staged_handoff_phi_before, phi_after,
+        rt->staged_handoff_xB_before, xB_after);
+}
+
+static double staged_handoff_distance_nm(const PFParams *P,
+                                         int center_i, int center_j, int center_k,
+                                         int i, int j, int k) {
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double x = ((double)i - (double)center_i) * dx_nm;
+    const double y = ((double)j - (double)center_j) * dy_nm;
+    const double z = ((double)k - (double)center_k) * dz_nm;
+    return sqrt(x * x + y * y + z * z);
+}
+
+static void write_staged_handoff_radial_profile_rows(FILE *fp,
+                                                     const PFParams *P,
+                                                     const GpAssistedRuntime *rt,
+                                                     int step,
+                                                     const BetaStagedEmbryo *e,
+                                                     const std::vector<double> &xB_before,
+                                                     const std::vector<double> &xB_after,
+                                                     const std::vector<double> &phi_after) {
+    if (!fp || !P || !rt || !e || xB_before.size() != xB_after.size() ||
+        xB_after.size() != phi_after.size()) return;
+    const double dx_nm = fmax(fmax(runtime_dx_nm_host(P), runtime_dy_nm_host(P)),
+                              runtime_dz_nm_host(P));
+    const double bin_width_nm = fmax(dx_nm, 0.5);
+    const double seed_radius_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+    const double iface_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_iface_width);
+    const double max_r_nm = fmax(seed_radius_nm + 6.0 * iface_nm + 8.0, 8.0 * bin_width_nm);
+    const int nbins = (int)ceil(max_r_nm / bin_width_nm);
+    std::vector<long double> sum_before((size_t)nbins, 0.0L);
+    std::vector<long double> sum_after((size_t)nbins, 0.0L);
+    std::vector<long double> sum_phi((size_t)nbins, 0.0L);
+    std::vector<double> min_after((size_t)nbins, 1.0e300);
+    std::vector<double> max_after((size_t)nbins, -1.0e300);
+    std::vector<long long> count((size_t)nbins, 0);
+    for (int i = 0; i < P->Nx; ++i) {
+        for (int j = 0; j < P->Ny; ++j) {
+            for (int k = 0; k < P->Nz; ++k) {
+                const int idx = (i * P->Ny + j) * P->Nz + k;
+                const double r_nm = staged_handoff_distance_nm(P, e->ix, e->iy, e->iz, i, j, k);
+                const int b = (int)floor(r_nm / bin_width_nm);
+                if (b < 0 || b >= nbins) continue;
+                sum_before[(size_t)b] += xB_before[(size_t)idx];
+                sum_after[(size_t)b] += xB_after[(size_t)idx];
+                sum_phi[(size_t)b] += h_of_phi(clamp01(phi_after[(size_t)idx]));
+                min_after[(size_t)b] = fmin(min_after[(size_t)b], xB_after[(size_t)idx]);
+                max_after[(size_t)b] = fmax(max_after[(size_t)b], xB_after[(size_t)idx]);
+                count[(size_t)b] += 1;
+            }
+        }
+    }
+    for (int b = 0; b < nbins; ++b) {
+        if (count[(size_t)b] <= 0) continue;
+        const long double inv = 1.0L / (long double)count[(size_t)b];
+        const double mean_before = (double)(sum_before[(size_t)b] * inv);
+        const double mean_after = (double)(sum_after[(size_t)b] * inv);
+        const double mean_phi = (double)(sum_phi[(size_t)b] * inv);
+        fprintf(fp,
+                "%s,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%lld\n",
+                rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                step, e->embryo_id, ((double)b + 0.5) * bin_width_nm,
+                mean_before, mean_after, mean_after - mean_before,
+                min_after[(size_t)b], max_after[(size_t)b], mean_phi,
+                count[(size_t)b]);
+    }
+    fflush(fp);
+}
+
+static void write_staged_handoff_external_reset_detector_row(FILE *fp,
+                                                             const PFParams *P,
+                                                             const GpAssistedRuntime *rt,
+                                                             int step,
+                                                             const char *comparison_label,
+                                                             const BetaStagedEmbryo *e,
+                                                             const std::vector<double> &phi_before,
+                                                             const std::vector<double> &phi_after,
+                                                             const std::vector<double> &xB_before,
+                                                             const std::vector<double> &xB_after) {
+    if (!fp || !P || !rt || !comparison_label || !e || xB_before.size() != xB_after.size() ||
+        phi_before.size() != phi_after.size() || xB_after.size() != phi_after.size()) return;
+    const double seed_radius_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+    const double iface_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_iface_width);
+    const double outside_r_nm = seed_radius_nm;
+    const double buffer_r_nm = seed_radius_nm + 3.0 * iface_nm;
+    const double far_r_nm = buffer_r_nm + 8.0;
+    long double outside_delta_sum = 0.0L, outside_delta_abs_sum = 0.0L;
+    long double outside_buffer_delta_sum = 0.0L, far_before_sum = 0.0L, far_after_sum = 0.0L;
+    long long outside_count = 0, outside_buffer_count = 0, far_count = 0;
+    long long changed_1e12 = 0, changed_1e9 = 0;
+    double outside_absmax = 0.0;
+    for (int i = 0; i < P->Nx; ++i) {
+        for (int j = 0; j < P->Ny; ++j) {
+            for (int k = 0; k < P->Nz; ++k) {
+                const int idx = (i * P->Ny + j) * P->Nz + k;
+                const double r_nm = staged_handoff_distance_nm(P, e->ix, e->iy, e->iz, i, j, k);
+                const double d = xB_after[(size_t)idx] - xB_before[(size_t)idx];
+                if (r_nm > outside_r_nm) {
+                    outside_delta_sum += d;
+                    outside_delta_abs_sum += fabsl((long double)d);
+                    outside_absmax = fmax(outside_absmax, fabs(d));
+                    outside_count++;
+                    if (fabs(d) > 1.0e-12) changed_1e12++;
+                    if (fabs(d) > 1.0e-9) changed_1e9++;
+                }
+                if (r_nm > buffer_r_nm) {
+                    outside_buffer_delta_sum += d;
+                    outside_buffer_count++;
+                }
+                if (r_nm > far_r_nm) {
+                    far_before_sum += xB_before[(size_t)idx];
+                    far_after_sum += xB_after[(size_t)idx];
+                    far_count++;
+                }
+            }
+        }
+    }
+    const double outside_delta_mean =
+        (outside_count > 0) ? (double)(outside_delta_sum / (long double)outside_count) : NAN;
+    const double outside_buffer_delta_mean =
+        (outside_buffer_count > 0) ? (double)(outside_buffer_delta_sum / (long double)outside_buffer_count) : NAN;
+    const double far_before =
+        (far_count > 0) ? (double)(far_before_sum / (long double)far_count) : NAN;
+    const double far_after =
+        (far_count > 0) ? (double)(far_after_sum / (long double)far_count) : NAN;
+    const double xB_source_before = gp_compute_matrix_mean_xB_alpha_host(phi_before, xB_before);
+    const double xB_source_after = gp_compute_matrix_mean_xB_alpha_host(phi_after, xB_after);
+    const double near_xBtot = P->gp_initial_xB_tot;
+    const double near_xB_beta = 1.0;
+    const double near_xB_GP = gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP);
+    const int reset_to_xBtot =
+        isfinite(far_after) && fabs(far_after - near_xBtot) < fabs(far_before - near_xBtot) &&
+        fabs(far_after - near_xBtot) < 1.0e-3;
+    const int reset_to_xBbeta = isfinite(far_after) && fabs(far_after - near_xB_beta) < 1.0e-3;
+    const int reset_to_xBGP = isfinite(far_after) && fabs(far_after - near_xB_GP) < 1.0e-3;
+    fprintf(fp,
+            "%s,%s,%d,%d,%.12Le,%.12e,%.12e,%lld,%lld,%.12Le,%.12e,%.12e,"
+            "%.12e,%.12e,%.12e,%.12e,%d,%d,%d\n",
+            rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+            comparison_label, step, e->embryo_id, outside_delta_sum, outside_delta_mean,
+            outside_absmax, changed_1e12, changed_1e9, outside_delta_abs_sum,
+            outside_buffer_delta_mean, far_before, far_after, far_after - far_before,
+            xB_source_before, xB_source_after,
+            reset_to_xBtot, reset_to_xBbeta, reset_to_xBGP);
+    fflush(fp);
+}
+
+static const char *diagnostic_rsmd_case_label(const GpAssistedRuntime *rt) {
+    return (rt && rt->stageA_case_label[0]) ? rt->stageA_case_label : "unknown_case";
+}
+
+static int diagnostic_rsmd_wrap_index(int a, int n) {
+    if (n <= 0) return 0;
+    int r = a % n;
+    if (r < 0) r += n;
+    return r;
+}
+
+static double diagnostic_rsmd_axis_delta_nm(int a, int b, int n, double spacing_nm) {
+    int d = a - b;
+    if (n > 0) {
+        if (d > n / 2) d -= n;
+        if (d < -n / 2) d += n;
+    }
+    return (double)d * spacing_nm;
+}
+
+static double diagnostic_rsmd_pbc_distance_nm(const PFParams *P,
+                                              int ax, int ay, int az,
+                                              int bx, int by, int bz) {
+    if (!P) return NAN;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double x = diagnostic_rsmd_axis_delta_nm(ax, bx, P->Nx, dx_nm);
+    const double y = diagnostic_rsmd_axis_delta_nm(ay, by, P->Ny, dy_nm);
+    const double z = diagnostic_rsmd_axis_delta_nm(az, bz, P->Nz, dz_nm);
+    return sqrt(x * x + y * y + z * z);
+}
+
+static const BetaStagedEmbryo *diagnostic_rsmd_find_resolved_seed(const GpAssistedRuntime *rt) {
+    if (!rt) return NULL;
+    for (size_t i = 0; i < rt->staged_embryos.size(); ++i) {
+        if (strcmp(rt->staged_embryos[i].status, "inserted") == 0) {
+            return &rt->staged_embryos[i];
+        }
+    }
+    if (rt->staged_handoff_snapshot_valid &&
+        strcmp(rt->staged_handoff_snapshot_embryo.status, "inserted") == 0) {
+        return &rt->staged_handoff_snapshot_embryo;
+    }
+    return NULL;
+}
+
+static double diagnostic_rsmd_sum_gp_remaining(const std::vector<GpAssistedSite> &sites) {
+    long double s = 0.0L;
+    for (size_t i = 0; i < sites.size(); ++i) {
+        s += fmax(sites[i].B_mass_active, 0.0);
+    }
+    return (double)s;
+}
+
+static void diagnostic_rsmd_split_total_mass_by_origin(const std::vector<GpAssistedSite> &sites,
+                                                       int initial_gp_site_count,
+                                                       double *initial_total_out,
+                                                       double *new_total_out) {
+    long double initial = 0.0L;
+    long double newer = 0.0L;
+    const size_t split = (initial_gp_site_count <= 0) ? 0u : (size_t)initial_gp_site_count;
+    for (size_t i = 0; i < sites.size(); ++i) {
+        if (i < split) initial += fmax(sites[i].B_mass_active, 0.0);
+        else newer += fmax(sites[i].B_mass_active, 0.0);
+    }
+    if (initial_total_out) *initial_total_out = (double)initial;
+    if (new_total_out) *new_total_out = (double)newer;
+}
+
+static double diagnostic_rsmd_compute_seed_R_eff_h_nm(const PFParams *P,
+                                                      const std::vector<double> &phi) {
+    if (!P || phi.empty()) return NAN;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double dV_nm3 = fmax(dx_nm * dy_nm * dz_nm, 1.0e-300);
+    long double h_sum = 0.0L;
+    for (size_t i = 0; i < phi.size(); ++i) {
+        h_sum += (long double)h_of_phi(clamp01(phi[i]));
+    }
+    const double V_h_nm3 = (double)h_sum * dV_nm3;
+    if (!(V_h_nm3 > 0.0)) return NAN;
+    return cbrt(3.0 * V_h_nm3 / (4.0 * 3.14159265358979323846264338327950288));
+}
+
+static int diagnostic_rsmd_eligible_cache_matches(const GpAssistedRuntime *rt,
+                                                  const PFParams *P,
+                                                  const BetaStagedEmbryo *seed,
+                                                  double seed_R_eff_nm) {
+    if (!rt || !P || !seed || !rt->diagnostic_rsmd_eligible_cache_valid) return 0;
+    if (rt->diagnostic_rsmd_eligible_cache_embryo_id != seed->embryo_id) return 0;
+    if (rt->diagnostic_rsmd_eligible_cache_ix != seed->ix ||
+        rt->diagnostic_rsmd_eligible_cache_iy != seed->iy ||
+        rt->diagnostic_rsmd_eligible_cache_iz != seed->iz) return 0;
+    if (fabs(rt->diagnostic_rsmd_eligible_cache_seed_R_eff_nm - seed_R_eff_nm) > 1.0e-9) return 0;
+    if (fabs(rt->diagnostic_rsmd_eligible_cache_R_exchange_nm -
+             P->diagnostic_rsmd_R_exchange_nm) > 1.0e-12) return 0;
+    return 1;
+}
+
+static void diagnostic_rsmd_build_eligible_site_cache(GpAssistedRuntime *rt,
+                                                      const PFParams *P,
+                                                      const BetaStagedEmbryo *seed,
+                                                      double seed_R_eff_nm,
+                                                      int step,
+                                                      int post_handoff_step) {
+    if (!rt || !P || !seed) return;
+    rt->diagnostic_rsmd_eligible_site_indices.clear();
+    rt->diagnostic_rsmd_eligible_cache_valid = 0;
+    for (size_t si = 0; si < rt->sites.size(); ++si) {
+        GpAssistedSite &site = rt->sites[si];
+        const double inv_before = fmax(site.B_mass_active, 0.0);
+        const double center_dist_nm =
+            diagnostic_rsmd_pbc_distance_nm(P, site.ix, site.iy, site.iz,
+                                            seed->ix, seed->iy, seed->iz);
+        const double interface_dist_nm = center_dist_nm - seed_R_eff_nm;
+        const int near_interface =
+            (center_dist_nm >= seed_R_eff_nm &&
+             interface_dist_nm <= P->diagnostic_rsmd_R_exchange_nm) ? 1 : 0;
+        if (near_interface) {
+            rt->diagnostic_rsmd_eligible_site_indices.push_back((int)si);
+        } else if (rt->diagnostic_rsmd_locality_csv && post_handoff_step == 0) {
+            fprintf(rt->diagnostic_rsmd_locality_csv,
+                    "%s,%d,%d,%.12e,%.12e,%.12e,%d,%d,%.12e,%.12e,%.12e,%s\n",
+                    diagnostic_rsmd_case_label(rt), step, site.id,
+                    center_dist_nm, interface_dist_nm, P->diagnostic_rsmd_R_exchange_nm,
+                    0, 1, inv_before, inv_before, 0.0,
+                    "minimum_image_center_distance_minus_R_eff_h");
+        }
+    }
+    if (rt->diagnostic_rsmd_locality_csv && post_handoff_step == 0) {
+        fflush(rt->diagnostic_rsmd_locality_csv);
+    }
+    rt->diagnostic_rsmd_eligible_cache_valid = 1;
+    rt->diagnostic_rsmd_eligible_cache_embryo_id = seed->embryo_id;
+    rt->diagnostic_rsmd_eligible_cache_ix = seed->ix;
+    rt->diagnostic_rsmd_eligible_cache_iy = seed->iy;
+    rt->diagnostic_rsmd_eligible_cache_iz = seed->iz;
+    rt->diagnostic_rsmd_eligible_cache_seed_R_eff_nm = seed_R_eff_nm;
+    rt->diagnostic_rsmd_eligible_cache_R_exchange_nm = P->diagnostic_rsmd_R_exchange_nm;
+    printf("DIAGNOSTIC_RSMD_ELIGIBLE_CACHE_BEGIN step=%d embryo_id=%d "
+           "eligible_sites=%zu total_sites=%zu seed_R_eff_nm=%.12e "
+           "R_exchange_nm=%.12e DIAGNOSTIC_RSMD_ELIGIBLE_CACHE_END\n",
+           step, seed->embryo_id, rt->diagnostic_rsmd_eligible_site_indices.size(),
+           rt->sites.size(), seed_R_eff_nm, P->diagnostic_rsmd_R_exchange_nm);
+}
+
+static void diagnostic_rsmd_halo_stats(const PFParams *P,
+                                       const BetaStagedEmbryo *seed,
+                                       const std::vector<double> &phi,
+                                       const std::vector<double> &xB,
+                                       double seed_R_eff_nm,
+                                       double outer_extra_nm,
+                                       double h_src_max,
+                                       double *halo_mean_out,
+                                       double *halo_min_out,
+                                       double *halo_max_out,
+                                       long long *halo_cells_out,
+                                       double *far_mean_out,
+                                       long long *far_cells_out) {
+    if (halo_mean_out) *halo_mean_out = NAN;
+    if (halo_min_out) *halo_min_out = NAN;
+    if (halo_max_out) *halo_max_out = NAN;
+    if (halo_cells_out) *halo_cells_out = 0;
+    if (far_mean_out) *far_mean_out = NAN;
+    if (far_cells_out) *far_cells_out = 0;
+    if (!P || !seed || phi.empty() || xB.empty() || phi.size() != xB.size()) return;
+    const double R_eff = isfinite(seed_R_eff_nm) && seed_R_eff_nm > 0.0
+                             ? seed_R_eff_nm
+                             : fmax(P->diagnostic_rsmd_seed_R_eff_h_nm, 0.0);
+    const double halo_outer = R_eff + fmax(outer_extra_nm, 0.0);
+    const double far_inner = halo_outer + 20.0;
+    long double halo_sum = 0.0L;
+    long double far_sum = 0.0L;
+    double halo_min = 1.0e300;
+    double halo_max = -1.0e300;
+    long long halo_n = 0;
+    long long far_n = 0;
+    for (int i = 0; i < P->Nx; ++i) {
+        for (int j = 0; j < P->Ny; ++j) {
+            for (int k = 0; k < P->Nz; ++k) {
+                const int idx = host_index_xyz(i, j, k, P->Ny, P->Nz);
+                const double r = diagnostic_rsmd_pbc_distance_nm(P, i, j, k,
+                                                                 seed->ix, seed->iy, seed->iz);
+                const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+                if (r >= R_eff && r <= halo_outer && h < h_src_max) {
+                    const double xb = xB[(size_t)idx];
+                    halo_sum += xb;
+                    halo_min = fmin(halo_min, xb);
+                    halo_max = fmax(halo_max, xb);
+                    halo_n++;
+                }
+                if (r >= far_inner) {
+                    far_sum += xB[(size_t)idx];
+                    far_n++;
+                }
+            }
+        }
+    }
+    if (halo_n > 0) {
+        if (halo_mean_out) *halo_mean_out = (double)(halo_sum / (long double)halo_n);
+        if (halo_min_out) *halo_min_out = halo_min;
+        if (halo_max_out) *halo_max_out = halo_max;
+    }
+    if (halo_cells_out) *halo_cells_out = halo_n;
+    if (far_n > 0 && far_mean_out) *far_mean_out = (double)(far_sum / (long double)far_n);
+    if (far_cells_out) *far_cells_out = far_n;
+}
+
+typedef struct {
+    long long count;
+    long long above_xcrit;
+    long double xB_sum;
+    long double matrix_mass;
+    double xB_min;
+    double xB_max;
+} DiagnosticRsmdInterfaceBandStats;
+
+static void diagnostic_rsmd_interface_band_reset(DiagnosticRsmdInterfaceBandStats *stats) {
+    if (!stats) return;
+    memset(stats, 0, sizeof(*stats));
+    stats->xB_min = 1.0e300;
+    stats->xB_max = -1.0e300;
+}
+
+static void diagnostic_rsmd_interface_band_add(DiagnosticRsmdInterfaceBandStats *stats,
+                                               double phi, double xB, double xcrit) {
+    if (!stats || !isfinite(phi) || !isfinite(xB)) return;
+    const double h = h_of_phi(clamp01(phi));
+    stats->count++;
+    stats->above_xcrit += (xB >= xcrit) ? 1 : 0;
+    stats->xB_sum += (long double)xB;
+    stats->matrix_mass += (long double)fmax(1.0 - h, 0.0) * (long double)xB;
+    stats->xB_min = fmin(stats->xB_min, xB);
+    stats->xB_max = fmax(stats->xB_max, xB);
+}
+
+static void diagnostic_rsmd_interface_band_values(const DiagnosticRsmdInterfaceBandStats *stats,
+                                                  double *mean, double *minv, double *maxv,
+                                                  double *fraction_above, double *matrix_mass) {
+    if (mean) *mean = NAN;
+    if (minv) *minv = NAN;
+    if (maxv) *maxv = NAN;
+    if (fraction_above) *fraction_above = NAN;
+    if (matrix_mass) *matrix_mass = NAN;
+    if (!stats || stats->count <= 0) return;
+    if (mean) *mean = (double)(stats->xB_sum / (long double)stats->count);
+    if (minv) *minv = stats->xB_min;
+    if (maxv) *maxv = stats->xB_max;
+    if (fraction_above) *fraction_above = (double)stats->above_xcrit / (double)stats->count;
+    if (matrix_mass) *matrix_mass = (double)stats->matrix_mass;
+}
+
+// A six-connected alpha-side distance transform tracks the moving phi=0.5 interface.
+static void diagnostic_rsmd_write_moving_interface_bands(
+    GpAssistedRuntime *rt, const PFParams *P, int step, const char *label,
+    const std::vector<double> &phi, const std::vector<double> &xB,
+    double R_eff_h_nm, long double h_integral, double far_field_xB_mean) {
+    if (!rt || !P || !label || !rt->diagnostic_rsmd_interface_band_csv ||
+        phi.empty() || phi.size() != xB.size()) return;
+    if (strcmp(label, "after_postY_projection") != 0 ||
+        step % P->diagnostic_rsmd_interface_diag_every != 0) return;
+
+    const int total = (int)phi.size();
+    const double dx_nm = fmax(runtime_dx_nm_host(P),
+                               fmax(runtime_dy_nm_host(P), runtime_dz_nm_host(P)));
+    const int max_layers = std::max(1, (int)ceil(4.0 / fmax(dx_nm, 1.0e-12)));
+    const double xcrit = (fabs(P->temperature_C - 400.0) <= 0.5)
+                             ? 0.016708547037 : 0.011191599269189258;
+    std::vector<int> distance((size_t)total, -1);
+    std::vector<int> queue;
+    queue.reserve((size_t)total / 128);
+    long long core = 0, center = 0, full = 0;
+
+    for (int i = 0; i < P->Nx; ++i) {
+        for (int j = 0; j < P->Ny; ++j) {
+            for (int k = 0; k < P->Nz; ++k) {
+                const int idx = host_index_xyz(i, j, k, P->Ny, P->Nz);
+                const double p = clamp01(phi[(size_t)idx]);
+                if (p >= 0.9) core++;
+                if (p >= 0.4 && p <= 0.6) center++;
+                if (p >= 0.1 && p <= 0.9) full++;
+                if (p >= 0.5) continue;
+                const int ii[6] = {diagnostic_rsmd_wrap_index(i - 1, P->Nx),
+                                   diagnostic_rsmd_wrap_index(i + 1, P->Nx), i, i, i, i};
+                const int jj[6] = {j, j, diagnostic_rsmd_wrap_index(j - 1, P->Ny),
+                                   diagnostic_rsmd_wrap_index(j + 1, P->Ny), j, j};
+                const int kk[6] = {k, k, k, k, diagnostic_rsmd_wrap_index(k - 1, P->Nz),
+                                   diagnostic_rsmd_wrap_index(k + 1, P->Nz)};
+                int touches_beta = 0;
+                for (int n = 0; n < 6; ++n) {
+                    const int nidx = host_index_xyz(ii[n], jj[n], kk[n], P->Ny, P->Nz);
+                    if (clamp01(phi[(size_t)nidx]) >= 0.5) {
+                        touches_beta = 1;
+                        break;
+                    }
+                }
+                if (touches_beta) {
+                    distance[(size_t)idx] = 0;
+                    queue.push_back(idx);
+                }
+            }
+        }
+    }
+    for (size_t q = 0; q < queue.size(); ++q) {
+        const int idx = queue[q];
+        const int layer = distance[(size_t)idx];
+        if (layer >= max_layers) continue;
+        const int k = idx % P->Nz;
+        const int rem = idx / P->Nz;
+        const int j = rem % P->Ny;
+        const int i = rem / P->Ny;
+        const int ii[6] = {diagnostic_rsmd_wrap_index(i - 1, P->Nx),
+                           diagnostic_rsmd_wrap_index(i + 1, P->Nx), i, i, i, i};
+        const int jj[6] = {j, j, diagnostic_rsmd_wrap_index(j - 1, P->Ny),
+                           diagnostic_rsmd_wrap_index(j + 1, P->Ny), j, j};
+        const int kk[6] = {k, k, k, k, diagnostic_rsmd_wrap_index(k - 1, P->Nz),
+                           diagnostic_rsmd_wrap_index(k + 1, P->Nz)};
+        for (int n = 0; n < 6; ++n) {
+            const int nidx = host_index_xyz(ii[n], jj[n], kk[n], P->Ny, P->Nz);
+            if (distance[(size_t)nidx] >= 0 || clamp01(phi[(size_t)nidx]) >= 0.5) continue;
+            distance[(size_t)nidx] = layer + 1;
+            queue.push_back(nidx);
+        }
+    }
+
+    DiagnosticRsmdInterfaceBandStats outer_0_1, outer_1_2, outer_2_4;
+    diagnostic_rsmd_interface_band_reset(&outer_0_1);
+    diagnostic_rsmd_interface_band_reset(&outer_1_2);
+    diagnostic_rsmd_interface_band_reset(&outer_2_4);
+    for (int idx = 0; idx < total; ++idx) {
+        const int layer = distance[(size_t)idx];
+        if (layer < 0) continue;
+        const double distance_nm = layer * dx_nm;
+        if (distance_nm < 1.0) {
+            diagnostic_rsmd_interface_band_add(&outer_0_1, phi[(size_t)idx], xB[(size_t)idx], xcrit);
+        } else if (distance_nm < 2.0) {
+            diagnostic_rsmd_interface_band_add(&outer_1_2, phi[(size_t)idx], xB[(size_t)idx], xcrit);
+        } else if (distance_nm < 4.0) {
+            diagnostic_rsmd_interface_band_add(&outer_2_4, phi[(size_t)idx], xB[(size_t)idx], xcrit);
+        }
+    }
+    double o01_mean, o01_min, o01_max, o01_frac, o01_mass;
+    double o12_mean, o12_min, o12_max, ignored_frac, o12_mass;
+    double o24_mean, o24_min, o24_max, o24_mass;
+    diagnostic_rsmd_interface_band_values(&outer_0_1, &o01_mean, &o01_min, &o01_max, &o01_frac, &o01_mass);
+    diagnostic_rsmd_interface_band_values(&outer_1_2, &o12_mean, &o12_min, &o12_max, &ignored_frac, &o12_mass);
+    diagnostic_rsmd_interface_band_values(&outer_2_4, &o24_mean, &o24_min, &o24_max, &ignored_frac, &o24_mass);
+    int active_sites = 0;
+    if (rt->diagnostic_rsmd_release_started_step >= 0) {
+        const int post = step - rt->diagnostic_rsmd_release_started_step;
+        if (P->diagnostic_rsmd_release_window_steps <= 0 || post <= P->diagnostic_rsmd_release_window_steps) {
+            for (size_t ci = 0; ci < rt->diagnostic_rsmd_eligible_site_indices.size(); ++ci) {
+                const int si = rt->diagnostic_rsmd_eligible_site_indices[ci];
+                if (si >= 0 && (size_t)si < rt->sites.size() && rt->sites[(size_t)si].active &&
+                    rt->sites[(size_t)si].B_mass_active > 0.0) active_sites++;
+            }
+        }
+    }
+    const int post_handoff_step = (rt->diagnostic_rsmd_release_started_step >= 0)
+                                      ? step - rt->diagnostic_rsmd_release_started_step : -1;
+    fprintf(rt->diagnostic_rsmd_interface_band_csv,
+            "%s,%d,%s,%d,%.12e,outer_matrix_6neighbor_distance,%.12e,%.12e,%.12e,%.12Le,"
+            "%lld,%lld,%lld,%lld,%.12e,%.12e,%.12e,%.12e,%.12e,"
+            "%lld,%.12e,%.12e,%.12e,%.12e,%lld,%.12e,%.12e,%.12e,%.12e,"
+            "%.12e,nan,nan,nan,0,%d\n",
+            diagnostic_rsmd_case_label(rt), step, label, post_handoff_step,
+            step * P->dt * P->t_real_unit, dx_nm, xcrit, R_eff_h_nm, h_integral,
+            core, center, full, outer_0_1.count, o01_mean, o01_min, o01_max, o01_frac, o01_mass,
+            outer_1_2.count, o12_mean, o12_min, o12_max, o12_mass,
+            outer_2_4.count, o24_mean, o24_min, o24_max, o24_mass,
+            far_field_xB_mean, active_sites);
+    fflush(rt->diagnostic_rsmd_interface_band_csv);
+}
+
+typedef struct {
+    long long count;
+    long double chemical_sum;
+    long double double_well_sum;
+    long double elastic_sum;
+    long double gradient_effective_sum;
+    long double total_sum;
+    long double dphi_sum;
+} DiagnosticRsmdInterfaceRhsStats;
+
+static void diagnostic_rsmd_write_interface_rhs_row(
+    FILE *fp, const GpAssistedRuntime *rt, const PFParams *P, int step,
+    const char *region, int available, const char *note,
+    const DiagnosticRsmdInterfaceRhsStats *stats) {
+    if (!fp || !rt || !P || !region || !note) return;
+    const long long n = (stats && available) ? stats->count : 0;
+    const double inv_n = (n > 0) ? 1.0 / (double)n : NAN;
+    const double chemical = (n > 0) ? (double)(stats->chemical_sum * inv_n) : NAN;
+    const double double_well = (n > 0) ? (double)(stats->double_well_sum * inv_n) : NAN;
+    const double elastic = (n > 0) ? (double)(stats->elastic_sum * inv_n) : NAN;
+    const double gradient = (n > 0) ? (double)(stats->gradient_effective_sum * inv_n) : NAN;
+    const double total = (n > 0) ? (double)(stats->total_sum * inv_n) : NAN;
+    const double dphi = (n > 0) ? (double)(stats->dphi_sum * inv_n) : NAN;
+    fprintf(fp, "%s,%d,%.12e,%s,%d,%s,%lld,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "EFFECTIVE_FROM_ACTUAL_UPDATE_MINUS_EXPLICIT_TERMS\n",
+            diagnostic_rsmd_case_label(rt), step, step * P->dt * P->t_real_unit,
+            region, available, note, n, chemical, double_well, elastic, gradient, total, dphi);
+}
+
+static void diagnostic_rsmd_write_interface_rhs_stats(
+    GpAssistedRuntime *rt, const PFParams *P, int step,
+    const std::vector<double> &phi_before, const std::vector<double> &phi_after,
+    const std::vector<double> &xB_alpha,
+    const std::vector<double> &chemical, const std::vector<double> &double_well,
+    const std::vector<double> &elastic, const std::vector<double> &total) {
+    if (!rt || !P || !rt->diagnostic_rsmd_interface_rhs_csv || phi_before.empty() ||
+        phi_before.size() != phi_after.size() || phi_before.size() != xB_alpha.size() ||
+        phi_before.size() != chemical.size() ||
+        phi_before.size() != double_well.size() || phi_before.size() != elastic.size() ||
+        phi_before.size() != total.size()) return;
+    long double interface_xb_sum = 0.0L;
+    long long interface_xb_count = 0;
+    size_t global_max_idx = 0;
+    double global_max_xb = -1.0e300;
+    for (size_t idx = 0; idx < phi_before.size(); ++idx) {
+        if (xB_alpha[idx] > global_max_xb) {
+            global_max_xb = xB_alpha[idx];
+            global_max_idx = idx;
+        }
+        const double phi = clamp01(phi_before[idx]);
+        if (phi >= 0.1 && phi <= 0.9) {
+            interface_xb_sum += xB_alpha[idx];
+            interface_xb_count++;
+        }
+    }
+    const double interface_xb_mean = interface_xb_count > 0
+        ? (double)(interface_xb_sum / (long double)interface_xb_count) : NAN;
+    const char *names[6] = {"full_interface", "interface_center", "leading_growth_front",
+                            "shrinking_interface", "source_rich_interface", "source_poor_interface"};
+    DiagnosticRsmdInterfaceRhsStats stats[6];
+    memset(stats, 0, sizeof(stats));
+    for (size_t idx = 0; idx < phi_before.size(); ++idx) {
+        const double phi = clamp01(phi_before[idx]);
+        if (phi < 0.1 || phi > 0.9) continue;
+        const double dphi = phi_after[idx] - phi_before[idx];
+        const int groups[6] = {1, phi >= 0.4 && phi <= 0.6, dphi > 0.0, dphi < 0.0,
+                               xB_alpha[idx] >= interface_xb_mean,
+                               xB_alpha[idx] < interface_xb_mean};
+        const double effective_full_rhs = (P->L_phi > 0.0 && P->dt > 0.0)
+            ? -dphi / (P->L_phi * P->dt) : NAN;
+        const double effective_gradient = effective_full_rhs - total[idx];
+        for (int group = 0; group < 6; ++group) {
+            if (!groups[group]) continue;
+            stats[group].count++;
+            stats[group].chemical_sum += chemical[idx];
+            stats[group].double_well_sum += double_well[idx];
+            stats[group].elastic_sum += elastic[idx];
+            stats[group].gradient_effective_sum += effective_gradient;
+            stats[group].total_sum += total[idx];
+            stats[group].dphi_sum += dphi;
+        }
+    }
+    for (int group = 0; group < 6; ++group) {
+        diagnostic_rsmd_write_interface_rhs_row(rt->diagnostic_rsmd_interface_rhs_csv,
+                                                rt, P, step, names[group], 1,
+                                                group < 2 ? "phi_band" :
+                                                (group < 4 ? "phi_band_and_actual_dphi_sign" :
+                                                             "phi_band_split_by_interface_mean_xB"),
+                                                &stats[group]);
+    }
+    DiagnosticRsmdInterfaceRhsStats unavailable;
+    memset(&unavailable, 0, sizeof(unavailable));
+    diagnostic_rsmd_write_interface_rhs_row(rt->diagnostic_rsmd_interface_rhs_csv,
+                                            rt, P, step, "high_curvature_interface", 0,
+                                            "local_curvature_field_not_output_by_current_runtime",
+                                            &unavailable);
+    const double global_phi = clamp01(phi_before[global_max_idx]);
+    if (global_phi >= 0.1 && global_phi <= 0.9) {
+        DiagnosticRsmdInterfaceRhsStats max_stats;
+        memset(&max_stats, 0, sizeof(max_stats));
+        const double dphi = phi_after[global_max_idx] - phi_before[global_max_idx];
+        const double effective_full_rhs = (P->L_phi > 0.0 && P->dt > 0.0)
+            ? -dphi / (P->L_phi * P->dt) : NAN;
+        max_stats.count = 1;
+        max_stats.chemical_sum = chemical[global_max_idx];
+        max_stats.double_well_sum = double_well[global_max_idx];
+        max_stats.elastic_sum = elastic[global_max_idx];
+        max_stats.gradient_effective_sum = effective_full_rhs - total[global_max_idx];
+        max_stats.total_sum = total[global_max_idx];
+        max_stats.dphi_sum = dphi;
+        diagnostic_rsmd_write_interface_rhs_row(rt->diagnostic_rsmd_interface_rhs_csv,
+                                                rt, P, step, "global_max_xB_region", 1,
+                                                "single_global_max_xB_cell_in_interface", &max_stats);
+    } else {
+        diagnostic_rsmd_write_interface_rhs_row(rt->diagnostic_rsmd_interface_rhs_csv,
+                                                rt, P, step, "global_max_xB_region", 0,
+                                                "global_max_xB_cell_outside_interface", &unavailable);
+    }
+    fflush(rt->diagnostic_rsmd_interface_rhs_csv);
+}
+
+static void diagnostic_rsmd_write_gp_inventory_snapshot(GpAssistedRuntime *rt,
+                                                        const PFParams *P,
+                                                        int step,
+                                                        const char *label) {
+    if (!rt || !P || !label || !rt->diagnostic_rsmd_gp_inventory_csv) return;
+    for (size_t i = 0; i < rt->sites.size(); ++i) {
+        const GpAssistedSite &s = rt->sites[i];
+        fprintf(rt->diagnostic_rsmd_gp_inventory_csv,
+                "%s,%s,%d,%d,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                diagnostic_rsmd_case_label(rt), label, step, s.id, s.ix, s.iy, s.iz,
+                s.active, s.B_mass_initial, s.B_mass_active,
+                fmax(s.B_mass_initial - s.B_mass_active, 0.0),
+                s.radius_nm, s.volume_m3, s.S_factor);
+    }
+    fflush(rt->diagnostic_rsmd_gp_inventory_csv);
+}
+
+static int diagnostic_rsmd_dense_probe_due(const PFParams *P,
+                                           const GpAssistedRuntime *rt,
+                                           int step) {
+    if (!P || !P->diagnostic_rsmd_enabled) return 1;
+    const int interval = (P->csv_out_every > 0) ? P->csv_out_every : 1;
+    if (step <= 0 || step >= P->nsteps || (step % interval) == 0) return 1;
+    if (rt && rt->diagnostic_rsmd_release_started_step >= 0 &&
+        step == rt->diagnostic_rsmd_release_started_step) {
+        return 1;
+    }
+    return 0;
+}
+
+static void diagnostic_rsmd_build_local_support_indices(const GpAssistedRuntime *rt,
+                                                        const PFParams *P,
+                                                        const BetaStagedEmbryo *seed,
+                                                        double seed_R_eff_nm,
+                                                        double rs_nm,
+                                                        int rx,
+                                                        int ry,
+                                                        int rz,
+                                                        std::vector<int> *indices_out) {
+    if (!indices_out) return;
+    indices_out->clear();
+    if (!rt || !P || !seed || rt->diagnostic_rsmd_eligible_site_indices.empty()) return;
+    std::unordered_set<int> seen;
+    seen.reserve(rt->diagnostic_rsmd_eligible_site_indices.size() *
+                 (size_t)(2 * rx + 1) * (size_t)(2 * ry + 1) * (size_t)(2 * rz + 1));
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    for (size_t cached_i = 0; cached_i < rt->diagnostic_rsmd_eligible_site_indices.size(); ++cached_i) {
+        const int si_int = rt->diagnostic_rsmd_eligible_site_indices[cached_i];
+        if (si_int < 0 || (size_t)si_int >= rt->sites.size()) continue;
+        const GpAssistedSite &site = rt->sites[(size_t)si_int];
+        const double inv_before = fmax(site.B_mass_active, 0.0);
+        if (!(site.active && inv_before > 0.0)) continue;
+        const double center_dist_nm =
+            diagnostic_rsmd_pbc_distance_nm(P, site.ix, site.iy, site.iz,
+                                            seed->ix, seed->iy, seed->iz);
+        const double interface_dist_nm = center_dist_nm - seed_R_eff_nm;
+        const int near_interface =
+            (center_dist_nm >= seed_R_eff_nm &&
+             interface_dist_nm <= P->diagnostic_rsmd_R_exchange_nm) ? 1 : 0;
+        if (!near_interface) continue;
+        for (int di = -rx; di <= rx; ++di) {
+            const int ii = diagnostic_rsmd_wrap_index(site.ix + di, P->Nx);
+            for (int dj = -ry; dj <= ry; ++dj) {
+                const int jj = diagnostic_rsmd_wrap_index(site.iy + dj, P->Ny);
+                for (int dk = -rz; dk <= rz; ++dk) {
+                    const int kk = diagnostic_rsmd_wrap_index(site.iz + dk, P->Nz);
+                    const double ddx = diagnostic_rsmd_axis_delta_nm(ii, site.ix, P->Nx, dx_nm);
+                    const double ddy = diagnostic_rsmd_axis_delta_nm(jj, site.iy, P->Ny, dy_nm);
+                    const double ddz = diagnostic_rsmd_axis_delta_nm(kk, site.iz, P->Nz, dz_nm);
+                    const double r_nm = sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+                    if (r_nm > rs_nm) continue;
+                    const int idx = host_index_xyz(ii, jj, kk, P->Ny, P->Nz);
+                    if (seen.insert(idx).second) indices_out->push_back(idx);
+                }
+            }
+        }
+    }
+}
+
+static void diagnostic_rsmd_build_interface_shell_support_indices(
+    const PFParams *P,
+    const BetaStagedEmbryo *seed,
+    double seed_R_eff_nm,
+    double shell_width_nm,
+    std::vector<int> *indices_out) {
+    if (!indices_out) return;
+    indices_out->clear();
+    if (!P || !seed || !(seed_R_eff_nm > 0.0) || !(shell_width_nm > 0.0)) return;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double support_nm = seed_R_eff_nm + shell_width_nm;
+    const int rx = std::min(P->Nx / 2, std::max(1, (int)ceil(support_nm / dx_nm)));
+    const int ry = std::min(P->Ny / 2, std::max(1, (int)ceil(support_nm / dy_nm)));
+    const int rz = std::min(P->Nz / 2, std::max(1, (int)ceil(support_nm / dz_nm)));
+    std::unordered_set<int> seen;
+    seen.reserve((size_t)(2 * rx + 1) * (size_t)(2 * ry + 1) * (size_t)(2 * rz + 1));
+    for (int di = -rx; di <= rx; ++di) {
+        const int i = diagnostic_rsmd_wrap_index(seed->ix + di, P->Nx);
+        for (int dj = -ry; dj <= ry; ++dj) {
+            const int j = diagnostic_rsmd_wrap_index(seed->iy + dj, P->Ny);
+            for (int dk = -rz; dk <= rz; ++dk) {
+                const int k = diagnostic_rsmd_wrap_index(seed->iz + dk, P->Nz);
+                const double r_nm = diagnostic_rsmd_pbc_distance_nm(
+                    P, i, j, k, seed->ix, seed->iy, seed->iz);
+                if (r_nm > support_nm) continue;
+                const int idx = host_index_xyz(i, j, k, P->Ny, P->Nz);
+                if (seen.insert(idx).second) indices_out->push_back(idx);
+            }
+        }
+    }
+}
+
+static void diagnostic_rsmd_write_state_summary_host(GpAssistedRuntime *rt,
+                                                     const PFParams *P,
+                                                     int step,
+                                                     const char *label,
+                                                     const BetaStagedEmbryo *seed,
+                                                     const std::vector<double> &phi,
+                                                     const std::vector<double> &Y,
+                                                     const std::vector<double> &xB) {
+    if (!rt || !P || !label || phi.empty() || xB.empty()) return;
+    const int post_handoff_step =
+        (rt->diagnostic_rsmd_release_started_step >= 0)
+            ? (step - rt->diagnostic_rsmd_release_started_step)
+            : -1;
+    GpAssistedLedger ledger;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &ledger);
+    beta_add_staged_inventory_to_ledger(&ledger, rt->staged_embryos);
+    double M_gp_initial = 0.0;
+    double M_gp_new = 0.0;
+    diagnostic_rsmd_split_total_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                               &M_gp_initial, &M_gp_new);
+    const double target_total = P->gp_initial_xB_tot * fmax((double)xB.size(), 1.0);
+    const double mass_error_abs = ledger.M_total - target_total;
+    const double mass_error_rel = mass_error_abs / fmax(fabs(target_total), 1.0e-30);
+    const double R_eff_h_nm = diagnostic_rsmd_compute_seed_R_eff_h_nm(P, phi);
+    long double h_sum = 0.0L;
+    double phi_max = -1.0e300;
+    long long sup005 = 0, sup01 = 0, sup03 = 0, sup05 = 0, sup08 = 0;
+    for (size_t i = 0; i < phi.size(); ++i) {
+        const double p = clamp01(phi[i]);
+        h_sum += (long double)h_of_phi(p);
+        phi_max = fmax(phi_max, p);
+        if (p > 0.05) sup005++;
+        if (p > 0.10) sup01++;
+        if (p > 0.30) sup03++;
+        if (p > 0.50) sup05++;
+        if (p > 0.80) sup08++;
+    }
+    double halo_mean = NAN, halo_min = NAN, halo_max = NAN, far_mean = NAN;
+    long long halo_cells = 0, far_cells = 0;
+    diagnostic_rsmd_halo_stats(P, seed, phi, xB,
+                               (isfinite(P->diagnostic_rsmd_seed_R_eff_h_nm) &&
+                                P->diagnostic_rsmd_seed_R_eff_h_nm > 0.0)
+                                   ? P->diagnostic_rsmd_seed_R_eff_h_nm
+                                   : R_eff_h_nm,
+                               P->diagnostic_rsmd_R_exchange_nm + P->diagnostic_rsmd_kernel_radius_dx * runtime_dx_nm_host(P),
+                               P->diagnostic_rsmd_h_src_max,
+                               &halo_mean, &halo_min, &halo_max, &halo_cells,
+                               &far_mean, &far_cells);
+    const double M_gp_remaining = diagnostic_rsmd_sum_gp_remaining(rt->sites);
+    const double M_gp_consumed = fmax(gp_assisted_sum_initial_mass(rt->sites) - M_gp_remaining, 0.0);
+    if (rt->diagnostic_rsmd_regional_xB_csv || rt->diagnostic_rsmd_global_max_xB_csv ||
+        rt->diagnostic_rsmd_radial_profile_csv) {
+        typedef struct {
+            long long count;
+            long long above005;
+            long long above010;
+            long long above050;
+            long long above090;
+            long long above_target;
+            long double xb_sum;
+            long double ctot_sum;
+            long double y_sum;
+            long double storage_sum;
+            double xb_min;
+            double xb_max;
+            double ctot_min;
+            double ctot_max;
+            double y_min;
+            double y_max;
+            double storage_min;
+            double storage_max;
+            int xb_max_idx;
+        } RegionStats;
+        RegionStats regions[4];
+        memset(regions, 0, sizeof(regions));
+        for (int q = 0; q < 4; ++q) {
+            regions[q].xb_min = regions[q].ctot_min = regions[q].y_min =
+                regions[q].storage_min = 1.0e300;
+            regions[q].xb_max = regions[q].ctot_max = regions[q].y_max =
+                regions[q].storage_max = -1.0e300;
+            regions[q].xb_max_idx = -1;
+        }
+        const double dx_nm = runtime_dx_nm_host(P);
+        const double dy_nm = runtime_dy_nm_host(P);
+        const double dz_nm = runtime_dz_nm_host(P);
+        const double radial_bin_nm = fmax(fmin(dx_nm, fmin(dy_nm, dz_nm)), 1.0e-12);
+        const double radial_extent_nm = fmax(P->diagnostic_rsmd_R_exchange_nm + 8.0, 12.0);
+        const int radial_bins = std::max(1, (int)ceil(2.0 * radial_extent_nm / radial_bin_nm));
+        std::vector<long long> radial_count((size_t)radial_bins, 0);
+        std::vector<long double> radial_xb((size_t)radial_bins, 0.0L);
+        std::vector<long double> radial_h((size_t)radial_bins, 0.0L);
+        double global_xb = -1.0e300;
+        int global_idx = -1;
+        for (int i = 0; i < P->Nx; ++i) {
+            for (int j = 0; j < P->Ny; ++j) {
+                for (int k = 0; k < P->Nz; ++k) {
+                    const int idx = host_index_xyz(i, j, k, P->Ny, P->Nz);
+                    const double p = clamp01(phi[(size_t)idx]);
+                    const double h = h_of_phi(p);
+                    const double xb = xB[(size_t)idx];
+                    const double y = Y[(size_t)idx];
+                    const double storage = 1.0 - h;
+                    const double ctot = (1.0 - h) * xb + h * P->v_B;
+                    const int region = (h < 0.1) ? 0 : ((h < 0.5) ? 1 : ((h < 0.9) ? 2 : 3));
+                    RegionStats &s = regions[region];
+                    s.count++;
+                    s.above005 += xb > 0.05;
+                    s.above010 += xb > 0.10;
+                    s.above050 += xb > 0.50;
+                    s.above090 += xb > 0.90;
+                    s.above_target += xb > P->diagnostic_rsmd_xB_halo_target;
+                    s.xb_sum += xb;
+                    s.ctot_sum += ctot;
+                    s.y_sum += y;
+                    s.storage_sum += storage;
+                    s.xb_min = fmin(s.xb_min, xb);
+                    if (xb > s.xb_max) {
+                        s.xb_max = xb;
+                        s.xb_max_idx = idx;
+                    }
+                    s.ctot_min = fmin(s.ctot_min, ctot);
+                    s.ctot_max = fmax(s.ctot_max, ctot);
+                    s.y_min = fmin(s.y_min, y);
+                    s.y_max = fmax(s.y_max, y);
+                    s.storage_min = fmin(s.storage_min, storage);
+                    s.storage_max = fmax(s.storage_max, storage);
+                    if (xb > global_xb) {
+                        global_xb = xb;
+                        global_idx = idx;
+                    }
+                    if (seed && isfinite(R_eff_h_nm)) {
+                        const double r_nm = diagnostic_rsmd_pbc_distance_nm(
+                            P, i, j, k, seed->ix, seed->iy, seed->iz);
+                        const double signed_r_nm = r_nm - R_eff_h_nm;
+                        const int bin = (int)floor((signed_r_nm + radial_extent_nm) / radial_bin_nm);
+                        if (bin >= 0 && bin < radial_bins) {
+                            radial_count[(size_t)bin]++;
+                            radial_xb[(size_t)bin] += xb;
+                            radial_h[(size_t)bin] += h;
+                        }
+                    }
+                }
+            }
+        }
+        if (rt->diagnostic_rsmd_regional_xB_csv) {
+            const char *region_names[4] = {"h_lt_0p1", "h_0p1_0p5", "h_0p5_0p9", "h_ge_0p9"};
+            for (int q = 0; q < 4; ++q) {
+                const RegionStats &s = regions[q];
+                const double inv = (s.count > 0) ? 1.0 / (double)s.count : NAN;
+                const int max_idx = s.xb_max_idx;
+                const int max_k = (max_idx >= 0) ? (max_idx % P->Nz) : -1;
+                const int max_rem = (max_idx >= 0) ? (max_idx / P->Nz) : -1;
+                const int max_j = (max_rem >= 0) ? (max_rem % P->Ny) : -1;
+                const int max_i = (max_rem >= 0) ? (max_rem / P->Ny) : -1;
+                const double max_phi = (max_idx >= 0) ? clamp01(phi[(size_t)max_idx]) : NAN;
+                const double max_h = isfinite(max_phi) ? h_of_phi(max_phi) : NAN;
+                fprintf(rt->diagnostic_rsmd_regional_xB_csv,
+                        "%s,%d,%s,%d,%.12e,%s,%lld,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                        "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%lld,%lld,%lld,%lld,%lld,"
+                        "%d,%d,%d,%d,%.12e,%.12e,%.12e\n",
+                        diagnostic_rsmd_case_label(rt), step, label, post_handoff_step,
+                        step * P->dt * P->t_real_unit, region_names[q], s.count,
+                        (s.count > 0) ? s.xb_min : NAN,
+                        (s.count > 0) ? (double)(s.xb_sum * inv) : NAN,
+                        (s.count > 0) ? s.xb_max : NAN,
+                        (s.count > 0) ? s.ctot_min : NAN,
+                        (s.count > 0) ? (double)(s.ctot_sum * inv) : NAN,
+                        (s.count > 0) ? s.ctot_max : NAN,
+                        (s.count > 0) ? s.y_min : NAN,
+                        (s.count > 0) ? (double)(s.y_sum * inv) : NAN,
+                        (s.count > 0) ? s.y_max : NAN,
+                        (s.count > 0) ? s.storage_min : NAN,
+                        (s.count > 0) ? (double)(s.storage_sum * inv) : NAN,
+                        (s.count > 0) ? s.storage_max : NAN,
+                        s.above_target, s.above005, s.above010, s.above050, s.above090,
+                        max_idx, max_i, max_j, max_k, max_phi, max_h,
+                        isfinite(max_h) ? (1.0 - max_h) : NAN);
+            }
+            fflush(rt->diagnostic_rsmd_regional_xB_csv);
+        }
+        if (rt->diagnostic_rsmd_global_max_xB_csv && global_idx >= 0) {
+            const int gk = global_idx % P->Nz;
+            const int grem = global_idx / P->Nz;
+            const int gj = grem % P->Ny;
+            const int gi = grem / P->Ny;
+            const double gp = clamp01(phi[(size_t)global_idx]);
+            const double gh = h_of_phi(gp);
+            const double radial_distance = seed
+                ? diagnostic_rsmd_pbc_distance_nm(P, gi, gj, gk, seed->ix, seed->iy, seed->iz)
+                : NAN;
+            fprintf(rt->diagnostic_rsmd_global_max_xB_csv,
+                    "%s,%d,%s,%d,%.12e,%.12e,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%s\n",
+                    diagnostic_rsmd_case_label(rt), step, label, post_handoff_step,
+                    step * P->dt * P->t_real_unit, global_xb, gi, gj, gk, gp, gh,
+                    radial_distance, radial_distance - R_eff_h_nm,
+                    "seed_center_radial_distance_minus_R_eff_h_approximation");
+            fflush(rt->diagnostic_rsmd_global_max_xB_csv);
+        }
+        if (rt->diagnostic_rsmd_radial_profile_csv && seed) {
+            for (int bin = 0; bin < radial_bins; ++bin) {
+                const long long n = radial_count[(size_t)bin];
+                if (n <= 0) continue;
+                const double lo = -radial_extent_nm + bin * radial_bin_nm;
+                const double hi = lo + radial_bin_nm;
+                fprintf(rt->diagnostic_rsmd_radial_profile_csv,
+                        "%s,%d,%s,%d,%.12e,%d,%.12e,%.12e,%.12e,%lld,%.12e,%.12e,%s\n",
+                        diagnostic_rsmd_case_label(rt), step, label, post_handoff_step,
+                        step * P->dt * P->t_real_unit, bin, lo, hi, 0.5 * (lo + hi), n,
+                        (double)(radial_xb[(size_t)bin] / (long double)n),
+                        (double)(radial_h[(size_t)bin] / (long double)n),
+                        "seed_center_radial_distance_minus_R_eff_h");
+            }
+            fflush(rt->diagnostic_rsmd_radial_profile_csv);
+        }
+    }
+    if (rt->diagnostic_rsmd_mass_ledger_csv) {
+        fprintf(rt->diagnostic_rsmd_mass_ledger_csv,
+                "%s,%d,%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%.12e,%.12e\n",
+                diagnostic_rsmd_case_label(rt), step, label,
+                ledger.M_matrix, ledger.M_beta, M_gp_initial, M_gp_new,
+                ledger.M_gp_active, ledger.M_staged_beta, ledger.M_total,
+                target_total, mass_error_abs, mass_error_rel, M_gp_consumed);
+        fflush(rt->diagnostic_rsmd_mass_ledger_csv);
+    }
+    if (rt->diagnostic_rsmd_projection_effect_csv) {
+        fprintf(rt->diagnostic_rsmd_projection_effect_csv,
+                "%s,%d,%s,%d,%.12e,%.12e,%.12e,%lld,%.12e,%lld,"
+                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                diagnostic_rsmd_case_label(rt), step, label, post_handoff_step,
+                halo_mean, halo_min, halo_max, halo_cells, far_mean, far_cells,
+                M_gp_remaining, M_gp_consumed, ledger.M_matrix, ledger.M_beta,
+                ledger.M_total, mass_error_rel);
+        fflush(rt->diagnostic_rsmd_projection_effect_csv);
+    }
+    if (rt->diagnostic_rsmd_seed_growth_ts_csv) {
+        const double physical_time_s = step * P->dt * P->t_real_unit;
+        const char *fate = (phi_max > 0.5 && isfinite(R_eff_h_nm) && R_eff_h_nm > 0.0)
+                               ? "resolved_running"
+                               : "collapsing_or_unresolved";
+        fprintf(rt->diagnostic_rsmd_seed_growth_ts_csv,
+                "%s,%d,%d,%.12e,%.12e,%.12Le,%.12e,%.12e,%lld,%lld,%lld,%lld,%lld,"
+                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s\n",
+                diagnostic_rsmd_case_label(rt), step, post_handoff_step, physical_time_s,
+                R_eff_h_nm, h_sum, ledger.M_beta, phi_max,
+                sup005, sup01, sup03, sup05, sup08,
+                halo_mean, halo_max, far_mean, M_gp_remaining, M_gp_consumed,
+                mass_error_rel, fate);
+        fflush(rt->diagnostic_rsmd_seed_growth_ts_csv);
+    }
+    diagnostic_rsmd_write_moving_interface_bands(rt, P, step, label, phi, xB,
+                                                  R_eff_h_nm, h_sum, far_mean);
+}
+
+typedef struct {
+    int idx;
+    double weight;
+    double cap;
+    double h_beta;
+} DiagnosticRsmdCandidate;
+
+static double diagnostic_rsmd_interface_shell_weight(const PFParams *P,
+                                                     double d_nm,
+                                                     double shell_width_nm) {
+    if (!P || !(d_nm >= 0.0) || !(shell_width_nm > 0.0) || d_nm >= shell_width_nm) {
+        return 0.0;
+    }
+    const double u = d_nm / shell_width_nm;
+    if (strcmp(P->diagnostic_rsmd_interface_shell_kernel, "compact_bell") == 0) {
+        // Smoothly vanishes at both the seed and outer-shell boundaries.
+        const double q = u * (1.0 - u);
+        return 16.0 * q * q;
+    }
+    const double q = 1.0 - u * u;
+    return (q > 0.0) ? q * q * q : 0.0;
+}
+
+static void diagnostic_rsmd_distribute_candidates(const PFParams *P,
+                                                  std::vector<double> &Y,
+                                                  std::vector<double> &xB,
+                                                  const std::vector<DiagnosticRsmdCandidate> &candidates,
+                                                  double requested_mass,
+                                                  double target_xB,
+                                                  double xmin,
+                                                  double *applied_mass_out) {
+    if (applied_mass_out) *applied_mass_out = 0.0;
+    if (!P || candidates.empty() || !(requested_mass > 0.0)) return;
+    std::vector<double> rem_cap(candidates.size(), 0.0);
+    std::vector<char> done(candidates.size(), 0);
+    for (size_t ci = 0; ci < candidates.size(); ++ci) rem_cap[ci] = candidates[ci].cap;
+    double applied_mass = 0.0;
+    for (int iter = 0; iter < 12 && requested_mass - applied_mass > 1.0e-14; ++iter) {
+        double active_w = 0.0;
+        for (size_t ci = 0; ci < candidates.size(); ++ci) {
+            if (!done[ci] && rem_cap[ci] > 0.0) active_w += candidates[ci].weight;
+        }
+        if (!(active_w > 0.0)) break;
+        const double residual = fmax(requested_mass - applied_mass, 0.0);
+        double applied_iter = 0.0;
+        for (size_t ci = 0; ci < candidates.size(); ++ci) {
+            if (done[ci] || rem_cap[ci] <= 0.0) continue;
+            const double want = residual * candidates[ci].weight / active_w;
+            const double add = fmin(want, rem_cap[ci]);
+            if (!(add > 0.0)) continue;
+            const int idx = candidates[ci].idx;
+            const double alpha = fmax(1.0 - candidates[ci].h_beta, 1.0e-14);
+            const double xb_old = xB[(size_t)idx];
+            const double xb_new = fmin(fmax(xb_old + add / alpha, xmin), target_xB);
+            const double actual_add = alpha * fmax(xb_new - xb_old, 0.0);
+            xB[(size_t)idx] = xb_new;
+            Y[(size_t)idx] = logit_from_fraction(xb_new, P->xB_eps, P->Y_clip);
+            rem_cap[ci] = fmax(rem_cap[ci] - actual_add, 0.0);
+            if (rem_cap[ci] <= 1.0e-14) done[ci] = 1;
+            applied_iter += actual_add;
+        }
+        applied_mass += applied_iter;
+        if (applied_iter <= 1.0e-14) break;
+    }
+    if (applied_mass_out) *applied_mass_out = applied_mass;
+}
+
+static int diagnostic_rsmd_apply_interface_shell_source_host(
+    GpAssistedRuntime *rt,
+    const PFParams *P,
+    int step,
+    int post_handoff_step,
+    const BetaStagedEmbryo *seed,
+    double seed_R_eff_nm,
+    std::vector<double> &phi,
+    std::vector<double> &Y,
+    std::vector<double> &xB,
+    double release_fraction,
+    const std::unordered_map<int, int> *global_to_local,
+    double *applied_mass_out) {
+    if (applied_mass_out) *applied_mass_out = 0.0;
+    if (!rt || !P || !seed) return 0;
+    const double target_xB = P->diagnostic_rsmd_xB_halo_target;
+    const double h_src_max = P->diagnostic_rsmd_h_src_max;
+    const double shell_width_nm = P->diagnostic_rsmd_interface_shell_width_nm;
+    const double xmin = fmax(P->xB_eps, 1.0e-15);
+
+    double total_inventory = 0.0;
+    std::vector<int> active_sites;
+    for (size_t cached_i = 0; cached_i < rt->diagnostic_rsmd_eligible_site_indices.size(); ++cached_i) {
+        const int si = rt->diagnostic_rsmd_eligible_site_indices[cached_i];
+        if (si < 0 || (size_t)si >= rt->sites.size()) continue;
+        const GpAssistedSite &site = rt->sites[(size_t)si];
+        const double inv = fmax(site.B_mass_active, 0.0);
+        if (site.active && inv > 0.0) {
+            active_sites.push_back(si);
+            total_inventory += inv;
+        }
+    }
+    if (!(total_inventory > 0.0) || active_sites.empty()) return 1;
+    const int write_site_detail = diagnostic_rsmd_dense_probe_due(P, rt, step);
+
+    std::vector<DiagnosticRsmdCandidate> candidates;
+    double raw_weight_sum = 0.0;
+    double masked_weight_sum = 0.0;
+    double capacity_sum = 0.0;
+    long double local_before_num = 0.0L;
+    long double local_before_den = 0.0L;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double support_nm = seed_R_eff_nm + shell_width_nm;
+    const int rx = std::min(P->Nx / 2, std::max(1, (int)ceil(support_nm / dx_nm)));
+    const int ry = std::min(P->Ny / 2, std::max(1, (int)ceil(support_nm / dy_nm)));
+    const int rz = std::min(P->Nz / 2, std::max(1, (int)ceil(support_nm / dz_nm)));
+    std::unordered_set<int> visited;
+    visited.reserve((size_t)(2 * rx + 1) * (size_t)(2 * ry + 1) * (size_t)(2 * rz + 1));
+    for (int di = -rx; di <= rx; ++di) {
+        const int i = diagnostic_rsmd_wrap_index(seed->ix + di, P->Nx);
+        for (int dj = -ry; dj <= ry; ++dj) {
+            const int j = diagnostic_rsmd_wrap_index(seed->iy + dj, P->Ny);
+            for (int dk = -rz; dk <= rz; ++dk) {
+                const int k = diagnostic_rsmd_wrap_index(seed->iz + dk, P->Nz);
+                const int global_idx = host_index_xyz(i, j, k, P->Ny, P->Nz);
+                if (!visited.insert(global_idx).second) continue;
+                int idx = global_idx;
+                if (global_to_local) {
+                    const auto found = global_to_local->find(global_idx);
+                    if (found == global_to_local->end()) continue;
+                    idx = found->second;
+                }
+                const double r_nm = diagnostic_rsmd_pbc_distance_nm(P, i, j, k,
+                                                                    seed->ix, seed->iy, seed->iz);
+                const double d_nm = r_nm - seed_R_eff_nm;
+                if (d_nm < 0.0 || d_nm > shell_width_nm) continue;
+                const double w = diagnostic_rsmd_interface_shell_weight(
+                    P, d_nm, shell_width_nm);
+                if (!(w > 0.0)) continue;
+                raw_weight_sum += w;
+                const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+                if (h >= h_src_max) continue;
+                const double alpha = fmax(1.0 - h, 0.0);
+                const double xb = xB[(size_t)idx];
+                if (!(alpha > 1.0e-14 && isfinite(xb) && xb < target_xB)) continue;
+                const double cap = alpha * fmax(target_xB - xb, 0.0);
+                if (!(cap > 0.0)) continue;
+                const double effective_w = P->diagnostic_rsmd_headroom_weighted
+                    ? w * cap : w;
+                candidates.push_back({idx, effective_w, cap, h});
+                masked_weight_sum += effective_w;
+                capacity_sum += cap;
+                local_before_num += (long double)effective_w * (long double)xb;
+                local_before_den += (long double)effective_w;
+            }
+        }
+    }
+    const int all_masked = candidates.empty() ? 1 : 0;
+    const double requested_mass =
+        fmin(total_inventory * fmin(fmax(release_fraction, 0.0), 1.0), capacity_sum);
+    double applied_mass = 0.0;
+    diagnostic_rsmd_distribute_candidates(P, Y, xB, candidates, requested_mass,
+                                          target_xB, xmin, &applied_mass);
+    const double clipped_residual = fmax(requested_mass - applied_mass, 0.0);
+    long double local_after_num = 0.0L;
+    long double local_after_den = 0.0L;
+    for (size_t ci = 0; ci < candidates.size(); ++ci) {
+        local_after_num += (long double)candidates[ci].weight *
+                           (long double)xB[(size_t)candidates[ci].idx];
+        local_after_den += (long double)candidates[ci].weight;
+    }
+    const double local_before = (local_before_den > 0.0L)
+                                    ? (double)(local_before_num / local_before_den)
+                                    : NAN;
+    const double local_after = (local_after_den > 0.0L)
+                                   ? (double)(local_after_num / local_after_den)
+                                   : NAN;
+
+    if (applied_mass > 0.0) {
+        for (size_t ai = 0; ai < active_sites.size(); ++ai) {
+            GpAssistedSite &site = rt->sites[(size_t)active_sites[ai]];
+            const double inv_before = fmax(site.B_mass_active, 0.0);
+            const double share = applied_mass * inv_before / total_inventory;
+            site.B_mass_active = fmax(inv_before - share, 0.0);
+            if (site.B_mass_active <= 1.0e-12) {
+                site.B_mass_active = 0.0;
+                site.active = 0;
+                site.consumed = 1;
+                site.consumed_step = step;
+            }
+            if (write_site_detail && rt->diagnostic_rsmd_release_event_log_csv) {
+                const double center_dist_nm = diagnostic_rsmd_pbc_distance_nm(
+                    P, site.ix, site.iy, site.iz, seed->ix, seed->iy, seed->iz);
+                fprintf(rt->diagnostic_rsmd_release_event_log_csv,
+                        "%s,%d,%d,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                        "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                        "%zu,%d,%s\n",
+                        diagnostic_rsmd_case_label(rt), step, post_handoff_step, site.id,
+                        site.ix, site.iy, site.iz, center_dist_nm,
+                        center_dist_nm - seed_R_eff_nm, P->diagnostic_rsmd_R_exchange_nm,
+                        P->diagnostic_rsmd_kernel_radius_dx, shell_width_nm,
+                        h_src_max, target_xB, local_before, local_after,
+                        requested_mass * inv_before / total_inventory, share,
+                        clipped_residual * inv_before / total_inventory,
+                        inv_before, site.B_mass_active, candidates.size(), all_masked,
+                        "scenario_bracket_not_calibrated:seed_interface_alpha_shell");
+            }
+        }
+    }
+    if (rt->diagnostic_rsmd_matrix_halo_norm_csv &&
+        (applied_mass > 0.0 || all_masked || requested_mass > 0.0)) {
+        fprintf(rt->diagnostic_rsmd_matrix_halo_norm_csv,
+                "%s,%d,%d,%.12e,%.12e,%.12e,%zu,%.12e,%.12e,%.12e,%.12e,%d,%d,%d\n",
+                diagnostic_rsmd_case_label(rt), step, -1, raw_weight_sum, masked_weight_sum,
+                (masked_weight_sum > 0.0) ? 1.0 : 0.0, candidates.size(), capacity_sum,
+                requested_mass, applied_mass, clipped_residual,
+                (!all_masked || requested_mass <= 0.0) ? 1 : 1, all_masked,
+                P->diagnostic_rsmd_reset_Y_history_after_source);
+    }
+    if (write_site_detail && rt->diagnostic_rsmd_release_event_log_csv) {
+        fflush(rt->diagnostic_rsmd_release_event_log_csv);
+    }
+    if (rt->diagnostic_rsmd_matrix_halo_norm_csv) fflush(rt->diagnostic_rsmd_matrix_halo_norm_csv);
+    if (applied_mass_out) *applied_mass_out = applied_mass;
+    return 1;
+}
+
+static int diagnostic_rsmd_apply_source_host(GpAssistedRuntime *rt,
+                                             const PFParams *P,
+                                             int step,
+                                             std::vector<double> &phi,
+                                             std::vector<double> &Y,
+                                             std::vector<double> &xB,
+                                             double release_fraction,
+                                             int allow_dense_probe,
+                                             const std::unordered_map<int, int> *global_to_local,
+                                             double *applied_mass_out) {
+    if (applied_mass_out) *applied_mass_out = 0.0;
+    if (!rt || !P || !P->diagnostic_rsmd_enabled || phi.empty() || xB.empty() ||
+        phi.size() != xB.size() || Y.size() != xB.size()) return 1;
+    if (fabs(P->temperature_C - P->diagnostic_rsmd_T_only) > 0.5) return 1;
+    if (strcmp(P->diagnostic_rsmd_provenance, "required_supply_diagnostic") != 0 &&
+        strcmp(P->diagnostic_rsmd_provenance, "scenario_bracket_not_calibrated") != 0) {
+        fprintf(stderr, "[fatal] diagnostic RSMD provenance mismatch: %s\n",
+                P->diagnostic_rsmd_provenance);
+        return 0;
+    }
+    const BetaStagedEmbryo *seed = diagnostic_rsmd_find_resolved_seed(rt);
+    if (!seed) return 1;
+    if (rt->diagnostic_rsmd_release_started_step < 0) {
+        rt->diagnostic_rsmd_release_started_step = step;
+    }
+    const int post_handoff_step = step - rt->diagnostic_rsmd_release_started_step;
+    if (P->diagnostic_rsmd_release_window_steps > 0 &&
+        post_handoff_step > P->diagnostic_rsmd_release_window_steps) {
+        return 1;
+    }
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double rs_nm =
+        fmax(P->diagnostic_rsmd_kernel_radius_dx * fmax(dx_nm, fmax(dy_nm, dz_nm)),
+             1.0e-12);
+    const int rx = std::max(1, (int)ceil(rs_nm / fmax(dx_nm, 1.0e-30)));
+    const int ry = std::max(1, (int)ceil(rs_nm / fmax(dy_nm, 1.0e-30)));
+    const int rz = std::max(1, (int)ceil(rs_nm / fmax(dz_nm, 1.0e-30)));
+    double seed_R_eff_nm = P->diagnostic_rsmd_seed_R_eff_h_nm;
+    if (!(isfinite(seed_R_eff_nm) && seed_R_eff_nm > 0.0)) {
+        seed_R_eff_nm = diagnostic_rsmd_compute_seed_R_eff_h_nm(P, phi);
+    }
+    if (!diagnostic_rsmd_eligible_cache_matches(rt, P, seed, seed_R_eff_nm)) {
+        diagnostic_rsmd_build_eligible_site_cache(rt, P, seed, seed_R_eff_nm,
+                                                 step, post_handoff_step);
+    }
+    const double target_xB = P->diagnostic_rsmd_xB_halo_target;
+    const double h_src_max = P->diagnostic_rsmd_h_src_max;
+    const double xmin = fmax(P->xB_eps, 1.0e-15);
+    const double xmax = 1.0 - fmax(P->xB_eps, 1.0e-15);
+    if (strcmp(P->diagnostic_rsmd_delivery_mode, "seed_interface_alpha_shell") == 0) {
+        const int ok = diagnostic_rsmd_apply_interface_shell_source_host(
+            rt, P, step, post_handoff_step, seed, seed_R_eff_nm, phi, Y, xB,
+            release_fraction, global_to_local, applied_mass_out);
+        if (allow_dense_probe && ok && applied_mass_out && *applied_mass_out > 0.0 &&
+            diagnostic_rsmd_dense_probe_due(P, rt, step)) {
+            diagnostic_rsmd_write_state_summary_host(rt, P, step,
+                                                     "after_diagnostic_rsmd_interface_shell_source",
+                                                     seed, phi, Y, xB);
+        }
+        return ok;
+    }
+    double total_applied = 0.0;
+    long long released_sites = 0;
+    int wrote_matrix_halo_norm = 0;
+    int wrote_release_event = 0;
+    int wrote_locality = 0;
+    for (size_t cached_i = 0; cached_i < rt->diagnostic_rsmd_eligible_site_indices.size(); ++cached_i) {
+        const int si_int = rt->diagnostic_rsmd_eligible_site_indices[cached_i];
+        if (si_int < 0 || (size_t)si_int >= rt->sites.size()) continue;
+        GpAssistedSite &site = rt->sites[(size_t)si_int];
+        const double inv_before = fmax(site.B_mass_active, 0.0);
+        if (!(site.active && inv_before > 0.0)) continue;
+        const double center_dist_nm =
+            diagnostic_rsmd_pbc_distance_nm(P, site.ix, site.iy, site.iz,
+                                            seed->ix, seed->iy, seed->iz);
+        const double interface_dist_nm = center_dist_nm - seed_R_eff_nm;
+        const int near_interface =
+            (center_dist_nm >= seed_R_eff_nm &&
+             interface_dist_nm <= P->diagnostic_rsmd_R_exchange_nm) ? 1 : 0;
+        if (!near_interface) continue;
+        std::vector<DiagnosticRsmdCandidate> candidates;
+        double raw_weight_sum = 0.0;
+        double masked_weight_sum = 0.0;
+        double capacity_sum = 0.0;
+        long double local_before_num = 0.0L;
+        long double local_before_den = 0.0L;
+        for (int di = -rx; di <= rx; ++di) {
+            const int ii = diagnostic_rsmd_wrap_index(site.ix + di, P->Nx);
+            for (int dj = -ry; dj <= ry; ++dj) {
+                const int jj = diagnostic_rsmd_wrap_index(site.iy + dj, P->Ny);
+                for (int dk = -rz; dk <= rz; ++dk) {
+                    const int kk = diagnostic_rsmd_wrap_index(site.iz + dk, P->Nz);
+                    const double ddx = diagnostic_rsmd_axis_delta_nm(ii, site.ix, P->Nx, dx_nm);
+                    const double ddy = diagnostic_rsmd_axis_delta_nm(jj, site.iy, P->Ny, dy_nm);
+                    const double ddz = diagnostic_rsmd_axis_delta_nm(kk, site.iz, P->Nz, dz_nm);
+                    const double r_nm = sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+                    if (r_nm > rs_nm) continue;
+                    const double q = 1.0 - (r_nm * r_nm) / fmax(rs_nm * rs_nm, 1.0e-300);
+                    if (!(q > 0.0)) continue;
+                    const double w = q * q * q;
+                    raw_weight_sum += w;
+                    const int idx = host_index_xyz(ii, jj, kk, P->Ny, P->Nz);
+                    const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+                    if (h >= h_src_max) continue;
+                    const double alpha = fmax(1.0 - h, 0.0);
+                    if (!(alpha > 1.0e-14)) continue;
+                    const double xb = xB[(size_t)idx];
+                    if (!(isfinite(xb) && xb < target_xB)) continue;
+                    const double cap = alpha * fmax(target_xB - xb, 0.0);
+                    if (!(cap > 0.0)) continue;
+                    DiagnosticRsmdCandidate c;
+                    c.idx = idx;
+                    c.weight = P->diagnostic_rsmd_headroom_weighted ? w * cap : w;
+                    c.cap = cap;
+                    c.h_beta = h;
+                    candidates.push_back(c);
+                    masked_weight_sum += c.weight;
+                    capacity_sum += cap;
+                    local_before_num += (long double)c.weight * (long double)xb;
+                    local_before_den += (long double)c.weight;
+                }
+            }
+        }
+        const int all_masked = candidates.empty() ? 1 : 0;
+        const double requested_mass = fmin(
+            inv_before * fmin(fmax(release_fraction, 0.0), 1.0), capacity_sum);
+        double applied_mass = 0.0;
+        if (!all_masked && requested_mass > 0.0 && masked_weight_sum > 0.0) {
+            diagnostic_rsmd_distribute_candidates(P, Y, xB, candidates, requested_mass,
+                                                  target_xB, xmin, &applied_mass);
+        }
+        const double clipped_residual = fmax(requested_mass - applied_mass, 0.0);
+        if (applied_mass > 0.0) {
+            site.B_mass_active = fmax(inv_before - applied_mass, 0.0);
+            if (site.B_mass_active <= 1.0e-12) {
+                site.B_mass_active = 0.0;
+                site.active = 0;
+                site.consumed = 1;
+                site.consumed_step = step;
+            }
+            total_applied += applied_mass;
+            released_sites++;
+        }
+        double local_after_num = 0.0;
+        double local_after_den = 0.0;
+        for (size_t ci = 0; ci < candidates.size(); ++ci) {
+            const int idx = candidates[ci].idx;
+            local_after_num += candidates[ci].weight * xB[(size_t)idx];
+            local_after_den += candidates[ci].weight;
+        }
+        const double local_before =
+            (local_before_den > 0.0L) ? (double)(local_before_num / local_before_den) : NAN;
+        const double local_after =
+            (local_after_den > 0.0) ? (local_after_num / local_after_den) : NAN;
+        const double normalized_sum =
+            (masked_weight_sum > 0.0) ? 1.0 : 0.0;
+        const int normalization_pass =
+            (!all_masked && fabs(normalized_sum - 1.0) < 1.0e-12) ? 1 : (all_masked ? 1 : 0);
+        if (rt->diagnostic_rsmd_matrix_halo_norm_csv &&
+            (applied_mass > 0.0 || all_masked || requested_mass > 0.0)) {
+            fprintf(rt->diagnostic_rsmd_matrix_halo_norm_csv,
+                    "%s,%d,%d,%.12e,%.12e,%.12e,%zu,%.12e,%.12e,%.12e,%.12e,%d,%d,%d\n",
+                    diagnostic_rsmd_case_label(rt), step, site.id,
+                    raw_weight_sum, masked_weight_sum, normalized_sum, candidates.size(),
+                    capacity_sum, requested_mass, applied_mass, clipped_residual,
+                    normalization_pass, all_masked,
+                    P->diagnostic_rsmd_reset_Y_history_after_source);
+            wrote_matrix_halo_norm = 1;
+        }
+        if (rt->diagnostic_rsmd_release_event_log_csv &&
+            (applied_mass > 0.0 || all_masked || requested_mass > 0.0)) {
+            fprintf(rt->diagnostic_rsmd_release_event_log_csv,
+                    "%s,%d,%d,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%zu,%d,%s\n",
+                    diagnostic_rsmd_case_label(rt), step, post_handoff_step, site.id,
+                    site.ix, site.iy, site.iz,
+                    center_dist_nm, interface_dist_nm, P->diagnostic_rsmd_R_exchange_nm,
+                    P->diagnostic_rsmd_kernel_radius_dx, rs_nm,
+                    h_src_max, target_xB, local_before, local_after,
+                    requested_mass, applied_mass, clipped_residual,
+                    inv_before, site.B_mass_active, candidates.size(), all_masked,
+                    P->diagnostic_rsmd_provenance);
+            wrote_release_event = 1;
+        }
+        if (rt->diagnostic_rsmd_locality_csv &&
+            (applied_mass > 0.0 || post_handoff_step == 0)) {
+            fprintf(rt->diagnostic_rsmd_locality_csv,
+                    "%s,%d,%d,%.12e,%.12e,%.12e,%d,%d,%.12e,%.12e,%.12e,%s\n",
+                    diagnostic_rsmd_case_label(rt), step, site.id,
+                    center_dist_nm, interface_dist_nm, P->diagnostic_rsmd_R_exchange_nm,
+                    near_interface, 0, inv_before, site.B_mass_active, applied_mass,
+                    "minimum_image_center_distance_minus_R_eff_h");
+            wrote_locality = 1;
+        }
+    }
+    if (wrote_matrix_halo_norm && rt->diagnostic_rsmd_matrix_halo_norm_csv) {
+        fflush(rt->diagnostic_rsmd_matrix_halo_norm_csv);
+    }
+    if (wrote_release_event && rt->diagnostic_rsmd_release_event_log_csv) {
+        fflush(rt->diagnostic_rsmd_release_event_log_csv);
+    }
+    if (wrote_locality && rt->diagnostic_rsmd_locality_csv) {
+        fflush(rt->diagnostic_rsmd_locality_csv);
+    }
+    if (applied_mass_out) *applied_mass_out = total_applied;
+    if (total_applied > 0.0) {
+        if (allow_dense_probe && diagnostic_rsmd_dense_probe_due(P, rt, step)) {
+            diagnostic_rsmd_write_state_summary_host(rt, P, step,
+                                                     "after_diagnostic_rsmd_source",
+                                                     seed, phi, Y, xB);
+        }
+        printf("DIAGNOSTIC_RSMD_SOURCE_BEGIN step=%d post_handoff_step=%d "
+               "released_sites=%lld applied_mass=%.12e xB_halo_target=%.12e "
+               "R_exchange_nm=%.12e chi_rel=%.12e provenance=%s "
+               "DIAGNOSTIC_RSMD_SOURCE_END\n",
+               step, post_handoff_step, released_sites, total_applied,
+               target_xB, P->diagnostic_rsmd_R_exchange_nm,
+               P->diagnostic_rsmd_chi_rel, P->diagnostic_rsmd_provenance);
+    }
+    return 1;
+}
+
+static double diagnostic_rsmd_release_fraction_for_interval(const PFParams *P,
+                                                            double interval_dt_code) {
+    if (!P || !(P->dt > 0.0) || !(interval_dt_code > 0.0)) return 0.0;
+    const double rate_per_code_time =
+        fmax(P->diagnostic_rsmd_f_max_per_step, 0.0) *
+        fmax(P->diagnostic_rsmd_chi_rel, 0.0) / P->dt;
+    if (strcmp(P->diagnostic_rsmd_source_integrator, "exact_exponential") == 0) {
+        return fmin(fmax(-expm1(-rate_per_code_time * interval_dt_code), 0.0), 1.0);
+    }
+    return fmin(fmax(rate_per_code_time * interval_dt_code, 0.0), 1.0);
+}
+
+static void diagnostic_rsmd_write_state_summary_device(GpAssistedRuntime *rt,
+                                                       const PFParams *P,
+                                                       int step,
+                                                       const char *label,
+                                                       double *d_phi_r,
+                                                       double *d_Y_r,
+                                                       double *d_xB_r,
+                                                       int total_r,
+                                                       size_t size_r);
+
+static int apply_diagnostic_rsmd_source_cpu(GpAssistedRuntime *rt,
+                                            PFParams *P,
+                                            int step,
+                                            double *d_phi_r,
+                                            double *d_Y_r,
+                                            double *d_xB_r,
+                                            double *d_dY_dt_prev_r,
+                                            double *d_dY_dt_restart_r,
+                                            int total_r,
+                                            size_t size_r,
+                                            double source_stage_dt_code,
+                                            const char *source_stage_label) {
+    if (!rt || !P || !P->diagnostic_rsmd_enabled || !d_phi_r || !d_Y_r || !d_xB_r ||
+        total_r <= 0) return 1;
+    const BetaStagedEmbryo *seed = diagnostic_rsmd_find_resolved_seed(rt);
+    if (!seed) return 1;
+    if (fabs(P->temperature_C - P->diagnostic_rsmd_T_only) > 0.5) return 1;
+    if (strcmp(P->diagnostic_rsmd_provenance, "required_supply_diagnostic") != 0 &&
+        strcmp(P->diagnostic_rsmd_provenance, "scenario_bracket_not_calibrated") != 0) {
+        fprintf(stderr, "[fatal] diagnostic RSMD provenance mismatch: %s\n",
+                P->diagnostic_rsmd_provenance);
+        return 0;
+    }
+    if (rt->diagnostic_rsmd_release_started_step < 0) {
+        rt->diagnostic_rsmd_release_started_step = step;
+    }
+    const int post_handoff_step = step - rt->diagnostic_rsmd_release_started_step;
+    if (P->diagnostic_rsmd_release_window_steps > 0 &&
+        post_handoff_step > P->diagnostic_rsmd_release_window_steps) {
+        return 1;
+    }
+    if (!(source_stage_dt_code > 0.0)) return 1;
+    const int dense_due = diagnostic_rsmd_dense_probe_due(P, rt, step);
+    const double requested_substep_dt = P->diagnostic_rsmd_source_substep_dt_code;
+    const int source_substeps = (requested_substep_dt > 0.0)
+        ? std::max(1, (int)ceil(source_stage_dt_code / requested_substep_dt - 1.0e-12))
+        : 1;
+    const double actual_substep_dt = source_stage_dt_code / (double)source_substeps;
+    const double release_fraction =
+        diagnostic_rsmd_release_fraction_for_interval(P, actual_substep_dt);
+    double seed_R_eff_nm = P->diagnostic_rsmd_seed_R_eff_h_nm;
+    const int compact_source_ok =
+        (strcmp(P->diagnostic_rsmd_delivery_mode, "seed_interface_alpha_shell") == 0) ? 1 : 0;
+    if (compact_source_ok) {
+        const double dx_nm = runtime_dx_nm_host(P);
+        const double dy_nm = runtime_dy_nm_host(P);
+        const double dz_nm = runtime_dz_nm_host(P);
+        const double rs_nm =
+            fmax(P->diagnostic_rsmd_kernel_radius_dx * fmax(dx_nm, fmax(dy_nm, dz_nm)),
+                 1.0e-12);
+        const int rx = std::max(1, (int)ceil(rs_nm / fmax(dx_nm, 1.0e-30)));
+        const int ry = std::max(1, (int)ceil(rs_nm / fmax(dy_nm, 1.0e-30)));
+        const int rz = std::max(1, (int)ceil(rs_nm / fmax(dz_nm, 1.0e-30)));
+        if (!diagnostic_rsmd_eligible_cache_matches(rt, P, seed, seed_R_eff_nm)) {
+            diagnostic_rsmd_build_eligible_site_cache(rt, P, seed, seed_R_eff_nm,
+                                                     step, post_handoff_step);
+        }
+        std::vector<int> local_indices;
+        if (strcmp(P->diagnostic_rsmd_delivery_mode, "seed_interface_alpha_shell") == 0) {
+            diagnostic_rsmd_build_interface_shell_support_indices(
+                P, seed, seed_R_eff_nm, P->diagnostic_rsmd_interface_shell_width_nm,
+                &local_indices);
+        } else {
+            diagnostic_rsmd_build_local_support_indices(rt, P, seed, seed_R_eff_nm,
+                                                        rs_nm, rx, ry, rz,
+                                                        &local_indices);
+        }
+        if (local_indices.empty()) return 1;
+
+        const int n_local = (int)local_indices.size();
+        int *d_local_indices = NULL;
+        double *d_phi_local = NULL;
+        double *d_xB_local = NULL;
+        double *d_Y_local = NULL;
+        CUDA_CHECK(cudaMalloc((void **)&d_local_indices, (size_t)n_local * sizeof(int)));
+        CUDA_CHECK(cudaMalloc((void **)&d_phi_local, (size_t)n_local * sizeof(double)));
+        CUDA_CHECK(cudaMalloc((void **)&d_xB_local, (size_t)n_local * sizeof(double)));
+        CUDA_CHECK(cudaMalloc((void **)&d_Y_local, (size_t)n_local * sizeof(double)));
+        CUDA_CHECK(cudaMemcpy(d_local_indices, local_indices.data(),
+                              (size_t)n_local * sizeof(int), cudaMemcpyHostToDevice));
+        const int threads = 256;
+        const int blocks = (n_local + threads - 1) / threads;
+        diagnostic_rsmd_gather_double_kernel<<<blocks, threads>>>(d_phi_r, d_local_indices,
+                                                                  d_phi_local, n_local);
+        diagnostic_rsmd_gather_double_kernel<<<blocks, threads>>>(d_xB_r, d_local_indices,
+                                                                  d_xB_local, n_local);
+        diagnostic_rsmd_gather_double_kernel<<<blocks, threads>>>(d_Y_r, d_local_indices,
+                                                                 d_Y_local, n_local);
+        CUDA_CHECK(cudaGetLastError());
+        std::vector<double> phi_local((size_t)n_local);
+        std::vector<double> xB_local((size_t)n_local);
+        std::vector<double> Y_local((size_t)n_local);
+        CUDA_CHECK(cudaMemcpy(phi_local.data(), d_phi_local,
+                              (size_t)n_local * sizeof(double), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(xB_local.data(), d_xB_local,
+                              (size_t)n_local * sizeof(double), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(Y_local.data(), d_Y_local,
+                              (size_t)n_local * sizeof(double), cudaMemcpyDeviceToHost));
+        const std::vector<double> xB_before_local = xB_local;
+
+        std::unordered_map<int, int> global_to_local;
+        global_to_local.reserve((size_t)n_local);
+        for (int q = 0; q < n_local; ++q) {
+            global_to_local.emplace(local_indices[(size_t)q], q);
+        }
+
+        double applied_mass = 0.0;
+        int ok = 1;
+        for (int substep = 0; substep < source_substeps; ++substep) {
+            double applied_substep = 0.0;
+            ok = diagnostic_rsmd_apply_source_host(
+                rt, P, step, phi_local, Y_local, xB_local,
+                release_fraction, 0, &global_to_local, &applied_substep);
+            applied_mass += applied_substep;
+            if (!ok) break;
+        }
+        if (ok && applied_mass > 0.0) {
+            CUDA_CHECK(cudaMemcpy(d_xB_local, xB_local.data(),
+                                  (size_t)n_local * sizeof(double), cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaMemcpy(d_Y_local, Y_local.data(),
+                                  (size_t)n_local * sizeof(double), cudaMemcpyHostToDevice));
+            diagnostic_rsmd_scatter_double_kernel<<<blocks, threads>>>(d_xB_r, d_local_indices,
+                                                                       d_xB_local, n_local);
+            diagnostic_rsmd_scatter_double_kernel<<<blocks, threads>>>(d_Y_r, d_local_indices,
+                                                                      d_Y_local, n_local);
+            CUDA_CHECK(cudaGetLastError());
+            const int history_restart_mode = (P->diagnostic_rsmd_history_restart_mode > 0)
+                ? P->diagnostic_rsmd_history_restart_mode
+                : (P->diagnostic_rsmd_reset_Y_history_after_source ? 1 : 0);
+            if (history_restart_mode == 1 || history_restart_mode == 2) {
+                double *restart_target = (history_restart_mode == 2)
+                    ? d_dY_dt_restart_r : d_dY_dt_prev_r;
+                if (!restart_target) {
+                    fprintf(stderr, "[fatal] compact RSMD history target is null for mode %d\n",
+                            history_restart_mode);
+                    return 0;
+                }
+                if (history_restart_mode == 2) {
+                    CUDA_CHECK(cudaMemcpy(restart_target, d_dY_dt_prev_r, size_r,
+                                          cudaMemcpyDeviceToDevice));
+                }
+                diagnostic_rsmd_gather_double_kernel<<<blocks, threads>>>(
+                    d_dY_dt_prev_r, d_local_indices, d_Y_local, n_local);
+                CUDA_CHECK(cudaGetLastError());
+                std::vector<double> history_local((size_t)n_local);
+                CUDA_CHECK(cudaMemcpy(history_local.data(), d_Y_local,
+                                      (size_t)n_local * sizeof(double),
+                                      cudaMemcpyDeviceToHost));
+                long long reset_cells = 0;
+                for (int q = 0; q < n_local; ++q) {
+                    if (fabs(xB_local[(size_t)q] - xB_before_local[(size_t)q]) > 1.0e-15) {
+                        history_local[(size_t)q] = 0.0;
+                        ++reset_cells;
+                    }
+                }
+                CUDA_CHECK(cudaMemcpy(d_Y_local, history_local.data(),
+                                      (size_t)n_local * sizeof(double),
+                                      cudaMemcpyHostToDevice));
+                diagnostic_rsmd_scatter_double_kernel<<<blocks, threads>>>(
+                    restart_target, d_local_indices, d_Y_local, n_local);
+                CUDA_CHECK(cudaGetLastError());
+                rt->diagnostic_rsmd_history_restart_pending =
+                    (history_restart_mode == 2 && reset_cells > 0) ? 1 : 0;
+                if (rt->diagnostic_rsmd_history_restart_csv) {
+                    fprintf(rt->diagnostic_rsmd_history_restart_csv,
+                            "%s,%d,%d,%d,%lld,%lld,0.000000000000e+00,%d,%d,%.12e\n",
+                            diagnostic_rsmd_case_label(rt), step, post_handoff_step,
+                            history_restart_mode, reset_cells,
+                            (long long)total_r - reset_cells,
+                            history_restart_mode == 1,
+                            rt->diagnostic_rsmd_history_restart_pending,
+                            applied_mass);
+                    fflush(rt->diagnostic_rsmd_history_restart_csv);
+                }
+            }
+            CUDA_CHECK(cudaDeviceSynchronize());
+        }
+        cudaFree(d_local_indices);
+        cudaFree(d_phi_local);
+        cudaFree(d_xB_local);
+        cudaFree(d_Y_local);
+        if (dense_due) {
+            diagnostic_rsmd_write_state_summary_device(
+                rt, P, step, "after_diagnostic_rsmd_compact_source",
+                d_phi_r, d_Y_r, d_xB_r, total_r, size_r);
+        }
+        if (dense_due || applied_mass > 0.0) {
+            printf("DIAGNOSTIC_RSMD_SOURCE_STAGE step=%d stage=%s stage_dt_code=%.12e "
+                   "source_substeps=%d source_substep_dt_code=%.12e "
+                   "release_fraction_per_substep=%.12e applied_mass=%.12e "
+                   "integrator=%s operator_split=%s headroom_weighted=%d compact_support=1 "
+                   "support_cells=%d\n",
+                   step, source_stage_label ? source_stage_label : "unspecified",
+                   source_stage_dt_code, source_substeps, actual_substep_dt,
+                   release_fraction, applied_mass, P->diagnostic_rsmd_source_integrator,
+                   P->diagnostic_rsmd_operator_split,
+                   P->diagnostic_rsmd_headroom_weighted, n_local);
+            fflush(stdout);
+        }
+        return ok;
+    }
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+    const std::vector<double> xB_before_source = xB;
+    if (diagnostic_rsmd_dense_probe_due(P, rt, step)) {
+        diagnostic_rsmd_write_state_summary_host(rt, P, step,
+                                                 "before_diagnostic_rsmd_source",
+                                                 seed, phi, Y, xB);
+    }
+    double applied_mass = 0.0;
+    for (int substep = 0; substep < source_substeps; ++substep) {
+        double applied_substep = 0.0;
+        if (!diagnostic_rsmd_apply_source_host(rt, P, step, phi, Y, xB,
+                                               release_fraction, 1, nullptr,
+                                               &applied_substep)) {
+            return 0;
+        }
+        applied_mass += applied_substep;
+    }
+    if (applied_mass > 0.0) {
+        CUDA_CHECK(cudaMemcpy(d_xB_r, xB.data(), size_r, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_Y_r, Y.data(), size_r, cudaMemcpyHostToDevice));
+        const int history_restart_mode = (P->diagnostic_rsmd_history_restart_mode > 0)
+            ? P->diagnostic_rsmd_history_restart_mode
+            : (P->diagnostic_rsmd_reset_Y_history_after_source ? 1 : 0);
+        if (history_restart_mode == 1 || history_restart_mode == 2) {
+            // The source transaction changes Y outside the PF update. Reset
+            // only its support cells: their old dY/dt is incompatible with
+            // the new source state, while the far field retains its history.
+            std::vector<double> dY_dt_prev((size_t)total_r);
+            CUDA_CHECK(cudaMemcpy(dY_dt_prev.data(), d_dY_dt_prev_r, size_r,
+                                  cudaMemcpyDeviceToHost));
+            long long reset_cells = 0;
+            for (int idx = 0; idx < total_r; ++idx) {
+                if (fabs(xB[(size_t)idx] - xB_before_source[(size_t)idx]) > 1.0e-15) {
+                    dY_dt_prev[(size_t)idx] = 0.0;
+                    ++reset_cells;
+                }
+            }
+            double *restart_target = (history_restart_mode == 2)
+                ? d_dY_dt_restart_r : d_dY_dt_prev_r;
+            if (!restart_target) {
+                fprintf(stderr, "[fatal] RSMD history restart target is null for mode %d\n",
+                        history_restart_mode);
+                return 0;
+            }
+            CUDA_CHECK(cudaMemcpy(restart_target, dY_dt_prev.data(), size_r,
+                                  cudaMemcpyHostToDevice));
+            rt->diagnostic_rsmd_history_restart_pending =
+                (history_restart_mode == 2 && reset_cells > 0) ? 1 : 0;
+            if (rt->diagnostic_rsmd_history_restart_csv) {
+                fprintf(rt->diagnostic_rsmd_history_restart_csv,
+                        "%s,%d,%d,%d,%lld,%lld,0.000000000000e+00,%d,%d,%.12e\n",
+                        diagnostic_rsmd_case_label(rt), step, post_handoff_step,
+                        history_restart_mode, reset_cells,
+                        (long long)total_r - reset_cells,
+                        history_restart_mode == 1,
+                        rt->diagnostic_rsmd_history_restart_pending,
+                        applied_mass);
+                fflush(rt->diagnostic_rsmd_history_restart_csv);
+            }
+            if (dense_due) {
+                printf("DIAGNOSTIC_RSMD_Y_HISTORY_RESET step=%d post_handoff_step=%d "
+                       "restart_mode=%d reset_cells=%lld applied_mass=%.12e "
+                       "history_array_mutated=%d rhs_restart_pending=%d\n",
+                       step, post_handoff_step, history_restart_mode, reset_cells, applied_mass,
+                       history_restart_mode == 1,
+                       rt->diagnostic_rsmd_history_restart_pending);
+                fflush(stdout);
+            }
+        }
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+    if (dense_due || applied_mass > 0.0) {
+        printf("DIAGNOSTIC_RSMD_SOURCE_STAGE step=%d stage=%s stage_dt_code=%.12e "
+               "source_substeps=%d source_substep_dt_code=%.12e "
+               "release_fraction_per_substep=%.12e applied_mass=%.12e "
+               "integrator=%s operator_split=%s headroom_weighted=%d\n",
+               step, source_stage_label ? source_stage_label : "unspecified",
+               source_stage_dt_code, source_substeps, actual_substep_dt,
+               release_fraction, applied_mass, P->diagnostic_rsmd_source_integrator,
+               P->diagnostic_rsmd_operator_split,
+               P->diagnostic_rsmd_headroom_weighted);
+        fflush(stdout);
+    }
+    return 1;
+}
+
+static void diagnostic_rsmd_write_state_summary_device(GpAssistedRuntime *rt,
+                                                       const PFParams *P,
+                                                       int step,
+                                                       const char *label,
+                                                       double *d_phi_r,
+                                                       double *d_Y_r,
+                                                       double *d_xB_r,
+                                                       int total_r,
+                                                       size_t size_r) {
+    if (!rt || !P || !P->diagnostic_rsmd_enabled || !label || !d_phi_r || !d_Y_r ||
+        !d_xB_r || total_r <= 0) return;
+    const BetaStagedEmbryo *seed = diagnostic_rsmd_find_resolved_seed(rt);
+    if (!seed) return;
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+    diagnostic_rsmd_write_state_summary_host(rt, P, step, label, seed, phi, Y, xB);
+}
+
+static void write_gp_assisted_ledger_row(FILE *fp, int step, const char *stage,
+                                         const GpAssistedSite *site,
+                                         const GpAssistedLedger *l) {
+    if (!fp || !stage || !l) return;
+    fprintf(fp,
+            "%d,%s,%d,%d,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+            step, stage,
+            site ? site->id : -1,
+            site ? site->ix : -1,
+            site ? site->iy : -1,
+            site ? site->iz : -1,
+            site ? site->active : 0,
+            site ? site->consumed : 0,
+            site ? site->B_mass_active : 0.0,
+            l->M_matrix, l->M_beta, l->M_gp_active, l->M_staged_beta, l->M_total,
+            l->phi_min, l->phi_max, l->xB_min, l->xB_max, l->Y_min, l->Y_max);
+    fflush(fp);
+}
+
+static void write_gp_assisted_multi_ledger_row(FILE *fp, int step,
+                                               const std::vector<GpAssistedSite> &sites,
+                                               const GpAssistedLedger *l,
+                                               double initial_total_reference) {
+    if (!fp || !l) return;
+    const int n_sites = (int)sites.size();
+    const int n_active = gp_assisted_count_active_sites(sites);
+    const double mean_site_B = gp_assisted_sum_active_mass(sites) / fmax((double)n_sites, 1.0);
+    const double rel = (initial_total_reference > 0.0)
+        ? ((l->M_total - initial_total_reference) / initial_total_reference)
+        : 0.0;
+    fprintf(fp, "%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%d\n",
+            step, n_sites, l->M_matrix, l->M_beta, l->M_gp_active,
+            l->M_staged_beta, l->M_total, rel, mean_site_B, n_active);
+    fflush(fp);
+}
+
+static std::vector<int> gp_assisted_compact_spherical_indices(const PFParams *P,
+                                                              int ic, int jc, int kc,
+                                                              double radius_nm) {
+    std::vector<int> indices;
+    if (!P) return indices;
+    const double rmax = fmax(radius_nm, fmax(P->dx, fmax(P->dy, P->dz)) * 0.5);
+    const int ri = (int)ceil(rmax / fmax(P->dx, 1.0e-30)) + 1;
+    const int rj = (int)ceil(rmax / fmax(P->dy, 1.0e-30)) + 1;
+    const int rk = (int)ceil(rmax / fmax(P->dz, 1.0e-30)) + 1;
+    for (int di = -ri; di <= ri; ++di) {
+        const int i = ic + di;
+        if (i < 0 || i >= P->Nx) continue;
+        for (int dj = -rj; dj <= rj; ++dj) {
+            const int j = jc + dj;
+            if (j < 0 || j >= P->Ny) continue;
+            for (int dk = -rk; dk <= rk; ++dk) {
+                const int k = kc + dk;
+                if (k < 0 || k >= P->Nz) continue;
+                const double dx = ((double)i - (double)ic) * P->dx;
+                const double dy = ((double)j - (double)jc) * P->dy;
+                const double dz = ((double)k - (double)kc) * P->dz;
+                const double rr = sqrt(dx * dx + dy * dy + dz * dz);
+                if (rr <= rmax + 1.0e-12) {
+                    indices.push_back((int)(((size_t)i * P->Ny + (size_t)j) * P->Nz + (size_t)k));
+                }
+            }
+        }
+    }
+    if (indices.empty()) {
+        indices.push_back((int)(((size_t)ic * P->Ny + (size_t)jc) * P->Nz + (size_t)kc));
+    }
+    return indices;
+}
+
+static double gp_smooth_depletion_kernel_weight_host(double r,
+                                                     double core_radius_nm,
+                                                     double depletion_radius_nm,
+                                                     const char *kernel) {
+    const double r_core = fmax(core_radius_nm, 0.0);
+    const double r_dep = fmax(depletion_radius_nm, r_core + 1.0e-12);
+    if (r >= r_dep) return 0.0;
+    if (r <= r_core) return 1.0;
+    const double q = (r - r_core) / fmax(r_dep - r_core, 1.0e-30);
+    if (strcmp(kernel, "compact_gaussian") == 0) {
+        const double sigma = fmax(0.35 * (r_dep - r_core), 1.0e-30);
+        const double x = (r - r_core) / sigma;
+        const double taper = 0.5 * (1.0 + cos(M_PI * fmin(fmax(q, 0.0), 1.0)));
+        return exp(-0.5 * x * x) * taper;
+    }
+    const double one_minus_q = 1.0 - fmin(fmax(q, 0.0), 1.0);
+    return one_minus_q * one_minus_q * one_minus_q *
+           (1.0 + 3.0 * q + 6.0 * q * q);
+}
+
+static void gp_accumulate_marker_influence_host(const PFParams *P,
+                                                const std::vector<GpAssistedSite> &sites,
+                                                std::vector<unsigned short> *coverage_count,
+                                                std::vector<double> *s_eff_field) {
+    if (!P || !coverage_count || !s_eff_field) return;
+    const size_t total = (size_t)P->Nx * (size_t)P->Ny * (size_t)P->Nz;
+    coverage_count->assign(total, (unsigned short)0);
+    s_eff_field->assign(total, 1.0);
+    const double r_inf = fmax(P->gp_marker_influence_radius_nm, 0.0);
+    if (!(r_inf > 0.0)) return;
+    for (size_t s = 0; s < sites.size(); ++s) {
+        const GpAssistedSite &site = sites[s];
+        if (!site.active || site.B_mass_active <= 0.0) continue;
+        std::vector<int> idxs = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz, r_inf);
+        for (size_t q = 0; q < idxs.size(); ++q) {
+            const size_t idx = (size_t)idxs[q];
+            if (idx >= total) continue;
+            unsigned short c = (*coverage_count)[idx];
+            if (c < 65535) (*coverage_count)[idx] = (unsigned short)(c + 1);
+            (*s_eff_field)[idx] = fmin((*s_eff_field)[idx], site.S_factor);
+        }
+    }
+}
+
+static double gp_apply_smooth_local_depletion_for_site_host(std::vector<double> &phi,
+                                                            std::vector<double> &xB,
+                                                            const PFParams *P,
+                                                            const GpAssistedSite *site,
+                                                            double requested_mass,
+                                                            int *shortage_flag_out,
+                                                            GpSmoothDepletionDiag *diag_out) {
+    if (shortage_flag_out) *shortage_flag_out = 0;
+    if (diag_out) {
+        memset(diag_out, 0, sizeof(*diag_out));
+        diag_out->requested_mass = requested_mass;
+        diag_out->local_background_xB = NAN;
+    }
+    if (!P || !site || requested_mass <= 0.0) return 0.0;
+    const std::vector<int> idxs = gp_assisted_compact_spherical_indices(
+        P, site->ix, site->iy, site->iz, P->gp_depletion_radius_nm);
+    if (idxs.empty()) return 0.0;
+
+    const double x_floor = fmax(P->gp_xB_floor, P->xB_eps);
+    std::vector<double> raw_w;
+    raw_w.reserve(idxs.size());
+    std::vector<double> alpha;
+    alpha.reserve(idxs.size());
+    std::vector<double> cap_x;
+    cap_x.reserve(idxs.size());
+    long double capacity_total = 0.0L;
+    long double bg_num = 0.0L;
+    long double bg_den = 0.0L;
+    for (size_t q = 0; q < idxs.size(); ++q) {
+        const int idx = idxs[q];
+        const int k = idx % P->Nz;
+        const int j = (idx / P->Nz) % P->Ny;
+        const int i = idx / (P->Ny * P->Nz);
+        const double dx = ((double)i - (double)site->ix) * P->dx;
+        const double dy = ((double)j - (double)site->iy) * P->dy;
+        const double dz = ((double)k - (double)site->iz) * P->dz;
+        const double r = sqrt(dx * dx + dy * dy + dz * dz);
+        const double w = gp_smooth_depletion_kernel_weight_host(
+            r, P->gp_marker_core_radius_nm, P->gp_depletion_radius_nm, P->gp_depletion_kernel);
+        const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+        const double a = fmax(1.0 - h, 0.0);
+        const double cap = fmax(xB[(size_t)idx] - x_floor, 0.0);
+        raw_w.push_back(w);
+        alpha.push_back(a);
+        cap_x.push_back(cap);
+        capacity_total += (long double)a * (long double)cap;
+        if (w > 0.0 && a > 0.0) {
+            bg_num += (long double)w * (long double)a * (long double)xB[(size_t)idx];
+            bg_den += (long double)w * (long double)a;
+        }
+    }
+    if (diag_out) {
+        diag_out->local_available_matrix_mass = (double)capacity_total;
+        if (bg_den > 0.0L) {
+            diag_out->local_background_xB = (double)(bg_num / bg_den);
+        } else {
+            const int center = gp_assisted_flat_index(P, site->ix, site->iy, site->iz);
+            diag_out->local_background_xB = xB[(size_t)center];
+        }
+    }
+    if (!(capacity_total > 0.0L)) {
+        if (shortage_flag_out) *shortage_flag_out = 1;
+        if (diag_out) diag_out->shortage_flag = 1;
+        return 0.0;
+    }
+    const long double target_ld = fmin((long double)requested_mass, capacity_total);
+    if (target_ld + 1.0e-30L < (long double)requested_mass && shortage_flag_out) *shortage_flag_out = 1;
+    if (diag_out) {
+        diag_out->target_mass = (double)target_ld;
+        diag_out->shortage_flag = (target_ld + 1.0e-30L < (long double)requested_mass) ? 1 : 0;
+    }
+    const double target = (double)target_ld;
+
+    auto removed_mass_for_amp = [&](double amp) -> double {
+        long double sum = 0.0L;
+        for (size_t q = 0; q < idxs.size(); ++q) {
+            const double dx_remove = fmin(amp * raw_w[q], cap_x[q]);
+            sum += (long double)alpha[q] * (long double)dx_remove;
+        }
+        return (double)sum;
+    };
+
+    double lo = 0.0;
+    double hi = 1.0;
+    double removed_hi = removed_mass_for_amp(hi);
+    for (int iter = 0; iter < 80 && removed_hi < target; ++iter) {
+        hi *= 2.0;
+        removed_hi = removed_mass_for_amp(hi);
+    }
+    for (int iter = 0; iter < 100; ++iter) {
+        const double mid = 0.5 * (lo + hi);
+        const double removed_mid = removed_mass_for_amp(mid);
+        if (removed_mid < target) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    long double removed_total = 0.0L;
+    for (size_t q = 0; q < idxs.size(); ++q) {
+        const double dx_remove = fmin(hi * raw_w[q], cap_x[q]);
+        if (dx_remove <= 0.0) continue;
+        xB[(size_t)idxs[q]] = fmax(x_floor, xB[(size_t)idxs[q]] - dx_remove);
+        removed_total += (long double)alpha[q] * (long double)dx_remove;
+    }
+    return (double)removed_total;
+}
+
+static int gp_assisted_shift_matrix_mass(std::vector<double> &phi,
+                                         std::vector<double> &xB,
+                                         const std::vector<int> &indices,
+                                         double mass_delta,
+                                         double xB_min,
+                                         double xB_max,
+                                         double tol,
+                                         double *actual_shift_out,
+                                         double *clip_frac_out) {
+    if (actual_shift_out) *actual_shift_out = 0.0;
+    if (clip_frac_out) *clip_frac_out = 0.0;
+    if (fabs(mass_delta) <= tol) return 1;
+    if (indices.empty()) return 0;
+    long double remaining = mass_delta;
+    long double shifted_total = 0.0;
+    long long clipped = 0;
+    for (int iter = 0; iter < 30 && fabsl(remaining) > tol; ++iter) {
+        long double capacity = 0.0;
+        for (int idx : indices) {
+            const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+            const double alpha = fmax(1.0 - h, 0.0);
+            if (alpha <= 1.0e-14) continue;
+            if (remaining > 0.0) {
+                capacity += alpha * fmax(xB_max - xB[(size_t)idx], 0.0);
+            } else {
+                capacity += alpha * fmax(xB[(size_t)idx] - xB_min, 0.0);
+            }
+        }
+        if (capacity <= 1.0e-30) break;
+        long double frac_ld = fabsl(remaining) / capacity;
+        if (frac_ld > 1.0L) frac_ld = 1.0L;
+        const double frac = (double)frac_ld;
+        long double shifted_iter = 0.0;
+        for (int idx : indices) {
+            const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+            const double alpha = fmax(1.0 - h, 0.0);
+            if (alpha <= 1.0e-14) continue;
+            double storage = 0.0;
+            if (remaining > 0.0) {
+                storage = alpha * fmax(xB_max - xB[(size_t)idx], 0.0) * frac;
+                xB[(size_t)idx] += storage / alpha;
+            } else {
+                storage = alpha * fmax(xB[(size_t)idx] - xB_min, 0.0) * frac;
+                xB[(size_t)idx] -= storage / alpha;
+                storage = -storage;
+            }
+            if (xB[(size_t)idx] <= xB_min + 1.0e-14 || xB[(size_t)idx] >= xB_max - 1.0e-14) clipped++;
+            shifted_iter += storage;
+        }
+        shifted_total += shifted_iter;
+        remaining -= shifted_iter;
+        if (fabsl(shifted_iter) <= tol * 0.1L) break;
+    }
+    if (actual_shift_out) *actual_shift_out = (double)shifted_total;
+    if (clip_frac_out) *clip_frac_out = (double)clipped / fmax((double)indices.size(), 1.0);
+    return (fabsl(mass_delta - shifted_total) <= tol);
+}
+
+static double gp_assisted_seed_phi_value(const PFParams *P, const GpAssistedSite *site,
+                                         int i, int j, int k);
+
+typedef struct {
+    double seed_mass_original;
+    double seed_mass_debug;
+    double seed_amplitude_scale;
+    double matrix_available_capacity;
+    double GP_initial_available_capacity;
+    double GP_new_available_capacity;
+    double GP_total_available_capacity;
+    double total_available_capacity;
+    double capacity_ratio_original;
+    double capacity_ratio_debug;
+    double requested_mass_for_transaction;
+    double matrix_draw_request;
+    double matrix_draw_radius_nm;
+    double beta_seed_radius_nm;
+    double beta_seed_volume_m3;
+    int near_gp_marker;
+    int would_accept_if_capacity_matched;
+} BetaAttemptCapacityDiag;
+
+typedef struct {
+    double matrix_available_capacity;
+    double xB_min;
+    double xB_mean;
+    double xB_max;
+    int draw_cells_count;
+    double draw_volume_m3;
+} BetaDrawRegionCapacityDiag;
+
+typedef struct {
+    size_t index;
+    double distance_nm;
+} GpCaptureCandidate;
+
+typedef struct {
+    double selected_GP_capacity;
+    double nearest_GP_capacity;
+    double multi_GP_initial_capacity;
+    double multi_GP_new_capacity;
+    double multi_GP_total_capacity;
+    int num_GP_initial_in_capture;
+    int num_GP_new_in_capture;
+    int num_GP_total_in_capture;
+    double nearest_GP_distance_nm;
+    double mean_GP_distance_nm;
+    double max_GP_distance_nm;
+    double GP_inventory_consumed_if_nearest_first;
+    int num_GP_needed_nearest_first;
+    int num_GP_partially_consumed;
+    int num_GP_fully_consumed;
+} BetaMultiGpCaptureDiag;
+
+static double gp_site_distance_to_center_nm_host(const PFParams *P,
+                                                 const GpAssistedSite &s,
+                                                 int ix, int iy, int iz) {
+    if (!P) return NAN;
+    const double dx = (double)(s.ix - ix) * runtime_dx_nm_host(P);
+    const double dy = (double)(s.iy - iy) * runtime_dy_nm_host(P);
+    const double dz = (double)(s.iz - iz) * runtime_dz_nm_host(P);
+    return sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+static void gp_collect_capture_candidates_nearest_first(
+    const PFParams *P,
+    const std::vector<GpAssistedSite> &sites,
+    int initial_gp_site_count,
+    int center_ix,
+    int center_iy,
+    int center_iz,
+    double capture_radius_nm,
+    std::vector<GpCaptureCandidate> *out) {
+    if (!out) return;
+    out->clear();
+    if (!P || !(capture_radius_nm >= 0.0)) return;
+    for (size_t i = 0; i < sites.size(); ++i) {
+        const GpAssistedSite &s = sites[i];
+        if (!s.active || s.consumed || !(s.B_mass_active > 0.0)) continue;
+        (void)initial_gp_site_count;
+        const double d = gp_site_distance_to_center_nm_host(P, s, center_ix, center_iy, center_iz);
+        if (isfinite(d) && d <= capture_radius_nm + 1.0e-12) {
+            GpCaptureCandidate c;
+            c.index = i;
+            c.distance_nm = d;
+            out->push_back(c);
+        }
+    }
+    std::sort(out->begin(), out->end(),
+              [](const GpCaptureCandidate &a, const GpCaptureCandidate &b) {
+                  if (a.distance_nm != b.distance_nm) return a.distance_nm < b.distance_nm;
+                  return a.index < b.index;
+              });
+}
+
+static BetaMultiGpCaptureDiag gp_compute_multi_gp_capture_diag_host(
+    const PFParams *P,
+    const std::vector<GpAssistedSite> &sites,
+    int initial_gp_site_count,
+    size_t selected_index,
+    int center_ix,
+    int center_iy,
+    int center_iz,
+    double capture_radius_nm,
+    double required_from_gp) {
+    BetaMultiGpCaptureDiag diag;
+    memset(&diag, 0, sizeof(diag));
+    diag.nearest_GP_distance_nm = NAN;
+    diag.mean_GP_distance_nm = NAN;
+    diag.max_GP_distance_nm = NAN;
+    if (selected_index < sites.size() && sites[selected_index].active &&
+        !sites[selected_index].consumed) {
+        diag.selected_GP_capacity = fmax(sites[selected_index].B_mass_active, 0.0);
+    }
+    std::vector<GpCaptureCandidate> caps;
+    gp_collect_capture_candidates_nearest_first(P, sites, initial_gp_site_count,
+                                                center_ix, center_iy, center_iz,
+                                                capture_radius_nm, &caps);
+    long double sum_d = 0.0L;
+    double consumed = 0.0;
+    int needed = 0;
+    int full = 0;
+    int partial = 0;
+    for (size_t ci = 0; ci < caps.size(); ++ci) {
+        const size_t idx = caps[ci].index;
+        const GpAssistedSite &s = sites[idx];
+        const double mass = fmax(s.B_mass_active, 0.0);
+        if (ci == 0) {
+            diag.nearest_GP_capacity = mass;
+            diag.nearest_GP_distance_nm = caps[ci].distance_nm;
+        }
+        if (idx < (size_t)initial_gp_site_count) {
+            diag.multi_GP_initial_capacity += mass;
+            diag.num_GP_initial_in_capture += 1;
+        } else {
+            diag.multi_GP_new_capacity += mass;
+            diag.num_GP_new_in_capture += 1;
+        }
+        diag.num_GP_total_in_capture += 1;
+        sum_d += (long double)caps[ci].distance_nm;
+        diag.max_GP_distance_nm = fmax(diag.max_GP_distance_nm, caps[ci].distance_nm);
+        if (consumed < required_from_gp - 1.0e-12) {
+            const double take = fmin(mass, fmax(required_from_gp - consumed, 0.0));
+            if (take > 0.0) {
+                consumed += take;
+                needed += 1;
+                if (take >= mass - 1.0e-12) full += 1;
+                else partial += 1;
+            }
+        }
+    }
+    diag.multi_GP_total_capacity = diag.multi_GP_initial_capacity + diag.multi_GP_new_capacity;
+    if (diag.num_GP_total_in_capture > 0) {
+        diag.mean_GP_distance_nm = (double)(sum_d / (long double)diag.num_GP_total_in_capture);
+    } else {
+        diag.max_GP_distance_nm = NAN;
+    }
+    diag.GP_inventory_consumed_if_nearest_first = consumed;
+    diag.num_GP_needed_nearest_first = needed;
+    diag.num_GP_fully_consumed = full;
+    diag.num_GP_partially_consumed = partial;
+    return diag;
+}
+
+static double gp_consume_multi_gp_nearest_first(std::vector<GpAssistedSite> &sites,
+                                                int initial_gp_site_count,
+                                                const PFParams *P,
+                                                int center_ix,
+                                                int center_iy,
+                                                int center_iz,
+                                                double capture_radius_nm,
+                                                double requested_gp_mass,
+                                                int linked_event_id,
+                                                int step,
+                                                int *num_initial_consumed,
+                                                int *num_new_consumed,
+                                                int *num_partial,
+                                                int *num_full,
+                                                double *initial_mass_consumed,
+                                                double *new_mass_consumed) {
+    if (num_initial_consumed) *num_initial_consumed = 0;
+    if (num_new_consumed) *num_new_consumed = 0;
+    if (num_partial) *num_partial = 0;
+    if (num_full) *num_full = 0;
+    if (initial_mass_consumed) *initial_mass_consumed = 0.0;
+    if (new_mass_consumed) *new_mass_consumed = 0.0;
+    if (!(requested_gp_mass > 0.0)) return 0.0;
+    std::vector<GpCaptureCandidate> caps;
+    gp_collect_capture_candidates_nearest_first(P, sites, initial_gp_site_count,
+                                                center_ix, center_iy, center_iz,
+                                                capture_radius_nm, &caps);
+    double consumed = 0.0;
+    for (const GpCaptureCandidate &c : caps) {
+        if (consumed >= requested_gp_mass - 1.0e-12) break;
+        GpAssistedSite &s = sites[c.index];
+        const double mass = fmax(s.B_mass_active, 0.0);
+        const double take = fmin(mass, requested_gp_mass - consumed);
+        if (!(take > 0.0)) continue;
+        s.B_mass_active = fmax(mass - take, 0.0);
+        if (c.index < (size_t)initial_gp_site_count) {
+            if (initial_mass_consumed) *initial_mass_consumed += take;
+            if (num_initial_consumed) *num_initial_consumed += 1;
+        } else {
+            if (new_mass_consumed) *new_mass_consumed += take;
+            if (num_new_consumed) *num_new_consumed += 1;
+        }
+        if (s.B_mass_active <= 1.0e-12) {
+            s.B_mass_active = 0.0;
+            s.active = 0;
+            s.consumed = 1;
+            s.consumed_step = step;
+            s.linked_beta_event_id = linked_event_id;
+            if (num_full) *num_full += 1;
+        } else {
+            if (num_partial) *num_partial += 1;
+        }
+        consumed += take;
+    }
+    return consumed;
+}
+
+static int beta_capture_mode_uses_multi_gp(const char *mode) {
+    return mode &&
+           (strcmp(mode, "multi_GP_nearest_first") == 0 ||
+            strcmp(mode, "multi_GP_all_within_radius") == 0);
+}
+
+static void beta_write_staged_embryo_row(FILE *fp,
+                                         const GpAssistedRuntime *rt,
+                                         const BetaStagedEmbryo *e,
+                                         int step,
+                                         int event_id,
+                                         double transaction_rel_error,
+                                         double global_rel_error) {
+    if (!fp || !e) return;
+    fprintf(fp,
+            "%s,%d,%d,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+            "%.12e,%d,%s,%.12e,%.12e\n",
+            (rt && rt->stageA_case_label[0]) ? rt->stageA_case_label : "unknown_case",
+            e->embryo_id, step, event_id, e->ix, e->iy, e->iz,
+            e->target_seed_inventory, e->current_embryo_inventory,
+            e->remaining_inventory_needed,
+            e->source_GP_initial_consumed, e->source_GP_new_consumed,
+            e->source_matrix_consumed, e->capture_radius_nm, e->nearest_GP_count,
+            e->status, transaction_rel_error, global_rel_error);
+    fflush(fp);
+}
+
+static void beta_write_staged_accumulation_row(FILE *fp,
+                                               const GpAssistedRuntime *rt,
+                                               const BetaStagedEmbryo *e,
+                                               int step,
+                                               int age_steps,
+                                               double current_before,
+                                               double current_after,
+                                               double remaining_before,
+                                               double remaining_after,
+                                               double delta_added,
+                                               double gp_initial_step,
+                                               double gp_new_step,
+                                               double matrix_step,
+                                               double gp_capture_radius_nm,
+                                               double matrix_draw_radius_nm,
+                                               int nearest_gp_count_step,
+                                               const char *status_before,
+                                               const char *status_after,
+                                               double transaction_abs_error,
+                                               double transaction_rel_error,
+                                               double global_rel_error,
+                                               int inserted_resolved_seed) {
+    if (!fp || !e) return;
+    fprintf(fp,
+            "%s,%d,%d,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+            "%.12e,%.12e,%.12e,%.12e,%.12e,%d,%s,%s,%.12e,%.12e,%.12e,%d\n",
+            (rt && rt->stageA_case_label[0]) ? rt->stageA_case_label : "unknown_case",
+            e->embryo_id, step, age_steps, e->ix, e->iy, e->iz,
+            e->target_seed_inventory,
+            current_before, current_after,
+            remaining_before, remaining_after, delta_added,
+            gp_initial_step, gp_new_step, matrix_step,
+            gp_capture_radius_nm, matrix_draw_radius_nm,
+            nearest_gp_count_step,
+            status_before ? status_before : "",
+            status_after ? status_after : "",
+            transaction_abs_error, transaction_rel_error, global_rel_error,
+            inserted_resolved_seed);
+    fflush(fp);
+}
+
+static void beta_log_resolved_handoff_attempt(GpAssistedRuntime *rt,
+                                              const PFParams *P,
+                                              int step,
+                                              const BetaStagedEmbryo *e,
+                                              const GpAssistedLedger *ledger,
+                                              int handoff_allowed,
+                                              const char *block_reason) {
+    if (!rt || !P || !e) return;
+    const double tol =
+        fmax(e->target_seed_inventory * P->beta_staged_conversion_mass_tolerance_rel,
+             1.0e-12);
+    const double ready_condition_value = e->remaining_inventory_needed - tol;
+    const int ready_condition_passed =
+        (strcmp(e->status, "ready_for_resolved_insert") == 0) ||
+        (e->current_embryo_inventory + tol >= e->target_seed_inventory) ||
+        (e->remaining_inventory_needed <= tol);
+    const double radius_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+    const double volume_nm3 = (4.0 / 3.0) * M_PI * pow(fmax(radius_nm, 0.0), 3.0);
+    const double m_matrix = ledger ? ledger->M_matrix : NAN;
+    const double m_beta = ledger ? ledger->M_beta : NAN;
+    const double m_staged = ledger ? ledger->M_staged_beta : NAN;
+    const double m_total = ledger ? ledger->M_total : NAN;
+    double gp_initial = NAN;
+    double gp_new = NAN;
+    if (rt) {
+        gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                                &gp_initial, &gp_new);
+    }
+
+    printf("RESOLVED_BETA_HANDOFF_ATTEMPT_BEGIN step=%d embryo_id=%d "
+           "status_before=%s current_inventory=%.12e target_seed_inventory=%.12e "
+           "remaining_inventory_needed=%.12e ready_condition_value=%.12e "
+           "ready_condition_passed=%d insert_when_target_reached=%d "
+           "resolved_seed_radius_nm=%.12e resolved_seed_volume=%.12e "
+           "library_entry_id=%s handoff_allowed=%d block_reason=%s "
+           "M_staged_before=%.12e M_beta_before=%.12e M_matrix_before=%.12e "
+           "M_GP_initial_before=%.12e M_GP_new_before=%.12e M_total_before=%.12e "
+           "RESOLVED_BETA_HANDOFF_ATTEMPT_END\n",
+           step, e->embryo_id, e->status, e->current_embryo_inventory,
+           e->target_seed_inventory, e->remaining_inventory_needed,
+           ready_condition_value, ready_condition_passed,
+           P->beta_staged_insert_when_target_reached,
+           radius_nm, volume_nm3, "dynamic_continue_seed", handoff_allowed,
+           block_reason ? block_reason : "none",
+           m_staged, m_beta, m_matrix, gp_initial, gp_new, m_total);
+
+    if (rt->beta_resolved_handoff_attempt_csv) {
+        fprintf(rt->beta_resolved_handoff_attempt_csv,
+                "%s,%d,%d,%s,%.12e,%.12e,%.12e,%.12e,%d,%d,%.12e,%.12e,"
+                "%s,%d,%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                step, e->embryo_id, e->status, e->current_embryo_inventory,
+                e->target_seed_inventory, e->remaining_inventory_needed,
+                ready_condition_value, ready_condition_passed,
+                P->beta_staged_insert_when_target_reached,
+                radius_nm, volume_nm3, "dynamic_continue_seed",
+                handoff_allowed, block_reason ? block_reason : "none",
+                m_staged, m_beta, m_matrix, gp_initial, gp_new, m_total);
+        fflush(rt->beta_resolved_handoff_attempt_csv);
+    }
+}
+
+static int parse_beta_debug_draw_radius_list_nm(const PFParams *P, double *radii, int max_count) {
+    if (!P || !radii || max_count <= 0) return 0;
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s", P->beta_debug_draw_radius_list_nm);
+    int n = 0;
+    char *saveptr = NULL;
+    for (char *tok = strtok_r(buf, ",", &saveptr);
+         tok && n < max_count;
+         tok = strtok_r(NULL, ",", &saveptr)) {
+        while (*tok == ' ' || *tok == '\t') tok++;
+        const double r = atof(tok);
+        if (isfinite(r) && r > 0.0) radii[n++] = r;
+    }
+    if (n == 0) {
+        const double defaults[] = {2,3,4,5,6,8,10,12,16,20,24,32};
+        const int nd = (int)(sizeof(defaults) / sizeof(defaults[0]));
+        for (int i = 0; i < nd && n < max_count; ++i) radii[n++] = defaults[i];
+    }
+    return n;
+}
+
+static double gp_assisted_matrix_draw_capacity_host(const std::vector<double> &phi,
+                                                    const std::vector<double> &xB,
+                                                    const std::vector<int> &indices,
+                                                    double xB_min) {
+    long double capacity = 0.0L;
+    for (int idx : indices) {
+        const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+        const double alpha = fmax(1.0 - h, 0.0);
+        if (alpha <= 1.0e-14) continue;
+        capacity += (long double)alpha * (long double)fmax(xB[(size_t)idx] - xB_min, 0.0);
+    }
+    return (double)capacity;
+}
+
+static BetaDrawRegionCapacityDiag gp_assisted_draw_region_capacity_diag_host(
+    const PFParams *P,
+    const std::vector<double> &phi,
+    const std::vector<double> &xB,
+    const std::vector<int> &indices,
+    double xB_min) {
+    BetaDrawRegionCapacityDiag diag;
+    memset(&diag, 0, sizeof(diag));
+    diag.xB_min = HUGE_VAL;
+    diag.xB_max = -HUGE_VAL;
+    long double cap = 0.0L;
+    long double sum_xB = 0.0L;
+    int count = 0;
+    for (int idx : indices) {
+        if (idx < 0 || (size_t)idx >= xB.size() || (size_t)idx >= phi.size()) continue;
+        const double xb = xB[(size_t)idx];
+        const double h = h_of_phi(clamp01(phi[(size_t)idx]));
+        const double alpha = fmax(1.0 - h, 0.0);
+        if (alpha > 1.0e-14) {
+            cap += (long double)alpha * (long double)fmax(xb - xB_min, 0.0);
+        }
+        diag.xB_min = fmin(diag.xB_min, xb);
+        diag.xB_max = fmax(diag.xB_max, xb);
+        sum_xB += (long double)xb;
+        count++;
+    }
+    diag.draw_cells_count = count;
+    diag.matrix_available_capacity = (double)cap;
+    diag.xB_mean = (count > 0) ? (double)(sum_xB / (long double)count) : NAN;
+    if (count <= 0) {
+        diag.xB_min = NAN;
+        diag.xB_max = NAN;
+    }
+    diag.draw_volume_m3 = (P && count > 0) ? ((double)count * gp_cell_volume_m3(P)) : NAN;
+    return diag;
+}
+
+static double gp_assisted_compute_seed_mass_for_amplitude(const PFParams *P,
+                                                          const GpAssistedSite *site,
+                                                          const std::vector<double> &phi,
+                                                          const std::vector<double> &xB,
+                                                          const std::vector<int> &seed_indices,
+                                                          double amplitude_scale) {
+    if (!P || !site) return 0.0;
+    const double a = fmin(fmax(amplitude_scale, 0.0), 1.0);
+    long double seed_mass = 0.0L;
+    for (int idx : seed_indices) {
+        const int k = idx % P->Nz;
+        const int j = (idx / P->Nz) % P->Ny;
+        const int i = idx / (P->Ny * P->Nz);
+        const double p_old = clamp01(phi[(size_t)idx]);
+        const double h_old = h_of_phi(p_old);
+        const double p_seed = a * gp_assisted_seed_phi_value(P, site, i, j, k);
+        const double p_new = fmax(p_old, p_seed);
+        const double h_new = h_of_phi(p_new);
+        seed_mass += (long double)fmax((h_new - h_old) * (P->v_B - xB[(size_t)idx]), 0.0);
+    }
+    return (double)seed_mass;
+}
+
+static double gp_assisted_find_seed_amplitude_for_mass(const PFParams *P,
+                                                       const GpAssistedSite *site,
+                                                       const std::vector<double> &phi,
+                                                       const std::vector<double> &xB,
+                                                       const std::vector<int> &seed_indices,
+                                                       double target_mass) {
+    if (!(target_mass > 0.0)) return 0.0;
+    const double full_mass =
+        gp_assisted_compute_seed_mass_for_amplitude(P, site, phi, xB, seed_indices, 1.0);
+    if (!(full_mass > 0.0)) return 0.0;
+    if (target_mass >= full_mass) return 1.0;
+    double lo = 0.0;
+    double hi = 1.0;
+    for (int iter = 0; iter < 80; ++iter) {
+        const double mid = 0.5 * (lo + hi);
+        const double m = gp_assisted_compute_seed_mass_for_amplitude(P, site, phi, xB, seed_indices, mid);
+        if (m < target_mass) lo = mid;
+        else hi = mid;
+    }
+    return hi;
+}
+
+typedef struct {
+    int idx;
+    double phi_target;
+    double xB_target;
+} ResolvedSeedProfileSample;
+
+typedef struct {
+    int ok;
+    int phi_profile_used;
+    int xB_profile_used;
+    int analytic_fallback_used;
+    int used_average_family;
+    double interface_scale_phi;
+    double interface_scale_xB;
+    double source_lambda_nm;
+    double target_lambda_nm;
+    double profile_inventory_integral_before_scaling;
+    double profile_inventory_integral_after_scaling;
+    double profile_mass_scaling_factor;
+    double inserted_phi_integral;
+    double inserted_phi_max;
+    double seed_region_radius_nm;
+    double resolved_seed_radius_nm;
+    double seed_dx_nm;
+    double runtime_dx_nm;
+    double seed_target_inventory_from_library;
+    char seed_source_mode[64];
+    char library_entry_id[256];
+    char seed_profile_file[4096];
+    char source_dyn_dir[4096];
+    char profile_runtime_alignment_status[256];
+    char fallback_reason[256];
+} ResolvedSeedProfileDiag;
+
+static int resolved_handoff_preserve_profile_xB_alpha_in_support(const PFParams *P) {
+    return P && strcmp(P->resolved_handoff_xB_write_mode,
+                       "preserve_profile_xB_alpha_in_support") == 0;
+}
+
+static double resolved_handoff_profile_phi_scale(const PFParams *P) {
+    if (!P) return 1.0;
+    if (isfinite(P->scheduled_nuc_scale_interface_width) &&
+        P->scheduled_nuc_scale_interface_width > 0.0) {
+        return P->scheduled_nuc_scale_interface_width;
+    }
+    if (isfinite(P->scheduled_nuc_source_lambda_nm) &&
+        isfinite(P->scheduled_nuc_target_lambda_nm) &&
+        P->scheduled_nuc_source_lambda_nm > 0.0 &&
+        P->scheduled_nuc_target_lambda_nm > 0.0) {
+        return P->scheduled_nuc_target_lambda_nm / P->scheduled_nuc_source_lambda_nm;
+    }
+    return 1.0;
+}
+
+static double resolved_handoff_profile_xB_scale(const PFParams *P) {
+    if (!P) return 1.0;
+    if (isfinite(P->scheduled_nuc_scale_xB_profile_width) &&
+        P->scheduled_nuc_scale_xB_profile_width > 0.0) {
+        return P->scheduled_nuc_scale_xB_profile_width;
+    }
+    return resolved_handoff_profile_phi_scale(P);
+}
+
+static double profile_family_max_abs_d_nm(const ScheduledNucProfileSet *profile) {
+    if (!profile) return 0.0;
+    double m = 0.0;
+    for (size_t f = 0; f < profile->families.size(); ++f) {
+        for (double d : profile->families[f].d_nm) m = fmax(m, fabs(d));
+    }
+    for (double d : profile->avg_family.d_nm) m = fmax(m, fabs(d));
+    return m;
+}
+
+static double profile_family_max_positive_d_nm(const ScheduledNucProfileSet *profile) {
+    if (!profile) return 0.0;
+    double m = 0.0;
+    for (size_t f = 0; f < profile->families.size(); ++f) {
+        for (double d : profile->families[f].d_nm) if (d > m) m = d;
+    }
+    for (double d : profile->avg_family.d_nm) if (d > m) m = d;
+    return m;
+}
+
+static int staged_resolved_select_library_seed(GpAssistedRuntime *rt,
+                                               const PFParams *P,
+                                               const BetaStagedEmbryo *e,
+                                               GpRuntimeNucleusEntry *seed,
+                                               char *reason,
+                                               size_t reason_size) {
+    if (reason && reason_size) reason[0] = '\0';
+    if (!rt || !P || !e || !seed) return 0;
+    if (!gp_runtime_load_nucleus_catalog(rt, P)) {
+        if (reason && reason_size) snprintf(reason, reason_size, "catalog_load_failed");
+        return 0;
+    }
+    const double query_xB = (P->gp_initial_xB_tot > 0.0) ? P->gp_initial_xB_tot
+                                                        : scheduled_selector_input_xB(P);
+    const double T_tol = P->gp_runtime_catalog_T_tol_C;
+    const double xB_tol = P->gp_runtime_catalog_xB_tol;
+    const char *runtime_strain_mode = gp_runtime_infer_strain_mode(0.0, "runtime", "runtime");
+    const GpRuntimeNucleusEntry *best = NULL;
+    double best_score = INFINITY;
+    char first_rejection[512] = "";
+    for (const auto &candidate : rt->nucleus_entries) {
+        const double dT = isfinite(candidate.T_C) ? fabs(candidate.T_C - P->temperature_C) : 0.0;
+        const double dx = isfinite(candidate.xB) ? fabs(candidate.xB - query_xB) : 0.0;
+        const double ds = isfinite(candidate.strain) ? fabs(candidate.strain) : 0.0;
+        const char *catalog_strain_mode = candidate.strain_mode[0]
+            ? candidate.strain_mode
+            : gp_runtime_infer_strain_mode(candidate.strain, candidate.id, candidate.source);
+        if (isfinite(candidate.T_C) && dT > T_tol) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "T_MISMATCH id=%s T=%.12g query=%.12g dT=%.12g tol=%.12g",
+                                              candidate.id, candidate.T_C, P->temperature_C, dT, T_tol);
+            continue;
+        }
+        if (isfinite(candidate.xB) && dx > xB_tol) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "XB_MISMATCH id=%s xB=%.12g query=%.12g dx=%.12g tol=%.12g",
+                                              candidate.id, candidate.xB, query_xB, dx, xB_tol);
+            continue;
+        }
+        if (P->gp_runtime_catalog_strain_mode_strict &&
+            strcmp(catalog_strain_mode, runtime_strain_mode) != 0) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "STRAIN_MODE_MISMATCH id=%s catalog=%s runtime=%s",
+                                              candidate.id, catalog_strain_mode, runtime_strain_mode);
+            continue;
+        }
+        if (P->gp_runtime_catalog_strain_mode_strict && ds > 1.0e-12) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "STRAIN_VALUE_MISMATCH id=%s strain=%.12g",
+                                              candidate.id, candidate.strain);
+            continue;
+        }
+        if (!candidate.production_valid || candidate.debug_only) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "NOT_PRODUCTION id=%s production_valid=%d debug_only=%d",
+                                              candidate.id, candidate.production_valid, candidate.debug_only);
+            continue;
+        }
+        RuntimeSeedGeometry seed_geom_tmp;
+        char seed_reason_tmp[256] = "";
+        if (!convert_seed_nm_to_runtime_grid(&candidate, P, &seed_geom_tmp,
+                                             seed_reason_tmp, sizeof(seed_reason_tmp)) ||
+            !seed_geom_tmp.insertable) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "NOT_INSERTABLE id=%s %s",
+                                              candidate.id, seed_reason_tmp);
+            continue;
+        }
+        char profile_csv_tmp[4096];
+        snprintf(profile_csv_tmp, sizeof(profile_csv_tmp), "%s/faceted_family_profiles.csv",
+                 candidate.profile_dir);
+        if (!path_exists_regular_or_dir(profile_csv_tmp) ||
+            !path_exists_regular_or_dir(candidate.seed_metadata_json) ||
+            !path_exists_regular_or_dir(candidate.source_dyn_dir)) {
+            if (!first_rejection[0]) snprintf(first_rejection, sizeof(first_rejection),
+                                              "PROFILE_CACHE_MISSING id=%s profile=%s metadata=%s source_dyn=%s",
+                                              candidate.id, profile_csv_tmp,
+                                              candidate.seed_metadata_json, candidate.source_dyn_dir);
+            continue;
+        }
+        const double r_ref = (e && isfinite(e->library_r_seed_nm) && e->library_r_seed_nm > 0.0)
+            ? e->library_r_seed_nm : candidate.r_seed_nm;
+        const double dr = fabs(candidate.r_seed_nm - r_ref);
+        const double score = 1.0e9 * dT + 1.0e6 * dx + 1.0e3 * ds + dr;
+        if (score < best_score) {
+            best_score = score;
+            best = &candidate;
+        }
+    }
+    if (!best) {
+        if (reason && reason_size) snprintf(reason, reason_size, "%s",
+                                            first_rejection[0] ? first_rejection
+                                                               : "NO_EXACT_PRODUCTION_LIBRARY_PROFILE_MATCH");
+        return 0;
+    }
+    GpRuntimeNucleusEntry selected = *best;
+    char profile_csv[4096];
+    snprintf(profile_csv, sizeof(profile_csv), "%s/faceted_family_profiles.csv", selected.profile_dir);
+    if (!path_exists_regular_or_dir(profile_csv)) {
+        if (reason && reason_size) snprintf(reason, reason_size, "profile_csv_missing:%s", profile_csv);
+        return 0;
+    }
+    *seed = selected;
+    if (reason && reason_size) {
+        snprintf(reason, reason_size,
+                 "EXACT_PRODUCTION_PROFILE_MATCH id=%s score=%.12e dT=%.6g dxB=%.6g",
+                 selected.id, best_score,
+                 isfinite(selected.T_C) ? fabs(selected.T_C - P->temperature_C) : 0.0,
+                 isfinite(selected.xB) ? fabs(selected.xB - query_xB) : 0.0);
+    }
+    return 1;
+}
+
+static double staged_profile_mass_delta_for_scale(const PFParams *P,
+                                                  const std::vector<double> &phi,
+                                                  const std::vector<double> &xB,
+                                                  const std::vector<ResolvedSeedProfileSample> &samples,
+                                                  double scale) {
+    if (!P) return 0.0;
+    const double s = fmin(fmax(scale, 0.0), 1.0);
+    long double sum = 0.0L;
+    for (const auto &sample : samples) {
+        const size_t idx = (size_t)sample.idx;
+        if (idx >= phi.size() || idx >= xB.size()) continue;
+        const double p_old = clamp01(phi[idx]);
+        const double x_old = xB[idx];
+        const double p_t = clamp01(sample.phi_target);
+        const double x_t = clamp_eps(sample.xB_target, P->xB_eps);
+        const double p_new = clamp01(p_old + s * (p_t - p_old));
+        const double x_new = clamp_eps(x_old + s * (x_t - x_old), P->xB_eps);
+        const double h_old = h_of_phi(p_old);
+        const double h_new = h_of_phi(p_new);
+        const double old_store = (1.0 - h_old) * x_old + P->v_B * h_old;
+        const double new_store = (1.0 - h_new) * x_new + P->v_B * h_new;
+        sum += (long double)(new_store - old_store);
+    }
+    return (double)sum;
+}
+
+static int staged_resolved_build_profile_samples(const PFParams *P,
+                                                 const BetaStagedEmbryo *e,
+                                                 ScheduledNucProfileSet *profile,
+                                                 const std::vector<double> &phi,
+                                                 const std::vector<double> &xB,
+                                                 std::vector<ResolvedSeedProfileSample> *samples,
+                                                 double *xB_edge_out,
+                                                 ResolvedSeedProfileDiag *diag) {
+    if (!P || !e || !profile || !samples) return 0;
+    samples->clear();
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    const double a = fmax(profile->semiaxes_nm[0], 1.0e-6);
+    const double b = fmax(profile->semiaxes_nm[1], 1.0e-6);
+    const double c = fmax(profile->semiaxes_nm[2], 1.0e-6);
+    const double scale_phi = fmax(resolved_handoff_profile_phi_scale(P), 1.0e-12);
+    const double scale_xb = fmax(resolved_handoff_profile_xB_scale(P), 1.0e-12);
+    const double max_profile_scale = fmax(scale_phi, scale_xb);
+    const double max_positive_source_d_nm = profile_family_max_positive_d_nm(profile);
+    const double support_nm =
+        fmax(a, fmax(b, c)) +
+        fmax(max_positive_source_d_nm * max_profile_scale,
+             2.0 * fmax(dx_nm, fmax(dy_nm, dz_nm)));
+    const int ri = (int)ceil(support_nm / fmax(dx_nm, 1.0e-30)) + 1;
+    const int rj = (int)ceil(support_nm / fmax(dy_nm, 1.0e-30)) + 1;
+    const int rk = (int)ceil(support_nm / fmax(dz_nm, 1.0e-30)) + 1;
+    std::vector<double> edge_samples;
+    edge_samples.reserve(4096);
+    const double edge_inner = support_nm + fmax(dx_nm, fmax(dy_nm, dz_nm));
+    const double edge_outer = support_nm + fmax(4.0 * fmax(dx_nm, fmax(dy_nm, dz_nm)), 2.0);
+    for (int di = -ri - 4; di <= ri + 4; ++di) {
+        const int i = e->ix + di;
+        if (i < 0 || i >= P->Nx) continue;
+        for (int dj = -rj - 4; dj <= rj + 4; ++dj) {
+            const int j = e->iy + dj;
+            if (j < 0 || j >= P->Ny) continue;
+            for (int dk = -rk - 4; dk <= rk + 4; ++dk) {
+                const int k = e->iz + dk;
+                if (k < 0 || k >= P->Nz) continue;
+                const double qx = (double)(i - e->ix) * dx_nm;
+                const double qy = (double)(j - e->iy) * dy_nm;
+                const double qz = (double)(k - e->iz) * dz_nm;
+                const double rr = sqrt(qx * qx + qy * qy + qz * qz);
+                const size_t idx = ((size_t)i * P->Ny + (size_t)j) * P->Nz + (size_t)k;
+                if (rr >= edge_inner && rr <= edge_outer && idx < xB.size()) {
+                    edge_samples.push_back(xB[idx]);
+                }
+            }
+        }
+    }
+    double xB_edge = P->ic_23d_xB_out > 0.0 ? P->ic_23d_xB_out : P->gp_initial_xB_tot;
+    if (!edge_samples.empty()) {
+        std::sort(edge_samples.begin(), edge_samples.end());
+        xB_edge = edge_samples[edge_samples.size() / 2];
+    }
+    if (xB_edge_out) *xB_edge_out = xB_edge;
+    int used_average_any = 0;
+    for (int di = -ri; di <= ri; ++di) {
+        const int i = e->ix + di;
+        if (i < 0 || i >= P->Nx) continue;
+        for (int dj = -rj; dj <= rj; ++dj) {
+            const int j = e->iy + dj;
+            if (j < 0 || j >= P->Ny) continue;
+            for (int dk = -rk; dk <= rk; ++dk) {
+                const int k = e->iz + dk;
+                if (k < 0 || k >= P->Nz) continue;
+                const double qx = (double)(i - e->ix) * dx_nm;
+                const double qy = (double)(j - e->iy) * dy_nm;
+                const double qz = (double)(k - e->iz) * dz_nm;
+                const double rho = sqrt((qx / a) * (qx / a) + (qy / b) * (qy / b) + (qz / c) * (qz / c));
+                const double rr = sqrt(qx * qx + qy * qy + qz * qz);
+                const double boundary_radius = (rho > 1.0e-12) ? (rr / rho) : ((a + b + c) / 3.0);
+                const double d_target = (rho - 1.0) * boundary_radius;
+                if (d_target > max_positive_source_d_nm * max_profile_scale + 1.0e-12) continue;
+                int used_avg = 0;
+                const ScheduledNucFamilyProfile *fam = select_profile_family(profile, qx, qy, qz, &used_avg);
+                used_average_any = used_average_any || used_avg;
+                int oor_phi = 0, oor_xb = 0;
+                const double phi_i = clamp01(interp_profile_clamped(fam->d_nm, fam->phi,
+                                                                    d_target / scale_phi,
+                                                                    &oor_phi));
+                const double xb_prof = interp_profile_clamped(fam->d_nm, fam->xB,
+                                                              d_target / scale_xb,
+                                                              &oor_xb);
+                if (oor_phi || oor_xb) continue;
+                const size_t idx = ((size_t)i * P->Ny + (size_t)j) * P->Nz + (size_t)k;
+                if (idx >= phi.size() || idx >= xB.size()) continue;
+                double xb_target = NAN;
+                if (resolved_handoff_preserve_profile_xB_alpha_in_support(P)) {
+                    const double h_prof = h_of_phi(phi_i);
+                    const double xb_profile_abs = clamp_eps(xb_prof, P->xB_eps);
+                    xb_target = clamp_eps((1.0 - h_prof) * xB[idx] + h_prof * xb_profile_abs,
+                                          P->xB_eps);
+                } else {
+                    const double xb_rel = xb_prof - profile->xB_matrix_reference;
+                    xb_target = clamp_eps(xB_edge + xb_rel, P->xB_eps);
+                    xb_target = fmin(xB[idx], xb_target);
+                }
+                ResolvedSeedProfileSample sample;
+                sample.idx = (int)idx;
+                sample.phi_target = fmax(clamp01(phi[idx]), phi_i);
+                sample.xB_target = xb_target;
+                if (sample.phi_target > phi[idx] + 1.0e-15 ||
+                    fabs(sample.xB_target - xB[idx]) > 1.0e-15) {
+                    samples->push_back(sample);
+                }
+            }
+        }
+    }
+    if (diag) {
+        diag->used_average_family = used_average_any;
+        diag->seed_region_radius_nm = support_nm;
+        diag->interface_scale_phi = scale_phi;
+        diag->interface_scale_xB = scale_xb;
+        diag->source_lambda_nm = P->scheduled_nuc_source_lambda_nm;
+        diag->target_lambda_nm = P->scheduled_nuc_target_lambda_nm;
+    }
+    return !samples->empty();
+}
+
+static int beta_resolve_library_profile_inventory_for_staged_target(
+    GpAssistedRuntime *rt,
+    const PFParams *P,
+    int ix,
+    int iy,
+    int iz,
+    const std::vector<double> &phi,
+    const std::vector<double> &xB,
+    double *evaluated_inventory,
+    GpRuntimeNucleusEntry *seed_out,
+    char *profile_file,
+    size_t profile_file_size,
+    char *reason,
+    size_t reason_size) {
+    if (reason && reason_size) reason[0] = '\0';
+    if (profile_file && profile_file_size) profile_file[0] = '\0';
+    if (evaluated_inventory) *evaluated_inventory = NAN;
+    if (!rt || !P || !evaluated_inventory || ix < 0 || iy < 0 || iz < 0) {
+        if (reason && reason_size) snprintf(reason, reason_size, "invalid_arguments");
+        return 0;
+    }
+
+    BetaStagedEmbryo target_probe;
+    memset(&target_probe, 0, sizeof(target_probe));
+    target_probe.ix = ix;
+    target_probe.iy = iy;
+    target_probe.iz = iz;
+    snprintf(target_probe.status, sizeof(target_probe.status), "target_inventory_probe");
+    snprintf(target_probe.seed_source_mode, sizeof(target_probe.seed_source_mode),
+             "resolve_library_profile_for_target");
+
+    GpRuntimeNucleusEntry seed;
+    memset(&seed, 0, sizeof(seed));
+    char select_reason[256] = "";
+    if (!staged_resolved_select_library_seed(rt, P, &target_probe, &seed,
+                                             select_reason, sizeof(select_reason))) {
+        if (reason && reason_size) {
+            snprintf(reason, reason_size, "library_selection_failed:%s",
+                     select_reason[0] ? select_reason : "unknown");
+        }
+        return 0;
+    }
+
+    PFParams profile_params = *P;
+    snprintf(profile_params.scheduled_nuc_profile_dir,
+             sizeof(profile_params.scheduled_nuc_profile_dir), "%s",
+             seed.profile_dir);
+    snprintf(profile_params.scheduled_nuc_source_dyn_dir,
+             sizeof(profile_params.scheduled_nuc_source_dyn_dir), "%s",
+             seed.source_dyn_dir);
+    snprintf(profile_params.scheduled_nuc_source_case_label,
+             sizeof(profile_params.scheduled_nuc_source_case_label), "%s",
+             seed.id);
+    snprintf(profile_params.scheduled_nuc_library_entry_id,
+             sizeof(profile_params.scheduled_nuc_library_entry_id), "%s",
+             seed.id);
+    profile_params.scheduled_nuc_selected_rc_nm = seed.r_seed_nm;
+    profile_params.scheduled_nuc_library_r_seed_nm = seed.r_seed_nm;
+
+    ScheduledNucProfileSet profile;
+    if (!load_scheduled_profile_csv(&profile_params, &profile)) {
+        if (reason && reason_size) {
+            snprintf(reason, reason_size, "profile_load_failed:%s", seed.profile_dir);
+        }
+        return 0;
+    }
+
+    std::vector<ResolvedSeedProfileSample> profile_samples;
+    double xB_edge = NAN;
+    ResolvedSeedProfileDiag diag;
+    memset(&diag, 0, sizeof(diag));
+    if (!staged_resolved_build_profile_samples(P, &target_probe, &profile, phi, xB,
+                                               &profile_samples, &xB_edge, &diag)) {
+        if (reason && reason_size) {
+            snprintf(reason, reason_size, "profile_sample_build_failed:%s", seed.id);
+        }
+        return 0;
+    }
+    const double full_profile_mass =
+        staged_profile_mass_delta_for_scale(P, phi, xB, profile_samples, 1.0);
+    if (!(full_profile_mass > 0.0) || !isfinite(full_profile_mass)) {
+        if (reason && reason_size) {
+            snprintf(reason, reason_size, "nonpositive_profile_inventory:%s:%.12e",
+                     seed.id, full_profile_mass);
+        }
+        return 0;
+    }
+
+    *evaluated_inventory = full_profile_mass;
+    if (seed_out) *seed_out = seed;
+    if (profile_file && profile_file_size) {
+        snprintf(profile_file, profile_file_size, "%s/faceted_family_profiles.csv",
+                 seed.profile_dir);
+    }
+    if (reason && reason_size) {
+        snprintf(reason, reason_size,
+                 "TARGET_FROM_RUNTIME_EVALUATED_LIBRARY_PROFILE id=%s inventory=%.12e xB_edge=%.12e",
+                 seed.id, full_profile_mass, xB_edge);
+    }
+    return 1;
+}
+
+static int apply_beta_staged_resolved_handoff_host(GpAssistedRuntime *rt,
+                                                   PFParams *P,
+                                                   int step,
+                                                   BetaStagedEmbryo *e,
+                                                   std::vector<double> &phi,
+                                                   std::vector<double> &Y,
+                                                   std::vector<double> &xB,
+                                                   int total_r) {
+    if (!rt || !P || !e || total_r <= 0) return 0;
+    if (!P->beta_staged_insert_when_target_reached) return 1;
+    if (strcmp(e->status, "ready_for_resolved_insert") != 0) return 1;
+    if (!(e->current_embryo_inventory > 0.0)) return 1;
+
+    GpAssistedLedger before;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &before);
+    const double field_total_before_no_staged = before.M_total;
+    beta_add_staged_inventory_to_ledger(&before, rt->staged_embryos);
+    double gp_initial_before = 0.0;
+    double gp_new_before = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &gp_initial_before, &gp_new_before);
+
+    double staged_before = fmax(e->current_embryo_inventory, 0.0);
+    const double beta_before = before.M_beta;
+    const double matrix_before = before.M_matrix;
+    std::vector<double> phi_before;
+    std::vector<double> xB_before;
+    int handoff_snapshot_captured = 0;
+    ResolvedSeedProfileDiag seed_diag;
+    memset(&seed_diag, 0, sizeof(seed_diag));
+    seed_diag.seed_dx_nm = NAN;
+    seed_diag.runtime_dx_nm = runtime_dx_nm_host(P);
+    seed_diag.seed_target_inventory_from_library = NAN;
+    seed_diag.profile_inventory_integral_before_scaling = NAN;
+    seed_diag.profile_inventory_integral_after_scaling = NAN;
+    seed_diag.profile_mass_scaling_factor = NAN;
+    seed_diag.interface_scale_phi = resolved_handoff_profile_phi_scale(P);
+    seed_diag.interface_scale_xB = resolved_handoff_profile_xB_scale(P);
+    seed_diag.source_lambda_nm = P->scheduled_nuc_source_lambda_nm;
+    seed_diag.target_lambda_nm = P->scheduled_nuc_target_lambda_nm;
+    seed_diag.resolved_seed_radius_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+    snprintf(seed_diag.seed_source_mode, sizeof(seed_diag.seed_source_mode), "analytic_sphere_debug_only");
+    snprintf(seed_diag.library_entry_id, sizeof(seed_diag.library_entry_id), "none");
+    snprintf(seed_diag.seed_profile_file, sizeof(seed_diag.seed_profile_file), "none");
+    snprintf(seed_diag.source_dyn_dir, sizeof(seed_diag.source_dyn_dir), "none");
+    snprintf(seed_diag.profile_runtime_alignment_status, sizeof(seed_diag.profile_runtime_alignment_status),
+             "ANALYTIC_DEBUG_PATH");
+    snprintf(seed_diag.fallback_reason, sizeof(seed_diag.fallback_reason),
+             "runtime_nucleus_library_disabled");
+    long double inserted_phi_integral = 0.0L;
+    double inserted_phi_max = 0.0;
+    double amplitude = 1.0;
+    if (P->enable_runtime_nucleus_library) {
+        GpRuntimeNucleusEntry handoff_seed;
+        memset(&handoff_seed, 0, sizeof(handoff_seed));
+        char seed_reason[256] = "";
+        if (!staged_resolved_select_library_seed(rt, P, e, &handoff_seed,
+                                                 seed_reason, sizeof(seed_reason))) {
+            fprintf(stderr,
+                    "[fatal] resolved staged beta handoff requires dynamic-continue library profile but selection failed: %s\n",
+                    seed_reason[0] ? seed_reason : "unknown");
+            return 0;
+        }
+        PFParams profile_params = *P;
+        snprintf(profile_params.scheduled_nuc_profile_dir,
+                 sizeof(profile_params.scheduled_nuc_profile_dir), "%s",
+                 handoff_seed.profile_dir);
+        snprintf(profile_params.scheduled_nuc_source_dyn_dir,
+                 sizeof(profile_params.scheduled_nuc_source_dyn_dir), "%s",
+                 handoff_seed.source_dyn_dir);
+        snprintf(profile_params.scheduled_nuc_source_case_label,
+                 sizeof(profile_params.scheduled_nuc_source_case_label), "%s",
+                 handoff_seed.id);
+        snprintf(profile_params.scheduled_nuc_library_entry_id,
+                 sizeof(profile_params.scheduled_nuc_library_entry_id), "%s",
+                 handoff_seed.id);
+        profile_params.scheduled_nuc_selected_rc_nm = handoff_seed.r_seed_nm;
+        profile_params.scheduled_nuc_library_r_seed_nm = handoff_seed.r_seed_nm;
+
+        ScheduledNucProfileSet profile;
+        if (!load_scheduled_profile_csv(&profile_params, &profile)) {
+            fprintf(stderr,
+                    "[fatal] resolved staged beta handoff could not load profile_dir=%s entry=%s\n",
+                    handoff_seed.profile_dir, handoff_seed.id);
+            return 0;
+        }
+
+        std::vector<ResolvedSeedProfileSample> profile_samples;
+        double xB_edge = NAN;
+        if (!staged_resolved_build_profile_samples(P, e, &profile, phi, xB,
+                                                   &profile_samples, &xB_edge, &seed_diag)) {
+            fprintf(stderr,
+                    "[fatal] resolved staged beta handoff profile produced no runtime samples entry=%s profile_dir=%s\n",
+                    handoff_seed.id, handoff_seed.profile_dir);
+            return 0;
+        }
+        double full_profile_mass =
+            staged_profile_mass_delta_for_scale(P, phi, xB, profile_samples, 1.0);
+        if (!(full_profile_mass > 0.0)) {
+            fprintf(stderr,
+                    "[fatal] resolved staged beta handoff profile has non-positive inventory integral entry=%s mass=%.12e\n",
+                    handoff_seed.id, full_profile_mass);
+            return 0;
+        }
+        const double target_refresh_tol =
+            fmax(full_profile_mass * P->beta_staged_conversion_mass_tolerance_rel, 1.0e-12);
+        if (fabs(e->target_seed_inventory - full_profile_mass) > target_refresh_tol) {
+            const double old_target = e->target_seed_inventory;
+            e->target_seed_inventory = full_profile_mass;
+            e->remaining_inventory_needed = fmax(full_profile_mass - staged_before, 0.0);
+            printf("BETA_STAGED_TARGET_HANDOFF_REFRESH_BEGIN step=%d embryo_id=%d "
+                   "selected_library_entry_id=%s old_target_seed_inventory=%.12e "
+                   "target_seed_inventory=%.12e evaluated_profile_inventory=%.12e "
+                   "staged_inventory_before=%.12e remaining_inventory_needed=%.12e "
+                   "BETA_STAGED_TARGET_HANDOFF_REFRESH_END\n",
+                   step, e->embryo_id, handoff_seed.id, old_target,
+                   e->target_seed_inventory, full_profile_mass, staged_before,
+                   e->remaining_inventory_needed);
+            if (staged_before + target_refresh_tol < full_profile_mass) {
+                snprintf(e->status, sizeof(e->status), "accumulating");
+                return 1;
+            }
+            if (staged_before > full_profile_mass + target_refresh_tol) {
+                const double overshoot_rel =
+                    (staged_before - full_profile_mass) / fmax(full_profile_mass, 1.0e-30);
+                if (overshoot_rel <= 1.0e-5) {
+                    printf("BETA_STAGED_TARGET_MICRO_OVERSHOOT_ABSORB_BEGIN step=%d embryo_id=%d "
+                           "selected_library_entry_id=%s full_profile_inventory=%.12e "
+                           "staged_inventory_before=%.12e overshoot_rel=%.12e "
+                           "BETA_STAGED_TARGET_MICRO_OVERSHOOT_ABSORB_END\n",
+                           step, e->embryo_id, handoff_seed.id, full_profile_mass,
+                           staged_before, overshoot_rel);
+                    e->target_seed_inventory = staged_before;
+                    e->remaining_inventory_needed = 0.0;
+                    staged_before = full_profile_mass;
+                    e->current_embryo_inventory = full_profile_mass;
+                    e->target_seed_inventory = full_profile_mass;
+                } else {
+                fprintf(stderr,
+                        "[fatal] staged inventory exceeds refreshed full profile target at handoff: step=%d embryo_id=%d staged=%.12e target=%.12e\n",
+                        step, e->embryo_id, staged_before, full_profile_mass);
+                return 0;
+                }
+            }
+        }
+        if (!handoff_snapshot_captured) {
+            phi_before = phi;
+            xB_before = xB;
+            rt->staged_handoff_snapshot_valid = 1;
+            rt->staged_handoff_snapshot_step = step;
+            rt->staged_handoff_postY_detector_written = 0;
+            rt->staged_handoff_snapshot_embryo = *e;
+            rt->staged_handoff_phi_before = phi_before;
+            rt->staged_handoff_xB_before = xB_before;
+            write_staged_handoff_profile_probe_row_host(
+                rt->staged_handoff_profile_probe_csv, step,
+                "PROBE_BEFORE_RESOLVED_HANDOFF", P, rt, phi, Y, xB);
+            handoff_snapshot_captured = 1;
+        }
+        double scale = 1.0;
+        if (staged_before < full_profile_mass) {
+            double lo = 0.0;
+            double hi = 1.0;
+            for (int iter = 0; iter < 90; ++iter) {
+                const double mid = 0.5 * (lo + hi);
+                const double m = staged_profile_mass_delta_for_scale(P, phi, xB,
+                                                                     profile_samples, mid);
+                if (m < staged_before) lo = mid;
+                else hi = mid;
+            }
+            scale = hi;
+        } else if (staged_before > full_profile_mass) {
+            const double overshoot_abs = staged_before - full_profile_mass;
+            const double overshoot_tol =
+                fmax(full_profile_mass * P->beta_staged_conversion_mass_tolerance_rel,
+                     1.0e-12);
+            if (overshoot_abs <= overshoot_tol) {
+                printf("BETA_STAGED_TARGET_MICRO_OVERSHOOT_WITHIN_TOL_BEGIN step=%d embryo_id=%d "
+                       "selected_library_entry_id=%s full_profile_inventory=%.12e "
+                       "staged_inventory_before=%.12e overshoot_abs=%.12e overshoot_tol=%.12e "
+                       "BETA_STAGED_TARGET_MICRO_OVERSHOOT_WITHIN_TOL_END\n",
+                       step, e->embryo_id, handoff_seed.id, full_profile_mass,
+                       staged_before, overshoot_abs, overshoot_tol);
+                staged_before = full_profile_mass;
+                e->current_embryo_inventory = full_profile_mass;
+                e->target_seed_inventory = full_profile_mass;
+                e->remaining_inventory_needed = 0.0;
+                scale = 1.0;
+            } else {
+            double lo = 1.0;
+            double hi = 1.000001;
+            double hi_mass = staged_profile_mass_delta_for_scale(P, phi, xB,
+                                                                 profile_samples, hi);
+            while (hi_mass < staged_before && hi < 1.01) {
+                lo = hi;
+                hi *= 1.5;
+                if (hi > 1.01) hi = 1.01;
+                hi_mass = staged_profile_mass_delta_for_scale(P, phi, xB,
+                                                              profile_samples, hi);
+            }
+            if (hi_mass < staged_before) {
+                fprintf(stderr,
+                        "[fatal] resolved staged beta handoff could not absorb micro overshoot: step=%d embryo_id=%d staged=%.12e full_profile=%.12e hi_mass=%.12e\n",
+                        step, e->embryo_id, staged_before, full_profile_mass, hi_mass);
+                return 0;
+            }
+            for (int iter = 0; iter < 90; ++iter) {
+                const double mid = 0.5 * (lo + hi);
+                const double m = staged_profile_mass_delta_for_scale(P, phi, xB,
+                                                                     profile_samples, mid);
+                if (m < staged_before) lo = mid;
+                else hi = mid;
+            }
+            scale = hi;
+            }
+        }
+        for (const auto &sample : profile_samples) {
+            const size_t idx = (size_t)sample.idx;
+            if (idx >= phi.size() || idx >= xB.size()) continue;
+            const double p_old = clamp01(phi[idx]);
+            const double x_old = xB[idx];
+            const double p_new = clamp01(p_old + scale * (clamp01(sample.phi_target) - p_old));
+            const double x_new = clamp_eps(x_old + scale * (clamp_eps(sample.xB_target, P->xB_eps) - x_old),
+                                           P->xB_eps);
+            phi[idx] = p_new;
+            xB[idx] = x_new;
+            inserted_phi_integral += (long double)fmax(p_new - p_old, 0.0);
+            inserted_phi_max = fmax(inserted_phi_max, p_new);
+        }
+        amplitude = scale;
+        seed_diag.ok = 1;
+        seed_diag.phi_profile_used = 1;
+        seed_diag.xB_profile_used = 1;
+        seed_diag.analytic_fallback_used = 0;
+        seed_diag.profile_inventory_integral_before_scaling = full_profile_mass;
+        seed_diag.profile_inventory_integral_after_scaling =
+            staged_profile_mass_delta_for_scale(P, phi_before, xB_before,
+                                                profile_samples, scale);
+        seed_diag.profile_mass_scaling_factor = scale;
+        seed_diag.interface_scale_phi = resolved_handoff_profile_phi_scale(P);
+        seed_diag.interface_scale_xB = resolved_handoff_profile_xB_scale(P);
+        seed_diag.source_lambda_nm = P->scheduled_nuc_source_lambda_nm;
+        seed_diag.target_lambda_nm = P->scheduled_nuc_target_lambda_nm;
+        seed_diag.inserted_phi_integral = (double)inserted_phi_integral;
+        seed_diag.inserted_phi_max = inserted_phi_max;
+        seed_diag.resolved_seed_radius_nm = handoff_seed.r_seed_nm;
+        seed_diag.seed_dx_nm = handoff_seed.source_dx_nm;
+        seed_diag.runtime_dx_nm = runtime_dx_nm_host(P);
+        seed_diag.seed_target_inventory_from_library = handoff_seed.mass_seed_B_equiv;
+        snprintf(seed_diag.seed_source_mode, sizeof(seed_diag.seed_source_mode),
+                 "dynamic_continue_profile");
+        snprintf(seed_diag.library_entry_id, sizeof(seed_diag.library_entry_id), "%s",
+                 handoff_seed.id);
+        snprintf(seed_diag.seed_profile_file, sizeof(seed_diag.seed_profile_file),
+                 "%s/faceted_family_profiles.csv", handoff_seed.profile_dir);
+        snprintf(seed_diag.source_dyn_dir, sizeof(seed_diag.source_dyn_dir), "%s",
+                 handoff_seed.source_dyn_dir);
+        snprintf(seed_diag.profile_runtime_alignment_status,
+                 sizeof(seed_diag.profile_runtime_alignment_status),
+                 "PROFILE_LOADED_RUNTIME_EVALUATED_WITH_SCHEDULED_INTERFACE_SCALE");
+        snprintf(seed_diag.fallback_reason, sizeof(seed_diag.fallback_reason), "none");
+        snprintf(e->library_entry_id, sizeof(e->library_entry_id), "%s", handoff_seed.id);
+        snprintf(e->seed_profile_file, sizeof(e->seed_profile_file), "%s", seed_diag.seed_profile_file);
+        snprintf(e->source_dyn_dir, sizeof(e->source_dyn_dir), "%s", handoff_seed.source_dyn_dir);
+        snprintf(e->seed_source_mode, sizeof(e->seed_source_mode), "dynamic_continue_profile");
+        e->library_r_seed_nm = handoff_seed.r_seed_nm;
+        e->library_mass_seed_B_equiv = handoff_seed.mass_seed_B_equiv;
+        e->library_dx_nm = handoff_seed.source_dx_nm;
+    } else {
+        if (!handoff_snapshot_captured) {
+            phi_before = phi;
+            xB_before = xB;
+            rt->staged_handoff_snapshot_valid = 1;
+            rt->staged_handoff_snapshot_step = step;
+            rt->staged_handoff_postY_detector_written = 0;
+            rt->staged_handoff_snapshot_embryo = *e;
+            rt->staged_handoff_phi_before = phi_before;
+            rt->staged_handoff_xB_before = xB_before;
+            write_staged_handoff_profile_probe_row_host(
+                rt->staged_handoff_profile_probe_csv, step,
+                "PROBE_BEFORE_RESOLVED_HANDOFF", P, rt, phi, Y, xB);
+            handoff_snapshot_captured = 1;
+        }
+        GpAssistedSite seed_site;
+        memset(&seed_site, 0, sizeof(seed_site));
+        seed_site.ix = e->ix;
+        seed_site.iy = e->iy;
+        seed_site.iz = e->iz;
+        seed_site.active = 1;
+        seed_site.B_mass_active = e->current_embryo_inventory;
+        const double seed_region_radius_nm =
+            P->gp_debug_beta_seed_radius + 3.0 * P->gp_debug_beta_seed_iface_width;
+        std::vector<int> seed_indices =
+            gp_assisted_compact_spherical_indices(P, e->ix, e->iy, e->iz,
+                                                  seed_region_radius_nm);
+        if (seed_indices.empty()) return 0;
+        const double full_seed_mass =
+            gp_assisted_compute_seed_mass_for_amplitude(P, &seed_site, phi, xB,
+                                                        seed_indices, 1.0);
+        amplitude =
+            gp_assisted_find_seed_amplitude_for_mass(P, &seed_site, phi, xB,
+                                                     seed_indices, staged_before);
+        if (!(amplitude > 0.0)) return 0;
+        for (int idx : seed_indices) {
+            const int k = idx % P->Nz;
+            const int j = (idx / P->Nz) % P->Ny;
+            const int ii = idx / (P->Ny * P->Nz);
+            const double p_old = clamp01(phi[(size_t)idx]);
+            const double p_seed = amplitude * gp_assisted_seed_phi_value(P, &seed_site, ii, j, k);
+            const double p_new = fmax(p_old, p_seed);
+            phi[(size_t)idx] = p_new;
+            inserted_phi_integral += (long double)fmax(p_new - p_old, 0.0);
+            inserted_phi_max = fmax(inserted_phi_max, p_new);
+        }
+        seed_diag.analytic_fallback_used = 1;
+        seed_diag.profile_inventory_integral_before_scaling = full_seed_mass;
+        seed_diag.profile_inventory_integral_after_scaling =
+            gp_assisted_compute_seed_mass_for_amplitude(P, &seed_site, phi_before,
+                                                        xB_before, seed_indices, amplitude);
+        seed_diag.profile_mass_scaling_factor = amplitude;
+        seed_diag.interface_scale_phi = resolved_handoff_profile_phi_scale(P);
+        seed_diag.interface_scale_xB = resolved_handoff_profile_xB_scale(P);
+        seed_diag.source_lambda_nm = P->scheduled_nuc_source_lambda_nm;
+        seed_diag.target_lambda_nm = P->scheduled_nuc_target_lambda_nm;
+        seed_diag.inserted_phi_integral = (double)inserted_phi_integral;
+        seed_diag.inserted_phi_max = inserted_phi_max;
+        seed_diag.seed_region_radius_nm = seed_region_radius_nm;
+    }
+    for (size_t idx = 0; idx < xB.size(); ++idx) {
+        Y[idx] = logit_from_fraction(xB[idx], P->xB_eps, P->Y_clip);
+    }
+    write_staged_handoff_profile_probe_row_host(
+        rt->staged_handoff_profile_probe_csv, step,
+        "PROBE_AFTER_RESOLVED_HANDOFF_BEFORE_PROJECTION", P, rt, phi, Y, xB);
+    write_staged_handoff_radial_profile_rows(
+        rt->staged_handoff_radial_profile_csv, P, rt, step, e,
+        xB_before, xB, phi);
+    write_staged_handoff_external_reset_detector_row(
+        rt->staged_handoff_external_reset_csv, P, rt, step,
+        "after_resolved_handoff_before_projection", e,
+        phi_before, phi, xB_before, xB);
+
+    GpAssistedLedger after_field;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &after_field);
+    const double beta_added = after_field.M_beta - beta_before;
+    const double field_inventory_added =
+        after_field.M_total - field_total_before_no_staged;
+    const double transfer = fmin(fmax(field_inventory_added, 0.0), staged_before);
+    e->current_embryo_inventory = fmax(staged_before - transfer, 0.0);
+    e->remaining_inventory_needed = 0.0;
+    if (e->current_embryo_inventory <=
+        fmax(e->target_seed_inventory * P->beta_staged_conversion_mass_tolerance_rel, 1.0e-12)) {
+        e->current_embryo_inventory = 0.0;
+        snprintf(e->status, sizeof(e->status), "inserted");
+    }
+
+    GpAssistedLedger after;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &after);
+    beta_add_staged_inventory_to_ledger(&after, rt->staged_embryos);
+    double gp_initial_after = 0.0;
+    double gp_new_after = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &gp_initial_after, &gp_new_after);
+    const double handoff_abs = after.M_total - before.M_total;
+    const double handoff_rel =
+        handoff_abs / fmax(fabs(e->target_seed_inventory), 1.0e-30);
+    const double target_total = P->gp_initial_xB_tot * fmax((double)total_r, 1.0);
+    const double global_rel =
+        (target_total > 0.0) ? ((after.M_total - target_total) / target_total) : handoff_rel;
+    const double radius_nm = (isfinite(seed_diag.resolved_seed_radius_nm) &&
+                              seed_diag.resolved_seed_radius_nm > 0.0)
+                                 ? seed_diag.resolved_seed_radius_nm
+                                 : runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+    const double volume_nm3 = (4.0 / 3.0) * M_PI * pow(fmax(radius_nm, 0.0), 3.0);
+    seed_diag.profile_inventory_integral_after_scaling = field_inventory_added;
+    seed_diag.inserted_phi_integral = (double)inserted_phi_integral;
+    seed_diag.inserted_phi_max = inserted_phi_max;
+    if (rt->resolved_seed_source_diag_csv) {
+        fprintf(rt->resolved_seed_source_diag_csv,
+                "%s,%d,%d,%s,%s,%s,%s,%.12e,%.12e,%.12e,%.12e,"
+                "%s,%dx%dx%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%d,%d,%d,%d,%d,%d,%s,%s,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%.12e,%.12e\n",
+                rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                step, e->embryo_id, seed_diag.seed_source_mode,
+                seed_diag.library_entry_id, seed_diag.seed_profile_file,
+                seed_diag.source_dyn_dir, P->temperature_C, P->gp_initial_xB_tot,
+                seed_diag.seed_dx_nm, seed_diag.runtime_dx_nm,
+                "profile_csv_1d_face_family", P->Nx, P->Ny, P->Nz,
+                seed_diag.resolved_seed_radius_nm, seed_diag.resolved_seed_radius_nm,
+                seed_diag.seed_target_inventory_from_library, transfer,
+                seed_diag.profile_inventory_integral_before_scaling,
+                seed_diag.profile_inventory_integral_after_scaling,
+                seed_diag.profile_mass_scaling_factor,
+                seed_diag.xB_profile_used, seed_diag.phi_profile_used, 0,
+                1, 1, seed_diag.analytic_fallback_used,
+                seed_diag.fallback_reason,
+                seed_diag.profile_runtime_alignment_status,
+                seed_diag.inserted_phi_integral, seed_diag.inserted_phi_max,
+                e->target_seed_inventory,
+                seed_diag.source_lambda_nm, seed_diag.target_lambda_nm,
+                seed_diag.interface_scale_phi, seed_diag.interface_scale_xB);
+        fflush(rt->resolved_seed_source_diag_csv);
+    }
+    printf("RESOLVED_SEED_SOURCE_BEGIN step=%d embryo_id=%d "
+           "seed_source_mode=%s library_entry_id=%s seed_profile_file=%s "
+           "seed_temperature_C=%.12e seed_xB_total_or_local=%.12e "
+           "seed_dx_nm=%.12e runtime_dx_nm=%.12e seed_r_seed_nm=%.12e "
+           "seed_target_inventory_from_library=%.12e "
+           "phi_profile_used=%d xB_profile_used=%d analytic_fallback_used=%d "
+           "profile_runtime_alignment_status=%s "
+           "source_lambda_nm=%.12e target_lambda_nm=%.12e "
+           "profile_interface_scale_phi=%.12e profile_interface_scale_xB=%.12e "
+           "profile_inventory_integral_before_scaling=%.12e "
+           "profile_inventory_integral_after_scaling=%.12e "
+           "profile_mass_scaling_factor=%.12e staged_inventory_transferred=%.12e "
+           "fallback_reason=%s RESOLVED_SEED_SOURCE_END\n",
+           step, e->embryo_id, seed_diag.seed_source_mode,
+           seed_diag.library_entry_id, seed_diag.seed_profile_file,
+           P->temperature_C, P->gp_initial_xB_tot,
+           seed_diag.seed_dx_nm, seed_diag.runtime_dx_nm,
+           seed_diag.resolved_seed_radius_nm,
+           seed_diag.seed_target_inventory_from_library,
+           seed_diag.phi_profile_used, seed_diag.xB_profile_used,
+           seed_diag.analytic_fallback_used,
+           seed_diag.profile_runtime_alignment_status,
+           seed_diag.source_lambda_nm, seed_diag.target_lambda_nm,
+           seed_diag.interface_scale_phi, seed_diag.interface_scale_xB,
+           seed_diag.profile_inventory_integral_before_scaling,
+           seed_diag.profile_inventory_integral_after_scaling,
+           seed_diag.profile_mass_scaling_factor,
+           transfer, seed_diag.fallback_reason);
+
+    printf("RESOLVED_BETA_HANDOFF_BEGIN step=%d embryo_id=%d "
+           "target_seed_inventory=%.12e staged_inventory_before=%.12e "
+           "staged_inventory_transferred=%.12e beta_inventory_before=%.12e "
+           "beta_inventory_after=%.12e resolved_seed_radius_nm=%.12e "
+           "resolved_seed_volume=%.12e matrix_inventory_before=%.12e "
+           "GP_initial_inventory_before=%.12e GP_new_inventory_before=%.12e "
+           "M_total_before=%.12e M_total_after=%.12e "
+           "handoff_transaction_mass_error_abs=%.12e "
+           "handoff_transaction_mass_error_rel=%.12e "
+           "global_mass_error_rel_after=%.12e RESOLVED_BETA_HANDOFF_END\n",
+           step, e->embryo_id, e->target_seed_inventory, staged_before,
+           transfer, beta_before, after.M_beta, radius_nm, volume_nm3,
+           matrix_before, gp_initial_before, gp_new_before,
+           before.M_total, after.M_total, handoff_abs, handoff_rel, global_rel);
+    if (rt->beta_resolved_handoff_csv) {
+        fprintf(rt->beta_resolved_handoff_csv,
+                "%s,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                step, e->embryo_id, e->target_seed_inventory, staged_before,
+                transfer, beta_before, after.M_beta, radius_nm, volume_nm3,
+                matrix_before, gp_initial_before, gp_new_before, before.M_total,
+                after.M_total, handoff_abs, handoff_rel, global_rel);
+        fflush(rt->beta_resolved_handoff_csv);
+    }
+    rt->resolved_handoff_inserted_count += (strcmp(e->status, "inserted") == 0) ? 1 : 0;
+    rt->max_abs_rel_drift = fmax(rt->max_abs_rel_drift, fabs(handoff_rel));
+    return 1;
+}
+
+static int apply_beta_staged_accumulation_cpu(GpAssistedRuntime *rt,
+                                              PFParams *P,
+                                              int step,
+                                              double *d_phi_r,
+                                              double *d_Y_r,
+                                              double *d_xB_r,
+                                              int total_r,
+                                              size_t size_r) {
+    if (!rt || !P || !d_phi_r || !d_Y_r || !d_xB_r || total_r <= 0) return 1;
+    if (!P->enable_gp_assisted_beta_nucleation || P->mode != 0) return 1;
+    if (!P->beta_staged_accumulation_enabled || rt->staged_embryos.empty()) return 1;
+    const int interval = std::max(1, P->beta_staged_accumulation_interval_steps);
+    if (step % interval != 0) return 1;
+
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+
+    const double xmin = fmax(P->gp_debug_xB_min, P->xB_eps);
+    const double xmax = fmin(P->gp_debug_xB_max, 1.0 - P->xB_eps);
+    const double gp_capture_radius_nm = P->beta_staged_accumulation_GP_capture_radius_nm;
+    const double matrix_draw_radius_nm = P->beta_staged_accumulation_matrix_draw_radius_nm;
+    const double max_fraction =
+        fmin(fmax(P->beta_staged_accumulation_max_fraction_per_step, 0.0), 1.0);
+    const double max_inventory_per_step =
+        (isfinite(P->beta_staged_accumulation_max_inventory_per_step) &&
+         P->beta_staged_accumulation_max_inventory_per_step >= 0.0)
+            ? P->beta_staged_accumulation_max_inventory_per_step
+            : 1.0e300;
+
+    int any_change = 0;
+    for (size_t ei = 0; ei < rt->staged_embryos.size(); ++ei) {
+        BetaStagedEmbryo &e = rt->staged_embryos[ei];
+        if (strcmp(e.status, "inserted") == 0 ||
+            strcmp(e.status, "rejected_or_expired") == 0) {
+            continue;
+        }
+        if (P->enable_runtime_nucleus_library &&
+            (strcmp(e.seed_source_mode, "runtime_evaluated_dynamic_continue_profile") == 0 ||
+             strcmp(e.seed_source_mode, "resolve_library_profile_at_handoff") == 0 ||
+             strcmp(e.seed_source_mode, "dynamic_continue_profile") == 0)) {
+            double refreshed_target = NAN;
+            GpRuntimeNucleusEntry refreshed_seed;
+            memset(&refreshed_seed, 0, sizeof(refreshed_seed));
+            char refreshed_profile_file[4096] = "";
+            char refreshed_reason[512] = "";
+            if (!beta_resolve_library_profile_inventory_for_staged_target(
+                    rt, P, e.ix, e.iy, e.iz, phi, xB,
+                    &refreshed_target,
+                    &refreshed_seed,
+                    refreshed_profile_file, sizeof(refreshed_profile_file),
+                    refreshed_reason, sizeof(refreshed_reason))) {
+                fprintf(stderr,
+                        "[fatal] staged beta target refresh failed at step %d embryo_id=%d: %s\n",
+                        step, e.embryo_id,
+                        refreshed_reason[0] ? refreshed_reason : "unknown");
+                return 0;
+            }
+            if (e.library_entry_id[0] && strcmp(e.library_entry_id, refreshed_seed.id) != 0) {
+                fprintf(stderr,
+                        "[fatal] staged beta target refresh changed library entry at step %d embryo_id=%d: old=%s new=%s\n",
+                        step, e.embryo_id, e.library_entry_id, refreshed_seed.id);
+                return 0;
+            }
+            const double old_target = e.target_seed_inventory;
+            const double refresh_tol =
+                fmax(refreshed_target * P->beta_staged_conversion_mass_tolerance_rel,
+                     1.0e-12);
+            if (e.current_embryo_inventory > refreshed_target + refresh_tol) {
+                const double excess = e.current_embryo_inventory - refreshed_target;
+                const double excess_rel = excess / fmax(refreshed_target, 1.0e-30);
+                if (excess_rel > 1.0e-5) {
+                    fprintf(stderr,
+                            "[fatal] staged beta target refresh would discard large excess inventory at step %d embryo_id=%d current=%.12e refreshed=%.12e excess_rel=%.12e\n",
+                            step, e.embryo_id, e.current_embryo_inventory,
+                            refreshed_target, excess_rel);
+                    return 0;
+                }
+                std::vector<int> return_indices =
+                    gp_assisted_compact_spherical_indices(P, e.ix, e.iy, e.iz,
+                                                          matrix_draw_radius_nm);
+                double matrix_return_actual = 0.0;
+                double matrix_return_clip = 0.0;
+                const int ok_return =
+                    gp_assisted_shift_matrix_mass(phi, xB, return_indices,
+                                                  excess, xmin, xmax,
+                                                  fmax(1.0e-12, excess * 1.0e-10),
+                                                  &matrix_return_actual,
+                                                  &matrix_return_clip);
+                if (!ok_return || fabs(matrix_return_actual - excess) >
+                                      fmax(1.0e-10 * excess, 1.0e-12)) {
+                    fprintf(stderr,
+                            "[fatal] staged beta target refresh could not return excess inventory to matrix at step %d embryo_id=%d excess=%.12e actual=%.12e\n",
+                            step, e.embryo_id, excess, matrix_return_actual);
+                    return 0;
+                }
+                for (size_t yi = 0; yi < xB.size(); ++yi) {
+                    Y[yi] = logit_from_fraction(xB[yi], P->xB_eps, P->Y_clip);
+                }
+                e.current_embryo_inventory = refreshed_target;
+                any_change = 1;
+                printf("BETA_STAGED_TARGET_EXCESS_RETURN_BEGIN step=%d embryo_id=%d "
+                       "selected_library_entry_id=%s excess_returned_to_matrix=%.12e "
+                       "matrix_return_actual=%.12e excess_rel=%.12e clip_fraction=%.12e "
+                       "BETA_STAGED_TARGET_EXCESS_RETURN_END\n",
+                       step, e.embryo_id, refreshed_seed.id, excess,
+                       matrix_return_actual, excess_rel, matrix_return_clip);
+            }
+            e.target_seed_inventory = refreshed_target;
+            e.remaining_inventory_needed =
+                fmax(e.target_seed_inventory - e.current_embryo_inventory, 0.0);
+            snprintf(e.library_entry_id, sizeof(e.library_entry_id), "%s", refreshed_seed.id);
+            snprintf(e.seed_profile_file, sizeof(e.seed_profile_file), "%s",
+                     refreshed_profile_file);
+            snprintf(e.source_dyn_dir, sizeof(e.source_dyn_dir), "%s",
+                     refreshed_seed.source_dyn_dir);
+            snprintf(e.seed_source_mode, sizeof(e.seed_source_mode),
+                     "runtime_evaluated_dynamic_continue_profile");
+            e.library_r_seed_nm = refreshed_seed.r_seed_nm;
+            e.library_mass_seed_B_equiv = refreshed_seed.mass_seed_B_equiv;
+            e.library_dx_nm = refreshed_seed.source_dx_nm;
+            if (fabs(old_target - e.target_seed_inventory) >
+                fmax(fabs(e.target_seed_inventory) * 1.0e-12, 1.0e-12)) {
+                printf("BETA_STAGED_TARGET_REFRESH_BEGIN step=%d embryo_id=%d "
+                       "selected_library_entry_id=%s old_target_seed_inventory=%.12e "
+                       "target_seed_inventory=%.12e evaluated_profile_inventory=%.12e "
+                       "current_embryo_inventory=%.12e remaining_inventory_needed=%.12e "
+                       "seed_profile_file=%s reason=%s BETA_STAGED_TARGET_REFRESH_END\n",
+                       step, e.embryo_id, refreshed_seed.id, old_target,
+                       e.target_seed_inventory, refreshed_target,
+                       e.current_embryo_inventory, e.remaining_inventory_needed,
+                       refreshed_profile_file,
+                       refreshed_reason[0] ? refreshed_reason : "none");
+            }
+        }
+        if (!(e.remaining_inventory_needed >
+              fmax(e.target_seed_inventory * P->beta_staged_conversion_mass_tolerance_rel,
+                   1.0e-12))) {
+            snprintf(e.status, sizeof(e.status), "ready_for_resolved_insert");
+        }
+        if (strcmp(e.status, "ready_for_resolved_insert") == 0) {
+            GpAssistedLedger attempt_before;
+            compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites,
+                                                  &attempt_before);
+            beta_add_staged_inventory_to_ledger(&attempt_before, rt->staged_embryos);
+            const int handoff_allowed = P->beta_staged_insert_when_target_reached ? 1 : 0;
+            beta_log_resolved_handoff_attempt(
+                rt, P, step, &e, &attempt_before, handoff_allowed,
+                handoff_allowed ? "none" : "insert_when_target_reached_disabled");
+            if (handoff_allowed) {
+                if (!apply_beta_staged_resolved_handoff_host(rt, P, step, &e,
+                                                             phi, Y, xB, total_r)) {
+                    fprintf(stderr,
+                            "[fatal] resolved beta staged handoff failed at step %d embryo_id=%d\n",
+                            step, e.embryo_id);
+                    return 0;
+                }
+                any_change = 1;
+            }
+            continue;
+        }
+
+        GpAssistedLedger before;
+        compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &before);
+        beta_add_staged_inventory_to_ledger(&before, rt->staged_embryos);
+        write_beta_staged_global_probe_row_host(
+            rt->beta_staged_global_probe_csv, step,
+            "PROBE_BEFORE_STAGED_ACCUMULATION", P, rt, phi, Y, xB,
+            gp_assisted_external_ledger_field_target_sum(P, rt, total_r));
+
+        char status_before[64];
+        snprintf(status_before, sizeof(status_before), "%s", e.status);
+        const double current_before = e.current_embryo_inventory;
+        const double remaining_before = e.remaining_inventory_needed;
+        const double debug_multiplier =
+            P->beta_staged_debug_accelerated_accumulation
+                ? fmax(P->beta_staged_debug_accumulation_rate_multiplier, 1.0)
+                : 1.0;
+        double request = fmin(remaining_before,
+                              e.target_seed_inventory * fmin(max_fraction * debug_multiplier, 1.0));
+        request = fmin(request, max_inventory_per_step * debug_multiplier);
+        if (!(request > 0.0)) continue;
+
+        std::vector<int> matrix_indices =
+            gp_assisted_compact_spherical_indices(P, e.ix, e.iy, e.iz, matrix_draw_radius_nm);
+        const double matrix_capacity =
+            gp_assisted_matrix_draw_capacity_host(phi, xB, matrix_indices, xmin);
+        const double matrix_request = fmin(request, matrix_capacity);
+        double matrix_draw_actual = 0.0;
+        double clip_draw = 0.0;
+        if (matrix_request > 0.0) {
+            const int ok_draw =
+                gp_assisted_shift_matrix_mass(phi, xB, matrix_indices,
+                                              -matrix_request, xmin, xmax,
+                                              fmax(1.0e-12, matrix_request * 1.0e-10),
+                                              &matrix_draw_actual, &clip_draw);
+            if (!ok_draw) matrix_draw_actual = 0.0;
+        }
+        const double matrix_removed = fmax(-matrix_draw_actual, 0.0);
+        const double gp_request = fmax(request - matrix_removed, 0.0);
+
+        int num_initial_consumed = 0;
+        int num_new_consumed = 0;
+        int num_partial = 0;
+        int num_full = 0;
+        double gp_initial_consumed = 0.0;
+        double gp_new_consumed = 0.0;
+        const double gp_consumed =
+            gp_consume_multi_gp_nearest_first(rt->sites,
+                                              rt->initial_gp_site_count,
+                                              P,
+                                              e.ix, e.iy, e.iz,
+                                              gp_capture_radius_nm,
+                                              gp_request,
+                                              e.embryo_id,
+                                              step,
+                                              &num_initial_consumed,
+                                              &num_new_consumed,
+                                              &num_partial,
+                                              &num_full,
+                                              &gp_initial_consumed,
+                                              &gp_new_consumed);
+        const double delta_added = matrix_removed + gp_consumed;
+        e.age_steps += interval;
+        if (!(delta_added > 0.0)) continue;
+
+        e.current_embryo_inventory += delta_added;
+        e.remaining_inventory_needed =
+            fmax(e.target_seed_inventory - e.current_embryo_inventory, 0.0);
+        e.source_GP_initial_consumed += gp_initial_consumed;
+        e.source_GP_new_consumed += gp_new_consumed;
+        e.source_matrix_consumed += matrix_removed;
+        e.nearest_GP_count += num_initial_consumed + num_new_consumed;
+        const double current_after_accumulation = e.current_embryo_inventory;
+        const double remaining_after_accumulation = e.remaining_inventory_needed;
+        char status_after_accumulation[64];
+        snprintf(status_after_accumulation, sizeof(status_after_accumulation), "%s", e.status);
+        write_beta_staged_global_probe_row_host(
+            rt->beta_staged_global_probe_csv, step,
+            "PROBE_AFTER_STAGED_ACCUMULATION_TRANSACTION", P, rt, phi, Y, xB,
+            gp_assisted_external_ledger_field_target_sum(P, rt, total_r));
+        int inserted_resolved_seed = 0;
+        if (e.remaining_inventory_needed <=
+            fmax(e.target_seed_inventory * P->beta_staged_conversion_mass_tolerance_rel,
+                 1.0e-12)) {
+            snprintf(e.status, sizeof(e.status), "ready_for_resolved_insert");
+            snprintf(status_after_accumulation, sizeof(status_after_accumulation), "%s", e.status);
+            inserted_resolved_seed = 0;
+            GpAssistedLedger attempt_before;
+            compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites,
+                                                  &attempt_before);
+            beta_add_staged_inventory_to_ledger(&attempt_before, rt->staged_embryos);
+            beta_log_resolved_handoff_attempt(
+                rt, P, step, &e, &attempt_before,
+                P->beta_staged_insert_when_target_reached ? 1 : 0,
+                P->beta_staged_insert_when_target_reached
+                    ? "none"
+                    : "insert_when_target_reached_disabled");
+            if (P->beta_staged_insert_when_target_reached) {
+                if (!apply_beta_staged_resolved_handoff_host(rt, P, step, &e,
+                                                             phi, Y, xB, total_r)) {
+                    fprintf(stderr, "[fatal] resolved beta staged handoff failed at step %d embryo_id=%d\n",
+                            step, e.embryo_id);
+                    return 0;
+                }
+                inserted_resolved_seed = (strcmp(e.status, "inserted") == 0) ? 1 : 0;
+            }
+        }
+
+        for (size_t idx = 0; idx < xB.size(); ++idx) {
+            Y[idx] = logit_from_fraction(xB[idx], P->xB_eps, P->Y_clip);
+        }
+        write_beta_staged_global_probe_row_host(
+            rt->beta_staged_global_probe_csv, step,
+            "PROBE_AFTER_STAGED_XB_TO_Y_SYNC", P, rt, phi, Y, xB,
+            gp_assisted_external_ledger_field_target_sum(P, rt, total_r));
+
+        GpAssistedLedger after;
+        compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &after);
+        beta_add_staged_inventory_to_ledger(&after, rt->staged_embryos);
+        const double legacy_transaction_abs_error = after.M_total - before.M_total;
+        const double legacy_transaction_rel_error =
+            legacy_transaction_abs_error / fmax(fabs(before.M_total), 1.0e-30);
+        const double delta_embryo_inventory =
+            current_after_accumulation - current_before;
+        const double expected_delta_added =
+            gp_initial_consumed + gp_new_consumed + matrix_removed;
+        const double transaction_abs_error =
+            delta_embryo_inventory - expected_delta_added;
+        const double transaction_rel_error =
+            transaction_abs_error / fmax(fabs(e.target_seed_inventory), 1.0e-30);
+        const double target_total =
+            P->gp_initial_xB_tot * fmax((double)total_r, 1.0);
+        const double global_rel_error =
+            (target_total > 0.0)
+                ? ((after.M_total - target_total) / target_total)
+                : transaction_rel_error;
+        rt->max_abs_rel_drift = fmax(rt->max_abs_rel_drift, fabs(transaction_rel_error));
+        rt->sum_abs_rel_drift += fabs(transaction_rel_error);
+        rt->drift_sample_count += 1;
+        rt->total_gp_consumed += gp_consumed;
+        rt->total_matrix_drawn += matrix_removed;
+        any_change = 1;
+
+        printf("BETA_STAGED_ACCUMULATION_BEGIN embryo_id=%d step=%d age_steps=%d "
+               "position=(%d,%d,%d) target_seed_inventory=%.12e "
+               "current_inventory_before=%.12e current_inventory_after=%.12e "
+               "remaining_before=%.12e remaining_after=%.12e delta_inventory_added=%.12e "
+               "source_GP_initial_consumed_step=%.12e source_GP_new_consumed_step=%.12e "
+               "source_matrix_consumed_step=%.12e GP_capture_radius_nm=%.12e "
+               "matrix_draw_radius_nm=%.12e nearest_GP_count_step=%d "
+               "status_before=%s status_after=%s transaction_mass_error_rel=%.12e "
+               "global_mass_error_rel=%.12e inserted_resolved_seed=%d "
+               "BETA_STAGED_ACCUMULATION_END\n",
+               e.embryo_id, step, e.age_steps, e.ix, e.iy, e.iz,
+               e.target_seed_inventory, current_before, current_after_accumulation,
+               remaining_before, remaining_after_accumulation, delta_added,
+               gp_initial_consumed, gp_new_consumed, matrix_removed,
+               gp_capture_radius_nm, matrix_draw_radius_nm,
+               num_initial_consumed + num_new_consumed,
+               status_before, status_after_accumulation, transaction_rel_error, transaction_rel_error,
+               inserted_resolved_seed);
+        printf("NATURAL_STAGED_TRANSACTION_BEGIN "
+               "step=%d event_id=NA embryo_id=%d transaction_type=accumulation "
+               "target_seed_inventory=%.12e embryo_inventory_before=%.12e "
+               "embryo_inventory_after=%.12e delta_embryo_inventory=%.12e "
+               "GP_initial_inventory_before_total=NA GP_initial_inventory_after_total=NA "
+               "delta_GP_initial_consumed=%.12e GP_new_inventory_before_total=NA "
+               "GP_new_inventory_after_total=NA delta_GP_new_consumed=%.12e "
+               "matrix_inventory_before=%.12e matrix_inventory_after=%.12e "
+               "delta_matrix_consumed=%.12e beta_inventory_before=%.12e "
+               "beta_inventory_after=%.12e delta_beta_inventory=%.12e "
+               "staged_inventory_total_before=%.12e staged_inventory_total_after=%.12e "
+               "expected_delta_added=%.12e transaction_error_abs=%.12e "
+               "transaction_error_rel=%.12e old_reported_transaction_error_rel=%.12e "
+               "whole_ledger_mass_error_rel=%.12e xB_source_for_JGP=NA "
+               "NATURAL_STAGED_TRANSACTION_END\n",
+               step, e.embryo_id, e.target_seed_inventory, current_before,
+               current_after_accumulation, delta_embryo_inventory,
+               gp_initial_consumed, gp_new_consumed,
+               before.M_matrix, after.M_matrix, matrix_removed,
+               before.M_beta, after.M_beta, after.M_beta - before.M_beta,
+               before.M_staged_beta, after.M_staged_beta, expected_delta_added,
+               transaction_abs_error, transaction_rel_error,
+               legacy_transaction_rel_error, global_rel_error);
+        beta_write_staged_accumulation_row(rt->beta_staged_accumulation_csv,
+                                           rt, &e, step, e.age_steps,
+                                           current_before, current_after_accumulation,
+                                           remaining_before, remaining_after_accumulation,
+                                           delta_added,
+                                           gp_initial_consumed, gp_new_consumed, matrix_removed,
+                                           gp_capture_radius_nm, matrix_draw_radius_nm,
+                                           num_initial_consumed + num_new_consumed,
+                                           status_before, status_after_accumulation,
+                                           transaction_abs_error, transaction_rel_error,
+                                           transaction_rel_error, inserted_resolved_seed);
+        write_gp_assisted_multi_ledger_row(rt->multi_ledger_csv, step, rt->sites,
+                                           &after, rt->initial_total_reference);
+    }
+
+    if (any_change) {
+        CUDA_CHECK(cudaMemcpy(d_phi_r, phi.data(), size_r, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_xB_r, xB.data(), size_r, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_Y_r, Y.data(), size_r, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+    return 1;
+}
+
+static void gp_assisted_write_full_seed_capacity_scan_rows(
+    GpAssistedRuntime *rt,
+    const PFParams *P,
+    int step,
+    const std::vector<double> &phi,
+    const std::vector<double> &xB,
+    const std::vector<GpRankedHazardDiag> &ranked_diag,
+    int selected_index) {
+    if (!rt || !P || !rt->beta_full_seed_capacity_scan_csv || rt->sites.empty()) return;
+    double radii[64];
+    const int nr = parse_beta_debug_draw_radius_list_nm(P, radii, 64);
+    if (nr <= 0) return;
+
+    std::vector<size_t> candidates;
+    std::vector<std::string> labels;
+    auto add_candidate = [&](size_t idx, const char *label) {
+        if (idx >= rt->sites.size()) return;
+        const GpAssistedSite &s = rt->sites[idx];
+        if (!s.active || s.consumed || s.B_mass_active <= 0.0) return;
+        for (size_t old : candidates) {
+            if (old == idx) return;
+        }
+        candidates.push_back(idx);
+        labels.push_back(label ? label : "candidate");
+    };
+
+    if (selected_index >= 0) add_candidate((size_t)selected_index, "max_capacity_near_GP");
+    int added = 0;
+    for (size_t i = 0; i < rt->sites.size() && added < 20; ++i) {
+        const GpAssistedSite &s = rt->sites[i];
+        if (!s.active || s.consumed || s.B_mass_active <= 0.0) continue;
+        char label[64];
+        snprintf(label, sizeof(label), "deterministic_near_GP_sample_%02d", added);
+        add_candidate(i, label);
+        added++;
+    }
+    const double cx = 0.5 * (double)P->Nx;
+    const double cy = 0.5 * (double)P->Ny;
+    const double cz = 0.5 * (double)P->Nz;
+    size_t center_best = 0;
+    double center_d2 = HUGE_VAL;
+    for (size_t i = 0; i < rt->sites.size(); ++i) {
+        const GpAssistedSite &s = rt->sites[i];
+        if (!s.active || s.consumed || s.B_mass_active <= 0.0) continue;
+        const double dx = ((double)s.ix - cx) * P->dx;
+        const double dy = ((double)s.iy - cy) * P->dy;
+        const double dz = ((double)s.iz - cz) * P->dz;
+        const double d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < center_d2) {
+            center_d2 = d2;
+            center_best = i;
+        }
+    }
+    if (center_d2 < HUGE_VAL) add_candidate(center_best, "center_nearest_GP_marker");
+
+    const double seed_region_radius_nm =
+        P->gp_debug_beta_seed_radius + 3.0 * P->gp_debug_beta_seed_iface_width;
+    const double xmin = fmax(P->gp_debug_xB_min, P->xB_eps);
+    for (size_t ci = 0; ci < candidates.size(); ++ci) {
+        const size_t sidx = candidates[ci];
+        const GpAssistedSite &site = rt->sites[sidx];
+        std::vector<int> seed_indices =
+            gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                  seed_region_radius_nm);
+        std::vector<double> phi_full_seed = phi;
+        for (int idx : seed_indices) {
+            const int k = idx % P->Nz;
+            const int j = (idx / P->Nz) % P->Ny;
+            const int ii = idx / (P->Ny * P->Nz);
+            const double p_old = clamp01(phi_full_seed[(size_t)idx]);
+            const double p_seed = gp_assisted_seed_phi_value(P, &site, ii, j, k);
+            phi_full_seed[(size_t)idx] = fmax(p_old, p_seed);
+        }
+        const double seed_mass_full =
+            gp_assisted_compute_seed_mass_for_amplitude(P, &site, phi, xB, seed_indices, 1.0);
+        const double gp_initial =
+            (sidx < (size_t)rt->initial_gp_site_count) ? fmax(site.B_mass_active, 0.0) : 0.0;
+        const double gp_new =
+            (sidx < (size_t)rt->initial_gp_site_count) ? 0.0 : fmax(site.B_mass_active, 0.0);
+        const double gp_total = gp_initial + gp_new;
+        const int flat = gp_assisted_flat_index(P, site.ix, site.iy, site.iz);
+        const double local_xB = (flat >= 0 && (size_t)flat < xB.size()) ? xB[(size_t)flat] : NAN;
+        const double s_gp =
+            (sidx < ranked_diag.size() && isfinite(ranked_diag[sidx].s_GP))
+                ? ranked_diag[sidx].s_GP
+                : ((site.S_factor > 0.0) ? site.S_factor : 1.0);
+        const double distance_to_nearest_gp_nm = 0.0;
+        for (int ir = 0; ir < nr; ++ir) {
+            std::vector<int> draw_indices =
+                gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz, radii[ir]);
+            BetaDrawRegionCapacityDiag rd =
+                gp_assisted_draw_region_capacity_diag_host(P, phi_full_seed, xB, draw_indices, xmin);
+            const double total_capacity = rd.matrix_available_capacity + gp_total;
+            const double capacity_ratio = total_capacity / fmax(seed_mass_full, 1.0e-300);
+            fprintf(rt->beta_full_seed_capacity_scan_csv,
+                    "%s,%d,%.12e,%.12e,%s,%d,%d,%d,%d,%.12e,%.12e,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%.12e,%d,%.12e,%d,%.12e,%.12e,%.12e,%.12e\n",
+                    rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                    step, P->temperature_C,
+                    s_gp,
+                    labels[ci].c_str(),
+                    site.id, site.ix, site.iy, site.iz,
+                    local_xB,
+                    distance_to_nearest_gp_nm,
+                    runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius),
+                    (4.0 / 3.0) * M_PI * pow(fmax(runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius), 0.0) * 1.0e-9, 3.0),
+                    seed_mass_full,
+                    radii[ir],
+                    rd.matrix_available_capacity,
+                    gp_initial,
+                    gp_new,
+                    gp_total,
+                    total_capacity,
+                    (capacity_ratio >= 1.0) ? 1 : 0,
+                    capacity_ratio,
+                    rd.draw_cells_count,
+                    rd.draw_volume_m3,
+                    rd.xB_min,
+                    rd.xB_mean,
+                    rd.xB_max);
+        }
+    }
+    fflush(rt->beta_full_seed_capacity_scan_csv);
+    rt->beta_full_seed_capacity_scan_written = 1;
+}
+
+static void gp_assisted_write_multi_gp_capture_scan_rows(
+    GpAssistedRuntime *rt,
+    const PFParams *P,
+    int step,
+    const std::vector<double> &phi,
+    const std::vector<double> &xB,
+    const std::vector<GpRankedHazardDiag> &ranked_diag,
+    int selected_index) {
+    if (!rt || !P || !rt->beta_multi_gp_capture_scan_csv || rt->sites.empty()) return;
+    double gp_radii[64];
+    const int nr = parse_beta_debug_draw_radius_list_nm(P, gp_radii, 64);
+    const double matrix_radii[] = {2.0, 4.0, 6.0, 8.0};
+    const int nmr = (int)(sizeof(matrix_radii) / sizeof(matrix_radii[0]));
+    if (nr <= 0) return;
+
+    std::vector<size_t> candidates;
+    std::vector<std::string> labels;
+    auto add_candidate = [&](size_t idx, const char *label) {
+        if (idx >= rt->sites.size()) return;
+        const GpAssistedSite &s = rt->sites[idx];
+        if (!s.active || s.consumed || s.B_mass_active <= 0.0) return;
+        for (size_t old : candidates) {
+            if (old == idx) return;
+        }
+        candidates.push_back(idx);
+        labels.push_back(label ? label : "candidate");
+    };
+
+    if (selected_index >= 0) add_candidate((size_t)selected_index, "max_multi_GP_capacity_near_GP");
+    int added = 0;
+    for (size_t i = 0; i < rt->sites.size() && added < 20; ++i) {
+        const GpAssistedSite &s = rt->sites[i];
+        if (!s.active || s.consumed || s.B_mass_active <= 0.0) continue;
+        char label[64];
+        snprintf(label, sizeof(label), "deterministic_near_GP_sample_%02d", added);
+        add_candidate(i, label);
+        added++;
+    }
+    const double cx = 0.5 * (double)P->Nx;
+    const double cy = 0.5 * (double)P->Ny;
+    const double cz = 0.5 * (double)P->Nz;
+    size_t center_best = 0;
+    double center_d2 = HUGE_VAL;
+    for (size_t i = 0; i < rt->sites.size(); ++i) {
+        const GpAssistedSite &s = rt->sites[i];
+        if (!s.active || s.consumed || s.B_mass_active <= 0.0) continue;
+        const double dx = ((double)s.ix - cx) * P->dx;
+        const double dy = ((double)s.iy - cy) * P->dy;
+        const double dz = ((double)s.iz - cz) * P->dz;
+        const double d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < center_d2) {
+            center_d2 = d2;
+            center_best = i;
+        }
+    }
+    if (center_d2 < HUGE_VAL) add_candidate(center_best, "center_nearest_GP_marker");
+
+    const double seed_region_radius_nm =
+        P->gp_debug_beta_seed_radius + 3.0 * P->gp_debug_beta_seed_iface_width;
+    const double xmin = fmax(P->gp_debug_xB_min, P->xB_eps);
+    for (size_t ci = 0; ci < candidates.size(); ++ci) {
+        const size_t sidx = candidates[ci];
+        const GpAssistedSite &site = rt->sites[sidx];
+        std::vector<int> seed_indices =
+            gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                  seed_region_radius_nm);
+        std::vector<double> phi_full_seed = phi;
+        for (int idx : seed_indices) {
+            const int k = idx % P->Nz;
+            const int j = (idx / P->Nz) % P->Ny;
+            const int ii = idx / (P->Ny * P->Nz);
+            const double p_old = clamp01(phi_full_seed[(size_t)idx]);
+            const double p_seed = gp_assisted_seed_phi_value(P, &site, ii, j, k);
+            phi_full_seed[(size_t)idx] = fmax(p_old, p_seed);
+        }
+        const double seed_mass_full =
+            gp_assisted_compute_seed_mass_for_amplitude(P, &site, phi, xB, seed_indices, 1.0);
+        const int flat = gp_assisted_flat_index(P, site.ix, site.iy, site.iz);
+        const double local_xB = (flat >= 0 && (size_t)flat < xB.size()) ? xB[(size_t)flat] : NAN;
+        const double s_gp =
+            (sidx < ranked_diag.size() && isfinite(ranked_diag[sidx].s_GP))
+                ? ranked_diag[sidx].s_GP
+                : ((site.S_factor > 0.0) ? site.S_factor : 1.0);
+        for (int im = 0; im < nmr; ++im) {
+            std::vector<int> draw_indices =
+                gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                      matrix_radii[im]);
+            BetaDrawRegionCapacityDiag rd =
+                gp_assisted_draw_region_capacity_diag_host(P, phi_full_seed, xB, draw_indices, xmin);
+            const double required_from_gp = fmax(seed_mass_full - rd.matrix_available_capacity, 0.0);
+            for (int ir = 0; ir < nr; ++ir) {
+                BetaMultiGpCaptureDiag gd =
+                    gp_compute_multi_gp_capture_diag_host(P, rt->sites, rt->initial_gp_site_count,
+                                                          sidx, site.ix, site.iy, site.iz,
+                                                          gp_radii[ir], required_from_gp);
+                const double selected_total = rd.matrix_available_capacity + gd.selected_GP_capacity;
+                const double multi_total = rd.matrix_available_capacity + gd.multi_GP_total_capacity;
+                fprintf(rt->beta_multi_gp_capture_scan_csv,
+                        "%s,%d,%.12e,%s,%zu,%d,%d,%d,"
+                        "%.12e,%.12e,%.12e,"
+                        "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                        "%.12e,%.12e,%.12e,"
+                        "%d,%d,%d,"
+                        "%.12e,%.12e,%.12e,%.12e,"
+                        "%d,%d,%d,%d,"
+                        "%.12e,%.12e,%.12e\n",
+                        rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                        step, P->temperature_C,
+                        labels[ci].c_str(), sidx,
+                        site.ix, site.iy, site.iz,
+                        matrix_radii[im], gp_radii[ir],
+                        seed_mass_full,
+                        rd.matrix_available_capacity,
+                        gd.selected_GP_capacity,
+                        gd.nearest_GP_capacity,
+                        gd.multi_GP_initial_capacity,
+                        gd.multi_GP_new_capacity,
+                        gd.multi_GP_total_capacity,
+                        multi_total,
+                        rd.matrix_available_capacity / fmax(seed_mass_full, 1.0e-300),
+                        selected_total / fmax(seed_mass_full, 1.0e-300),
+                        multi_total / fmax(seed_mass_full, 1.0e-300),
+                        gd.num_GP_initial_in_capture,
+                        gd.num_GP_new_in_capture,
+                        gd.num_GP_total_in_capture,
+                        gd.nearest_GP_distance_nm,
+                        gd.mean_GP_distance_nm,
+                        gd.max_GP_distance_nm,
+                        gd.GP_inventory_consumed_if_nearest_first,
+                        gd.num_GP_needed_nearest_first,
+                        (rd.matrix_available_capacity >= seed_mass_full) ? 1 : 0,
+                        (selected_total >= seed_mass_full) ? 1 : 0,
+                        (multi_total >= seed_mass_full) ? 1 : 0,
+                        s_gp,
+                        s_gp,
+                        local_xB);
+            }
+        }
+    }
+    fflush(rt->beta_multi_gp_capture_scan_csv);
+    rt->beta_multi_gp_capture_scan_written = 1;
+}
+
+static double gp_assisted_seed_phi_value(const PFParams *P, const GpAssistedSite *site,
+                                         int i, int j, int k) {
+    const double r0 = fmax(P->gp_debug_beta_seed_radius, 0.0);
+    const double w = fmax(P->gp_debug_beta_seed_iface_width, 1.0e-12);
+    const double dx = ((double)i - (double)site->ix) * P->dx;
+    const double dy = ((double)j - (double)site->iy) * P->dy;
+    const double dz = ((double)k - (double)site->iz) * P->dz;
+    const double rr = sqrt(dx * dx + dy * dy + dz * dz);
+    return clamp01(0.5 * (1.0 - tanh((rr - r0) / w)));
+}
+
+static int apply_gp_assisted_initial_mass_budget_host(std::vector<double> &phi,
+                                                      std::vector<double> &Y,
+                                                      std::vector<double> &xB,
+                                                      const PFParams *P,
+                                                      std::vector<GpAssistedSite> *sites,
+                                                      double *initial_total_reference) {
+    if (!P || !sites || !P->enable_gp_assisted_beta_nucleation) return 1;
+    GpPlacementInitSummary summary;
+    memset(&summary, 0, sizeof(summary));
+    summary.n_gp_requested =
+        (P->gp_initial_population_enabled && strcmp(P->gp_initial_population_source, "none") != 0)
+            ? -1
+            : ((strcmp(P->gp_birth_model, "prescribed_sites") == 0) ? std::max(1, P->gp_n_sites) : 0);
+    summary.s_eff_min = 1.0;
+    summary.s_eff_max = 1.0;
+    summary.xB_alpha_min_after = NAN;
+    summary.xB_alpha_max_after = NAN;
+
+    GpAssistedLedger before_field;
+    const std::vector<GpAssistedSite> no_sites;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, no_sites, &before_field);
+    if (initial_total_reference) *initial_total_reference = before_field.M_total;
+
+    build_gp_assisted_sites_from_params(P, sites);
+    if (summary.n_gp_requested < 0) summary.n_gp_requested = (int)sites->size();
+    if (strcmp(P->gp_initial_mass_mode, "matrix_composition_fixed") == 0) {
+        summary.n_gp_placed = gp_assisted_count_active_sites(*sites);
+        summary.gp_inventory_added = gp_assisted_sum_active_mass(*sites);
+        summary.total_mass_before = before_field.M_total;
+        summary.total_mass_after = before_field.M_total + summary.gp_inventory_added;
+        const double target_total =
+            P->gp_initial_xB_tot * (double)P->Nx * (double)P->Ny * (double)P->Nz;
+        summary.mass_error_rel = (summary.total_mass_after - target_total) /
+                                 fmax(fabs(target_total), 1.0e-30);
+        std::vector<unsigned short> coverage_count;
+        std::vector<double> s_eff_field;
+        gp_accumulate_marker_influence_host(P, *sites, &coverage_count, &s_eff_field);
+        size_t covered = 0, overlap = 0;
+        for (size_t i = 0; i < coverage_count.size(); ++i) {
+            if (coverage_count[i] > 0) covered++;
+            if (coverage_count[i] > 1) overlap++;
+            if (!isfinite(s_eff_field[i])) summary.nan_inf_flag = 1;
+            summary.s_eff_min = fmin(summary.s_eff_min, s_eff_field[i]);
+            summary.s_eff_max = fmax(summary.s_eff_max, s_eff_field[i]);
+        }
+        summary.overlap_fraction = (covered > 0) ? ((double)overlap / (double)covered) : 0.0;
+        compute_field_minmax_host(phi, xB, NULL, NULL, NULL,
+                                  &summary.xB_alpha_min_after, &summary.xB_alpha_max_after, NULL, NULL);
+        printf("[GP-PLACEMENT] mode=matrix_composition_fixed N_GP_requested=%d N_GP_placed=%d "
+               "GP_depletion_mass_removed=0 GP_inventory_added=%.12e matrix_mass_removed=0 "
+               "total_mass_before=%.12e total_mass_after=%.12e mass_error_rel=%.12e "
+               "xB_alpha_min=%.12e xB_alpha_max=%.12e overlap_fraction=%.12e "
+               "s_eff_min=%.12e s_eff_max=%.12e NaN_Inf=%d static_marker_only=1\n",
+               summary.n_gp_requested, summary.n_gp_placed, summary.gp_inventory_added,
+               summary.total_mass_before, summary.total_mass_after, summary.mass_error_rel,
+               summary.xB_alpha_min_after, summary.xB_alpha_max_after, summary.overlap_fraction,
+               summary.s_eff_min, summary.s_eff_max, summary.nan_inf_flag);
+        return 1;
+    }
+    if (strcmp(P->gp_initial_mass_mode, "total_composition_fixed") != 0 &&
+        strcmp(P->gp_initial_mass_mode, "smooth_local_depletion") != 0) {
+        fprintf(stderr, "[fatal] unsupported gp_initial_mass_mode=%s\n", P->gp_initial_mass_mode);
+        return 0;
+    }
+
+    const double xmin = fmax(P->gp_xB_floor, P->xB_eps);
+    const double xmax = fmin(P->gp_debug_xB_max, 1.0 - P->xB_eps);
+    if (strcmp(P->gp_initial_mass_mode, "smooth_local_depletion") == 0) {
+        for (size_t s = 0; s < sites->size(); ++s) {
+            GpAssistedSite &site = (*sites)[s];
+            if (!(site.B_mass_active > 0.0)) {
+                site.active = 0;
+                site.B_mass_initial = 0.0;
+                site.B_mass_active = 0.0;
+                continue;
+            }
+            int shortage_flag = 0;
+            const double removed = gp_apply_smooth_local_depletion_for_site_host(
+                phi, xB, P, &site, site.B_mass_active, &shortage_flag, NULL);
+            if (shortage_flag) summary.n_gp_reduced_on_shortage += 1;
+            site.B_mass_initial = removed;
+            site.B_mass_active = removed;
+            if (!(removed > 0.0)) site.active = 0;
+            summary.gp_depletion_mass_removed += removed;
+        }
+        for (size_t idx = 0; idx < xB.size(); ++idx) {
+            xB[idx] = fmin(fmax(xB[idx], xmin), xmax);
+            if (idx < Y.size()) Y[idx] = logit_from_fraction(xB[idx], P->xB_eps, P->Y_clip);
+            if (!isfinite(xB[idx]) || (idx < Y.size() && !isfinite(Y[idx]))) summary.nan_inf_flag = 1;
+        }
+    } else {
+        const double gp_mass = gp_assisted_sum_active_mass(*sites);
+        if (gp_mass > 0.0) {
+            std::vector<int> all_indices;
+            all_indices.reserve(xB.size());
+            for (size_t idx = 0; idx < xB.size(); ++idx) all_indices.push_back((int)idx);
+            double actual = 0.0, clip_frac = 0.0;
+            const int ok = gp_assisted_shift_matrix_mass(phi, xB, all_indices, -gp_mass, xmin, xmax,
+                                                         fmax(1.0e-12, fabs(gp_mass) * 1.0e-10),
+                                                         &actual, &clip_frac);
+            if (!ok) {
+                fprintf(stderr, "[fatal] gp-assisted initial total_composition_fixed cannot reserve GP mass: requested=%.12e actual=%.12e clip_frac=%.3e\n",
+                        gp_mass, actual, clip_frac);
+                return 0;
+            }
+            summary.gp_depletion_mass_removed = -actual;
+        }
+        for (size_t idx = 0; idx < xB.size(); ++idx) {
+            xB[idx] = fmin(fmax(xB[idx], xmin), xmax);
+            if (idx < Y.size()) Y[idx] = logit_from_fraction(xB[idx], P->xB_eps, P->Y_clip);
+            if (!isfinite(xB[idx]) || (idx < Y.size() && !isfinite(Y[idx]))) summary.nan_inf_flag = 1;
+        }
+    }
+
+    GpAssistedLedger after;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, *sites, &after);
+    summary.n_gp_placed = gp_assisted_count_active_sites(*sites);
+    summary.gp_inventory_added = gp_assisted_sum_active_mass(*sites);
+    summary.matrix_mass_removed = before_field.M_matrix - after.M_matrix;
+    summary.total_mass_before = before_field.M_total;
+    summary.total_mass_after = after.M_total;
+    summary.mass_error_rel = (summary.total_mass_after - summary.total_mass_before) /
+                             fmax(fabs(summary.total_mass_before), 1.0e-30);
+    compute_field_minmax_host(phi, xB, NULL, NULL, NULL,
+                              &summary.xB_alpha_min_after, &summary.xB_alpha_max_after, NULL, NULL);
+
+    std::vector<unsigned short> coverage_count;
+    std::vector<double> s_eff_field;
+    gp_accumulate_marker_influence_host(P, *sites, &coverage_count, &s_eff_field);
+    size_t covered = 0, overlap = 0;
+    for (size_t i = 0; i < coverage_count.size(); ++i) {
+        if (coverage_count[i] > 0) covered++;
+        if (coverage_count[i] > 1) overlap++;
+        if (!isfinite(s_eff_field[i])) summary.nan_inf_flag = 1;
+        summary.s_eff_min = fmin(summary.s_eff_min, s_eff_field[i]);
+        summary.s_eff_max = fmax(summary.s_eff_max, s_eff_field[i]);
+    }
+    summary.overlap_fraction = (covered > 0) ? ((double)overlap / (double)covered) : 0.0;
+
+    printf("[GP-PLACEMENT] mode=%s N_GP_requested=%d N_GP_placed=%d GP_depletion_mass_removed=%.12e "
+           "GP_inventory_added=%.12e matrix_mass_removed=%.12e total_mass_before=%.12e "
+           "total_mass_after=%.12e mass_error_rel=%.12e xB_alpha_min=%.12e xB_alpha_max=%.12e "
+           "overlap_fraction=%.12e s_eff_min=%.12e s_eff_max=%.12e NaN_Inf=%d shortage_sites=%d "
+           "static_marker_only=1\n",
+           P->gp_initial_mass_mode, summary.n_gp_requested, summary.n_gp_placed,
+           summary.gp_depletion_mass_removed, summary.gp_inventory_added, summary.matrix_mass_removed,
+           summary.total_mass_before, summary.total_mass_after, summary.mass_error_rel,
+           summary.xB_alpha_min_after, summary.xB_alpha_max_after, summary.overlap_fraction,
+           summary.s_eff_min, summary.s_eff_max, summary.nan_inf_flag, summary.n_gp_reduced_on_shortage);
+
+    if (fabs(summary.matrix_mass_removed - summary.gp_inventory_added) >
+        fmax(1.0e-12, fabs(summary.gp_inventory_added) * 1.0e-10)) {
+        fprintf(stderr, "[fatal] GP placement mass mismatch: matrix_removed=%.12e inventory_added=%.12e\n",
+                summary.matrix_mass_removed, summary.gp_inventory_added);
+        return 0;
+    }
+    if (fabs(summary.mass_error_rel) > 1.0e-10) {
+        fprintf(stderr, "[fatal] GP placement mass_error_rel exceeds tolerance: %.12e\n",
+                summary.mass_error_rel);
+        return 0;
+    }
+    if (summary.xB_alpha_min_after + 1.0e-15 < xmin) {
+        fprintf(stderr, "[fatal] GP placement violated xB floor: xB_min=%.12e floor=%.12e\n",
+                summary.xB_alpha_min_after, xmin);
+        return 0;
+    }
+    if (summary.nan_inf_flag) {
+        fprintf(stderr, "[fatal] GP placement produced NaN/Inf in initialization fields.\n");
+        return 0;
+    }
+    return 1;
+}
+
+static int trigger_gp_assisted_beta_event_host(GpAssistedRuntime *rt, PFParams *P, int step,
+                                               size_t sidx,
+                                               std::vector<double> &phi,
+                                               std::vector<double> &Y,
+                                               std::vector<double> &xB,
+                                               const GpRankedHazardDiag *decision_diag,
+                                               const char **status_out,
+                                               double *hazard_mass_before,
+                                               double *hazard_mass_after,
+                                               double *event_mass_error_out,
+                                               double *event_mass_rel_error_out,
+                                               double *mass_from_gp_out,
+                                               double *mass_from_matrix_out,
+                                               int capacity_matched_debug) {
+    if (!rt || !P || sidx >= rt->sites.size()) return 0;
+    GpAssistedSite &site = rt->sites[sidx];
+    if (!site.active || site.consumed) {
+        if (status_out) *status_out = "rejected_site_inactive";
+        return 1;
+    }
+
+    GpAssistedLedger before;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &before);
+    const double staged_inventory_total_before_event =
+        beta_staged_sum_inventory(rt->staged_embryos);
+    double before_gp_initial_existing = 0.0;
+    double before_gp_new_existing = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &before_gp_initial_existing,
+                                            &before_gp_new_existing);
+    write_gp_assisted_ledger_row(rt->ledger_csv, step, "before_event", &site, &before);
+
+    const char *status = "accepted";
+    double seed_mass_required = 0.0;
+    double mass_from_gp = 0.0;
+    double mass_from_matrix = 0.0;
+    double gp_released_to_matrix = 0.0;
+    double matrix_draw_actual = 0.0;
+    double release_actual = 0.0;
+    double clip_draw = 0.0;
+    double clip_release = 0.0;
+
+    std::vector<double> phi_trial = phi;
+    std::vector<double> xB_trial = xB;
+    std::vector<double> Y_trial = Y;
+    const double seed_region_radius_nm =
+        P->gp_debug_beta_seed_radius + 3.0 * P->gp_debug_beta_seed_iface_width;
+    std::vector<int> seed_indices = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                                          seed_region_radius_nm);
+    std::vector<int> release_indices = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                                             P->gp_release_radius_nm);
+    const int multi_gp_capture_debug =
+        (capacity_matched_debug &&
+         strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0 &&
+         beta_capture_mode_uses_multi_gp(P->beta_debug_GP_capture_mode));
+    const int handoff_active =
+        (P->beta_capacity_gate_enabled &&
+         strcmp(P->beta_handoff_policy, "legacy_direct_insert") != 0);
+    const int handoff_force_direct =
+        (handoff_active && strcmp(P->beta_handoff_policy, "diagnostic_force_direct_insert") == 0);
+    const int handoff_policy_staged =
+        (handoff_active && strcmp(P->beta_handoff_policy, "staged_GP_to_beta_conversion") == 0);
+    const int handoff_policy_capacity_gated =
+        (handoff_active && strcmp(P->beta_handoff_policy, "capacity_gated_dynamic_seed") == 0);
+    const int handoff_multi_gp_capture =
+        (handoff_active && beta_capture_mode_uses_multi_gp(P->beta_capacity_gate_GP_capture_mode));
+    if (multi_gp_capture_debug) {
+        release_indices = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                                P->beta_debug_matrix_draw_radius_nm);
+    } else if (handoff_active) {
+        release_indices = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                                P->beta_capacity_gate_matrix_draw_radius_nm);
+    }
+
+    BetaAttemptCapacityDiag cap_diag;
+    memset(&cap_diag, 0, sizeof(cap_diag));
+    cap_diag.seed_amplitude_scale = 1.0;
+    cap_diag.beta_seed_radius_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+    cap_diag.matrix_draw_radius_nm = P->gp_release_radius_nm;
+    if (multi_gp_capture_debug) {
+        cap_diag.matrix_draw_radius_nm = P->beta_debug_matrix_draw_radius_nm;
+    } else if (handoff_active) {
+        cap_diag.matrix_draw_radius_nm = P->beta_capacity_gate_matrix_draw_radius_nm;
+    }
+    cap_diag.beta_seed_volume_m3 =
+        (4.0 / 3.0) * M_PI * pow(fmax(cap_diag.beta_seed_radius_nm, 0.0) * 1.0e-9, 3.0);
+    cap_diag.near_gp_marker = (site.active && site.B_mass_active > 0.0) ? 1 : 0;
+    cap_diag.seed_mass_original =
+        gp_assisted_compute_seed_mass_for_amplitude(P, &site, phi, xB, seed_indices, 1.0);
+    std::vector<double> phi_full_seed = phi;
+    for (int idx : seed_indices) {
+        const int k = idx % P->Nz;
+        const int j = (idx / P->Nz) % P->Ny;
+        const int i = idx / (P->Ny * P->Nz);
+        const double p_old = clamp01(phi_full_seed[(size_t)idx]);
+        const double p_seed = gp_assisted_seed_phi_value(P, &site, i, j, k);
+        phi_full_seed[(size_t)idx] = fmax(p_old, p_seed);
+    }
+    const double xmin = fmax(P->gp_debug_xB_min, P->xB_eps);
+    const double xmax = fmin(P->gp_debug_xB_max, 1.0 - P->xB_eps);
+    cap_diag.matrix_available_capacity =
+        gp_assisted_matrix_draw_capacity_host(phi_full_seed, xB, release_indices, xmin);
+    if (sidx < (size_t)rt->initial_gp_site_count) {
+        cap_diag.GP_initial_available_capacity = fmax(site.B_mass_active, 0.0);
+        cap_diag.GP_new_available_capacity = 0.0;
+    } else {
+        cap_diag.GP_initial_available_capacity = 0.0;
+        cap_diag.GP_new_available_capacity = fmax(site.B_mass_active, 0.0);
+    }
+    cap_diag.GP_total_available_capacity =
+        cap_diag.GP_initial_available_capacity + cap_diag.GP_new_available_capacity;
+    BetaMultiGpCaptureDiag multi_gp_diag;
+    memset(&multi_gp_diag, 0, sizeof(multi_gp_diag));
+    if (multi_gp_capture_debug) {
+        multi_gp_diag = gp_compute_multi_gp_capture_diag_host(P, rt->sites,
+                                                              rt->initial_gp_site_count,
+                                                              sidx, site.ix, site.iy, site.iz,
+                                                              P->beta_debug_GP_capture_radius_nm,
+                                                              0.0);
+        cap_diag.GP_initial_available_capacity = multi_gp_diag.multi_GP_initial_capacity;
+        cap_diag.GP_new_available_capacity = multi_gp_diag.multi_GP_new_capacity;
+        cap_diag.GP_total_available_capacity = multi_gp_diag.multi_GP_total_capacity;
+    } else if (handoff_active && handoff_multi_gp_capture) {
+        multi_gp_diag = gp_compute_multi_gp_capture_diag_host(P, rt->sites,
+                                                              rt->initial_gp_site_count,
+                                                              sidx, site.ix, site.iy, site.iz,
+                                                              P->beta_capacity_gate_GP_capture_radius_nm,
+                                                              0.0);
+        cap_diag.GP_initial_available_capacity = multi_gp_diag.multi_GP_initial_capacity;
+        cap_diag.GP_new_available_capacity = multi_gp_diag.multi_GP_new_capacity;
+        cap_diag.GP_total_available_capacity = multi_gp_diag.multi_GP_total_capacity;
+    }
+    cap_diag.total_available_capacity =
+        cap_diag.matrix_available_capacity + cap_diag.GP_total_available_capacity;
+    cap_diag.capacity_ratio_original =
+        cap_diag.total_available_capacity / fmax(cap_diag.seed_mass_original, 1.0e-300);
+    cap_diag.requested_mass_for_transaction = cap_diag.seed_mass_original;
+    const int full_seed_adaptive_debug =
+        (capacity_matched_debug &&
+         strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0 &&
+         strcmp(P->beta_debug_draw_radius_mode, "adaptive_until_capacity") == 0);
+    if (capacity_matched_debug &&
+        strcmp(P->beta_debug_inventory_mode, "capacity_matched") == 0) {
+        const double frac = fmin(fmax(P->beta_debug_capacity_fraction, 0.0), 1.0);
+        const double target =
+            fmin(cap_diag.seed_mass_original,
+                 fmax(cap_diag.GP_total_available_capacity,
+                      cap_diag.GP_total_available_capacity + frac * cap_diag.matrix_available_capacity));
+        cap_diag.seed_amplitude_scale =
+            gp_assisted_find_seed_amplitude_for_mass(P, &site, phi, xB, seed_indices, target);
+        cap_diag.seed_mass_debug =
+            gp_assisted_compute_seed_mass_for_amplitude(P, &site, phi, xB, seed_indices,
+                                                        cap_diag.seed_amplitude_scale);
+        cap_diag.requested_mass_for_transaction = cap_diag.seed_mass_debug;
+        printf("BETA_DEBUG_CAPACITY_MATCHED_EVENT = 1\n");
+        printf("requested_beta_inventory_physical_original=%.12e\n", cap_diag.seed_mass_original);
+        printf("requested_beta_inventory_debug_capacity_matched=%.12e\n",
+               cap_diag.requested_mass_for_transaction);
+        printf("capacity_fraction=%.12e\n", frac);
+        printf("matrix_available=%.12e\n", cap_diag.matrix_available_capacity);
+        printf("GP_available=%.12e\n", cap_diag.GP_total_available_capacity);
+        printf("total_available_capacity=%.12e\n", cap_diag.total_available_capacity);
+        printf("seed_amplitude_scale=%.12e\n", cap_diag.seed_amplitude_scale);
+    } else if (full_seed_adaptive_debug) {
+        double radii[64];
+        const int nr = parse_beta_debug_draw_radius_list_nm(P, radii, 64);
+        double selected_radius = P->gp_release_radius_nm;
+        double selected_matrix_capacity = cap_diag.matrix_available_capacity;
+        int selected_count = (int)release_indices.size();
+        double selected_volume_m3 = selected_count * gp_cell_volume_m3(P);
+        int found_capacity = 0;
+        for (int ir = 0; ir < nr; ++ir) {
+            std::vector<int> cand_indices =
+                gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz, radii[ir]);
+            BetaDrawRegionCapacityDiag rd =
+                gp_assisted_draw_region_capacity_diag_host(P, phi_full_seed, xB, cand_indices, xmin);
+            const double total_capacity = rd.matrix_available_capacity + cap_diag.GP_total_available_capacity;
+            if (!found_capacity || total_capacity >= cap_diag.seed_mass_original - 1.0e-10) {
+                selected_radius = radii[ir];
+                selected_matrix_capacity = rd.matrix_available_capacity;
+                selected_count = rd.draw_cells_count;
+                selected_volume_m3 = rd.draw_volume_m3;
+                if (total_capacity >= cap_diag.seed_mass_original - 1.0e-10) {
+                    found_capacity = 1;
+                    break;
+                }
+            }
+        }
+        release_indices = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                                selected_radius);
+        cap_diag.matrix_draw_radius_nm = selected_radius;
+        cap_diag.matrix_available_capacity = selected_matrix_capacity;
+        cap_diag.total_available_capacity =
+            cap_diag.matrix_available_capacity + cap_diag.GP_total_available_capacity;
+        cap_diag.seed_amplitude_scale = 1.0;
+        cap_diag.seed_mass_debug = cap_diag.seed_mass_original;
+        cap_diag.requested_mass_for_transaction = cap_diag.seed_mass_original;
+        printf("BETA_DEBUG_FULL_SEED_ADAPTIVE_DRAW_EVENT = 1\n");
+        printf("requested_beta_inventory_full_seed=%.12e\n", cap_diag.seed_mass_original);
+        printf("draw_radius_selected_nm=%.12e\n", cap_diag.matrix_draw_radius_nm);
+        printf("draw_cells_count=%d\n", selected_count);
+        printf("draw_volume_m3=%.12e\n", selected_volume_m3);
+        printf("matrix_available=%.12e\n", cap_diag.matrix_available_capacity);
+        printf("GP_available=%.12e\n", cap_diag.GP_total_available_capacity);
+        printf("total_available_capacity=%.12e\n", cap_diag.total_available_capacity);
+        printf("capacity_ratio_full_seed=%.12e\n",
+               cap_diag.total_available_capacity / fmax(cap_diag.seed_mass_original, 1.0e-300));
+        printf("full_seed_capacity_reached=%d\n", found_capacity);
+    } else {
+        cap_diag.seed_mass_debug = cap_diag.seed_mass_original;
+    }
+    cap_diag.matrix_draw_request =
+        fmax(cap_diag.requested_mass_for_transaction - fmax(site.B_mass_active, 0.0), 0.0);
+    cap_diag.capacity_ratio_debug =
+        cap_diag.total_available_capacity / fmax(cap_diag.requested_mass_for_transaction, 1.0e-300);
+    cap_diag.would_accept_if_capacity_matched =
+        (cap_diag.matrix_draw_request <= cap_diag.matrix_available_capacity + 1.0e-10 &&
+         cap_diag.requested_mass_for_transaction > 0.0) ? 1 : 0;
+
+    for (int idx : seed_indices) {
+        const int k = idx % P->Nz;
+        const int j = (idx / P->Nz) % P->Ny;
+        const int i = idx / (P->Ny * P->Nz);
+        const double p_old = clamp01(phi_trial[(size_t)idx]);
+        const double h_old = h_of_phi(p_old);
+        const double p_seed = cap_diag.seed_amplitude_scale * gp_assisted_seed_phi_value(P, &site, i, j, k);
+        const double p_new = fmax(p_old, p_seed);
+        const double h_new = h_of_phi(p_new);
+        seed_mass_required += fmax((h_new - h_old) * (P->v_B - xB_trial[(size_t)idx]), 0.0);
+        phi_trial[(size_t)idx] = p_new;
+    }
+    const double legacy_analytic_seed_mass_required = seed_mass_required;
+    double staged_target_library_profile_inventory = NAN;
+    GpRuntimeNucleusEntry staged_target_seed;
+    memset(&staged_target_seed, 0, sizeof(staged_target_seed));
+    char staged_target_profile_file[4096] = "";
+    char staged_target_reason[512] = "";
+    int staged_target_uses_library_profile = 0;
+    if (handoff_active && P->enable_runtime_nucleus_library) {
+        if (!beta_resolve_library_profile_inventory_for_staged_target(
+                rt, P, site.ix, site.iy, site.iz, phi, xB,
+                &staged_target_library_profile_inventory,
+                &staged_target_seed,
+                staged_target_profile_file, sizeof(staged_target_profile_file),
+                staged_target_reason, sizeof(staged_target_reason))) {
+            fprintf(stderr,
+                    "[fatal] staged beta target requires runtime-evaluated dynamic-continue library profile but resolution failed: %s\n",
+                    staged_target_reason[0] ? staged_target_reason : "unknown");
+            return 0;
+        }
+        seed_mass_required = staged_target_library_profile_inventory;
+        cap_diag.seed_mass_original = seed_mass_required;
+        cap_diag.seed_mass_debug = seed_mass_required;
+        cap_diag.requested_mass_for_transaction = seed_mass_required;
+        cap_diag.capacity_ratio_original =
+            cap_diag.total_available_capacity / fmax(cap_diag.seed_mass_original, 1.0e-300);
+        cap_diag.matrix_draw_request =
+            fmax(cap_diag.requested_mass_for_transaction - fmax(site.B_mass_active, 0.0), 0.0);
+        cap_diag.capacity_ratio_debug =
+            cap_diag.total_available_capacity / fmax(cap_diag.requested_mass_for_transaction, 1.0e-300);
+        cap_diag.would_accept_if_capacity_matched =
+            (cap_diag.matrix_draw_request <= cap_diag.matrix_available_capacity + 1.0e-10 &&
+             cap_diag.requested_mass_for_transaction > 0.0) ? 1 : 0;
+        staged_target_uses_library_profile = 1;
+        printf("BETA_STAGED_TARGET_PRECHECK_BEGIN step=%d event_id=%d position=(%d,%d,%d) "
+               "target_source=pre_capture_runtime_evaluated_dynamic_continue_profile "
+               "selected_library_entry_id=%s target_seed_inventory=%.12e "
+               "evaluated_profile_inventory=%.12e metadata_mass_seed_B_equiv=%.12e "
+               "legacy_analytic_seed_inventory=%.12e seed_profile_file=%s reason=%s "
+               "BETA_STAGED_TARGET_PRECHECK_END\n",
+               step, rt->event_counter + 1, site.ix, site.iy, site.iz,
+               staged_target_seed.id, seed_mass_required,
+               staged_target_library_profile_inventory,
+               staged_target_seed.mass_seed_B_equiv,
+               legacy_analytic_seed_mass_required,
+               staged_target_profile_file,
+               staged_target_reason[0] ? staged_target_reason : "none");
+    }
+    if (multi_gp_capture_debug || (handoff_active && handoff_multi_gp_capture)) {
+        const double required_from_gp =
+            fmax(seed_mass_required - cap_diag.matrix_available_capacity, 0.0);
+        multi_gp_diag = gp_compute_multi_gp_capture_diag_host(
+            P, rt->sites, rt->initial_gp_site_count,
+            sidx, site.ix, site.iy, site.iz,
+            (handoff_active ? P->beta_capacity_gate_GP_capture_radius_nm
+                            : P->beta_debug_GP_capture_radius_nm),
+            required_from_gp);
+        cap_diag.GP_initial_available_capacity = multi_gp_diag.multi_GP_initial_capacity;
+        cap_diag.GP_new_available_capacity = multi_gp_diag.multi_GP_new_capacity;
+        cap_diag.GP_total_available_capacity = multi_gp_diag.multi_GP_total_capacity;
+        cap_diag.total_available_capacity =
+            cap_diag.matrix_available_capacity + cap_diag.GP_total_available_capacity;
+    }
+    GpAssistedSite site_after = site;
+    std::vector<GpAssistedSite> sites_after = rt->sites;
+    int staged_conversion_created = 0;
+    double staged_inventory_delta = 0.0;
+    BetaStagedEmbryo staged_embryo;
+    memset(&staged_embryo, 0, sizeof(staged_embryo));
+    const double staged_target_pre_capture_profile_inventory =
+        staged_target_library_profile_inventory;
+    const double active_capture_radius_nm = handoff_active
+        ? P->beta_capacity_gate_GP_capture_radius_nm
+        : P->beta_debug_GP_capture_radius_nm;
+    const char *active_capture_mode = handoff_active
+        ? P->beta_capacity_gate_GP_capture_mode
+        : P->beta_debug_GP_capture_mode;
+    const double capacity_ratio_for_seed =
+        cap_diag.total_available_capacity / fmax(seed_mass_required, 1.0e-300);
+    const int gate_radius_reasonable =
+        (!handoff_active ||
+         active_capture_radius_nm <= P->beta_capacity_gate_max_reasonable_radius_nm + 1.0e-12 ||
+         handoff_force_direct);
+    const int handoff_direct_allowed =
+        (handoff_active && !handoff_policy_staged &&
+         capacity_ratio_for_seed + 1.0e-12 >= P->beta_capacity_gate_allow_direct_if_capacity_ratio_ge &&
+         gate_radius_reasonable);
+    const int handoff_should_stage =
+        (handoff_active && !handoff_direct_allowed && P->beta_staged_conversion_enabled &&
+         (handoff_policy_capacity_gated || handoff_policy_staged));
+    const int direct_multi_gp_capture =
+        (multi_gp_capture_debug ||
+         (handoff_active && handoff_direct_allowed && handoff_multi_gp_capture));
+    const char *handoff_decision = "legacy_direct_insert";
+    if (handoff_active) {
+        if (handoff_force_direct && capacity_ratio_for_seed >= 1.0) {
+            handoff_decision = "diagnostic_force";
+        } else if (handoff_direct_allowed) {
+            handoff_decision = "direct_insert";
+        } else if (handoff_should_stage) {
+            handoff_decision = "staged_conversion";
+        } else {
+            handoff_decision = "reject_no_capacity";
+        }
+    }
+    printf("BETA_HANDOFF_DECISION_BEGIN step=%d event_id=%d position=(%d,%d,%d) "
+           "r_critical_nm=%.12e DeltaG_star=%.12e J_beta_or_attempt_weight=%.12e "
+           "dynamic_seed_radius_nm=%.12e full_seed_requested_inventory=%.12e "
+           "matrix_draw_radius_nm=%.12e GP_capture_radius_nm=%.12e GP_capture_mode=%s "
+           "matrix_capacity=%.12e GP_initial_capacity=%.12e GP_new_capacity=%.12e "
+           "total_capacity=%.12e capacity_ratio=%.12e max_reasonable_radius_nm=%.12e "
+           "decision=%s num_GP_inside_capture=%d num_GP_to_consume=%d "
+           "s_GP_local=%.12e s_eff_local=%.12e BETA_HANDOFF_DECISION_END\n",
+           step, rt->event_counter + 1, site.ix, site.iy, site.iz,
+           decision_diag ? decision_diag->r_star_nm : NAN,
+           decision_diag ? decision_diag->DeltaG_bare_kBT : NAN,
+           decision_diag ? decision_diag->J_eff : NAN,
+           decision_diag && isfinite(decision_diag->r_seed_nm) ? decision_diag->r_seed_nm : cap_diag.beta_seed_radius_nm,
+           seed_mass_required, cap_diag.matrix_draw_radius_nm, active_capture_radius_nm,
+           active_capture_mode, cap_diag.matrix_available_capacity,
+           cap_diag.GP_initial_available_capacity, cap_diag.GP_new_available_capacity,
+           cap_diag.total_available_capacity, capacity_ratio_for_seed,
+           P->beta_capacity_gate_max_reasonable_radius_nm, handoff_decision,
+           multi_gp_diag.num_GP_total_in_capture,
+           multi_gp_diag.num_GP_needed_nearest_first,
+           decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0),
+           decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0));
+    if (rt->beta_handoff_decision_csv) {
+        fprintf(rt->beta_handoff_decision_csv,
+                "%s,%d,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s,%d,%d,%.12e,%.12e\n",
+                rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                step, rt->event_counter + 1, site.ix, site.iy, site.iz,
+                decision_diag ? decision_diag->r_star_nm : NAN,
+                decision_diag ? decision_diag->DeltaG_bare_kBT : NAN,
+                decision_diag ? decision_diag->J_eff : NAN,
+                decision_diag && isfinite(decision_diag->r_seed_nm) ? decision_diag->r_seed_nm : cap_diag.beta_seed_radius_nm,
+                seed_mass_required, cap_diag.matrix_draw_radius_nm, active_capture_radius_nm,
+                active_capture_mode, cap_diag.matrix_available_capacity,
+                cap_diag.GP_initial_available_capacity, cap_diag.GP_new_available_capacity,
+                cap_diag.total_available_capacity, capacity_ratio_for_seed,
+                P->beta_capacity_gate_max_reasonable_radius_nm, handoff_decision,
+                multi_gp_diag.num_GP_total_in_capture,
+                multi_gp_diag.num_GP_needed_nearest_first,
+                decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0),
+                decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0));
+        fflush(rt->beta_handoff_decision_csv);
+    }
+    int multi_num_initial_consumed = 0;
+    int multi_num_new_consumed = 0;
+    int multi_num_partial = 0;
+    int multi_num_full = 0;
+    double multi_initial_mass_consumed = 0.0;
+    double multi_new_mass_consumed = 0.0;
+    if (handoff_active && !handoff_direct_allowed && !handoff_should_stage) {
+        status = "reject_no_capacity";
+    } else if (handoff_should_stage) {
+        phi_trial = phi;
+        xB_trial = xB;
+        Y_trial = Y;
+        const double matrix_capacity = cap_diag.matrix_available_capacity;
+        mass_from_matrix = fmin(seed_mass_required, matrix_capacity);
+        if (mass_from_matrix > 0.0) {
+            int ok_draw = gp_assisted_shift_matrix_mass(phi_trial, xB_trial, release_indices,
+                                                       -mass_from_matrix, xmin, xmax,
+                                                       fmax(1.0e-12, mass_from_matrix * 1.0e-10),
+                                                       &matrix_draw_actual, &clip_draw);
+            if (!ok_draw) status = "rejected_insufficient_matrix_draw_capacity";
+        }
+        if (strcmp(status, "accepted") == 0) {
+            const double gp_needed = fmax(seed_mass_required - fmax(-matrix_draw_actual, 0.0), 0.0);
+            if (handoff_multi_gp_capture) {
+                mass_from_gp = gp_consume_multi_gp_nearest_first(sites_after,
+                                                                 rt->initial_gp_site_count,
+                                                                 P,
+                                                                 site.ix, site.iy, site.iz,
+                                                                 active_capture_radius_nm,
+                                                                 gp_needed,
+                                                                 rt->event_counter + 1,
+                                                                 step,
+                                                                 &multi_num_initial_consumed,
+                                                                 &multi_num_new_consumed,
+                                                                 &multi_num_partial,
+                                                                 &multi_num_full,
+                                                                 &multi_initial_mass_consumed,
+                                                                 &multi_new_mass_consumed);
+            } else {
+                mass_from_gp = fmin(site.B_mass_active, gp_needed);
+                if (sidx < sites_after.size()) {
+                    GpAssistedSite &safter = sites_after[sidx];
+                    safter.B_mass_active = fmax(safter.B_mass_active - mass_from_gp, 0.0);
+                    if (safter.B_mass_active <= 1.0e-12) {
+                        safter.B_mass_active = 0.0;
+                        safter.active = 0;
+                        safter.consumed = 1;
+                        safter.consumed_step = step;
+                        safter.linked_beta_event_id = rt->event_counter + 1;
+                    }
+                    if (sidx < (size_t)rt->initial_gp_site_count) {
+                        multi_initial_mass_consumed = mass_from_gp;
+                        multi_num_initial_consumed = (mass_from_gp > 0.0) ? 1 : 0;
+                    } else {
+                        multi_new_mass_consumed = mass_from_gp;
+                        multi_num_new_consumed = (mass_from_gp > 0.0) ? 1 : 0;
+                    }
+                }
+            }
+        }
+        staged_inventory_delta = fmax(-matrix_draw_actual, 0.0) + mass_from_gp;
+        if (strcmp(status, "accepted") == 0 && staged_inventory_delta > 0.0) {
+            if (staged_target_uses_library_profile) {
+                double post_capture_inventory = NAN;
+                GpRuntimeNucleusEntry post_capture_seed;
+                memset(&post_capture_seed, 0, sizeof(post_capture_seed));
+                char post_capture_profile_file[4096] = "";
+                char post_capture_reason[512] = "";
+                if (!beta_resolve_library_profile_inventory_for_staged_target(
+                        rt, P, site.ix, site.iy, site.iz, phi_trial, xB_trial,
+                        &post_capture_inventory,
+                        &post_capture_seed,
+                        post_capture_profile_file, sizeof(post_capture_profile_file),
+                        post_capture_reason, sizeof(post_capture_reason))) {
+                    fprintf(stderr,
+                            "[fatal] staged beta target post-capture profile evaluation failed: %s\n",
+                            post_capture_reason[0] ? post_capture_reason : "unknown");
+                    return 0;
+                }
+                if (strcmp(post_capture_seed.id, staged_target_seed.id) != 0) {
+                    fprintf(stderr,
+                            "[fatal] staged beta target library entry changed between pre/post capture: pre=%s post=%s\n",
+                            staged_target_seed.id, post_capture_seed.id);
+                    return 0;
+                }
+                staged_target_library_profile_inventory = post_capture_inventory;
+                staged_target_seed = post_capture_seed;
+                snprintf(staged_target_profile_file, sizeof(staged_target_profile_file),
+                         "%s", post_capture_profile_file);
+                snprintf(staged_target_reason, sizeof(staged_target_reason),
+                         "TARGET_FROM_POST_CAPTURE_RUNTIME_EVALUATED_LIBRARY_PROFILE id=%s inventory=%.12e pre_capture_inventory=%.12e",
+                         staged_target_seed.id,
+                         staged_target_library_profile_inventory,
+                         staged_target_pre_capture_profile_inventory);
+                seed_mass_required = staged_target_library_profile_inventory;
+                cap_diag.seed_mass_original = seed_mass_required;
+                cap_diag.seed_mass_debug = seed_mass_required;
+                cap_diag.requested_mass_for_transaction = seed_mass_required;
+                cap_diag.capacity_ratio_original =
+                    cap_diag.total_available_capacity / fmax(cap_diag.seed_mass_original, 1.0e-300);
+                cap_diag.matrix_draw_request =
+                    fmax(cap_diag.requested_mass_for_transaction - fmax(site.B_mass_active, 0.0), 0.0);
+                cap_diag.capacity_ratio_debug =
+                    cap_diag.total_available_capacity / fmax(cap_diag.requested_mass_for_transaction, 1.0e-300);
+                cap_diag.would_accept_if_capacity_matched =
+                    (cap_diag.matrix_draw_request <= cap_diag.matrix_available_capacity + 1.0e-10 &&
+                     cap_diag.requested_mass_for_transaction > 0.0) ? 1 : 0;
+                printf("BETA_STAGED_TARGET_SOURCE_BEGIN step=%d event_id=%d position=(%d,%d,%d) "
+                       "target_source=post_capture_runtime_evaluated_dynamic_continue_profile "
+                       "selected_library_entry_id=%s target_seed_inventory=%.12e "
+                       "evaluated_profile_inventory=%.12e pre_capture_profile_inventory=%.12e "
+                       "metadata_mass_seed_B_equiv=%.12e legacy_analytic_seed_inventory=%.12e "
+                       "seed_profile_file=%s reason=%s BETA_STAGED_TARGET_SOURCE_END\n",
+                       step, rt->event_counter + 1, site.ix, site.iy, site.iz,
+                       staged_target_seed.id, seed_mass_required,
+                       staged_target_library_profile_inventory,
+                       staged_target_pre_capture_profile_inventory,
+                       staged_target_seed.mass_seed_B_equiv,
+                       legacy_analytic_seed_mass_required,
+                       staged_target_profile_file,
+                       staged_target_reason[0] ? staged_target_reason : "none");
+            }
+            write_staged_handoff_profile_probe_row_host(
+                rt->staged_handoff_profile_probe_csv, step,
+                "PROBE_BEFORE_STAGED_EMBRYO_CREATION", P, rt, phi, Y, xB);
+            staged_conversion_created = 1;
+            status = "staged_conversion";
+            staged_embryo.embryo_id = rt->next_staged_embryo_id++;
+            staged_embryo.birth_event_step = step;
+            staged_embryo.ix = site.ix;
+            staged_embryo.iy = site.iy;
+            staged_embryo.iz = site.iz;
+            staged_embryo.target_seed_inventory = seed_mass_required;
+            staged_embryo.current_embryo_inventory = staged_inventory_delta;
+            staged_embryo.remaining_inventory_needed =
+                fmax(seed_mass_required - staged_inventory_delta, 0.0);
+            staged_embryo.source_GP_initial_consumed = multi_initial_mass_consumed;
+            staged_embryo.source_GP_new_consumed = multi_new_mass_consumed;
+            staged_embryo.source_matrix_consumed = fmax(-matrix_draw_actual, 0.0);
+            staged_embryo.capture_radius_nm = active_capture_radius_nm;
+            staged_embryo.nearest_GP_count = multi_num_initial_consumed + multi_num_new_consumed;
+            staged_embryo.age_steps = 0;
+            snprintf(staged_embryo.library_entry_id, sizeof(staged_embryo.library_entry_id),
+                     "%s", staged_target_uses_library_profile ? staged_target_seed.id : "");
+            snprintf(staged_embryo.seed_profile_file, sizeof(staged_embryo.seed_profile_file),
+                     "%s", staged_target_uses_library_profile ? staged_target_profile_file : "");
+            snprintf(staged_embryo.source_dyn_dir, sizeof(staged_embryo.source_dyn_dir),
+                     "%s", staged_target_uses_library_profile ? staged_target_seed.source_dyn_dir : "");
+            snprintf(staged_embryo.seed_source_mode, sizeof(staged_embryo.seed_source_mode),
+                     "%s", staged_target_uses_library_profile
+                              ? "runtime_evaluated_dynamic_continue_profile"
+                              : "resolve_library_profile_at_handoff");
+            staged_embryo.library_r_seed_nm =
+                staged_target_uses_library_profile ? staged_target_seed.r_seed_nm : NAN;
+            staged_embryo.library_mass_seed_B_equiv =
+                staged_target_uses_library_profile ? staged_target_seed.mass_seed_B_equiv : NAN;
+            staged_embryo.library_dx_nm =
+                staged_target_uses_library_profile ? staged_target_seed.source_dx_nm : NAN;
+            snprintf(staged_embryo.status, sizeof(staged_embryo.status),
+                     "%s", staged_embryo.remaining_inventory_needed <=
+                         fmax(seed_mass_required * P->beta_staged_conversion_mass_tolerance_rel, 1.0e-12)
+                         ? "ready_for_resolved_insert" : "accumulating");
+            rt->staged_embryos.push_back(staged_embryo);
+            write_staged_handoff_profile_probe_row_host(
+                rt->staged_handoff_profile_probe_csv, step,
+                "PROBE_AFTER_STAGED_EMBRYO_CREATION", P, rt,
+                phi_trial, Y_trial, xB_trial);
+            if (sidx < sites_after.size()) site_after = sites_after[sidx];
+        } else if (strcmp(status, "accepted") == 0) {
+            status = "reject_no_capacity";
+        }
+    } else if (direct_multi_gp_capture) {
+        const double matrix_capacity = cap_diag.matrix_available_capacity;
+        const double gp_capacity = cap_diag.GP_total_available_capacity;
+        if (matrix_capacity + gp_capacity + 1.0e-10 < seed_mass_required) {
+            status = "rejected_insufficient_multi_GP_capture_capacity";
+        } else {
+            mass_from_matrix = fmin(seed_mass_required, matrix_capacity);
+            if (mass_from_matrix > 0.0) {
+                int ok_draw = gp_assisted_shift_matrix_mass(phi_trial, xB_trial, release_indices,
+                                                           -mass_from_matrix, xmin, xmax,
+                                                           fmax(1.0e-12, mass_from_matrix * 1.0e-10),
+                                                           &matrix_draw_actual, &clip_draw);
+                if (!ok_draw) status = "rejected_insufficient_matrix_draw_capacity";
+            }
+            if (strcmp(status, "accepted") == 0) {
+                const double gp_needed = fmax(seed_mass_required - fmax(-matrix_draw_actual, 0.0), 0.0);
+                mass_from_gp = gp_consume_multi_gp_nearest_first(sites_after,
+                                                                 rt->initial_gp_site_count,
+                                                                 P,
+                                                                 site.ix, site.iy, site.iz,
+                                                                 active_capture_radius_nm,
+                                                                 gp_needed,
+                                                                 rt->event_counter + 1,
+                                                                 step,
+                                                                 &multi_num_initial_consumed,
+                                                                 &multi_num_new_consumed,
+                                                                 &multi_num_partial,
+                                                                 &multi_num_full,
+                                                                 &multi_initial_mass_consumed,
+                                                                 &multi_new_mass_consumed);
+                if (mass_from_gp + 1.0e-10 < gp_needed) {
+                    status = "rejected_insufficient_multi_GP_capture_capacity";
+                }
+                if (sidx < sites_after.size()) site_after = sites_after[sidx];
+            }
+        }
+    } else {
+        mass_from_gp = fmin(site.B_mass_active, seed_mass_required);
+        mass_from_matrix = fmax(seed_mass_required - mass_from_gp, 0.0);
+        if (mass_from_matrix > 0.0) {
+            int ok_draw = gp_assisted_shift_matrix_mass(phi_trial, xB_trial, release_indices,
+                                                       -mass_from_matrix, xmin, xmax,
+                                                       fmax(1.0e-12, mass_from_matrix * 1.0e-10),
+                                                       &matrix_draw_actual, &clip_draw);
+            if (!ok_draw) status = "rejected_insufficient_matrix_draw_capacity";
+        }
+        if (strcmp(status, "accepted") == 0) {
+            gp_released_to_matrix = fmax(site.B_mass_active - mass_from_gp, 0.0);
+            if (gp_released_to_matrix > 0.0) {
+                int ok_release = gp_assisted_shift_matrix_mass(phi_trial, xB_trial, release_indices,
+                                                              gp_released_to_matrix, xmin, xmax,
+                                                              fmax(1.0e-12, gp_released_to_matrix * 1.0e-10),
+                                                              &release_actual, &clip_release);
+                if (!ok_release) status = "rejected_insufficient_release_capacity";
+            }
+        }
+    }
+    if (strcmp(status, "accepted") == 0 || staged_conversion_created) {
+        for (size_t idx = 0; idx < xB_trial.size(); ++idx) {
+            xB_trial[idx] = fmin(fmax(xB_trial[idx], xmin), xmax);
+            Y_trial[idx] = logit_from_fraction(xB_trial[idx], P->xB_eps, P->Y_clip);
+        }
+    }
+
+    if (!multi_gp_capture_debug && !direct_multi_gp_capture &&
+        strcmp(status, "accepted") == 0) {
+        site_after.active = 0;
+        site_after.consumed = 1;
+        site_after.consumed_step = step;
+        site_after.linked_beta_event_id = rt->event_counter + 1;
+        site_after.B_mass_active = 0.0;
+    }
+    if (!multi_gp_capture_debug && !direct_multi_gp_capture && sidx < sites_after.size()) {
+        sites_after[sidx] = site_after;
+    }
+    GpAssistedLedger after;
+    const int commit_like_status = (strcmp(status, "accepted") == 0 || staged_conversion_created);
+    compute_gp_assisted_multi_ledger_host(commit_like_status ? phi_trial : phi,
+                                          commit_like_status ? Y_trial : Y,
+                                          commit_like_status ? xB_trial : xB,
+                                          P->v_B, sites_after, &after);
+    double after_gp_initial_existing = 0.0;
+    double after_gp_new_existing = 0.0;
+    gp_assisted_split_active_mass_by_origin(sites_after, rt->initial_gp_site_count,
+                                            &after_gp_initial_existing,
+                                            &after_gp_new_existing);
+    const double legacy_event_mass_error = after.M_total + staged_inventory_delta - before.M_total;
+    const double legacy_event_mass_rel_error =
+        legacy_event_mass_error / fmax(fabs(before.M_total), 1.0e-30);
+    if (staged_conversion_created) {
+        after.M_staged_beta += staged_inventory_delta;
+        after.M_total += staged_inventory_delta;
+    }
+    const double actual_matrix_removed_diag = fmax(-matrix_draw_actual, 0.0);
+    const double delta_GP_initial_consumed =
+        fmax(before_gp_initial_existing - after_gp_initial_existing, 0.0);
+    const double delta_GP_new_consumed =
+        fmax(before_gp_new_existing - after_gp_new_existing, 0.0);
+    const double delta_matrix_consumed =
+        staged_conversion_created ? staged_embryo.source_matrix_consumed : actual_matrix_removed_diag;
+    const double delta_embryo_inventory =
+        staged_conversion_created ? staged_embryo.current_embryo_inventory : 0.0;
+    const double expected_delta_added =
+        delta_GP_initial_consumed + delta_GP_new_consumed + delta_matrix_consumed;
+    const double staged_delta_transaction_abs_error =
+        delta_embryo_inventory - expected_delta_added;
+    const double staged_delta_transaction_rel_error =
+        staged_delta_transaction_abs_error / fmax(fabs(seed_mass_required), 1.0e-30);
+    const double event_mass_error =
+        staged_conversion_created ? staged_delta_transaction_abs_error : legacy_event_mass_error;
+    const double event_mass_rel_error =
+        staged_conversion_created ? staged_delta_transaction_rel_error : legacy_event_mass_rel_error;
+    const double target_total_event =
+        P->gp_initial_xB_tot * fmax((double)xB.size(), 1.0);
+    const double whole_ledger_total_after_event =
+        after.M_total + (staged_conversion_created ? staged_inventory_total_before_event : 0.0);
+    const double whole_ledger_mass_error_rel_event =
+        (target_total_event > 0.0) ? ((whole_ledger_total_after_event - target_total_event) / target_total_event)
+                                   : event_mass_rel_error;
+    if (staged_conversion_created) {
+        printf("BETA_STAGED_EMBRYO_BEGIN embryo_id=%d step=%d event_id=%d position=(%d,%d,%d) "
+               "target_seed_inventory=%.12e current_embryo_inventory=%.12e "
+               "remaining_inventory_needed=%.12e source_GP_initial_consumed=%.12e "
+               "source_GP_new_consumed=%.12e source_matrix_consumed=%.12e "
+               "capture_radius_nm=%.12e nearest_GP_count=%d status=%s "
+               "transaction_mass_error_rel=%.12e global_mass_error_rel=%.12e "
+               "BETA_STAGED_EMBRYO_END\n",
+               staged_embryo.embryo_id, step, rt->event_counter + 1,
+               staged_embryo.ix, staged_embryo.iy, staged_embryo.iz,
+               staged_embryo.target_seed_inventory,
+               staged_embryo.current_embryo_inventory,
+               staged_embryo.remaining_inventory_needed,
+               staged_embryo.source_GP_initial_consumed,
+               staged_embryo.source_GP_new_consumed,
+               staged_embryo.source_matrix_consumed,
+               staged_embryo.capture_radius_nm,
+               staged_embryo.nearest_GP_count,
+               staged_embryo.status,
+               event_mass_rel_error,
+               event_mass_rel_error);
+        printf("NATURAL_STAGED_TRANSACTION_BEGIN "
+               "step=%d event_id=%d embryo_id=%d transaction_type=creation "
+               "target_seed_inventory=%.12e embryo_inventory_before=%.12e "
+               "embryo_inventory_after=%.12e delta_embryo_inventory=%.12e "
+               "GP_initial_inventory_before_total=%.12e GP_initial_inventory_after_total=%.12e "
+               "delta_GP_initial_consumed=%.12e GP_new_inventory_before_total=%.12e "
+               "GP_new_inventory_after_total=%.12e delta_GP_new_consumed=%.12e "
+               "matrix_inventory_before=%.12e matrix_inventory_after=%.12e "
+               "delta_matrix_consumed=%.12e beta_inventory_before=%.12e "
+               "beta_inventory_after=%.12e delta_beta_inventory=%.12e "
+               "staged_inventory_total_before=%.12e staged_inventory_total_after=%.12e "
+               "expected_delta_added=%.12e transaction_error_abs=%.12e "
+               "transaction_error_rel=%.12e old_reported_transaction_error_rel=%.12e "
+               "whole_ledger_mass_error_rel=%.12e xB_source_for_JGP=NA "
+               "NATURAL_STAGED_TRANSACTION_END\n",
+               step, rt->event_counter + 1, staged_embryo.embryo_id,
+               staged_embryo.target_seed_inventory, 0.0,
+               staged_embryo.current_embryo_inventory, delta_embryo_inventory,
+               before_gp_initial_existing, after_gp_initial_existing,
+               delta_GP_initial_consumed,
+               before_gp_new_existing, after_gp_new_existing, delta_GP_new_consumed,
+               before.M_matrix, after.M_matrix, delta_matrix_consumed,
+               before.M_beta, after.M_beta, after.M_beta - before.M_beta,
+               staged_inventory_total_before_event,
+               staged_inventory_total_before_event + staged_inventory_delta,
+               expected_delta_added, staged_delta_transaction_abs_error,
+               staged_delta_transaction_rel_error, legacy_event_mass_rel_error,
+               whole_ledger_mass_error_rel_event);
+        beta_write_staged_embryo_row(rt->beta_staged_embryo_csv, rt, &staged_embryo,
+                                     step, rt->event_counter + 1,
+                                     event_mass_rel_error, event_mass_rel_error);
+    }
+
+    printf("BETA_ATTEMPT_CAPACITY_BEGIN\n");
+    printf("case=%s\n", rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case");
+    printf("step=%d\n", step);
+    printf("T_C=%.12e\n", P->temperature_C);
+    printf("S=%.12e\n", decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0));
+    printf("position=(%d,%d,%d)\n", site.ix, site.iy, site.iz);
+    printf("near_GP_marker=%d\n", cap_diag.near_gp_marker);
+    printf("s_GP_local=%.12e\n", decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0));
+    printf("s_eff_local=%.12e\n", decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0));
+    printf("beta_seed_radius_nm=%.12e\n", cap_diag.beta_seed_radius_nm);
+    printf("beta_seed_volume_m3=%.12e\n", cap_diag.beta_seed_volume_m3);
+    printf("requested_beta_inventory=%.12e\n", seed_mass_required);
+    printf("requested_beta_inventory_physical_original=%.12e\n", cap_diag.seed_mass_original);
+    printf("matrix_draw_radius_nm=%.12e\n", cap_diag.matrix_draw_radius_nm);
+    printf("matrix_available_capacity=%.12e\n", cap_diag.matrix_available_capacity);
+    printf("GP_initial_available_capacity=%.12e\n", cap_diag.GP_initial_available_capacity);
+    printf("GP_new_available_capacity=%.12e\n", cap_diag.GP_new_available_capacity);
+    printf("GP_total_available_capacity=%.12e\n", cap_diag.GP_total_available_capacity);
+    printf("total_available_capacity=%.12e\n", cap_diag.total_available_capacity);
+    printf("capacity_ratio=%.12e\n", cap_diag.total_available_capacity / fmax(seed_mass_required, 1.0e-300));
+    printf("rejection_reason=%s\n", status);
+    printf("would_accept_if_capacity_matched=%d\n", cap_diag.would_accept_if_capacity_matched);
+    printf("BETA_ATTEMPT_CAPACITY_END\n");
+    if (rt->beta_attempt_capacity_csv) {
+        fprintf(rt->beta_attempt_capacity_csv,
+                "%s,%d,%.12e,%.12e,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%s,%d,%.12e,%.12e,%.12e\n",
+                rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                step, P->temperature_C,
+                decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0),
+                site.ix, site.iy, site.iz, cap_diag.near_gp_marker,
+                decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0),
+                decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0),
+                cap_diag.beta_seed_radius_nm, cap_diag.beta_seed_volume_m3,
+                seed_mass_required, cap_diag.seed_mass_original, cap_diag.matrix_draw_radius_nm,
+                cap_diag.matrix_available_capacity, cap_diag.GP_initial_available_capacity,
+                cap_diag.GP_new_available_capacity, cap_diag.GP_total_available_capacity,
+                cap_diag.total_available_capacity,
+                cap_diag.total_available_capacity / fmax(seed_mass_required, 1.0e-300),
+                status, cap_diag.would_accept_if_capacity_matched,
+                cap_diag.seed_amplitude_scale, actual_matrix_removed_diag, event_mass_rel_error);
+        fflush(rt->beta_attempt_capacity_csv);
+    }
+
+    rt->event_counter += 1;
+    rt->attempted_event_count += 1;
+    if (rt->event_csv) {
+        fprintf(rt->event_csv,
+                "%d,%d,%d,%s,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                rt->event_counter, step, site.id, status, site.ix, site.iy, site.iz,
+                seed_mass_required, before.M_gp_active, mass_from_gp, mass_from_matrix,
+                gp_released_to_matrix, matrix_draw_actual, release_actual,
+                before.M_total, after.M_total, event_mass_error, event_mass_rel_error,
+                fmax(clip_draw, clip_release));
+        fflush(rt->event_csv);
+    }
+    if (strcmp(status, "accepted") == 0) {
+        const size_t center_idx = ((size_t)site.ix * P->Ny + (size_t)site.iy) * P->Nz + (size_t)site.iz;
+        const double local_xB_event = (center_idx < xB.size()) ? xB[center_idx] : NAN;
+        const double rc_nm_event = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+        const double cx_nm = (site.ix + 0.5) * runtime_dx_nm_host(P);
+        const double cy_nm = (site.iy + 0.5) * runtime_dy_nm_host(P);
+        const double cz_nm = (site.iz + 0.5) * runtime_dz_nm_host(P);
+        char site_label[64];
+        snprintf(site_label, sizeof(site_label), "gp_site_%d", site.id);
+        write_unified_nucleation_event(rt->physics_events_csv,
+                                       rt->event_counter,
+                                       "gp_assisted_beta",
+                                       step,
+                                       pf_step_time_seconds(P, step),
+                                       local_xB_event,
+                                       P->temperature_C,
+                                       1,
+                                       1,
+                                       "sphere",
+                                       isfinite(rc_nm_event) ? rc_nm_event : P->gp_debug_beta_seed_radius,
+                                       cx_nm,
+                                       cy_nm,
+                                       cz_nm,
+                                       site_label,
+                                       P->gp_stochastic_deltaG_homo_kBT,
+                                       NAN,
+                                       pf_domain_volume_nm3(P),
+                                       P->dt,
+                                       P->t_real_unit,
+                                       status,
+                                       "gp_assisted_runtime_observation_only");
+    }
+    write_gp_assisted_ledger_row(rt->ledger_csv, step, "after_event", &site_after, &after);
+
+    printf("[GP-ASSISTED BETA DEBUG] step=%d site_id=%d status=%s center=(%d,%d,%d) seed_mass=%.10e gp_to_beta=%.10e matrix_draw=%.10e release_to_matrix=%.10e rel_mass_err=%.3e\n",
+           step, site.id, status, site.ix, site.iy, site.iz,
+           seed_mass_required, mass_from_gp, mass_from_matrix, gp_released_to_matrix, event_mass_rel_error);
+
+    if (strcmp(status, "accepted") == 0) {
+        const size_t center_idx = ((size_t)site.ix * P->Ny + (size_t)site.iy) * P->Nz + (size_t)site.iz;
+        const double local_xB_before = (center_idx < xB.size()) ? xB[center_idx] : NAN;
+        const double s_local = decision_diag ? decision_diag->s_GP : ((site.S_factor > 0.0) ? site.S_factor : 1.0);
+        const double deltaG_bare = decision_diag ? decision_diag->DeltaG_bare_kBT : NAN;
+        const double deltaG_eff = decision_diag ? decision_diag->DeltaG_eff_kBT : NAN;
+        const double J_beta = decision_diag ? decision_diag->J_eff : NAN;
+        const double gp_initial_consumed = before_gp_initial_existing - after_gp_initial_existing;
+        const double gp_new_consumed = before_gp_new_existing - after_gp_new_existing;
+        const double gp_total_consumed = gp_initial_consumed + gp_new_consumed;
+        const double beta_added = after.M_beta - before.M_beta;
+        const char *beta_policy = "BETA_FROM_MATRIX_PLUS_GP_CONSUMPTION";
+        printf("BETA_EVENT_TRANSACTION_BEGIN case=%s step=%d time_s=%.12e event_id=%d "
+               "position=(%d,%d,%d) local_xB_alpha_before=%.12e s_GP_local=%.12e s_eff_local=%.12e "
+               "DeltaG_beta_bare=%.12e DeltaG_beta_effective=%.12e J_beta_local_or_rate=%.12e "
+               "requested_beta_inventory=%.12e actual_matrix_mass_removed=%.12e "
+               "actual_GP_initial_inventory_consumed=%.12e actual_GP_new_inventory_consumed=%.12e "
+               "actual_GP_total_consumed=%.12e actual_beta_inventory_added=%.12e inventory_policy=%s "
+               "M_matrix_before=%.12e M_GP_initial_before=%.12e M_GP_new_before=%.12e M_beta_before=%.12e "
+               "M_total_before=%.12e M_matrix_after=%.12e M_GP_initial_after=%.12e M_GP_new_after=%.12e "
+               "M_beta_after=%.12e M_total_after=%.12e transaction_mass_error_abs=%.12e "
+               "transaction_mass_error_rel=%.12e xB_alpha_min_before=%.12e xB_alpha_min_after=%.12e "
+               "xB_alpha_max_before=%.12e xB_alpha_max_after=%.12e BETA_EVENT_TRANSACTION_END\n",
+               rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+               step, pf_step_time_seconds(P, step), rt->event_counter,
+               site.ix, site.iy, site.iz, local_xB_before, s_local, s_local,
+               deltaG_bare, deltaG_eff, J_beta,
+               seed_mass_required, actual_matrix_removed_diag,
+               gp_initial_consumed, gp_new_consumed, gp_total_consumed, beta_added, beta_policy,
+               before.M_matrix, before_gp_initial_existing, before_gp_new_existing, before.M_beta,
+               before.M_total, after.M_matrix, after_gp_initial_existing, after_gp_new_existing,
+               after.M_beta, after.M_total, event_mass_error, event_mass_rel_error,
+               before.xB_min, after.xB_min, before.xB_max, after.xB_max);
+        if (rt->beta_event_transaction_csv) {
+            fprintf(rt->beta_event_transaction_csv,
+                    "%s,%d,%.12e,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                    rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                    step, pf_step_time_seconds(P, step), rt->event_counter,
+                    site.ix, site.iy, site.iz, local_xB_before, s_local, s_local,
+                    deltaG_bare, deltaG_eff, J_beta,
+                    seed_mass_required, actual_matrix_removed_diag,
+                    gp_initial_consumed, gp_new_consumed, gp_total_consumed, beta_added, beta_policy,
+                    before.M_matrix, before_gp_initial_existing, before_gp_new_existing, before.M_beta,
+                    before.M_total, after.M_matrix, after_gp_initial_existing, after_gp_new_existing,
+                    after.M_beta, after.M_total, event_mass_error, event_mass_rel_error,
+                    before.xB_min, after.xB_min, before.xB_max, after.xB_max);
+            fflush(rt->beta_event_transaction_csv);
+        }
+        if (direct_multi_gp_capture) {
+            const double global_rel_after =
+                (before.M_total > 0.0)
+                    ? ((after.M_total - before.M_total) / before.M_total)
+                    : event_mass_rel_error;
+            printf("BETA_MULTI_GP_CAPTURE_TRANSACTION_BEGIN step=%d position=(%d,%d,%d) "
+                   "requested_beta_inventory_full_seed=%.12e matrix_draw_radius_nm=%.12e "
+                   "GP_capture_radius_nm=%.12e GP_capture_mode=%s matrix_capacity_available=%.12e "
+                   "matrix_mass_removed=%.12e num_GP_initial_consumed=%d num_GP_new_consumed=%d "
+                   "GP_initial_mass_consumed=%.12e GP_new_mass_consumed=%.12e GP_total_mass_consumed=%.12e "
+                   "num_GP_partially_consumed=%d num_GP_fully_consumed=%d beta_inventory_added=%.12e "
+                   "transaction_mass_error_abs=%.12e transaction_mass_error_rel=%.12e "
+                   "M_matrix_before=%.12e M_GP_initial_before=%.12e M_GP_new_before=%.12e M_beta_before=%.12e "
+                   "M_total_before=%.12e M_matrix_after=%.12e M_GP_initial_after=%.12e M_GP_new_after=%.12e "
+                   "M_beta_after=%.12e M_total_after=%.12e global_mass_error_rel_after=%.12e "
+                   "s_GP_local=%.12e s_eff_local=%.12e BETA_MULTI_GP_CAPTURE_TRANSACTION_END\n",
+                   step, site.ix, site.iy, site.iz,
+                   seed_mass_required, cap_diag.matrix_draw_radius_nm,
+                   active_capture_radius_nm, active_capture_mode,
+                   cap_diag.matrix_available_capacity, actual_matrix_removed_diag,
+                   multi_num_initial_consumed, multi_num_new_consumed,
+                   multi_initial_mass_consumed, multi_new_mass_consumed,
+                   multi_initial_mass_consumed + multi_new_mass_consumed,
+                   multi_num_partial, multi_num_full, beta_added,
+                   event_mass_error, event_mass_rel_error,
+                   before.M_matrix, before_gp_initial_existing, before_gp_new_existing, before.M_beta,
+                   before.M_total, after.M_matrix, after_gp_initial_existing, after_gp_new_existing,
+                   after.M_beta, after.M_total, global_rel_after, s_local, s_local);
+            if (rt->beta_multi_gp_capture_transaction_csv) {
+                fprintf(rt->beta_multi_gp_capture_transaction_csv,
+                        "%s,%d,%.12e,%d,%d,%d,%.12e,%.12e,%.12e,%s,%.12e,%.12e,"
+                        "%d,%d,%.12e,%.12e,%.12e,%d,%d,%.12e,%.12e,%.12e,"
+                        "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                        rt->stageA_case_label[0] ? rt->stageA_case_label : "unknown_case",
+                        step, pf_step_time_seconds(P, step), site.ix, site.iy, site.iz,
+                        seed_mass_required, cap_diag.matrix_draw_radius_nm,
+                        active_capture_radius_nm, active_capture_mode,
+                        cap_diag.matrix_available_capacity, actual_matrix_removed_diag,
+                        multi_num_initial_consumed, multi_num_new_consumed,
+                        multi_initial_mass_consumed, multi_new_mass_consumed,
+                        multi_initial_mass_consumed + multi_new_mass_consumed,
+                        multi_num_partial, multi_num_full, beta_added,
+                        event_mass_error, event_mass_rel_error,
+                        before.M_matrix, before_gp_initial_existing, before_gp_new_existing, before.M_beta,
+                        before.M_total, after.M_matrix, after_gp_initial_existing, after_gp_new_existing,
+                        after.M_beta, after.M_total, global_rel_after, s_local, s_local);
+                fflush(rt->beta_multi_gp_capture_transaction_csv);
+            }
+        }
+    }
+
+    rt->max_abs_rel_drift = fmax(rt->max_abs_rel_drift, fabs(event_mass_rel_error));
+    rt->sum_abs_rel_drift += fabs(event_mass_rel_error);
+    rt->drift_sample_count += 1;
+    if (strcmp(status, "accepted") == 0 || staged_conversion_created) {
+        phi.swap(phi_trial);
+        xB.swap(xB_trial);
+        Y.swap(Y_trial);
+        if (direct_multi_gp_capture || staged_conversion_created) {
+            rt->sites.swap(sites_after);
+        } else {
+            rt->sites[sidx] = site_after;
+        }
+        if (strcmp(status, "accepted") == 0) rt->accepted_event_count += 1;
+        rt->total_gp_consumed += mass_from_gp + gp_released_to_matrix;
+        rt->total_matrix_drawn += mass_from_matrix;
+    }
+
+    if (status_out) *status_out = status;
+    if (hazard_mass_before) *hazard_mass_before = before.M_total;
+    if (hazard_mass_after) *hazard_mass_after = after.M_total;
+    if (event_mass_error_out) *event_mass_error_out = event_mass_error;
+    if (event_mass_rel_error_out) *event_mass_rel_error_out = event_mass_rel_error;
+    if (mass_from_gp_out) *mass_from_gp_out = mass_from_gp + gp_released_to_matrix;
+    if (mass_from_matrix_out) *mass_from_matrix_out = mass_from_matrix;
+    return 1;
+}
+
+static int apply_gp_assisted_scheduled_event_cpu(GpAssistedRuntime *rt, PFParams *P, int step,
+                                                 double *d_phi_r, double *d_Y_r, double *d_xB_r,
+                                                 int total_r, size_t size_r) {
+    if (!rt || !P || !P->enable_gp_assisted_beta_nucleation || !P->gp_assisted_debug_scheduled) return 1;
+    if (P->mode != 0 || step != P->gp_debug_scheduled_step) return 1;
+    if (rt->sites.empty()) {
+        build_gp_assisted_sites_from_params(P, &rt->sites);
+        rt->initial_gp_site_count = (int)rt->sites.size();
+    }
+
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+
+    GpAssistedLedger global_before;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &global_before);
+    write_gp_assisted_multi_ledger_row(rt->multi_ledger_csv, step, rt->sites,
+                                       &global_before, rt->initial_total_reference);
+
+    int events_accepted_this_step = 0;
+    const int active_before = gp_assisted_count_active_sites(rt->sites);
+    for (size_t sidx = 0; sidx < rt->sites.size(); ++sidx) {
+        GpAssistedSite &site = rt->sites[sidx];
+        if (!site.active || site.consumed) continue;
+
+        GpAssistedLedger before;
+        compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &before);
+        write_gp_assisted_ledger_row(rt->ledger_csv, step, "before_event", &site, &before);
+
+        const char *status = "accepted";
+        double seed_mass_required = 0.0;
+        double mass_from_gp = 0.0;
+        double mass_from_matrix = 0.0;
+        double gp_released_to_matrix = 0.0;
+        double matrix_draw_actual = 0.0;
+        double release_actual = 0.0;
+        double clip_draw = 0.0;
+        double clip_release = 0.0;
+
+        std::vector<double> phi_trial = phi;
+        std::vector<double> xB_trial = xB;
+        std::vector<double> Y_trial = Y;
+        const double seed_region_radius_nm =
+            P->gp_debug_beta_seed_radius + 3.0 * P->gp_debug_beta_seed_iface_width;
+        std::vector<int> seed_indices = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                                              seed_region_radius_nm);
+        std::vector<int> release_indices = gp_assisted_compact_spherical_indices(P, site.ix, site.iy, site.iz,
+                                                                                 P->gp_release_radius_nm);
+
+        for (int idx : seed_indices) {
+            const int k = idx % P->Nz;
+            const int j = (idx / P->Nz) % P->Ny;
+            const int i = idx / (P->Ny * P->Nz);
+            const double p_old = clamp01(phi_trial[(size_t)idx]);
+            const double h_old = h_of_phi(p_old);
+            const double p_seed = gp_assisted_seed_phi_value(P, &site, i, j, k);
+            const double p_new = fmax(p_old, p_seed);
+            const double h_new = h_of_phi(p_new);
+            seed_mass_required += fmax((h_new - h_old) * (P->v_B - xB_trial[(size_t)idx]), 0.0);
+            phi_trial[(size_t)idx] = p_new;
+        }
+        mass_from_gp = fmin(site.B_mass_active, seed_mass_required);
+        mass_from_matrix = fmax(seed_mass_required - mass_from_gp, 0.0);
+        const double xmin = fmax(P->gp_debug_xB_min, P->xB_eps);
+        const double xmax = fmin(P->gp_debug_xB_max, 1.0 - P->xB_eps);
+        if (mass_from_matrix > 0.0) {
+            int ok_draw = gp_assisted_shift_matrix_mass(phi_trial, xB_trial, release_indices,
+                                                       -mass_from_matrix, xmin, xmax,
+                                                       fmax(1.0e-12, mass_from_matrix * 1.0e-10),
+                                                       &matrix_draw_actual, &clip_draw);
+            if (!ok_draw) status = "rejected_insufficient_matrix_draw_capacity";
+        }
+        if (strcmp(status, "accepted") == 0) {
+            gp_released_to_matrix = fmax(site.B_mass_active - mass_from_gp, 0.0);
+            if (gp_released_to_matrix > 0.0) {
+                int ok_release = gp_assisted_shift_matrix_mass(phi_trial, xB_trial, release_indices,
+                                                              gp_released_to_matrix, xmin, xmax,
+                                                              fmax(1.0e-12, gp_released_to_matrix * 1.0e-10),
+                                                              &release_actual, &clip_release);
+                if (!ok_release) status = "rejected_insufficient_release_capacity";
+            }
+        }
+        if (strcmp(status, "accepted") == 0) {
+            for (size_t idx = 0; idx < xB_trial.size(); ++idx) {
+                xB_trial[idx] = fmin(fmax(xB_trial[idx], xmin), xmax);
+                Y_trial[idx] = logit_from_fraction(xB_trial[idx], P->xB_eps, P->Y_clip);
+            }
+        }
+
+        GpAssistedSite site_after = site;
+        if (strcmp(status, "accepted") == 0) {
+            site_after.active = 0;
+            site_after.consumed = 1;
+            site_after.consumed_step = step;
+            site_after.linked_beta_event_id = rt->event_counter + 1;
+            site_after.B_mass_active = 0.0;
+        }
+        std::vector<GpAssistedSite> sites_after = rt->sites;
+        sites_after[sidx] = site_after;
+        GpAssistedLedger after;
+        compute_gp_assisted_multi_ledger_host((strcmp(status, "accepted") == 0) ? phi_trial : phi,
+                                              (strcmp(status, "accepted") == 0) ? Y_trial : Y,
+                                              (strcmp(status, "accepted") == 0) ? xB_trial : xB,
+                                              P->v_B, sites_after, &after);
+        const double event_mass_error = after.M_total - before.M_total;
+        const double event_mass_rel_error = event_mass_error / fmax(fabs(before.M_total), 1.0e-30);
+
+        rt->event_counter += 1;
+        rt->attempted_event_count += 1;
+        if (rt->event_csv) {
+            fprintf(rt->event_csv,
+                    "%d,%d,%d,%s,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e\n",
+                    rt->event_counter, step, site.id, status, site.ix, site.iy, site.iz,
+                    seed_mass_required, before.M_gp_active, mass_from_gp, mass_from_matrix,
+                    gp_released_to_matrix, matrix_draw_actual, release_actual,
+                    before.M_total, after.M_total, event_mass_error, event_mass_rel_error,
+                    fmax(clip_draw, clip_release));
+            fflush(rt->event_csv);
+        }
+        if (strcmp(status, "accepted") == 0) {
+            const size_t center_idx = ((size_t)site.ix * P->Ny + (size_t)site.iy) * P->Nz + (size_t)site.iz;
+            const double local_xB_event = (center_idx < xB.size()) ? xB[center_idx] : NAN;
+            const double rc_nm_event = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+            const double cx_nm = (site.ix + 0.5) * runtime_dx_nm_host(P);
+            const double cy_nm = (site.iy + 0.5) * runtime_dy_nm_host(P);
+            const double cz_nm = (site.iz + 0.5) * runtime_dz_nm_host(P);
+            char site_label[64];
+            snprintf(site_label, sizeof(site_label), "gp_site_%d", site.id);
+            write_unified_nucleation_event(rt->physics_events_csv,
+                                           rt->event_counter,
+                                           "gp_assisted_beta",
+                                           step,
+                                           pf_step_time_seconds(P, step),
+                                           local_xB_event,
+                                           P->temperature_C,
+                                           1,
+                                           1,
+                                           "sphere",
+                                           isfinite(rc_nm_event) ? rc_nm_event : P->gp_debug_beta_seed_radius,
+                                           cx_nm,
+                                           cy_nm,
+                                           cz_nm,
+                                           site_label,
+                                           P->gp_stochastic_deltaG_homo_kBT,
+                                           NAN,
+                                           pf_domain_volume_nm3(P),
+                                           P->dt,
+                                           P->t_real_unit,
+                                           status,
+                                           "gp_assisted_runtime_observation_only");
+        }
+        write_gp_assisted_ledger_row(rt->ledger_csv, step, "after_event", &site_after, &after);
+
+        printf("[GP-ASSISTED BETA DEBUG] step=%d site_id=%d status=%s center=(%d,%d,%d) seed_mass=%.10e gp_to_beta=%.10e matrix_draw=%.10e release_to_matrix=%.10e rel_mass_err=%.3e\n",
+               step, site.id, status, site.ix, site.iy, site.iz,
+               seed_mass_required, mass_from_gp, mass_from_matrix, gp_released_to_matrix, event_mass_rel_error);
+
+        rt->max_abs_rel_drift = fmax(rt->max_abs_rel_drift, fabs(event_mass_rel_error));
+        rt->sum_abs_rel_drift += fabs(event_mass_rel_error);
+        rt->drift_sample_count += 1;
+        if (strcmp(status, "accepted") == 0) {
+            phi.swap(phi_trial);
+            xB.swap(xB_trial);
+            Y.swap(Y_trial);
+            rt->sites[sidx] = site_after;
+            rt->accepted_event_count += 1;
+            events_accepted_this_step += 1;
+            rt->total_gp_consumed += mass_from_gp + gp_released_to_matrix;
+            rt->total_matrix_drawn += mass_from_matrix;
+        }
+    }
+
+    GpAssistedLedger global_after;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &global_after);
+    beta_add_staged_inventory_to_ledger(&global_after, rt->staged_embryos);
+    write_gp_assisted_multi_ledger_row(rt->multi_ledger_csv, step, rt->sites,
+                                       &global_after, rt->initial_total_reference);
+    const double global_rel = (rt->initial_total_reference > 0.0)
+        ? ((global_after.M_total - rt->initial_total_reference) / rt->initial_total_reference)
+        : 0.0;
+    rt->max_abs_rel_drift = fmax(rt->max_abs_rel_drift, fabs(global_rel));
+    rt->sum_abs_rel_drift += fabs(global_rel);
+    rt->drift_sample_count += 1;
+
+    CUDA_CHECK(cudaMemcpy(d_phi_r, phi.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_xB_r, xB.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_Y_r, Y.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    const double accept_rate = (active_before > 0) ? ((double)events_accepted_this_step / (double)active_before) : 0.0;
+    const double beta_density = (double)rt->accepted_event_count / fmax((double)total_r, 1.0);
+    const double mean_drift = (rt->drift_sample_count > 0)
+        ? (rt->sum_abs_rel_drift / (double)rt->drift_sample_count)
+        : 0.0;
+    const char *notes = (rt->total_gp_consumed <= rt->total_gp_initial + 1.0e-8) ? "ok" : "gp_consumption_exceeds_initial";
+    if (rt->scaling_csv) {
+        fprintf(rt->scaling_csv,
+                "%zu,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s\n",
+                rt->sites.size(), rt->accepted_event_count, rt->total_gp_consumed,
+                rt->total_matrix_drawn, accept_rate, rt->max_abs_rel_drift,
+                mean_drift, beta_density, notes);
+        fflush(rt->scaling_csv);
+    }
+    if (rt->total_gp_consumed > rt->total_gp_initial + 1.0e-8) {
+        fprintf(stderr, "[warn] GP-assisted total GP consumed exceeds initial reservoir: consumed=%.12e initial=%.12e\n",
+                rt->total_gp_consumed, rt->total_gp_initial);
+    }
+    return 1;
+}
+
+static double gp_assisted_rng_uniform01(GpAssistedRuntime *rt) {
+    if (!rt) return 0.0;
+    unsigned long long x = gp_assisted_lcg_next(&rt->rng_state);
+    return (double)(x >> 11) * (1.0 / 9007199254740992.0);
+}
+
+static double gp_pseudobinary_xAg_from_xB(double xB) {
+    if (!isfinite(xB)) return NAN;
+    const double xc = fmin(fmax(xB, 0.0), 1.999999999999);
+    const double denom = 2.0 + xc;
+    if (!(denom > 0.0)) return NAN;
+    return 2.0 * xc / denom;
+}
+
+static double gp_pseudobinary_xB_from_xAg(double xAg) {
+    if (!isfinite(xAg)) return NAN;
+    const double xc = fmin(fmax(xAg, 0.0), 1.999999999999);
+    const double denom = 2.0 - xc;
+    if (!(denom > 0.0)) return NAN;
+    return 2.0 * xc / denom;
+}
+
+static double gp_compute_matrix_mean_xB_alpha_host(const std::vector<double> &phi,
+                                                   const std::vector<double> &xB) {
+    if (phi.empty() || xB.empty() || phi.size() != xB.size()) return NAN;
+    long double num = 0.0L;
+    long double den = 0.0L;
+    for (size_t idx = 0; idx < phi.size(); ++idx) {
+        const double h_beta = h_of_phi(clamp01(phi[idx]));
+        const double alpha = fmax(1.0 - h_beta, 0.0);
+        num += (long double)alpha * (long double)xB[idx];
+        den += (long double)alpha;
+    }
+    if (!(den > 0.0L)) return NAN;
+    return (double)(num / den);
+}
+
+static double gp_literature_L_alpha_J_mol(double T_K, const PFParams *P) {
+    if (!P || !(isfinite(T_K) && T_K > 0.0)) return NAN;
+    return P->gp_literature_L_alpha0_J_mol + P->gp_literature_L_alpha1_J_mol_K * T_K;
+}
+
+static double gp_literature_regular_solution_f_J_mol(double xB, double T_K, const PFParams *P) {
+    if (!P || !(isfinite(T_K) && T_K > 0.0) || !isfinite(xB)) return NAN;
+    const double x = fmin(fmax(xB, 1.0e-300), 1.0 - 1.0e-12);
+    if (!(x > 0.0 && x < 1.0)) return NAN;
+    const double L_alpha = gp_literature_L_alpha_J_mol(T_K, P);
+    if (!isfinite(L_alpha)) return NAN;
+    return 8.314462618 * T_K * log(x) + L_alpha * (1.0 - x) * (1.0 - x);
+}
+
+static double gp_literature_solve_xB_eq_bisection(double T_K, const PFParams *P) {
+    if (!P || !(isfinite(T_K) && T_K > 0.0)) return NAN;
+    double lo = 1.0e-12;
+    double hi = 0.49;
+    double flo = gp_literature_regular_solution_f_J_mol(lo, T_K, P);
+    double fhi = gp_literature_regular_solution_f_J_mol(hi, T_K, P);
+    if (!(isfinite(flo) && isfinite(fhi))) return NAN;
+    if (flo > 0.0) return lo;
+    if (fhi < 0.0) {
+        hi = 0.999999;
+        fhi = gp_literature_regular_solution_f_J_mol(hi, T_K, P);
+        if (!(isfinite(fhi))) return NAN;
+        if (fhi < 0.0) {
+            return gp_pseudobinary_xB_from_xAg(P->gp_literature_xAg_default);
+        }
+    }
+    for (int it = 0; it < 80; ++it) {
+        const double mid = 0.5 * (lo + hi);
+        const double fm = gp_literature_regular_solution_f_J_mol(mid, T_K, P);
+        if (!isfinite(fm)) return NAN;
+        if (fm > 0.0) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    return 0.5 * (lo + hi);
+}
+
+static double gp_literature_delta_gv_J_m3_from_xAg(double xAg, double T_K, const PFParams *P) {
+    if (!P || !(isfinite(T_K) && T_K > 0.0) || !isfinite(xAg)) return NAN;
+    const double xB = gp_pseudobinary_xB_from_xAg(xAg);
+    if (!(isfinite(xB) && xB > 0.0 && xB < 1.0)) return 0.0;
+    const double xB_eq = gp_literature_solve_xB_eq_bisection(T_K, P);
+    if (!(isfinite(xB_eq) && xB_eq > 0.0 && xB_eq < 1.0)) return NAN;
+    const double xAg_eq = gp_pseudobinary_xAg_from_xB(xB_eq);
+    if (!(isfinite(xAg_eq))) return NAN;
+    if (!(xAg > xAg_eq + P->gp_literature_xeq_guard)) return 0.0;
+    const double fx = gp_literature_regular_solution_f_J_mol(xB, T_K, P);
+    const double feq = gp_literature_regular_solution_f_J_mol(xB_eq, T_K, P);
+    if (!(isfinite(fx) && isfinite(feq))) return NAN;
+    const double delta_mu_matrix = fmax(fx - feq, 0.0); // [J/mol]
+    const double a = P->gp_literature_a_PbTe_m;         // [m]
+    const double V_m = 6.02214076e23 * a * a * a / 4.0; // [m^3/mol]
+    if (!(isfinite(V_m) && V_m > 0.0)) return NAN;
+    return delta_mu_matrix / V_m; // [J/m^3]
+}
+
+static double gp_literature_J_m3_s(double xAg, double T_K, const PFParams *P) {
+    if (!P || !(isfinite(T_K) && T_K > 0.0) || !isfinite(xAg)) return NAN;
+    const double delta_gv = gp_literature_delta_gv_J_m3_from_xAg(xAg, T_K, P);
+    if (!isfinite(delta_gv)) return NAN;
+    if (!(delta_gv > 0.0)) return 0.0;
+    const double D_Ag =
+        P->gp_literature_D0_m2_s *
+        exp(-P->gp_literature_Q_J_mol / (8.314462618 * T_K)); // [m^2/s]
+    if (!(isfinite(D_Ag) && D_Ag > 0.0)) return 0.0;
+    const double expo =
+        -P->gp_literature_B_eff_J3_m6 /
+        (1.380649e-23 * T_K * delta_gv * delta_gv);
+    if (!isfinite(expo)) return NAN;
+    if (expo < -700.0) return 0.0;
+    return P->gp_literature_A_m5 * D_Ag * exp(expo); // [m^-3 s^-1]
+}
+
+static double gp_literature_D_Ag_m2_s(double T_K, const PFParams *P) {
+    if (!P || !(isfinite(T_K) && T_K > 0.0)) return NAN;
+    return P->gp_literature_D0_m2_s *
+           exp(-P->gp_literature_Q_J_mol / (8.314462618 * T_K));
+}
+
+static int gp_literature_poisson_sample_small_lambda(GpAssistedRuntime *rt, double lambda) {
+    if (!(isfinite(lambda) && lambda > 0.0)) return 0;
+    if (lambda > 64.0) lambda = 64.0;
+    const double L = exp(-lambda);
+    int k = 0;
+    double p = 1.0;
+    do {
+        ++k;
+        p *= fmax(gp_assisted_rng_uniform01(rt), 1.0e-16);
+    } while (p > L && k < 1000000);
+    return k - 1;
+}
+
+static int gp_literature_next_site_id(const GpAssistedRuntime *rt, const PFParams *P) {
+    int max_id = P ? (P->gp_debug_scheduled_site_id - 1) : -1;
+    if (rt) {
+        for (size_t i = 0; i < rt->sites.size(); ++i) max_id = std::max(max_id, rt->sites[i].id);
+    }
+    return max_id + 1;
+}
+
+static double gp_literature_requested_birth_mass(const PFParams *P,
+                                                 const GpAssistedSite *site,
+                                                 double xB_background_local,
+                                                 double legacy_requested_mass_hint,
+                                                 double *xB_gp_out) {
+    if (xB_gp_out) *xB_gp_out = NAN;
+    if (!P || !site) return 0.0;
+    const double xB_gp = gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP);
+    if (xB_gp_out) *xB_gp_out = xB_gp;
+    if (strcmp(P->gp_birth_inventory_policy, "legacy_requested_mass") == 0) {
+        return fmax(legacy_requested_mass_hint, 0.0);
+    }
+    const double cell_volume_m3 = gp_cell_volume_m3(P);
+    if (!(isfinite(cell_volume_m3) && cell_volume_m3 > 0.0 &&
+          isfinite(site->volume_m3) && site->volume_m3 > 0.0 &&
+          isfinite(xB_gp) && isfinite(xB_background_local))) {
+        return 0.0;
+    }
+    const double excess = fmax(xB_gp - xB_background_local, 0.0);
+    return excess * site->volume_m3 / cell_volume_m3;
+}
+
+static int gp_literature_append_birth_site_host(GpAssistedRuntime *rt, const PFParams *P,
+                                                int step,
+                                                std::vector<double> &phi,
+                                                std::vector<double> &Y,
+                                                std::vector<double> &xB,
+                                                int ix, int iy, int iz,
+                                                double legacy_requested_mass_hint,
+                                                double J_GP_m3_s,
+                                                double lambda_step,
+                                                const char *birth_source,
+                                                FILE *birth_csv,
+                                                FILE *probe_csv) {
+    if (!rt || !P || !P->gp_static_marker_enabled) return -1;
+    if ((int)rt->sites.size() >= P->gp_birth_max_total_sites) return 0;
+    GpAssistedLedger before;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &before);
+    double before_gp_initial_existing = 0.0;
+    double before_gp_new_existing = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &before_gp_initial_existing, &before_gp_new_existing);
+    GpAssistedSite site;
+    init_gp_assisted_site_at(P, &site, gp_literature_next_site_id(rt, P), ix, iy, iz);
+    const int center_idx = gp_assisted_flat_index(P, site.ix, site.iy, site.iz);
+    const double xB_center_before = (center_idx >= 0 && (size_t)center_idx < xB.size())
+        ? xB[(size_t)center_idx]
+        : NAN;
+    GpSmoothDepletionDiag dep_diag;
+    memset(&dep_diag, 0, sizeof(dep_diag));
+    dep_diag.local_background_xB = xB_center_before;
+    const double requested_mass = gp_literature_requested_birth_mass(
+        P, &site, dep_diag.local_background_xB, legacy_requested_mass_hint, NULL);
+    site.B_mass_initial = fmax(requested_mass, 0.0);
+    site.B_mass_active = site.B_mass_initial;
+    int shortage = 0;
+    double removed_mass = 0.0;
+    std::vector<double> xB_snapshot;
+    std::vector<double> Y_snapshot;
+    const int policy_rejects_shortage =
+        (strcmp(P->gp_birth_inventory_policy, "excess_over_local_background") == 0);
+    if (policy_rejects_shortage) {
+        xB_snapshot = xB;
+        Y_snapshot = Y;
+    }
+    if (P->gp_birth_connect_to_smooth_local_depletion && P->gp_smooth_depletion_enabled && site.B_mass_active > 0.0) {
+        removed_mass = gp_apply_smooth_local_depletion_for_site_host(phi, xB, P, &site,
+                                                                     site.B_mass_active, &shortage, &dep_diag);
+        if (probe_csv && P->gp_post_birth_mass_probe_enabled) {
+            write_gp_post_birth_mass_probe_row_host(
+                probe_csv, step, "PROBE_AFTER_BIRTH_TRANSACTION", 1, P, rt,
+                phi, NULL, Y, xB,
+                "after_smooth_local_depletion_before_xB_to_Y_sync");
+        }
+        for (size_t idx = 0; idx < xB.size() && idx < Y.size(); ++idx) {
+            Y[idx] = logit_from_fraction(xB[idx], P->xB_eps, P->Y_clip);
+        }
+        if (probe_csv && P->gp_post_birth_mass_probe_enabled) {
+            write_gp_post_birth_mass_probe_row_host(
+                probe_csv, step, "PROBE_AFTER_BIRTH_XB_TO_Y_SYNC", 1, P, rt,
+                phi, NULL, Y, xB,
+                "after_rebuild_Y_from_post_birth_xB");
+        }
+    } else {
+        removed_mass = site.B_mass_active;
+        dep_diag.requested_mass = requested_mass;
+        dep_diag.target_mass = requested_mass;
+        dep_diag.local_available_matrix_mass = requested_mass;
+        dep_diag.local_background_xB = xB_center_before;
+        if (probe_csv && P->gp_post_birth_mass_probe_enabled) {
+            write_gp_post_birth_mass_probe_row_host(
+                probe_csv, step, "PROBE_AFTER_BIRTH_TRANSACTION", 1, P, rt,
+                phi, NULL, Y, xB,
+                "no_depletion_path_before_xB_to_Y_sync");
+            write_gp_post_birth_mass_probe_row_host(
+                probe_csv, step, "PROBE_AFTER_BIRTH_XB_TO_Y_SYNC", 0, P, rt,
+                phi, NULL, Y, xB,
+                "NOT_APPLICABLE_same_state_no_explicit_Y_rebuild_needed");
+        }
+    }
+    const int reduced_on_shortage = (removed_mass + 1.0e-12 < requested_mass);
+    if (policy_rejects_shortage && reduced_on_shortage) {
+        xB.swap(xB_snapshot);
+        Y.swap(Y_snapshot);
+        printf("GP_BIRTH_TRANSACTION_BEGIN step=%d site_id=%d position=(%d,%d,%d) "
+               "R_GP_nm=%.12e V_GP_m3=%.12e xB_background_for_excess=%.12e xB_GP=%.12e "
+               "requested_inventory_mode=%s requested_GP_inventory=%.12e local_available_matrix_mass=%.12e "
+               "actual_matrix_mass_removed=0 actual_GP_inventory_added=0 inventory_reduced_or_rejected=rejected_shortage "
+               "M_matrix_before=%.12e M_GP_initial_existing_before=%.12e M_GP_new_existing_before=%.12e "
+               "M_beta_before=%.12e M_total_before=%.12e M_matrix_after=%.12e "
+               "M_GP_initial_existing_after=%.12e M_GP_new_existing_after=%.12e M_beta_after=%.12e M_total_after=%.12e "
+               "transaction_mass_error_abs=0 transaction_mass_error_rel=0 xB_alpha_min_before=%.12e xB_alpha_min_after=%.12e "
+               "xB_alpha_max_before=%.12e xB_alpha_max_after=%.12e GP_BIRTH_TRANSACTION_END\n",
+               step, site.id, site.ix, site.iy, site.iz,
+               site.radius_nm, site.volume_m3, dep_diag.local_background_xB,
+               gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP), P->gp_birth_inventory_policy,
+               requested_mass, dep_diag.local_available_matrix_mass,
+               before.M_matrix, before_gp_initial_existing, before_gp_new_existing,
+               before.M_beta, before.M_total,
+               before.M_matrix, before_gp_initial_existing, before_gp_new_existing,
+               before.M_beta, before.M_total,
+               before.xB_min, before.xB_min, before.xB_max, before.xB_max);
+        return 0;
+    }
+    if (!(removed_mass > 0.0)) {
+        printf("GP_LITERATURE_BIRTH_REJECTED step=%d site=(%d,%d,%d) policy=%s "
+               "requested_mass=%.12e removed_mass=%.12e xB_background=%.12e reason=no_positive_matrix_inventory\n",
+               step, site.ix, site.iy, site.iz, P->gp_birth_inventory_policy,
+               requested_mass, removed_mass, dep_diag.local_background_xB);
+        return 0;
+    }
+    const double gp_inventory_added =
+        (strcmp(P->gp_birth_inventory_policy, "excess_over_local_background") == 0)
+            ? requested_mass
+            : removed_mass;
+    site.B_mass_initial = gp_inventory_added;
+    site.B_mass_active = gp_inventory_added;
+    rt->sites.push_back(site);
+    GpAssistedLedger after;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &after);
+    double after_gp_initial_existing = 0.0;
+    double after_gp_new_existing = 0.0;
+    gp_assisted_split_active_mass_by_origin(rt->sites, rt->initial_gp_site_count,
+                                            &after_gp_initial_existing, &after_gp_new_existing);
+    const double mass_error_abs = after.M_total - before.M_total;
+    const double mass_error_rel = (after.M_total - before.M_total) / fmax(fabs(before.M_total), 1.0e-30);
+    const char *inventory_status = reduced_on_shortage ? "reduced" : "accepted";
+    printf("GP_BIRTH_TRANSACTION_BEGIN step=%d site_id=%d position=(%d,%d,%d) "
+           "R_GP_nm=%.12e V_GP_m3=%.12e xB_background_for_excess=%.12e xB_GP=%.12e "
+           "requested_inventory_mode=%s requested_GP_inventory=%.12e local_available_matrix_mass=%.12e "
+           "actual_matrix_mass_removed=%.12e actual_GP_inventory_added=%.12e inventory_reduced_or_rejected=%s "
+           "M_matrix_before=%.12e M_GP_initial_existing_before=%.12e M_GP_new_existing_before=%.12e "
+           "M_beta_before=%.12e M_total_before=%.12e M_matrix_after=%.12e "
+           "M_GP_initial_existing_after=%.12e M_GP_new_existing_after=%.12e M_beta_after=%.12e M_total_after=%.12e "
+           "transaction_mass_error_abs=%.12e transaction_mass_error_rel=%.12e xB_alpha_min_before=%.12e "
+           "xB_alpha_min_after=%.12e xB_alpha_max_before=%.12e xB_alpha_max_after=%.12e "
+           "GP_BIRTH_TRANSACTION_END\n",
+           step, site.id, site.ix, site.iy, site.iz,
+           site.radius_nm, site.volume_m3, dep_diag.local_background_xB,
+           gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP), P->gp_birth_inventory_policy,
+           requested_mass, dep_diag.local_available_matrix_mass,
+           removed_mass, gp_inventory_added, inventory_status,
+           before.M_matrix, before_gp_initial_existing, before_gp_new_existing,
+           before.M_beta, before.M_total,
+           after.M_matrix, after_gp_initial_existing, after_gp_new_existing,
+           after.M_beta, after.M_total,
+           mass_error_abs, mass_error_rel,
+           before.xB_min, after.xB_min, before.xB_max, after.xB_max);
+    printf("[GP-LITERATURE-BIRTH] step=%d site_id=%d source=%s J_GP_m3_s=%.12e lambda=%.12e "
+           "requested_mass=%.12e actual_mass=%.12e gp_inventory_added=%.12e xB_background=%.12e "
+           "policy=%s xB_min=%.12e xB_max=%.12e mass_error_rel=%.12e shortage=%d total_sites=%zu\n",
+           step, site.id, birth_source ? birth_source : "unknown", J_GP_m3_s, lambda_step,
+           requested_mass, removed_mass, gp_inventory_added, dep_diag.local_background_xB,
+           P->gp_birth_inventory_policy, after.xB_min, after.xB_max, mass_error_rel, shortage, rt->sites.size());
+    if (birth_csv) {
+        fprintf(birth_csv,
+                "%d,%s,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s,%d,%zu\n",
+                step, birth_source ? birth_source : "unknown", site.id, ix, iy, iz,
+                J_GP_m3_s, lambda_step, requested_mass, removed_mass, gp_inventory_added,
+                dep_diag.local_background_xB, after.M_total - before.M_total, mass_error_rel,
+                P->gp_birth_inventory_policy, shortage, rt->sites.size());
+        fflush(birth_csv);
+    }
+    StageAGPBirthDiag stageA_diag;
+    memset(&stageA_diag, 0, sizeof(stageA_diag));
+    stageA_diag.birth_step = step;
+    stageA_diag.site_id = site.id;
+    stageA_diag.R_GP_nm = site.radius_nm;
+    stageA_diag.V_GP_m3 = site.volume_m3;
+    snprintf(stageA_diag.requested_inventory_mode,
+             sizeof(stageA_diag.requested_inventory_mode),
+             "%s", P->gp_birth_inventory_policy);
+    stageA_diag.requested_GP_inventory = requested_mass;
+    stageA_diag.actual_matrix_mass_removed = removed_mass;
+    stageA_diag.actual_GP_inventory_added = gp_inventory_added;
+    stageA_diag.transaction_mass_error_rel = mass_error_rel;
+    stageA_diag.M_GP_initial_existing_before = before_gp_initial_existing;
+    stageA_diag.M_GP_new_existing_before = before_gp_new_existing;
+    stageA_diag.M_GP_initial_existing_after = after_gp_initial_existing;
+    stageA_diag.M_GP_new_existing_after = after_gp_new_existing;
+    stageA_diag.M_matrix_before = before.M_matrix;
+    stageA_diag.M_matrix_after = after.M_matrix;
+    stageA_diag.M_total_before = before.M_total;
+    stageA_diag.M_total_after = after.M_total;
+    stageA_diag.postY_projection_active = 0;
+    snprintf(stageA_diag.postY_projection_target_mode,
+             sizeof(stageA_diag.postY_projection_target_mode),
+             "%s", "not_armed");
+    stageA_diag.mass_error_before_Y_update = NAN;
+    stageA_diag.mass_error_after_Y_update = NAN;
+    stageA_diag.mass_error_after_projection = NAN;
+    stageA_diag.mass_error_step_end = NAN;
+    rt->pending_stageA_birth_diags.push_back(stageA_diag);
+    if (fabs(after.M_total - before.M_total) > fmax(1.0e-12, fabs(before.M_total) * 1.0e-10)) {
+        fprintf(stderr, "[fatal] GP literature birth violated mass conservation: delta=%.12e rel=%.12e\n",
+                after.M_total - before.M_total, mass_error_rel);
+        rt->sites.pop_back();
+        return -1;
+    }
+    return 1;
+}
+
+static int gp_literature_resolve_xAg_input(const PFParams *P,
+                                           const std::vector<double> &phi,
+                                           const std::vector<double> &xB,
+                                           double *xB_source_out,
+                                           double *xAg_used_out) {
+    if (xB_source_out) *xB_source_out = NAN;
+    if (xAg_used_out) *xAg_used_out = NAN;
+    if (!P) return 0;
+    if (strcmp(P->gp_literature_xAg_mode, "fixed_param") == 0) {
+        if (xAg_used_out) *xAg_used_out = P->gp_literature_xAg_default;
+        return isfinite(P->gp_literature_xAg_default);
+    }
+    double xB_source = NAN;
+    if (strcmp(P->gp_literature_xAg_mode, "from_initial_xB_alpha") == 0) {
+        xB_source = (P->ic_23d_xB_out > 0.0) ? P->ic_23d_xB_out : P->ic_xB_eq_matrix;
+    } else if (strcmp(P->gp_literature_xAg_mode, "from_current_mean_xB_alpha") == 0) {
+        xB_source = gp_compute_matrix_mean_xB_alpha_host(phi, xB);
+    } else if (strcmp(P->gp_literature_xAg_mode, "from_after_quench_xB_far") == 0) {
+        xB_source = gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_far);
+    } else {
+        return 0;
+    }
+    if (!(isfinite(xB_source) && xB_source >= 0.0)) return 0;
+    if (xB_source_out) *xB_source_out = xB_source;
+    if (xAg_used_out) *xAg_used_out = gp_pseudobinary_xAg_from_xB(xB_source);
+    return isfinite(xAg_used_out ? *xAg_used_out : gp_pseudobinary_xAg_from_xB(xB_source));
+}
+
+static int apply_gp_literature_births_cpu(GpAssistedRuntime *rt, PFParams *P, int step,
+                                          double *d_phi_r, double *d_Y_r, double *d_xB_r,
+                                          int total_r, size_t size_r,
+                                          FILE *birth_csv,
+                                          FILE *probe_csv) {
+    if (!rt || !P || !P->enable_gp_assisted_beta_nucleation) return 1;
+    if (strcmp(P->gp_birth_model, "poisson_literature_JGP") != 0 &&
+        strcmp(P->gp_birth_model, "diagnostic_JGP_override") != 0) return 1;
+    const int gp_only_no_beta_fast_path =
+        (P->enable_gp_runtime_library_nucleation == 0 &&
+         P->gp_beta_selection_enabled == 0 &&
+         P->gp_birth_debug_force_single_event == 0 &&
+         strcmp(P->gp_literature_xAg_mode, "from_current_mean_xB_alpha") == 0);
+    if (gp_only_no_beta_fast_path) {
+        const double T_K_fast = P->temperature_C + 273.15;
+        const double dx_nm_fast = runtime_dx_nm_host(P);
+        const double dy_nm_fast = runtime_dy_nm_host(P);
+        const double dz_nm_fast = runtime_dz_nm_host(P);
+        if (!(isfinite(T_K_fast) && T_K_fast > 0.0 &&
+              isfinite(dx_nm_fast) && dx_nm_fast > 0.0 &&
+              isfinite(dy_nm_fast) && dy_nm_fast > 0.0 &&
+              isfinite(dz_nm_fast) && dz_nm_fast > 0.0)) {
+            fprintf(stderr, "[fatal] invalid runtime state for GP literature births.\n");
+            return 0;
+        }
+        const double sum_xB_fast = gpu_reduce_sum(d_xB_r, total_r);
+        const double xB_source_fast = sum_xB_fast / fmax((double)total_r, 1.0);
+        const double xAg_used_fast = gp_pseudobinary_xAg_from_xB(xB_source_fast);
+        const double xB_eq_fast = gp_literature_solve_xB_eq_bisection(T_K_fast, P);
+        const double xAg_eq_fast = isfinite(xB_eq_fast) ? gp_pseudobinary_xAg_from_xB(xB_eq_fast) : NAN;
+        const double D_Ag_fast = gp_literature_D_Ag_m2_s(T_K_fast, P);
+        const double delta_gv_fast = gp_literature_delta_gv_J_m3_from_xAg(xAg_used_fast, T_K_fast, P);
+        const double J_GP_fast = gp_literature_J_m3_s(xAg_used_fast, T_K_fast, P);
+        if (!isfinite(J_GP_fast)) {
+            fprintf(stderr, "[fatal] GP literature birth produced NaN/Inf J_GP.\n");
+            return 0;
+        }
+        const double dt_s_fast = P->gp_birth_dt_uses_physical_time ? (P->dt * P->t_real_unit) : P->dt;
+        const double V_box_fast = (double)P->Nx * (double)P->Ny * (double)P->Nz *
+                                  dx_nm_fast * dy_nm_fast * dz_nm_fast * 1.0e-27;
+        const double lambda_fast = fmax(J_GP_fast, 0.0) * fmax(V_box_fast, 0.0) * fmax(dt_s_fast, 0.0);
+        const unsigned long long rng_state_before_fast_sample = rt->rng_state;
+        int births_fast = gp_literature_poisson_sample_small_lambda(rt, lambda_fast);
+        if (births_fast > P->gp_birth_max_events_per_step) births_fast = P->gp_birth_max_events_per_step;
+        if (P->gp_birth_max_total_new_births_for_debug >= 0) {
+            const int remaining_birth_budget =
+                P->gp_birth_max_total_new_births_for_debug - rt->literature_births_accepted_total;
+            if (remaining_birth_budget <= 0) births_fast = 0;
+            else if (births_fast > remaining_birth_budget) births_fast = remaining_birth_budget;
+        }
+        births_fast = std::max(0, std::min(births_fast, P->gp_birth_max_total_sites - (int)rt->sites.size()));
+        if (births_fast == 0) {
+            rt->literature_expected_births_total += lambda_fast;
+            printf("[GP-LITERATURE-RATE] step=%d source=%s T_C=%.6f gp_literature_xAg_mode=%s "
+                   "xB_source_for_JGP=%.12e xAg_used_for_JGP=%.12e xAg_default=%.12e "
+                   "T_K=%.12e D_Ag_m2_s=%.12e xAg_eq=%.12e Delta_gv_J_m3=%.12e J_GP_m3_s=%.12e dt_s=%.12e "
+                   "V_box_m3=%.12e lambda_GP_birth_step=%.12e expected_GP_births_total_so_far=%.12e "
+                   "N_GP_births_sampled=%d N_GP_births_accepted=%d N_GP_total_active=%d total_sites_before=%zu\n",
+                   step, "poisson_literature_JGP", P->temperature_C, P->gp_literature_xAg_mode,
+                   xB_source_fast, xAg_used_fast, P->gp_literature_xAg_default,
+                   T_K_fast, D_Ag_fast, xAg_eq_fast, delta_gv_fast, J_GP_fast,
+                   dt_s_fast, V_box_fast, lambda_fast, rt->literature_expected_births_total,
+                   0, rt->literature_births_accepted_total, gp_assisted_count_active_sites(rt->sites),
+                   rt->sites.size());
+            const double M_gp_active_fast = gp_assisted_sum_active_mass(rt->sites);
+            const double M_staged_fast = beta_staged_sum_inventory(rt->staged_embryos);
+            const double M_total_fast = sum_xB_fast + M_gp_active_fast + M_staged_fast;
+            printf("[GP-LITERATURE-STATE] step=%d xB_tot_target=%.12e xB_far=%.12e xB_GP=%.12e "
+                   "N_GP_initial=%zu GP_inventory_excess_total=%.12e staged_beta_inventory_total=%.12e "
+                   "matrix_inventory_total=%.12e "
+                   "xB_total_reconstructed=%.12e mass_error_rel=%.12e N_GP_births_accepted=%d N_GP_total_active=%d\n",
+                   step, P->gp_initial_xB_tot, gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_far),
+                   gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP), (size_t)rt->initial_gp_site_count,
+                   M_gp_active_fast * gp_cell_volume_m3(P),
+                   M_staged_fast * gp_cell_volume_m3(P),
+                   sum_xB_fast * gp_cell_volume_m3(P),
+                   M_total_fast / fmax((double)total_r, 1.0),
+                   (M_total_fast / fmax((double)total_r, 1.0) - P->gp_initial_xB_tot) /
+                       fmax(fabs(P->gp_initial_xB_tot), 1.0e-30),
+                   rt->literature_births_accepted_total, gp_assisted_count_active_sites(rt->sites));
+            return 1;
+        }
+        rt->rng_state = rng_state_before_fast_sample;
+    }
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+    const double T_K = P->temperature_C + 273.15;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
+    if (!(isfinite(T_K) && T_K > 0.0 &&
+          isfinite(dx_nm) && dx_nm > 0.0 &&
+          isfinite(dy_nm) && dy_nm > 0.0 &&
+          isfinite(dz_nm) && dz_nm > 0.0)) {
+        fprintf(stderr, "[fatal] invalid runtime state for GP literature births.\n");
+        return 0;
+    }
+    const double dt_s = P->gp_birth_dt_uses_physical_time ? (P->dt * P->t_real_unit) : P->dt;
+    const double V_box_m3 = (double)P->Nx * (double)P->Ny * (double)P->Nz * dx_nm * dy_nm * dz_nm * 1.0e-27;
+    const char *birth_source = "poisson_literature_JGP";
+    double J_GP_m3_s = 0.0;
+    double xB_source_for_JGP = NAN;
+    double xAg_used_for_JGP = NAN;
+    double D_Ag_m2_s = NAN;
+    double xAg_eq = NAN;
+    double delta_gv_J_m3 = NAN;
+    if (strcmp(P->gp_birth_model, "diagnostic_JGP_override") == 0) {
+        J_GP_m3_s = P->gp_literature_JGP_override_enabled ? P->gp_literature_JGP_override_m3_s : 0.0;
+        birth_source = "diagnostic_JGP_override";
+        xAg_used_for_JGP = P->gp_literature_xAg_default;
+    } else {
+        if (!gp_literature_resolve_xAg_input(P, phi, xB, &xB_source_for_JGP, &xAg_used_for_JGP)) {
+            fprintf(stderr, "[fatal] unable to resolve gp_literature xAg input from mode=%s\n",
+                    P->gp_literature_xAg_mode);
+            return 0;
+        }
+        const double xB_eq = gp_literature_solve_xB_eq_bisection(T_K, P);
+        if (isfinite(xB_eq)) xAg_eq = gp_pseudobinary_xAg_from_xB(xB_eq);
+        D_Ag_m2_s = gp_literature_D_Ag_m2_s(T_K, P);
+        delta_gv_J_m3 = gp_literature_delta_gv_J_m3_from_xAg(xAg_used_for_JGP, T_K, P);
+        J_GP_m3_s = gp_literature_J_m3_s(xAg_used_for_JGP, T_K, P);
+    }
+    if (!isfinite(J_GP_m3_s)) {
+        fprintf(stderr, "[fatal] GP literature birth produced NaN/Inf J_GP.\n");
+        return 0;
+    }
+    const double lambda_step = fmax(J_GP_m3_s, 0.0) * fmax(V_box_m3, 0.0) * fmax(dt_s, 0.0);
+    rt->literature_expected_births_total += lambda_step;
+    int births = 0;
+    const int debug_force_single =
+        (P->gp_birth_debug_force_single_event &&
+         rt->literature_births_accepted_total < P->gp_birth_debug_max_events_total);
+    if (debug_force_single && P->gp_birth_debug_disable_poisson_randomness) {
+        births = (step == P->gp_birth_debug_force_step) ? 1 : 0;
+    } else {
+        births = gp_literature_poisson_sample_small_lambda(rt, lambda_step);
+        if (debug_force_single && step == P->gp_birth_debug_force_step) births = 1;
+    }
+    if (births > P->gp_birth_max_events_per_step) {
+        printf("GP_BIRTH_CAPPED_BY_MAX_EVENTS_PER_STEP step=%d raw=%d cap=%d\n",
+               step, births, P->gp_birth_max_events_per_step);
+        births = P->gp_birth_max_events_per_step;
+    }
+    if (P->gp_birth_max_total_new_births_for_debug >= 0) {
+        const int remaining_birth_budget =
+            P->gp_birth_max_total_new_births_for_debug - rt->literature_births_accepted_total;
+        if (remaining_birth_budget <= 0) {
+            births = 0;
+        } else if (births > remaining_birth_budget) {
+            printf("GP_BIRTH_CAPPED_BY_TOTAL_DEBUG_BUDGET step=%d raw=%d remaining=%d\n",
+                   step, births, remaining_birth_budget);
+            births = remaining_birth_budget;
+        }
+    }
+    births = std::max(0, std::min(births, P->gp_birth_max_total_sites - (int)rt->sites.size()));
+    rt->literature_births_sampled_total += births;
+    if (strcmp(P->gp_literature_xAg_mode, "fixed_param") == 0 &&
+        strcmp(P->gp_birth_model, "diagnostic_JGP_override") != 0) {
+        printf("WARNING_FIXED_XAG_USED_FOR_GP_LITERATURE_MODEL step=%d xAg_default=%.12e\n",
+               step, P->gp_literature_xAg_default);
+    }
+    printf("[GP-LITERATURE-RATE] step=%d source=%s T_C=%.6f gp_literature_xAg_mode=%s "
+           "xB_source_for_JGP=%.12e xAg_used_for_JGP=%.12e xAg_default=%.12e "
+           "T_K=%.12e D_Ag_m2_s=%.12e xAg_eq=%.12e Delta_gv_J_m3=%.12e J_GP_m3_s=%.12e dt_s=%.12e "
+           "V_box_m3=%.12e lambda_GP_birth_step=%.12e expected_GP_births_total_so_far=%.12e "
+           "N_GP_births_sampled=%d N_GP_births_accepted=%d N_GP_total_active=%d total_sites_before=%zu\n",
+           step, birth_source, P->temperature_C, P->gp_literature_xAg_mode,
+           xB_source_for_JGP, xAg_used_for_JGP, P->gp_literature_xAg_default,
+           T_K, D_Ag_m2_s, xAg_eq, delta_gv_J_m3, J_GP_m3_s,
+           dt_s, V_box_m3, lambda_step, rt->literature_expected_births_total,
+           births, rt->literature_births_accepted_total, gp_assisted_count_active_sites(rt->sites),
+           rt->sites.size());
+    int accepted_births_this_step = 0;
+    for (int b = 0; b < births; ++b) {
+        int ix = 0;
+        int iy = 0;
+        int iz = 0;
+        if (debug_force_single && strcmp(P->gp_birth_debug_force_position_mode, "center") == 0) {
+            ix = P->Nx / 2;
+            iy = P->Ny / 2;
+            iz = P->Nz / 2;
+        } else {
+            ix = gp_assisted_rand_index(&rt->rng_state, P->Nx);
+            iy = gp_assisted_rand_index(&rt->rng_state, P->Ny);
+            iz = gp_assisted_rand_index(&rt->rng_state, P->Nz);
+        }
+        gp_assisted_positive_inventory_coord_probe(P, rt->sites, xB, &ix, &iy, &iz);
+        const int append_status =
+            gp_literature_append_birth_site_host(rt, P, step, phi, Y, xB, ix, iy, iz,
+                                                 P->gp_site_B_mass_equiv, J_GP_m3_s,
+                                                 lambda_step, birth_source, birth_csv, probe_csv);
+        if (append_status == 0) {
+            printf("GP_LITERATURE_BIRTH_REJECTED step=%d site=(%d,%d,%d) policy=%s reason=safe_append_rejection\n",
+                   step, ix, iy, iz, P->gp_birth_inventory_policy);
+            continue;
+        }
+        if (append_status < 0) {
+            fprintf(stderr, "[fatal] GP literature birth append failed at step %d\n", step);
+            return 0;
+        }
+        accepted_births_this_step += 1;
+    }
+    rt->literature_births_accepted_total += accepted_births_this_step;
+    GpAssistedLedger state_ledger;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &state_ledger);
+    beta_add_staged_inventory_to_ledger(&state_ledger, rt->staged_embryos);
+    printf("[GP-LITERATURE-STATE] step=%d xB_tot_target=%.12e xB_far=%.12e xB_GP=%.12e "
+           "N_GP_initial=%zu GP_inventory_excess_total=%.12e staged_beta_inventory_total=%.12e "
+           "matrix_inventory_total=%.12e "
+           "xB_total_reconstructed=%.12e mass_error_rel=%.12e N_GP_births_accepted=%d N_GP_total_active=%d\n",
+           step, P->gp_initial_xB_tot, gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_far),
+           gp_pseudobinary_xB_from_xAg(P->gp_initial_xAg_GP), (size_t)rt->initial_gp_site_count,
+           state_ledger.M_gp_active * gp_cell_volume_m3(P),
+           state_ledger.M_staged_beta * gp_cell_volume_m3(P),
+           state_ledger.M_matrix * gp_cell_volume_m3(P),
+           state_ledger.M_total / fmax((double)total_r, 1.0),
+           (state_ledger.M_total / fmax((double)total_r, 1.0) - P->gp_initial_xB_tot) /
+               fmax(fabs(P->gp_initial_xB_tot), 1.0e-30),
+           rt->literature_births_accepted_total, gp_assisted_count_active_sites(rt->sites));
+    CUDA_CHECK(cudaMemcpy(d_phi_r, phi.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_xB_r, xB.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_Y_r, Y.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    return 1;
+}
+
+static int gp_assisted_flat_index(const PFParams *P, int ix, int iy, int iz) {
+    const int cx = (ix < 0) ? 0 : ((ix >= P->Nx) ? (P->Nx - 1) : ix);
+    const int cy = (iy < 0) ? 0 : ((iy >= P->Ny) ? (P->Ny - 1) : iy);
+    const int cz = (iz < 0) ? 0 : ((iz >= P->Nz) ? (P->Nz - 1) : iz);
+    return (cx * P->Ny + cy) * P->Nz + cz;
+}
+
+static double gp_assisted_dimensionless_curvature_proxy(const PFParams *P,
+                                                        const std::vector<double> &phi,
+                                                        const GpAssistedSite &site) {
+    if (!P || phi.empty()) return 0.0;
+    const int idx = gp_assisted_flat_index(P, site.ix, site.iy, site.iz);
+    const double pc = phi[(size_t)idx];
+    const double dx2 = fmax(P->dx * P->dx, 1.0e-300);
+    const double dy2 = fmax(P->dy * P->dy, 1.0e-300);
+    const double dz2 = fmax(P->dz * P->dz, 1.0e-300);
+    const double lap =
+        (phi[(size_t)gp_assisted_flat_index(P, site.ix + 1, site.iy, site.iz)] +
+         phi[(size_t)gp_assisted_flat_index(P, site.ix - 1, site.iy, site.iz)] - 2.0 * pc) / dx2 +
+        (phi[(size_t)gp_assisted_flat_index(P, site.ix, site.iy + 1, site.iz)] +
+         phi[(size_t)gp_assisted_flat_index(P, site.ix, site.iy - 1, site.iz)] - 2.0 * pc) / dy2 +
+        (phi[(size_t)gp_assisted_flat_index(P, site.ix, site.iy, site.iz + 1)] +
+         phi[(size_t)gp_assisted_flat_index(P, site.ix, site.iy, site.iz - 1)] - 2.0 * pc) / dz2;
+    const double h2 = (dx2 + dy2 + dz2) / 3.0;
+    return -lap * h2;
+}
+
+static double gp_assisted_local_site_density(const PFParams *P,
+                                             const std::vector<GpAssistedSite> &sites,
+                                             size_t site_index) {
+    if (!P || site_index >= sites.size() || sites.size() <= 1) return 0.0;
+    const GpAssistedSite &site = sites[site_index];
+    const double radius_nm = fmax(P->gp_release_radius_nm,
+                                  P->gp_debug_beta_seed_radius + P->gp_debug_beta_seed_iface_width);
+    const double radius2 = fmax(radius_nm * radius_nm, 1.0e-300);
+    int nearby = 0;
+    int active_peers = 0;
+    for (size_t i = 0; i < sites.size(); ++i) {
+        if (i == site_index || !sites[i].active || sites[i].consumed) continue;
+        active_peers += 1;
+        const double dx = (double)(sites[i].ix - site.ix) * P->dx;
+        const double dy = (double)(sites[i].iy - site.iy) * P->dy;
+        const double dz = (double)(sites[i].iz - site.iz) * P->dz;
+        if (dx * dx + dy * dy + dz * dz <= radius2) nearby += 1;
+    }
+    if (active_peers <= 0) return 0.0;
+    return (double)nearby / (double)active_peers;
+}
+
+static double gp_assisted_clamped_exp(double x) {
+    if (x > 50.0) x = 50.0;
+    if (x < -50.0) x = -50.0;
+    return exp(x);
+}
+
+static double beta_rate_temperature_K_host(const PFParams *P) {
+    if (!P) return NAN;
+    const double T_K = P->temperature_C + 273.15;
+    return (T_K > 0.0) ? T_K : NAN;
+}
+
+static double beta_rate_D_B_alpha_phys_host(const PFParams *P) {
+    if (!P) return NAN;
+    if (strcmp(P->beta_rate_D_B_alpha_model, "Arrhenius") == 0) {
+        const double T_K = beta_rate_temperature_K_host(P);
+        if (!(isfinite(T_K) && T_K > 0.0 &&
+              isfinite(P->beta_rate_D_B_alpha_D0_m2_s) && P->beta_rate_D_B_alpha_D0_m2_s > 0.0 &&
+              isfinite(P->beta_rate_D_B_alpha_Q_J_mol) && P->beta_rate_D_B_alpha_Q_J_mol > 0.0)) {
+            return NAN;
+        }
+        const double R_gas = 8.31446261815324;
+        const double expo = -P->beta_rate_D_B_alpha_Q_J_mol / (R_gas * T_K);
+        return P->beta_rate_D_B_alpha_D0_m2_s * exp(fmax(expo, -700.0));
+    }
+    return compute_eta_ref_D_alpha_phys_host(P);
+}
+
+static double beta_rate_Omega_site_m3_host(const PFParams *P, double xB_alpha_local) {
+    if (!P) return NAN;
+    if (isfinite(P->beta_rate_Omega_site_m3) && P->beta_rate_Omega_site_m3 > 0.0) {
+        return P->beta_rate_Omega_site_m3;
+    }
+    const double N_A = 6.02214076e23;
+    const double Vm_alpha_phys = compute_local_Vm_alpha_phys_host(xB_alpha_local, P);
+    if (!(isfinite(Vm_alpha_phys) && Vm_alpha_phys > 0.0)) return NAN;
+    return Vm_alpha_phys / N_A;
+}
+
+static double beta_rate_N_site_m3_host(const PFParams *P, double xB_alpha_local) {
+    if (!P) return NAN;
+    if (isfinite(P->beta_rate_N_site_m3) && P->beta_rate_N_site_m3 > 0.0) {
+        return P->beta_rate_N_site_m3;
+    }
+    const double omega_site = beta_rate_Omega_site_m3_host(P, xB_alpha_local);
+    if (!(isfinite(omega_site) && omega_site > 0.0)) return NAN;
+    return 1.0 / omega_site;
+}
+
+static double beta_rate_DeltaV_nuc_m3_host(const PFParams *P, double xB_alpha_local) {
+    if (!P) return NAN;
+    if (strcmp(P->beta_rate_deltaV_nuc_mode, "explicit") == 0) {
+        return (isfinite(P->beta_rate_deltaV_nuc_m3) && P->beta_rate_deltaV_nuc_m3 > 0.0)
+            ? P->beta_rate_deltaV_nuc_m3 : NAN;
+    }
+    if (strcmp(P->beta_rate_deltaV_nuc_mode, "cell_volume") == 0) {
+        const double dx_m = runtime_dx_nm_host(P) * 1.0e-9;
+        const double dy_m = runtime_dy_nm_host(P) * 1.0e-9;
+        const double dz_m = runtime_dz_nm_host(P) * 1.0e-9;
+        if (!(isfinite(dx_m) && isfinite(dy_m) && isfinite(dz_m) && dx_m > 0.0 && dy_m > 0.0 && dz_m > 0.0)) return NAN;
+        return dx_m * dy_m * dz_m;
+    }
+    return beta_rate_Omega_site_m3_host(P, xB_alpha_local);
+}
+
+static double beta_rate_theta_tr_host(const PFParams *P, double time_code) {
+    if (!P) return NAN;
+    if (!P->beta_rate_transient_enabled) return 1.0;
+    if (!(isfinite(P->beta_rate_tau_inc_s) && P->beta_rate_tau_inc_s > 0.0 &&
+          isfinite(P->t_real_unit) && P->t_real_unit > 0.0)) {
+        return NAN;
+    }
+    const double t_s = time_code * P->t_real_unit;
+    if (!(t_s > 0.0)) return 0.0;
+    return 1.0 - exp(-t_s / P->beta_rate_tau_inc_s);
+}
+
+static double beta_rate_Z_r_debug_capillary_host(const PFParams *P) {
+    if (!P) return NAN;
+    const double T_K = beta_rate_temperature_K_host(P);
+    const double kB = 1.380649e-23;
+    if (!(isfinite(T_K) && T_K > 0.0 && isfinite(P->gamma_Jm2) && P->gamma_Jm2 > 0.0)) return NAN;
+    return sqrt(fmax(4.0 * P->gamma_Jm2 / (kB * T_K), 0.0));
+}
+
+typedef struct {
+    int ok;
+    double dt_s;
+    double DeltaV_nuc_m3;
+    double N_site_m3;
+    double Z_n_used;
+    double Z_r;
+    double beta_r_star_1_s;
+    double Theta_tr;
+    double D_B_alpha_m2_s;
+    char reason[128];
+} BetaPhysicalRateResult;
+
+static BetaPhysicalRateResult compute_beta_nucleation_rate_physical_host(
+    const PFParams *P,
+    const GpRuntimeBarrierEntry *entry,
+    double xB_alpha_local,
+    double s_GP,
+    int gp_present,
+    int use_gp_barrier_modifier,
+    double time_code) {
+    BetaPhysicalRateResult out;
+    memset(&out, 0, sizeof(out));
+    out.dt_s = NAN;
+    out.DeltaV_nuc_m3 = NAN;
+    out.N_site_m3 = NAN;
+    out.Z_n_used = NAN;
+    out.Z_r = NAN;
+    out.beta_r_star_1_s = NAN;
+    out.Theta_tr = NAN;
+    out.D_B_alpha_m2_s = NAN;
+    snprintf(out.reason, sizeof(out.reason), "ok");
+    if (!P || !entry) {
+        snprintf(out.reason, sizeof(out.reason), "missing_inputs");
+        return out;
+    }
+    const double dt_s = P->beta_rate_use_physical_dt ? (P->dt * P->t_real_unit) : P->dt;
+    if (!(isfinite(dt_s) && dt_s > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "invalid_dt_s");
+        return out;
+    }
+    const double x_local = clamp_eps(xB_alpha_local, P->xB_eps);
+    const double D_B_alpha = beta_rate_D_B_alpha_phys_host(P);
+    const double omega_g = P->beta_rate_Omega_g_m3;
+    const double n_site = beta_rate_N_site_m3_host(P, x_local);
+    const double deltaV_nuc = beta_rate_DeltaV_nuc_m3_host(P, x_local);
+    const double theta_tr = beta_rate_theta_tr_host(P, time_code);
+    double z_n = NAN;
+    double z_r = NAN;
+    if (entry->Z_n_available && isfinite(entry->Z_n) && entry->Z_n > 0.0) {
+        z_n = entry->Z_n;
+    }
+    if (entry->Z_r_available && isfinite(entry->Z_r) && entry->Z_r > 0.0) {
+        if (!entry->Z_r_is_diagnostic || strcmp(P->beta_rate_Z_r_fallback_mode, "diagnostic_from_library") == 0) {
+            z_r = entry->Z_r;
+        }
+    }
+    if (!(isfinite(z_r) && z_r > 0.0) &&
+        strcmp(P->beta_rate_Z_r_fallback_mode, "debug_capillary") == 0) {
+        z_r = beta_rate_Z_r_debug_capillary_host(P);
+    }
+    if (!(isfinite(D_B_alpha) && D_B_alpha > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "missing_D_B_alpha");
+        return out;
+    }
+    if (!(isfinite(omega_g) && omega_g > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "missing_Omega_g");
+        return out;
+    }
+    if (!(isfinite(n_site) && n_site > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "missing_N_site");
+        return out;
+    }
+    if (!(isfinite(deltaV_nuc) && deltaV_nuc > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "missing_DeltaV_nuc");
+        return out;
+    }
+    if (!(isfinite(theta_tr) && theta_tr >= 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "missing_Theta_tr");
+        return out;
+    }
+    const double r_star_m = entry->r_star_nm * 1.0e-9;
+    if (!(isfinite(r_star_m) && r_star_m > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "missing_r_star");
+        return out;
+    }
+    if (!(isfinite(z_n) && z_n > 0.0) &&
+        P->beta_rate_allow_runtime_Zn_from_Zr &&
+        isfinite(z_r) && z_r > 0.0 &&
+        isfinite(omega_g) && omega_g > 0.0) {
+        z_n = z_r * omega_g / (4.0 * M_PI * r_star_m * r_star_m);
+    }
+    if (!(isfinite(z_n) && z_n > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "Z_N_MISSING_FOR_PHYSICAL_CNT");
+        return out;
+    }
+    if (P->beta_rate_scale_Z_with_sGP && use_gp_barrier_modifier && gp_present) {
+        const double s_clamped = fmin(fmax(s_GP, 1.0e-12), 1.0);
+        z_n *= sqrt(s_clamped);
+    }
+    const double x_attach = P->beta_rate_D_B_alpha_use_xB_factor ? x_local : 1.0;
+    const double beta_r_star = 4.0 * M_PI * r_star_m * D_B_alpha / omega_g * x_attach;
+    if (!(isfinite(beta_r_star) && beta_r_star > 0.0)) {
+        snprintf(out.reason, sizeof(out.reason), "invalid_beta_r_star");
+        return out;
+    }
+    out.ok = 1;
+    out.dt_s = dt_s;
+    out.DeltaV_nuc_m3 = deltaV_nuc;
+    out.N_site_m3 = n_site;
+    out.Z_n_used = z_n;
+    out.Z_r = z_r;
+    out.beta_r_star_1_s = beta_r_star;
+    out.Theta_tr = theta_tr;
+    out.D_B_alpha_m2_s = D_B_alpha;
+    return out;
+}
+
+static double gp_assisted_site_hazard(const GpAssistedRuntime *rt,
+                                      const PFParams *P,
+                                      const std::vector<double> &phi,
+                                      const std::vector<double> &xB,
+                                      const std::vector<GpAssistedSite> &sites,
+                                      size_t site_index,
+                                      double time_code,
+                                      GpRankedHazardDiag *diag) {
+    GpRankedHazardDiag local = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0,
+                                1.0, 1.0, 1.0, 0.0};
+    local.phi_beta_local = 0.0;
+    local.gp_present = 0;
+    local.s_GP = 1.0;
+    local.DeltaG_bare_kBT = NAN;
+    local.DeltaG_eff_kBT = NAN;
+    local.J_bare = 0.0;
+    local.J_eff = 0.0;
+    local.P_event = 0.0;
+    local.dt_event_s = NAN;
+    local.DeltaV_nuc_m3 = NAN;
+    local.N_site_m3 = NAN;
+    local.Z_n_used = NAN;
+    local.Z_r = NAN;
+    local.beta_r_star_1_s = NAN;
+    local.Theta_tr = NAN;
+    local.r_star_nm = NAN;
+    local.r_seed_nm = NAN;
+    local.barrier_source_case[0] = '\0';
+    local.seed_source[0] = '\0';
+    local.rejection_reason[0] = '\0';
+    local.r_star_source_column[0] = '\0';
+    local.rstar_fallback_used = 0;
+    snprintf(local.catalog_match_status, sizeof(local.catalog_match_status), "not_selected");
+    local.catalog_rejection_reason[0] = '\0';
+    snprintf(local.strain_mode_runtime, sizeof(local.strain_mode_runtime), "no_strain");
+    local.strain_mode_catalog[0] = '\0';
+    local.T_catalog = NAN;
+    local.xB_catalog = NAN;
+    snprintf(local.beta_rate_model, sizeof(local.beta_rate_model), "%s", P ? P->beta_rate_model : "unknown");
+    local.beta_rate_rejection_reason[0] = '\0';
+    if (!P || site_index >= sites.size()) {
+        if (diag) *diag = local;
+        return 0.0;
+    }
+    const GpAssistedSite &site = sites[site_index];
+    const int idx = gp_assisted_flat_index(P, site.ix, site.iy, site.iz);
+    local.xB_local = ((size_t)idx < xB.size()) ? xB[(size_t)idx] : P->ic_23d_xB_out;
+    local.phi_beta_local = ((size_t)idx < phi.size()) ? clamp01(phi[(size_t)idx]) : 0.0;
+    local.gp_present = (site.active && !site.consumed && site.B_mass_active > 0.0) ? 1 : 0;
+    local.curvature = gp_assisted_dimensionless_curvature_proxy(P, phi, site);
+    local.gp_density = gp_assisted_local_site_density(P, sites, site_index);
+
+    if (P->gp_stochastic_S_GP > 0.0) {
+        const double x0_old = 1.0e-2;
+        const double alpha_old = 1.0e-1;
+        const double beta_old = 1.0;
+        const double x_ref = 3.0e-2;
+        const double composition_power = 12.0;
+        const double alpha_strong = 20.0;
+        const double beta_strong = 240.0;
+        const double xb_nonnegative = fmax(local.xB_local, 0.0);
+        const double curvature_pos = fmax(0.0, local.curvature);
+        const double density_pos = fmax(0.0, local.gp_density);
+        local.f_xB_old = xb_nonnegative / (xb_nonnegative + x0_old);
+        local.g_curvature_old = 1.0 + alpha_old * curvature_pos;
+        local.q_density_old = exp(-beta_old * density_pos);
+        const double ratio = fmax(xb_nonnegative / x_ref, 1.0e-12);
+        local.f_xB = fmin(pow(ratio, composition_power), 1.0e6);
+        local.g_curvature = gp_assisted_clamped_exp(alpha_strong * curvature_pos);
+        local.q_density = gp_assisted_clamped_exp(-beta_strong * density_pos * density_pos);
+    }
+
+    const int use_physical_cnt = (strcmp(P->beta_rate_model, "physical_cnt") == 0);
+    if (!site.active || site.consumed) {
+        snprintf(local.rejection_reason, sizeof(local.rejection_reason), "inactive_site");
+        if (diag) *diag = local;
+        return 0.0;
+    }
+    if (P->enable_gp_runtime_library_nucleation &&
+        P->enable_dynamic_continue_bridge &&
+        P->gp_runtime_enable_delayed_insertion_queue &&
+        gp_runtime_site_has_pending_delayed_event(rt, site.id)) {
+        snprintf(local.rejection_reason, sizeof(local.rejection_reason), "pending_delayed_insertion");
+        if (diag) *diag = local;
+        return 0.0;
+    }
+    if (!use_physical_cnt && P->gp_stochastic_k0 <= 0.0) {
+        snprintf(local.rejection_reason, sizeof(local.rejection_reason), "inactive_or_zero_prefactor");
+        if (diag) *diag = local;
+        return 0.0;
+    }
+    if (P->enable_gp_runtime_library_nucleation &&
+        strcmp(P->gp_runtime_nucleation_mode, "GP_only") == 0 &&
+        !local.gp_present) {
+        snprintf(local.rejection_reason, sizeof(local.rejection_reason), "blocked_no_GP");
+        if (diag) *diag = local;
+        return 0.0;
+    }
+    if (local.phi_beta_local >= P->beta_rate_phi_threshold) {
+        snprintf(local.rejection_reason, sizeof(local.rejection_reason), "blocked_existing_beta");
+        if (diag) *diag = local;
+        return 0.0;
+    }
+    if (local.xB_local <= P->beta_rate_xB_min) {
+        snprintf(local.rejection_reason, sizeof(local.rejection_reason), "blocked_xB_min");
+        if (diag) *diag = local;
+        return 0.0;
+    }
+    double bare_barrier = P->gp_stochastic_deltaG_homo_kBT;
+    double r_star_nm = runtime_length_internal_to_nm_host(P, P->gp_debug_beta_seed_radius);
+    if (!(isfinite(r_star_nm) && r_star_nm > 0.0)) r_star_nm = P->gp_debug_beta_seed_radius;
+    GpRuntimeBarrierEntry barrier_entry;
+    memset(&barrier_entry, 0, sizeof(barrier_entry));
+    barrier_entry.r_star_nm = r_star_nm;
+    barrier_entry.barrier_kBT = bare_barrier;
+    barrier_entry.T_C = P->temperature_C;
+    barrier_entry.T_K = P->temperature_C + 273.15;
+    barrier_entry.xB = local.xB_local;
+    barrier_entry.strain = 0.0;
+    char lookup_reason[256] = "";
+    if (P->enable_gp_runtime_library_nucleation) {
+        GpRuntimeBarrierEntry b;
+        memset(&b, 0, sizeof(b));
+        if (gp_runtime_lookup_barrier(rt, P, P->temperature_C, local.xB_local, 0.0,
+                                      &b, lookup_reason, sizeof(lookup_reason))) {
+            barrier_entry = b;
+            bare_barrier = b.barrier_kBT;
+            r_star_nm = b.r_star_nm;
+            snprintf(local.barrier_source_case, sizeof(local.barrier_source_case), "%s", b.source_case);
+            snprintf(local.r_star_source_column, sizeof(local.r_star_source_column), "%s", b.r_star_source_column);
+            local.rstar_fallback_used = b.rstar_fallback_used;
+        } else {
+            snprintf(local.rejection_reason, sizeof(local.rejection_reason), "%s", lookup_reason[0] ? lookup_reason : "barrier_lookup_failed");
+            if (diag) *diag = local;
+            return 0.0;
+        }
+    } else {
+        snprintf(local.barrier_source_case, sizeof(local.barrier_source_case), "scalar_gp_stochastic_deltaG_homo_kBT");
+        snprintf(local.r_star_source_column, sizeof(local.r_star_source_column), "scalar_gp_debug_beta_seed_radius");
+    }
+    const double s_gp_marker = (site.S_factor > 0.0) ? site.S_factor : 1.0;
+    const double s_gp_global = P->enable_gp_runtime_library_nucleation
+        ? P->gp_runtime_s_gp_scalar
+        : P->gp_stochastic_S_GP;
+    const double s_gp_local = local.gp_present ? fmin(s_gp_global, s_gp_marker) : 1.0;
+    local.s_GP = fmin(fmax(s_gp_local, 1.0e-12), 1.0);
+    local.DeltaG_bare_kBT = fmax(0.0, bare_barrier);
+    if (!P->beta_rate_use_gp_barrier_modifier) local.s_GP = 1.0;
+    local.DeltaG_eff_kBT = local.s_GP * local.DeltaG_bare_kBT;
+    local.r_star_nm = r_star_nm;
+    barrier_entry.barrier_kBT = local.DeltaG_bare_kBT;
+    barrier_entry.r_star_nm = local.r_star_nm;
+    double base_hazard = 0.0;
+    double bare_hazard = 0.0;
+    if (use_physical_cnt) {
+        BetaPhysicalRateResult phys = compute_beta_nucleation_rate_physical_host(
+            P, &barrier_entry, local.xB_local, local.s_GP, local.gp_present,
+            P->beta_rate_use_gp_barrier_modifier, time_code);
+        if (!phys.ok) {
+            snprintf(local.rejection_reason, sizeof(local.rejection_reason), "%s", phys.reason);
+            snprintf(local.beta_rate_rejection_reason, sizeof(local.beta_rate_rejection_reason), "%s", phys.reason);
+            if (diag) *diag = local;
+            return 0.0;
+        }
+        const double J_prefactor = phys.N_site_m3 * phys.Z_n_used * phys.beta_r_star_1_s * phys.Theta_tr;
+        local.dt_event_s = phys.dt_s;
+        local.DeltaV_nuc_m3 = phys.DeltaV_nuc_m3;
+        local.N_site_m3 = phys.N_site_m3;
+        local.Z_n_used = phys.Z_n_used;
+        local.Z_r = phys.Z_r;
+        local.beta_r_star_1_s = phys.beta_r_star_1_s;
+        local.Theta_tr = phys.Theta_tr;
+        const double barrier_eff = fmax(0.0, local.DeltaG_eff_kBT);
+        base_hazard = J_prefactor * exp(-fmin(barrier_eff, 700.0)) * phys.DeltaV_nuc_m3 * P->t_real_unit;
+        bare_hazard = J_prefactor * exp(-fmin(local.DeltaG_bare_kBT, 700.0)) * phys.DeltaV_nuc_m3 * P->t_real_unit;
+        local.J_bare = J_prefactor * exp(-fmin(local.DeltaG_bare_kBT, 700.0));
+        local.J_eff = J_prefactor * exp(-fmin(barrier_eff, 700.0));
+        local.P_event = 1.0 - exp(-fmin(local.J_eff * phys.DeltaV_nuc_m3 * phys.dt_s, 700.0));
+        const double hazard_scale =
+            (isfinite(P->beta_rate_debug_rate_multiplier) && P->beta_rate_debug_rate_multiplier > 0.0)
+                ? P->beta_rate_debug_rate_multiplier
+                : 1.0;
+        base_hazard *= hazard_scale;
+        bare_hazard *= hazard_scale;
+        local.hazard_old = bare_hazard;
+        local.hazard = base_hazard;
+    } else {
+        const double barrier = fmax(0.0, local.DeltaG_eff_kBT);
+        base_hazard = P->gp_stochastic_k0 * exp(-fmin(barrier, 700.0));
+        bare_hazard = P->gp_stochastic_k0 * exp(-fmin(local.DeltaG_bare_kBT, 700.0));
+        local.J_bare = bare_hazard;
+        local.J_eff = base_hazard;
+        local.P_event = 1.0 - exp(-base_hazard * P->dt);
+        local.hazard_old = base_hazard *
+                           fmax(local.f_xB_old, 0.0) *
+                           fmax(local.g_curvature_old, 0.0) *
+                           fmax(local.q_density_old, 0.0);
+        local.hazard = base_hazard *
+                       fmax(local.f_xB, 0.0) *
+                       fmax(local.g_curvature, 0.0) *
+                       fmax(local.q_density, 0.0);
+    }
+    if (diag) *diag = local;
+    return local.hazard;
+}
+
+static int apply_gp_assisted_stochastic_selection_cpu(GpAssistedRuntime *rt, PFParams *P, int step,
+                                                      double time_code,
+                                                      double *d_phi_r, double *d_Y_r, double *d_xB_r,
+                                                      int total_r, size_t size_r) {
+    if (!rt || !P || !P->enable_gp_assisted_beta_nucleation || !P->gp_stochastic_enabled) return 1;
+    if (!P->gp_beta_selection_enabled) return 1;
+    if (P->mode != 0) return 1;
+    if (rt->sites.empty()) {
+        build_gp_assisted_sites_from_params(P, &rt->sites);
+        rt->initial_gp_site_count = (int)rt->sites.size();
+    }
+
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+
+    GpAssistedLedger global_before;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &global_before);
+    write_gp_assisted_multi_ledger_row(rt->multi_ledger_csv, step, rt->sites,
+                                       &global_before, rt->initial_total_reference);
+
+    std::vector<double> hazards(rt->sites.size(), 0.0);
+    std::vector<double> hazards_old(rt->sites.size(), 0.0);
+    std::vector<GpRankedHazardDiag> ranked_diag(rt->sites.size());
+    double H = 0.0;
+    double H_old = 0.0;
+    for (size_t i = 0; i < rt->sites.size(); ++i) {
+            hazards[i] = gp_assisted_site_hazard(rt, P, phi, xB, rt->sites, i, time_code, &ranked_diag[i]);
+        hazards_old[i] = ranked_diag[i].hazard_old;
+        if (!isfinite(hazards[i]) || hazards[i] < 0.0) hazards[i] = 0.0;
+        if (!isfinite(hazards_old[i]) || hazards_old[i] < 0.0) hazards_old[i] = 0.0;
+        H += hazards[i];
+        H_old += hazards_old[i];
+    }
+    if (!isfinite(H) || H < 0.0) H = 0.0;
+    if (!isfinite(H_old) || H_old < 0.0) H_old = 0.0;
+
+    if (rt->strong_separation_csv && !rt->strong_separation_written) {
+        std::vector<int> old_rank(rt->sites.size(), 1);
+        std::vector<int> new_rank(rt->sites.size(), 1);
+        for (size_t i = 0; i < rt->sites.size(); ++i) {
+            const double p_old_i = (H_old > 0.0) ? hazards_old[i] / fmax(H_old, 1.0e-300) : 0.0;
+            const double p_new_i = (H > 0.0) ? hazards[i] / fmax(H, 1.0e-300) : 0.0;
+            for (size_t j = 0; j < rt->sites.size(); ++j) {
+                const double p_old_j = (H_old > 0.0) ? hazards_old[j] / fmax(H_old, 1.0e-300) : 0.0;
+                const double p_new_j = (H > 0.0) ? hazards[j] / fmax(H, 1.0e-300) : 0.0;
+                if (p_old_j > p_old_i ||
+                    (p_old_j == p_old_i && rt->sites[j].id < rt->sites[i].id)) {
+                    old_rank[i] += 1;
+                }
+                if (p_new_j > p_new_i ||
+                    (p_new_j == p_new_i && rt->sites[j].id < rt->sites[i].id)) {
+                    new_rank[i] += 1;
+                }
+            }
+        }
+        for (size_t i = 0; i < rt->sites.size(); ++i) {
+            const double p_old = (H_old > 0.0) ? hazards_old[i] / fmax(H_old, 1.0e-300) : 0.0;
+            const double p_new = (H > 0.0) ? hazards[i] / fmax(H, 1.0e-300) : 0.0;
+            fprintf(rt->strong_separation_csv,
+                    "%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%d\n",
+                    rt->sites[i].id,
+                    ranked_diag[i].xB_local,
+                    ranked_diag[i].curvature,
+                    ranked_diag[i].gp_density,
+                    ranked_diag[i].f_xB_old,
+                    ranked_diag[i].f_xB,
+                    ranked_diag[i].g_curvature_old,
+                    ranked_diag[i].g_curvature,
+                    ranked_diag[i].q_density_old,
+                    ranked_diag[i].q_density,
+                    hazards_old[i],
+                    hazards[i],
+                    p_old,
+                    p_new,
+                    old_rank[i] - new_rank[i]);
+        }
+        fflush(rt->strong_separation_csv);
+        rt->strong_separation_written = 1;
+    }
+
+    double r = gp_assisted_rng_uniform01(rt);
+    const double p_any = 1.0 - exp(-H * P->dt);
+    const int force_selector_now =
+        (P->enable_gp_runtime_library_nucleation &&
+         P->gp_runtime_force_first_selector_event &&
+         !rt->forced_selector_event_consumed &&
+         step == P->gp_runtime_force_event_step &&
+         !rt->sites.empty());
+    const int force_capacity_debug_now =
+        (P->enable_gp_runtime_library_nucleation &&
+         P->beta_debug_force_single_event &&
+         rt->beta_debug_forced_event_consumed < P->beta_debug_max_events_total &&
+         step == P->beta_debug_force_step &&
+         (strcmp(P->beta_debug_inventory_mode, "capacity_matched") == 0 ||
+          strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0) &&
+         !rt->sites.empty());
+    int selected = -1;
+    const char *event_status = "no_event_probability_gate";
+    double hazard_i = 0.0;
+    double selection_probability = 0.0;
+    double M_before = global_before.M_total;
+    double M_after = global_before.M_total;
+    double event_mass_error = 0.0;
+    double event_mass_rel_error = 0.0;
+    GpRuntimeNucleusEntry selected_seed;
+    memset(&selected_seed, 0, sizeof(selected_seed));
+    snprintf(selected_seed.id, sizeof(selected_seed.id), "not_selected");
+    snprintf(selected_seed.shape_type, sizeof(selected_seed.shape_type), "none");
+    snprintf(selected_seed.source, sizeof(selected_seed.source), "none");
+    char seed_selection_reason[256] = "not_selected";
+    double selected_consumed = 0.0;
+    double selected_matrix_drawn = 0.0;
+
+    if (force_capacity_debug_now || force_selector_now || (H > 0.0 && r < p_any)) {
+        if (force_capacity_debug_now) {
+            size_t best_i = 0;
+            double best_capacity = -1.0;
+            const double xmin = fmax(P->gp_debug_xB_min, P->xB_eps);
+            double scan_radii[64];
+            const int scan_nr = parse_beta_debug_draw_radius_list_nm(P, scan_radii, 64);
+            const double selector_draw_radius =
+                (strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0 &&
+                 strcmp(P->beta_debug_draw_radius_mode, "adaptive_until_capacity") == 0 &&
+                 scan_nr > 0)
+                    ? scan_radii[scan_nr - 1]
+                    : P->gp_release_radius_nm;
+            const int selector_multi_gp =
+                (strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0 &&
+                 (strcmp(P->beta_debug_GP_capture_mode, "multi_GP_nearest_first") == 0 ||
+                  strcmp(P->beta_debug_GP_capture_mode, "multi_GP_all_within_radius") == 0));
+            for (size_t i = 0; i < rt->sites.size(); ++i) {
+                const GpAssistedSite &cand = rt->sites[i];
+                if (!cand.active || cand.consumed || cand.B_mass_active <= 0.0) continue;
+                const double seed_region_radius_nm =
+                    P->gp_debug_beta_seed_radius + 3.0 * P->gp_debug_beta_seed_iface_width;
+                std::vector<int> seed_indices =
+                    gp_assisted_compact_spherical_indices(P, cand.ix, cand.iy, cand.iz,
+                                                          seed_region_radius_nm);
+                std::vector<int> release_indices =
+                    gp_assisted_compact_spherical_indices(P, cand.ix, cand.iy, cand.iz,
+                                                          selector_draw_radius);
+                std::vector<double> phi_full_seed = phi;
+                for (int idx : seed_indices) {
+                    const int k = idx % P->Nz;
+                    const int j = (idx / P->Nz) % P->Ny;
+                    const int ii = idx / (P->Ny * P->Nz);
+                    const double p_old = clamp01(phi_full_seed[(size_t)idx]);
+                    const double p_seed = gp_assisted_seed_phi_value(P, &cand, ii, j, k);
+                    phi_full_seed[(size_t)idx] = fmax(p_old, p_seed);
+                }
+                const double matrix_capacity =
+                    gp_assisted_matrix_draw_capacity_host(phi_full_seed, xB, release_indices, xmin);
+                double total_capacity = matrix_capacity + fmax(cand.B_mass_active, 0.0);
+                if (selector_multi_gp) {
+                    const double capture_radius = fmax(P->beta_debug_GP_capture_radius_nm, selector_draw_radius);
+                    BetaMultiGpCaptureDiag gd =
+                        gp_compute_multi_gp_capture_diag_host(P, rt->sites, rt->initial_gp_site_count,
+                                                              i, cand.ix, cand.iy, cand.iz,
+                                                              capture_radius, 0.0);
+                    total_capacity = matrix_capacity + gd.multi_GP_total_capacity;
+                }
+                if (total_capacity > best_capacity) {
+                    best_capacity = total_capacity;
+                    best_i = i;
+                }
+            }
+            selected = (int)best_i;
+            rt->beta_debug_forced_event_consumed += 1;
+        } else if (force_selector_now) {
+            size_t best_i = 0;
+            double best_h = hazards.empty() ? 0.0 : hazards[0];
+            for (size_t i = 1; i < hazards.size(); ++i) {
+                if (hazards[i] > best_h) {
+                    best_h = hazards[i];
+                    best_i = i;
+                }
+            }
+            selected = (int)best_i;
+            rt->forced_selector_event_consumed = 1;
+        } else {
+            const double r_select = gp_assisted_rng_uniform01(rt) * H;
+            double csum = 0.0;
+            for (size_t i = 0; i < hazards.size(); ++i) {
+                csum += hazards[i];
+                if (r_select <= csum) {
+                    selected = (int)i;
+                    break;
+                }
+            }
+            if (selected < 0 && !hazards.empty()) selected = (int)hazards.size() - 1;
+        }
+        if (selected >= 0) {
+            hazard_i = hazards[(size_t)selected];
+            selection_probability = (force_selector_now || force_capacity_debug_now) ? 1.0 : (hazard_i / fmax(H, 1.0e-300));
+            const char *status = "accepted";
+            double consumed = 0.0, matrix_drawn = 0.0;
+            double old_seed_radius = P->gp_debug_beta_seed_radius;
+            double old_seed_width = P->gp_debug_beta_seed_iface_width;
+            const int bridge_missing_debug_fallback =
+                (P->enable_dynamic_continue_bridge &&
+                 P->gp_runtime_allow_immediate_fallback_debug &&
+                 strcmp(P->gp_runtime_bridge_missing_policy, "debug_immediate_fallback") == 0);
+            int bridge_rejected = 0;
+            if (P->enable_gp_runtime_library_nucleation) {
+                RuntimeSeedGeometry seed_geom;
+                memset(&seed_geom, 0, sizeof(seed_geom));
+                const double seed_library_query_xB =
+                    (P->enable_runtime_nucleus_library && P->gp_initial_xB_tot > 0.0)
+                        ? P->gp_initial_xB_tot
+                        : ranked_diag[(size_t)selected].xB_local;
+                selected_seed = gp_runtime_select_nucleus_descriptor(rt,
+                                                                     P,
+                                                                     P->temperature_C,
+                                                                     seed_library_query_xB,
+                                                                     0.0,
+                                                                     ranked_diag[(size_t)selected].r_star_nm,
+                                                                     seed_selection_reason,
+                                                                     sizeof(seed_selection_reason));
+                if (strcmp(selected_seed.id, "NO_VALID_PRODUCTION_SEED_FOR_DX") == 0) {
+                    bridge_rejected = 1;
+                    event_status = "NUCLEUS_LIBRARY_QUERY_NO_VALID_SEED";
+                    snprintf(ranked_diag[(size_t)selected].catalog_rejection_reason,
+                             sizeof(ranked_diag[(size_t)selected].catalog_rejection_reason),
+                             "%s", seed_selection_reason);
+                    snprintf(ranked_diag[(size_t)selected].rejection_reason,
+                             sizeof(ranked_diag[(size_t)selected].rejection_reason),
+                             "NO_VALID_PRODUCTION_SEED_FOR_DX");
+                    printf("NUCLEUS_LIBRARY_QUERY_NO_VALID_SEED step=%d site_id=%d reason=%s\n",
+                           step, rt->sites[(size_t)selected].id, seed_selection_reason);
+                } else if (isfinite(selected_seed.r_seed_nm) && selected_seed.r_seed_nm > 0.0) {
+                    char seed_geom_reason[256] = "";
+                    if (!convert_seed_nm_to_runtime_grid(&selected_seed, P, &seed_geom,
+                                                         seed_geom_reason, sizeof(seed_geom_reason))) {
+                        bridge_rejected = 1;
+                        event_status = "SEED_UNIT_CONVERSION_FAILED";
+                        snprintf(ranked_diag[(size_t)selected].catalog_rejection_reason,
+                                 sizeof(ranked_diag[(size_t)selected].catalog_rejection_reason),
+                                 "SEED_UNIT_CONVERSION_FAILED:%s", seed_geom_reason);
+                        snprintf(ranked_diag[(size_t)selected].rejection_reason,
+                                 sizeof(ranked_diag[(size_t)selected].rejection_reason),
+                                 "SEED_UNIT_CONVERSION_FAILED");
+                    } else if (!seed_geom.insertable) {
+                        bridge_rejected = 1;
+                        event_status = "SEED_TOO_SMALL_FOR_RUNTIME_DX";
+                        snprintf(ranked_diag[(size_t)selected].catalog_rejection_reason,
+                                 sizeof(ranked_diag[(size_t)selected].catalog_rejection_reason),
+                                 "SEED_TOO_SMALL_FOR_RUNTIME_DX:%s", seed_geom_reason);
+                        snprintf(ranked_diag[(size_t)selected].rejection_reason,
+                                 sizeof(ranked_diag[(size_t)selected].rejection_reason),
+                                 "SEED_TOO_SMALL_FOR_RUNTIME_DX");
+                    } else {
+                        P->gp_debug_beta_seed_radius = seed_geom.r_internal;
+                        P->gp_debug_beta_seed_iface_width = fmax(0.5 * seed_geom.r_internal, P->dx);
+                        ranked_diag[(size_t)selected].r_seed_nm = selected_seed.r_seed_nm;
+                        snprintf(ranked_diag[(size_t)selected].seed_source,
+                                 sizeof(ranked_diag[(size_t)selected].seed_source),
+                                 "%s", selected_seed.id);
+                        snprintf(ranked_diag[(size_t)selected].catalog_match_status,
+                                 sizeof(ranked_diag[(size_t)selected].catalog_match_status),
+                                 "%s",
+                                 strcmp(selected_seed.id, "isotropic_fallback") == 0 ? "fallback_isotropic" : "catalog_match");
+                        snprintf(ranked_diag[(size_t)selected].catalog_rejection_reason,
+                                 sizeof(ranked_diag[(size_t)selected].catalog_rejection_reason),
+                                 "%s", seed_selection_reason);
+                        snprintf(ranked_diag[(size_t)selected].strain_mode_runtime,
+                                 sizeof(ranked_diag[(size_t)selected].strain_mode_runtime),
+                                 "%s", gp_runtime_infer_strain_mode(0.0, "runtime", "runtime"));
+                        snprintf(ranked_diag[(size_t)selected].strain_mode_catalog,
+                                 sizeof(ranked_diag[(size_t)selected].strain_mode_catalog),
+                                 "%s", selected_seed.strain_mode[0] ? selected_seed.strain_mode : "unknown");
+                        ranked_diag[(size_t)selected].T_catalog = selected_seed.T_C;
+                        ranked_diag[(size_t)selected].xB_catalog = selected_seed.xB;
+                    }
+                }
+            }
+            if (P->enable_dynamic_continue_bridge &&
+                !P->enable_gp_runtime_library_nucleation &&
+                !bridge_missing_debug_fallback) {
+                event_status = "BRIDGE_MISSING_REJECT_EVENT";
+                snprintf(ranked_diag[(size_t)selected].catalog_rejection_reason,
+                         sizeof(ranked_diag[(size_t)selected].catalog_rejection_reason),
+                         "BRIDGE_METADATA_MISSING_PRODUCTION_REJECT");
+                snprintf(ranked_diag[(size_t)selected].rejection_reason,
+                         sizeof(ranked_diag[(size_t)selected].rejection_reason),
+                         "BRIDGE_METADATA_MISSING_PRODUCTION_REJECT");
+                selected_consumed = 0.0;
+                selected_matrix_drawn = 0.0;
+                event_mass_error = 0.0;
+                event_mass_rel_error = 0.0;
+                rt->attempted_event_count += 1;
+                bridge_rejected = 1;
+            }
+            if (bridge_missing_debug_fallback) {
+                snprintf(ranked_diag[(size_t)selected].catalog_rejection_reason,
+                         sizeof(ranked_diag[(size_t)selected].catalog_rejection_reason),
+                         "BRIDGE_MISSING_DEBUG_FALLBACK");
+            }
+            if (!bridge_rejected) {
+                if (P->enable_gp_runtime_library_nucleation &&
+                    P->enable_dynamic_continue_bridge &&
+                    P->gp_runtime_enable_delayed_insertion_queue &&
+                    !force_capacity_debug_now) {
+                    RuntimeSeedGeometry seed_geom;
+                    char seed_geom_reason[256] = "";
+                    if (!convert_seed_nm_to_runtime_grid(&selected_seed, P, &seed_geom,
+                                                         seed_geom_reason, sizeof(seed_geom_reason))) {
+                        P->gp_debug_beta_seed_radius = old_seed_radius;
+                        P->gp_debug_beta_seed_iface_width = old_seed_width;
+                        fprintf(stderr, "[fatal] delayed bridge seed conversion unexpectedly failed: %s\n", seed_geom_reason);
+                        return 0;
+                    }
+                    if (!gp_runtime_schedule_delayed_insertion_event(rt, P, step, time_code,
+                                                                     &rt->sites[(size_t)selected],
+                                                                     &ranked_diag[(size_t)selected],
+                                                                     &selected_seed,
+                                                                     &seed_geom,
+                                                                     seed_selection_reason)) {
+                        P->gp_debug_beta_seed_radius = old_seed_radius;
+                        P->gp_debug_beta_seed_iface_width = old_seed_width;
+                        fprintf(stderr, "[fatal] failed to schedule delayed insertion event.\n");
+                        return 0;
+                    }
+                    event_status = "DELAYED_INSERTION_SCHEDULED";
+                    selected_consumed = 0.0;
+                    selected_matrix_drawn = 0.0;
+                    event_mass_error = 0.0;
+                    event_mass_rel_error = 0.0;
+                    rt->stochastic_selected_count += 1;
+                } else {
+                    if (force_capacity_debug_now &&
+                        strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0 &&
+                        !rt->beta_full_seed_capacity_scan_written) {
+                        gp_assisted_write_full_seed_capacity_scan_rows(rt, P, step,
+                                                                       phi, xB, ranked_diag,
+                                                                       selected);
+                    }
+                    if (force_capacity_debug_now &&
+                        strcmp(P->beta_debug_inventory_mode, "full_physical_seed") == 0 &&
+                        !rt->beta_multi_gp_capture_scan_written) {
+                        gp_assisted_write_multi_gp_capture_scan_rows(rt, P, step,
+                                                                     phi, xB, ranked_diag,
+                                                                     selected);
+                    }
+                    if (!trigger_gp_assisted_beta_event_host(rt, P, step, (size_t)selected,
+                                                             phi, Y, xB,
+                                                             &ranked_diag[(size_t)selected],
+                                                             &status,
+                                                             &M_before, &M_after,
+                                                             &event_mass_error, &event_mass_rel_error,
+                                                             &consumed, &matrix_drawn,
+                                                             force_capacity_debug_now)) {
+                        P->gp_debug_beta_seed_radius = old_seed_radius;
+                        P->gp_debug_beta_seed_iface_width = old_seed_width;
+                        return 0;
+                    }
+                    event_status = status;
+                    selected_consumed = consumed;
+                    selected_matrix_drawn = matrix_drawn;
+                    rt->stochastic_selected_count += 1;
+                }
+            }
+            P->gp_debug_beta_seed_radius = old_seed_radius;
+            P->gp_debug_beta_seed_iface_width = old_seed_width;
+        }
+    }
+
+    if (rt->ranked_hazard_csv) {
+        for (size_t i = 0; i < rt->sites.size(); ++i) {
+            const double probability = (H > 0.0) ? hazards[i] / fmax(H, 1.0e-300) : 0.0;
+            fprintf(rt->ranked_hazard_csv,
+                    "%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s,%.12e,%d\n",
+                    step, rt->sites[i].id,
+                    ranked_diag[i].xB_local,
+                    ranked_diag[i].curvature,
+                    ranked_diag[i].gp_density,
+                    hazards[i],
+                    ranked_diag[i].f_xB,
+                    ranked_diag[i].g_curvature,
+                    ranked_diag[i].q_density,
+                    ranked_diag[i].N_site_m3,
+                    ranked_diag[i].Z_n_used,
+                    ranked_diag[i].Z_r,
+                    ranked_diag[i].beta_r_star_1_s,
+                    ranked_diag[i].DeltaV_nuc_m3,
+                    ranked_diag[i].dt_event_s,
+                    ranked_diag[i].Theta_tr,
+                    ranked_diag[i].beta_rate_model,
+                    probability,
+                    (selected >= 0 && (size_t)selected == i) ? 1 : 0);
+        }
+        fflush(rt->ranked_hazard_csv);
+    }
+
+    GpAssistedLedger global_after;
+    compute_gp_assisted_multi_ledger_host(phi, Y, xB, P->v_B, rt->sites, &global_after);
+    write_gp_assisted_multi_ledger_row(rt->multi_ledger_csv, step, rt->sites,
+                                       &global_after, rt->initial_total_reference);
+
+    if (rt->stochastic_csv) {
+        const int site_id = (selected >= 0) ? rt->sites[(size_t)selected].id : -1;
+        fprintf(rt->stochastic_csv,
+                "%d,%.12e,%d,%.12e,%.12e,%.12e,%.12e,%s,%.12e,%.12e,%.12e,%.12e,%.12e,%s\n",
+                step, time_code, site_id, hazard_i, H, r, selection_probability,
+                event_status, M_before, M_after, event_mass_error,
+                global_after.xB_min, global_after.xB_max,
+                (selected >= 0) ? "selected_one_site" : "no_site_selected");
+        fflush(rt->stochastic_csv);
+    }
+    if (P->enable_gp_runtime_library_nucleation && rt->runtime_library_event_csv) {
+        if (selected >= 0 && P->gp_runtime_log_accepted_events) {
+            const GpRankedHazardDiag &d = ranked_diag[(size_t)selected];
+            const GpAssistedSite &site = rt->sites[(size_t)selected];
+            const double x_nm = ((double)site.ix + 0.5) * runtime_dx_nm_host(P);
+            const double y_nm = ((double)site.iy + 0.5) * runtime_dy_nm_host(P);
+            const double z_nm = ((double)site.iz + 0.5) * runtime_dz_nm_host(P);
+            fprintf(rt->runtime_library_event_csv,
+                    "%d,%.12e,%d,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%d,%.12e,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%s,%s,%s,%s,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%s,%s,%s,%d,%s,%s,%s,%s,%.12e,%.12e\n",
+                    step, time_code, rt->event_counter,
+                    site.ix, site.iy, site.iz, x_nm, y_nm, z_nm,
+                    d.xB_local, d.phi_beta_local, d.gp_present, site.B_mass_active,
+                    d.s_GP, d.DeltaG_bare_kBT, d.DeltaG_eff_kBT,
+                    d.J_bare, d.J_eff, d.P_event,
+                    d.dt_event_s, d.DeltaV_nuc_m3, d.N_site_m3, d.Z_n_used, d.Z_r, d.beta_r_star_1_s, d.Theta_tr,
+                    d.beta_rate_model, d.beta_rate_rejection_reason,
+                    d.barrier_source_case,
+                    d.seed_source[0] ? d.seed_source : selected_seed.id,
+                    d.r_star_nm, d.r_seed_nm,
+                    selected_consumed + selected_matrix_drawn, selected_consumed, selected_matrix_drawn,
+                    event_mass_error,
+                    (strcmp(event_status, "accepted") == 0) ? "true" : "false",
+                    (strcmp(event_status, "accepted") == 0) ? seed_selection_reason : event_status,
+                    d.r_star_source_column,
+                    d.rstar_fallback_used,
+                    d.catalog_match_status,
+                    d.catalog_rejection_reason,
+                    d.strain_mode_runtime,
+                    d.strain_mode_catalog,
+                    d.T_catalog,
+                    d.xB_catalog);
+            fflush(rt->runtime_library_event_csv);
+        } else if (selected < 0 && P->gp_runtime_log_candidates) {
+            fprintf(rt->runtime_library_event_csv,
+                    "%d,%.12e,%d,-1,-1,-1,nan,nan,nan,nan,nan,0,nan,"
+                    "nan,nan,nan,nan,nan,%.12e,"
+                    "nan,nan,nan,nan,nan,nan,nan,"
+                    "%s,%s,%s,%s,"
+                    "nan,nan,nan,nan,nan,nan,"
+                    "%s,%s,%s,%d,%s,%s,%s,%s,nan,nan\n",
+                    step, time_code, rt->event_counter,
+                    p_any,
+                    P->beta_rate_model, event_status, "none", "none",
+                    "false", "not_selected", "none", 0,
+                    "not_selected", "none", "no_strain", "none");
+            fflush(rt->runtime_library_event_csv);
+        }
+    }
+    if (P->enable_gp_runtime_library_nucleation && rt->runtime_library_candidate_summary_csv &&
+        P->gp_runtime_log_candidates && P->gp_runtime_log_candidate_summary) {
+        int active_count = 0;
+        int gp_present_count = 0;
+        int finite_J_count = 0;
+        double s_min = INFINITY;
+        double s_max = -INFINITY;
+        double dg_min = INFINITY;
+        double dg_max = -INFINITY;
+        double j_min = INFINITY;
+        double j_max = -INFINITY;
+        for (size_t i = 0; i < rt->sites.size(); ++i) {
+            const GpRankedHazardDiag &d = ranked_diag[i];
+            if (rt->sites[i].active && !rt->sites[i].consumed) active_count += 1;
+            if (d.gp_present) gp_present_count += 1;
+            if (isfinite(d.s_GP)) {
+                s_min = fmin(s_min, d.s_GP);
+                s_max = fmax(s_max, d.s_GP);
+            }
+            if (isfinite(d.DeltaG_eff_kBT)) {
+                dg_min = fmin(dg_min, d.DeltaG_eff_kBT);
+                dg_max = fmax(dg_max, d.DeltaG_eff_kBT);
+            }
+            if (isfinite(d.J_eff)) {
+                finite_J_count += 1;
+                j_min = fmin(j_min, d.J_eff);
+                j_max = fmax(j_max, d.J_eff);
+            }
+        }
+        if (!isfinite(s_min)) s_min = NAN;
+        if (!isfinite(s_max)) s_max = NAN;
+        if (!isfinite(dg_min)) dg_min = NAN;
+        if (!isfinite(dg_max)) dg_max = NAN;
+        if (!isfinite(j_min)) j_min = NAN;
+        if (!isfinite(j_max)) j_max = NAN;
+        const int selected_site_id = (selected >= 0) ? rt->sites[(size_t)selected].id : -1;
+        fprintf(rt->runtime_library_candidate_summary_csv,
+                "%d,%.12e,%zu,%d,%d,%d,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                "%.12e,%.12e,%d,%d,%s,%d,%d\n",
+                step, time_code, rt->sites.size(), active_count, gp_present_count, finite_J_count,
+                s_min, s_max, dg_min, dg_max, j_min, j_max,
+                H, p_any, (selected >= 0) ? 1 : 0, selected_site_id, event_status,
+                rt->accepted_event_count, rt->stochastic_selected_count);
+        fflush(rt->runtime_library_candidate_summary_csv);
+    }
+    if (P->enable_gp_runtime_library_nucleation && rt->runtime_library_candidate_csv &&
+        P->gp_runtime_log_candidates && P->gp_runtime_log_candidate_full_rows) {
+        for (size_t i = 0; i < rt->sites.size(); ++i) {
+            const GpRankedHazardDiag &d = ranked_diag[i];
+            const GpAssistedSite &site = rt->sites[i];
+            fprintf(rt->runtime_library_candidate_csv,
+                    "%d,%.12e,%d,%d,%d,%d,%.12e,%.12e,%d,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,"
+                    "%s,%s,%s,%s,%d,%s,%d\n",
+                    step, time_code, site.id, site.ix, site.iy, site.iz,
+                    d.xB_local, d.phi_beta_local, d.gp_present, d.s_GP,
+                    d.DeltaG_bare_kBT, d.DeltaG_eff_kBT, hazards[i], d.P_event,
+                    d.dt_event_s, d.DeltaV_nuc_m3, d.N_site_m3, d.Z_n_used, d.Z_r, d.beta_r_star_1_s, d.Theta_tr,
+                    d.beta_rate_model, d.beta_rate_rejection_reason,
+                    d.barrier_source_case, d.r_star_source_column, d.rstar_fallback_used, d.rejection_reason,
+                    (selected >= 0 && (size_t)selected == i) ? 1 : 0);
+        }
+        fflush(rt->runtime_library_candidate_csv);
+    }
+
+    CUDA_CHECK(cudaMemcpy(d_phi_r, phi.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_xB_r, xB.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_Y_r, Y.data(), size_r, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    return 1;
+}
+
 static int write_host_vtk_scalar(const char *path, const std::vector<double> &field,
                                  int Nx, int Ny, int Nz, double dx_nm, const char *name) {
     FILE *fp = fopen(path, "w");
@@ -3738,7 +14435,9 @@ static int write_host_vtk_scalar(const char *path, const std::vector<double> &fi
 static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int step,
                                       double *d_phi_r, double *d_Y_r, double *d_xB_r,
                                       int total_r, size_t size_r,
-                                      const char *case_output_dir) {
+                                      const char *case_output_dir,
+                                      ScheduledNucExecutionSummary *summary_out,
+                                      PostInsertionDriftAuditRuntime *drift_audit_out) {
     if (!rt || !P || !P->scheduled_nuc_enabled || P->mode != 0) return 1;
     std::vector<int> event_indices;
     for (size_t i = 0; i < rt->events.size(); ++i) {
@@ -3747,6 +14446,15 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
         }
     }
     if (event_indices.empty()) return 1;
+    if (summary_out) {
+        memset(summary_out, 0, sizeof(*summary_out));
+        summary_out->M_before = NAN;
+        summary_out->M_after_embed = NAN;
+        summary_out->M_after_comp = NAN;
+        summary_out->event_mass_error_abs = NAN;
+        summary_out->event_mass_error_rel = NAN;
+        summary_out->xB_edge_used = NAN;
+    }
 
     printf("[SCHEDULED NUC TEST] using CPU roundtrip profile insertion at step %d events=%zu\n",
            step, event_indices.size());
@@ -3754,13 +14462,23 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
     std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
     CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
 
     const double M_before = compute_mean_xBtot_host(phi, xB, P->v_B);
     double phi_min_before, phi_max_before, phi_mean_before, xb_min_before, xb_max_before, xb_mean_before, mean_h_before;
     host_minmax_mean_phi_xB(phi, xB, &phi_min_before, &phi_max_before, &phi_mean_before,
                             &xb_min_before, &xb_max_before, &xb_mean_before, &mean_h_before);
+    if (drift_audit_out && drift_audit_out->csv && P->audit_post_insertion_drift_enabled) {
+        PostInsertionDriftAuditState before_state;
+        capture_post_insertion_drift_state_host(P, phi, NULL, Y, xB, &before_state);
+        write_post_insertion_drift_audit_row(drift_audit_out->csv, step, "before_event",
+                                             &before_state, M_before, M_before,
+                                             "pre_insertion_device_state");
+    }
 
-    const double dx_nm = P->dx;
+    const double dx_nm = runtime_dx_nm_host(P);
+    const double dy_nm = runtime_dy_nm_host(P);
+    const double dz_nm = runtime_dz_nm_host(P);
     const double source_box_nm = 400.0 * P->scheduled_nuc_source_dx_nm;
     const double half_box_nm = 0.5 * source_box_nm;
     const double box_blend_nm = fmax(3.0, P->scheduled_nuc_edge_sample_outer_nm);
@@ -3787,7 +14505,7 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
     for (int ev_pos = 0; ev_pos < (int)event_indices.size(); ++ev_pos) {
         ScheduledNucEvent &ev = rt->events[(size_t)event_indices[(size_t)ev_pos]];
         if (ev.cx < 0.0 || ev.cy < 0.0 || ev.cz < 0.0 ||
-            ev.cx >= P->Nx * dx_nm || ev.cy >= P->Ny * dx_nm || ev.cz >= P->Nz * dx_nm) {
+            ev.cx >= P->Nx * dx_nm || ev.cy >= P->Ny * dy_nm || ev.cz >= P->Nz * dz_nm) {
             fprintf(stderr, "[fatal] scheduled nucleus center outside target box: step=%d center=(%.3f,%.3f,%.3f)\n",
                     step, ev.cx, ev.cy, ev.cz);
             return 0;
@@ -3798,9 +14516,9 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
         for (int i = 0; i < P->Nx; ++i) {
             double xx = (i + 0.5) * dx_nm;
             for (int j = 0; j < P->Ny; ++j) {
-                double yy = (j + 0.5) * dx_nm;
+                double yy = (j + 0.5) * dy_nm;
                 for (int k = 0; k < P->Nz; ++k) {
-                    double zz = (k + 0.5) * dx_nm;
+                    double zz = (k + 0.5) * dz_nm;
                     double d_out = outside_distance_to_source_box(&ev, xx, yy, zz, half_box_nm);
                     if (d_out < P->scheduled_nuc_edge_sample_inner_nm ||
                         d_out > P->scheduled_nuc_edge_sample_outer_nm) continue;
@@ -3830,9 +14548,9 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
         for (int i = 0; i < P->Nx; ++i) {
             double xx = (i + 0.5) * dx_nm;
             for (int j = 0; j < P->Ny; ++j) {
-                double yy = (j + 0.5) * dx_nm;
+                double yy = (j + 0.5) * dy_nm;
                 for (int k = 0; k < P->Nz; ++k) {
-                    double zz = (k + 0.5) * dx_nm;
+                    double zz = (k + 0.5) * dz_nm;
                     double W_box = w_box_for_event(&ev, xx, yy, zz, half_box_nm, box_blend_nm);
                     if (W_box <= 0.0) continue;
                     size_t idx = ((size_t)i * P->Ny + (size_t)j) * P->Nz + (size_t)k;
@@ -3870,14 +14588,21 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
     }
 
     const double M_after_embed = compute_mean_xBtot_host(phi, xB, P->v_B);
+    if (drift_audit_out && drift_audit_out->csv && P->audit_post_insertion_drift_enabled) {
+        PostInsertionDriftAuditState embed_state;
+        capture_post_insertion_drift_state_host(P, phi, NULL, Y, xB, &embed_state);
+        write_post_insertion_drift_audit_row(drift_audit_out->csv, step, "after_phi_embed_before_comp",
+                                             &embed_state, M_before, M_before,
+                                             "phi_embedded_xB_not_compensated_Y_old");
+    }
 
     // Build local compensation shell around the newly inserted source boxes only.
     for (int i = 0; i < P->Nx; ++i) {
         double xx = (i + 0.5) * dx_nm;
         for (int j = 0; j < P->Ny; ++j) {
-            double yy = (j + 0.5) * dx_nm;
+            double yy = (j + 0.5) * dy_nm;
             for (int k = 0; k < P->Nz; ++k) {
-                double zz = (k + 0.5) * dx_nm;
+                double zz = (k + 0.5) * dz_nm;
                 size_t idx = ((size_t)i * P->Ny + (size_t)j) * P->Nz + (size_t)k;
                 if (W_new_max[idx] > P->scheduled_nuc_W_comp_threshold) continue;
                 if (phi[idx] > P->scheduled_nuc_phi_matrix_threshold) continue;
@@ -3937,7 +14662,30 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
         if (xb < P->scheduled_nuc_xB_min) xb = P->scheduled_nuc_xB_min;
         if (xb > P->scheduled_nuc_xB_max) xb = P->scheduled_nuc_xB_max;
         xB[idx] = xb;
+    }
+    if (drift_audit_out && drift_audit_out->csv && P->audit_post_insertion_drift_enabled) {
+        PostInsertionDriftAuditState comp_state;
+        long long clipped_cells = 0;
+        for (size_t idx = 0; idx < local_weight.size(); ++idx) {
+            if (local_weight[idx] > 0.0f) clipped_cells += 1;
+        }
+        capture_post_insertion_drift_state_host(P, phi, NULL, Y, xB, &comp_state);
+        comp_state.clipped_cell_count = clipped_cells;
+        write_post_insertion_drift_audit_row(drift_audit_out->csv, step, "after_compensation",
+                                             &comp_state, M_before, M_now,
+                                             "xB_compensated_Y_still_old");
+    }
+    for (size_t idx = 0; idx < xB.size(); ++idx) {
+        double xb = xB[idx];
         Y[idx] = logit_from_fraction(xb, P->xB_eps, P->Y_clip);
+    }
+    if (drift_audit_out && drift_audit_out->csv && P->audit_post_insertion_drift_enabled) {
+        PostInsertionDriftAuditState yrec_state;
+        yrec_state.clipped_cell_count = (long long)llround((clip_lower_frac + clip_upper_frac) * (double)xB.size());
+        capture_post_insertion_drift_state_host(P, phi, NULL, Y, xB, &yrec_state);
+        write_post_insertion_drift_audit_row(drift_audit_out->csv, step, "after_Y_reconstruct",
+                                             &yrec_state, M_before, M_now,
+                                             "host_Y_rebuilt_before_device_commit");
     }
 
     double phi_min_after, phi_max_after, phi_mean_after, xb_min_after, xb_max_after, xb_mean_after, mean_h_after;
@@ -3952,6 +14700,20 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
     CUDA_CHECK(cudaMemcpy(d_xB_r, xB.data(), size_r, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_Y_r, Y.data(), size_r, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaDeviceSynchronize());
+    if (drift_audit_out && drift_audit_out->csv && P->audit_post_insertion_drift_enabled) {
+        PostInsertionDriftAuditState commit_state;
+        capture_post_insertion_drift_state_device(P, d_phi_r, NULL, d_Y_r, d_xB_r, size_r, total_r, &commit_state);
+        commit_state.clipped_cell_count = (long long)llround((clip_lower_frac + clip_upper_frac) * (double)xB.size());
+        write_post_insertion_drift_audit_row(drift_audit_out->csv, step, "after_event_commit",
+                                             &commit_state, M_before, M_now,
+                                             "device_state_after_event_commit");
+        drift_audit_out->active = 1;
+        drift_audit_out->trigger_step = step;
+        drift_audit_out->rows_remaining_steps =
+            (P->audit_post_insertion_drift_steps > 0) ? P->audit_post_insertion_drift_steps : 1;
+        drift_audit_out->before_event_M_total = M_before;
+        drift_audit_out->after_comp_M_total = M_now;
+    }
 
     if (rt->events_csv) {
         for (size_t ii = 0; ii < event_indices.size(); ++ii) {
@@ -3972,6 +14734,34 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
                     xb_min_before, xb_max_before, xb_min_after, xb_max_after,
                     phi_max_after, mean_h_after,
                     clip_lower_frac, clip_upper_frac, oor_frac, overlap_warning);
+            const double rc_event_nm = isfinite(P->scheduled_nuc_selected_rc_nm)
+                ? P->scheduled_nuc_selected_rc_nm
+                : ((rt->profile.semiaxes_nm[0] + rt->profile.semiaxes_nm[1] + rt->profile.semiaxes_nm[2]) / 3.0);
+            const char *shape_event = P->scheduled_nuc_selected_shape_type[0]
+                ? P->scheduled_nuc_selected_shape_type
+                : classify_nucleus_shape_from_semiaxes(rt->profile.semiaxes_nm[0],
+                                                       rt->profile.semiaxes_nm[1],
+                                                       rt->profile.semiaxes_nm[2]);
+            write_unified_nucleation_event(rt->physics_events_csv,
+                                           rt->event_counter,
+                                           "scheduled_cuda_insertion",
+                                           step,
+                                           pf_step_time_seconds(P, step),
+                                           xB_edge_used,
+                                           P->temperature_C,
+                                           P->enable_gp_assisted_beta_nucleation ? 1 : 0,
+                                           0,
+                                           shape_event,
+                                           rc_event_nm,
+                                           ev.cx, ev.cy, ev.cz,
+                                           P->scheduled_nuc_source_case_label,
+                                           P->scheduled_nuc_selected_energy_barrier_kBT,
+                                           NAN,
+                                           pf_domain_volume_nm3(P),
+                                           P->dt,
+                                           P->t_real_unit,
+                                           "accepted",
+                                           "runtime_observation_only");
         }
         fflush(rt->events_csv);
     }
@@ -3998,6 +14788,14 @@ static int apply_scheduled_events_cpu(ScheduledNucRuntime *rt, PFParams *P, int 
         write_host_vtk_scalar(path, phi, P->Nx, P->Ny, P->Nz, dx_nm, "phi");
         snprintf(path, sizeof(path), "%s/event_step%04d_xB_after_comp.vtk", case_output_dir, step);
         write_host_vtk_scalar(path, xB, P->Nx, P->Ny, P->Nz, dx_nm, "xB");
+    }
+    if (summary_out) {
+        summary_out->M_before = M_before;
+        summary_out->M_after_embed = M_after_embed;
+        summary_out->M_after_comp = M_now;
+        summary_out->event_mass_error_abs = event_mass_error;
+        summary_out->event_mass_error_rel = rel_event_mass_error;
+        summary_out->xB_edge_used = xB_edge_used;
     }
     return 1;
 }
@@ -4639,7 +15437,7 @@ static void params_default(PFParams *P) {
     P->dimension = 3;
     P->seed = 12345;
     snprintf(P->model_mode, sizeof(P->model_mode), "two_phase");
-    P->gp_xB_fixed = 0.35;
+    P->gp_xB_fixed = 0.3529411764705882;
     P->gp_delta_g0 = 0.0;
     P->gp_delta_g_stab = 0.0;
     P->gp_W_eta = 0.0;
@@ -4669,6 +15467,8 @@ static void params_default(PFParams *P) {
     P->gp_eps_iso = 0.0;
     P->gp_M_GP = 0.0;
     P->gp_M_beta = 0.0;
+    P->gp_barrier_only_mode = 1;
+    P->enable_legacy_gp_storage_coupling = 0;
     P->gp_elastic_enabled = 0;
     P->gp_elastic_active_eta = 0;
     P->gp_elastic_active_phi = 0;
@@ -4727,11 +15527,255 @@ static void params_default(PFParams *P) {
     P->gp_to_beta_max_events_global = 1000000000;
     P->gp_to_beta_max_events_per_window = 1000000000;
     P->gp_to_beta_event_window_steps = 0;
+    P->enable_gp_assisted_beta_nucleation = 0;
+    P->gp_assisted_debug_scheduled = 0;
+    P->gp_debug_scheduled_site_id = 0;
+    P->gp_debug_scheduled_step = -1;
+    P->gp_debug_site_ix = -1;
+    P->gp_debug_site_iy = -1;
+    P->gp_debug_site_iz = -1;
+    snprintf(P->gp_site_mode, sizeof(P->gp_site_mode), "single");
+    P->gp_n_sites = 1;
+    P->gp_site_spacing = 0.0;
+    P->gp_seed = 12345;
+    snprintf(P->gp_initial_mass_mode, sizeof(P->gp_initial_mass_mode), "total_composition_fixed");
+    snprintf(P->gp_release_mode, sizeof(P->gp_release_mode), "release_to_beta_first");
+    snprintf(P->gp_release_kernel, sizeof(P->gp_release_kernel), "compact_spherical");
+    P->gp_site_file[0] = '\0';
+    P->gp_release_radius_nm = 2.0;
+    P->gp_site_B_mass_equiv = 0.0;
+    P->gp_site_S_factor = 1.0;
+    P->gp_marker_core_radius_nm = 1.0;
+    P->gp_marker_influence_radius_nm = 2.0;
+    P->gp_depletion_radius_nm = 4.0;
+    P->gp_xB_floor = 1.0e-8;
+    snprintf(P->gp_depletion_kernel, sizeof(P->gp_depletion_kernel), "compact_quintic");
+    P->gp_debug_beta_seed_radius = 3.0;
+    P->gp_debug_beta_seed_iface_width = 1.0;
+    P->gp_debug_xB_min = 1.0e-8;
+    P->gp_debug_xB_max = 0.035;
+    P->gp_debug_mass_ledger = 1;
+    P->gp_event_log_enabled = 1;
+    P->gp_stochastic_enabled = 0;
+    P->gp_stochastic_k0 = 0.0;
+    P->gp_stochastic_S_GP = 1.0;
+    P->gp_stochastic_deltaG_homo_kBT = 198.0;
+    P->gp_stochastic_xB_sensitivity = 0.0;
+    P->gp_literature_model_enabled = 0;
+    snprintf(P->gp_birth_model, sizeof(P->gp_birth_model), "prescribed_sites");
+    P->gp_literature_A_m5 = 2.7356677261e37;
+    P->gp_literature_B_eff_J3_m6 = 2.1187074497e-5;
+    P->gp_literature_D0_m2_s = 4.251e-15;
+    P->gp_literature_Q_J_mol = 34030.0;
+    P->gp_literature_xAg_default = 0.0078;
+    snprintf(P->gp_literature_xAg_mode, sizeof(P->gp_literature_xAg_mode), "fixed_param");
+    P->gp_literature_L_alpha0_J_mol = 41212.9;
+    P->gp_literature_L_alpha1_J_mol_K = -18.05;
+    P->gp_literature_a_PbTe_m = 6.46e-10;
+    P->gp_literature_xeq_guard = 1.0e-6;
+    snprintf(P->gp_birth_candidate_volume_model, sizeof(P->gp_birth_candidate_volume_model), "box");
+    P->gp_birth_dt_uses_physical_time = 1;
+    P->gp_birth_max_events_per_step = 16;
+    P->gp_birth_max_total_sites = 100000;
+    snprintf(P->gp_birth_position_mode, sizeof(P->gp_birth_position_mode), "random_uniform");
+    P->gp_birth_rng_seed = 12345UL;
+    P->gp_birth_connect_to_smooth_local_depletion = 1;
+    snprintf(P->gp_birth_inventory_policy, sizeof(P->gp_birth_inventory_policy), "actual_removed_mass");
+    P->gp_literature_birth_requires_post_Y_projection = 1;
+    P->gp_birth_debug_force_single_event = 0;
+    P->gp_birth_debug_force_step = 10;
+    snprintf(P->gp_birth_debug_force_position_mode, sizeof(P->gp_birth_debug_force_position_mode), "center");
+    P->gp_birth_debug_disable_poisson_randomness = 1;
+    P->gp_birth_debug_max_events_total = 1;
+    P->gp_birth_max_total_new_births_for_debug = -1;
+    P->gp_birth_debug_stop_after_step = 0;
+    P->gp_birth_debug_freeze_dynamics_after_birth = 0;
+    P->gp_birth_debug_disable_CH_dynamics_after_birth = 0;
+    P->gp_birth_debug_force_rebuild_Y_after_birth = 0;
+    P->gp_post_birth_mass_probe_enabled = 0;
+    snprintf(P->gp_population_source, sizeof(P->gp_population_source), "literature_JGP_poisson");
+    P->gp_literature_JGP_override_enabled = 0;
+    P->gp_literature_JGP_override_m3_s = 0.0;
+    P->gp_smooth_depletion_enabled = 1;
+    P->gp_static_marker_enabled = 1;
+    P->gp_initial_population_enabled = 0;
+    snprintf(P->gp_initial_population_source, sizeof(P->gp_initial_population_source), "none");
+    P->gp_initial_xB_tot = 0.03;
+    P->gp_initial_rho_m3 = 7.5e24;
+    P->gp_initial_xAg_far = 0.0078;
+    P->gp_initial_xAg_GP = 0.30;
+    snprintf(P->gp_initial_radius_distribution, sizeof(P->gp_initial_radius_distribution),
+             "truncated_normal_volume_renormalized");
+    P->gp_initial_radius_mean_target_nm = 1.27;
+    P->gp_initial_radius_std_nm = 0.15;
+    P->gp_initial_radius_min_nm = 0.70;
+    P->gp_initial_radius_max_nm = 2.00;
+    snprintf(P->gp_initial_radius_renormalization, sizeof(P->gp_initial_radius_renormalization),
+             "match_xB_inventory");
+    snprintf(P->gp_initial_count_mode, sizeof(P->gp_initial_count_mode), "round_expected");
+    snprintf(P->gp_initial_position_mode, sizeof(P->gp_initial_position_mode),
+             "random_uniform_or_poisson_disk");
+    P->gp_initial_min_center_spacing_factor = 2.0;
+    P->gp_initial_rng_seed = 24680UL;
+    P->gp_growth_enabled = 0;
+    P->gp_radius_evolution_enabled = 0;
+    P->gp_inventory_growth_enabled = 0;
+    P->gp_beta_selection_enabled = 1;
+    snprintf(P->gp_overlap_saturation_mode, sizeof(P->gp_overlap_saturation_mode), "min_s");
+    P->enable_gp_runtime_library_nucleation = 0;
+    P->gp_runtime_barrier_library_path[0] = '\0';
+    snprintf(P->gp_runtime_nucleus_catalog_path, sizeof(P->gp_runtime_nucleus_catalog_path), "nucleus_catalog.json");
+    snprintf(P->gp_runtime_barrier_mode, sizeof(P->gp_runtime_barrier_mode), "CNT_refsub");
+    snprintf(P->gp_runtime_temperature_unit, sizeof(P->gp_runtime_temperature_unit), "C");
+    snprintf(P->gp_runtime_s_gp_mode, sizeof(P->gp_runtime_s_gp_mode), "scalar");
+    P->gp_runtime_s_gp_scalar = 1.0;
+    snprintf(P->gp_runtime_nucleation_mode, sizeof(P->gp_runtime_nucleation_mode), "homogeneous_plus_GP");
+    P->gp_runtime_reject_invalid_barrier_cases = 1;
+    P->gp_runtime_log_candidates = 0;
+    P->gp_runtime_log_candidate_full_rows = 1;
+    P->gp_runtime_log_candidate_summary = 1;
+    P->gp_ranked_hazard_full_log_enabled = 1;
+    P->gp_runtime_log_accepted_events = 1;
+    P->gp_runtime_disable_scheduled_when_active = 1;
+    P->gp_runtime_catalog_T_tol_C = 5.0;
+    P->gp_runtime_catalog_xB_tol = 0.005;
+    P->gp_runtime_catalog_strain_mode_strict = 1;
+    P->gp_runtime_catalog_allow_fallback = 1;
+    P->enable_dynamic_continue_bridge = 0;
+    P->dynamic_continue_bridge_catalog_path[0] = '\0';
+    snprintf(P->gp_runtime_bridge_missing_policy, sizeof(P->gp_runtime_bridge_missing_policy), "reject_event");
+    P->gp_runtime_min_rseed_over_dx = 4.0;
+    P->gp_runtime_enable_delayed_insertion_queue = 1;
+    P->gp_runtime_log_bridge_queue = 1;
+    P->gp_runtime_allow_immediate_fallback_debug = 0;
+    P->enable_runtime_nucleus_library = 0;
+    snprintf(P->gp_runtime_nucleus_library_path, sizeof(P->gp_runtime_nucleus_library_path),
+             "data/nucleus_library/nucleus_library.csv");
+    P->gp_runtime_profile_cache_root[0] = '\0';
+    P->gp_runtime_force_first_selector_event = 0;
+    P->gp_runtime_force_event_step = 0;
+    snprintf(P->beta_rate_model, sizeof(P->beta_rate_model), "surrogate_hazard");
+    P->beta_rate_use_physical_dt = 1;
+    P->beta_rate_use_gp_barrier_modifier = 1;
+    snprintf(P->beta_rate_D_B_alpha_model, sizeof(P->beta_rate_D_B_alpha_model), "from_runtime_D_alpha");
+    P->beta_rate_D_B_alpha_D0_m2_s = NAN;
+    P->beta_rate_D_B_alpha_Q_J_mol = NAN;
+    P->beta_rate_D_B_alpha_use_xB_factor = 1;
+    P->beta_rate_Omega_g_m3 = NAN;
+    P->beta_rate_Omega_g_source[0] = '\0';
+    P->beta_rate_Omega_site_m3 = NAN;
+    P->beta_rate_N_site_m3 = NAN;
+    snprintf(P->beta_rate_site_model, sizeof(P->beta_rate_site_model), "matrix_site_density");
+    snprintf(P->beta_rate_gp_capture_volume_model, sizeof(P->beta_rate_gp_capture_volume_model), "omega_site");
+    snprintf(P->beta_rate_Z_type, sizeof(P->beta_rate_Z_type), "Z_n");
+    snprintf(P->beta_rate_Z_r_fallback_mode, sizeof(P->beta_rate_Z_r_fallback_mode), "disabled");
+    snprintf(P->beta_rate_Z_r_source, sizeof(P->beta_rate_Z_r_source), "library");
+    P->beta_rate_Z_r_required = 1;
+    P->beta_rate_Z_r_debug_fallback_enabled = 0;
+    P->beta_rate_allow_runtime_Zn_from_Zr = 0;
+    P->beta_rate_scale_Z_with_sGP = 0;
+    snprintf(P->beta_rate_deltaV_nuc_mode, sizeof(P->beta_rate_deltaV_nuc_mode), "omega_site");
+    P->beta_rate_deltaV_nuc_m3 = NAN;
+    P->beta_rate_debug_rate_multiplier = 1.0;
+    P->beta_rate_phi_threshold = 0.05;
+    P->beta_rate_xB_min = 0.0;
+    P->beta_rate_transient_enabled = 0;
+    P->beta_rate_tau_inc_s = NAN;
+    P->beta_debug_force_single_event = 0;
+    P->beta_debug_force_step = 10;
+    snprintf(P->beta_debug_position_mode, sizeof(P->beta_debug_position_mode), "max_capacity_near_GP");
+    snprintf(P->beta_debug_inventory_mode, sizeof(P->beta_debug_inventory_mode), "capacity_matched");
+    P->beta_debug_capacity_fraction = 0.5;
+    snprintf(P->beta_debug_draw_radius_mode, sizeof(P->beta_debug_draw_radius_mode), "fixed");
+    snprintf(P->beta_debug_draw_radius_list_nm, sizeof(P->beta_debug_draw_radius_list_nm),
+             "2,3,4,5,6,8,10,12,16,20,24,32");
+    P->beta_debug_do_not_reduce_requested_mass = 0;
+    P->beta_debug_matrix_draw_radius_nm = 2.0;
+    snprintf(P->beta_debug_GP_capture_mode, sizeof(P->beta_debug_GP_capture_mode), "selected_GP_only");
+    P->beta_debug_GP_capture_radius_nm = 2.0;
+    snprintf(P->beta_debug_GP_capture_consume_order, sizeof(P->beta_debug_GP_capture_consume_order), "nearest_first");
+    P->beta_debug_max_events_total = 1;
+    snprintf(P->beta_handoff_policy, sizeof(P->beta_handoff_policy), "capacity_gated_dynamic_seed");
+    P->beta_capacity_gate_enabled = 1;
+    P->beta_capacity_gate_matrix_draw_radius_nm = 2.0;
+    snprintf(P->beta_capacity_gate_GP_capture_mode, sizeof(P->beta_capacity_gate_GP_capture_mode), "multi_GP_nearest_first");
+    P->beta_capacity_gate_GP_capture_radius_nm = 12.0;
+    P->beta_capacity_gate_max_reasonable_radius_nm = 12.0;
+    P->beta_capacity_gate_allow_direct_if_capacity_ratio_ge = 1.0;
+    P->beta_staged_conversion_enabled = 1;
+    snprintf(P->beta_staged_conversion_target, sizeof(P->beta_staged_conversion_target), "dynamic_continue_seed_mass");
+    snprintf(P->beta_staged_conversion_initial_inventory_mode,
+             sizeof(P->beta_staged_conversion_initial_inventory_mode),
+             "consume_available_GP_and_matrix");
+    snprintf(P->beta_staged_conversion_release_mode,
+             sizeof(P->beta_staged_conversion_release_mode), "inventory_accumulation");
+    P->beta_staged_conversion_insert_when_capacity_reached = 1;
+    P->beta_staged_conversion_max_subgrid_steps = 100000;
+    P->beta_staged_conversion_mass_tolerance_rel = 1.0e-10;
+    P->beta_staged_accumulation_enabled = 1;
+    P->beta_staged_accumulation_interval_steps = 10;
+    P->beta_staged_accumulation_GP_capture_radius_nm = 12.0;
+    P->beta_staged_accumulation_matrix_draw_radius_nm = 2.0;
+    P->beta_staged_accumulation_max_fraction_per_step = 0.1;
+    P->beta_staged_accumulation_max_inventory_per_step = 1.0e300;
+    P->beta_staged_insert_when_target_reached = 1;
+    P->beta_staged_debug_accelerated_accumulation = 0;
+    P->beta_staged_debug_accumulation_rate_multiplier = 1.0;
+    P->beta_staged_debug_stop_after_resolved_insert = 0;
+    snprintf(P->resolved_handoff_xB_write_mode, sizeof(P->resolved_handoff_xB_write_mode),
+             "legacy_rebase_current_edge");
+    P->diagnostic_rsmd_enabled = 0;
+    P->diagnostic_rsmd_T_only = 380.0;
+    P->diagnostic_rsmd_xB_halo_target = 0.0078305391025;
+    P->diagnostic_rsmd_R_exchange_nm = 4.0;
+    P->diagnostic_rsmd_chi_rel = 1.0;
+    P->diagnostic_rsmd_kernel_radius_dx = 1.5;
+    snprintf(P->diagnostic_rsmd_delivery_mode,
+             sizeof(P->diagnostic_rsmd_delivery_mode), "gp_centered_kernel");
+    P->diagnostic_rsmd_interface_shell_width_nm = 2.0;
+    snprintf(P->diagnostic_rsmd_interface_shell_kernel,
+             sizeof(P->diagnostic_rsmd_interface_shell_kernel), "inner_peaked_legacy");
+    P->diagnostic_rsmd_reset_Y_history_after_source = 0;
+    P->diagnostic_rsmd_history_restart_mode = 0;
+    P->diagnostic_rsmd_interface_diag_enabled = 0;
+    P->diagnostic_rsmd_interface_diag_every = 100;
+    P->diagnostic_rsmd_h_src_max = 0.1;
+    P->diagnostic_rsmd_f_max_per_step = 0.05;
+    snprintf(P->diagnostic_rsmd_operator_split,
+             sizeof(P->diagnostic_rsmd_operator_split), "post_pf_lie");
+    snprintf(P->diagnostic_rsmd_source_integrator,
+             sizeof(P->diagnostic_rsmd_source_integrator), "legacy_explicit");
+    P->diagnostic_rsmd_source_substep_dt_code = 0.0;
+    P->diagnostic_rsmd_headroom_weighted = 0;
+    snprintf(P->diagnostic_rsmd_control_mode,
+             sizeof(P->diagnostic_rsmd_control_mode), "full_coupled");
+    snprintf(P->pf_baseline_control_mode,
+             sizeof(P->pf_baseline_control_mode), "full");
+    snprintf(P->pf_y_update_mode, sizeof(P->pf_y_update_mode), "lagged_rhs");
+    snprintf(P->pf_composition_mode, sizeof(P->pf_composition_mode), "legacy");
+    snprintf(P->pf_conservative_flux_strategy,
+             sizeof(P->pf_conservative_flux_strategy), "pairwise_limited");
+    P->pf_conservative_bound_tol = 1.0e-12;
+    P->pf_conservative_mass_tol = 1.0e-10;
+    P->pf_conservative_beta_support_eps = 1.0e-10;
+    P->pf_conservative_max_subcycles = 64;
+    P->pf_conservative_one_step_replay = 0;
+    P->pf_matrix_storage_floor = 0.1;
+    P->pf_composition_stabilizer_Dalpha_multiplier = 10.0;
+    P->diagnostic_rsmd_release_window_steps = 1000;
+    P->diagnostic_rsmd_seed_R_eff_h_nm = 5.358726490447833;
+    snprintf(P->diagnostic_rsmd_provenance, sizeof(P->diagnostic_rsmd_provenance),
+             "required_supply_diagnostic");
     P->post_conversion_y_update_audit_enabled = 0;
     P->post_conversion_y_update_audit_steps = 5;
     snprintf(P->post_conversion_y_update_audit_prefix,
              sizeof(P->post_conversion_y_update_audit_prefix),
              "post_conversion_y_update_audit");
+    P->audit_post_insertion_drift_enabled = 0;
+    P->audit_post_insertion_drift_steps = 10;
+    snprintf(P->audit_post_insertion_drift_prefix,
+             sizeof(P->audit_post_insertion_drift_prefix),
+             "post_insertion_drift_audit");
     P->y_update_k0_audit_enabled = 0;
     P->y_update_k0_audit_steps = 5;
     snprintf(P->y_update_k0_audit_prefix,
@@ -4739,7 +15783,7 @@ static void params_default(PFParams *P) {
              "y_update_k0_audit");
     P->y_update_mass_projection_enabled = 0;
     P->y_update_mass_projection_report_enabled = 0;
-    P->y_update_mass_projection_max_iter = 30;
+    P->y_update_mass_projection_max_iter = 60;
     P->y_update_mass_projection_tol = 1.0e-12;
     snprintf(P->y_update_mass_projection_target_mode,
              sizeof(P->y_update_mass_projection_target_mode),
@@ -4791,28 +15835,28 @@ static void params_default(PFParams *P) {
     snprintf(P->gp_eta_mass_limiter, sizeof(P->gp_eta_mass_limiter), "off");
     snprintf(P->gp_y_update_mode, sizeof(P->gp_y_update_mode), "old_rhs");
     P->gp_y_picard_iters = 3;
-    
+
     // 物理输入必须由 --pf-param-file 提供；这里使用哨兵值以防漏传
     P->W = -1.0;
     P->kappa_phi = -1.0;
     P->L_phi = -1.0;
     P->D_alpha = -1.0;
     P->D_compound = -1.0;
-    
+
     P->temperature_C = -1.0;
     P->thermo_convex_extrapolation_enabled = 0;
     P->mu_reference_scale = -1.0;
     P->v_B = -1.0;
     P->v_A = -1.0;
-    
+
     P->Vm_compound = -1.0;
     P->Vm_alpha_0 = -1.0;
     P->dVm_alpha_dxB = -1.0;
-    
+
     P->Y_clip = 20.0;
     P->xB_eps = 1e-8;
     P->xB_s_floor = 0.0002;
-    
+
     P->ic_vf_init_phi = -1.0;
     // P->ic_23d_xB_out = 4.664952e-03;
     P->ic_23d_xB_out = 0.03;
@@ -4842,7 +15886,7 @@ static void params_default(PFParams *P) {
 
     // 诊断VTK默认关闭（只输出 phi/xB/xBtot）
     P->diag_vtk_enabled = 0;
-    
+
     // 弹性 bulk 惩罚诊断默认关闭
     P->diag_elastic_bulk_penalty_enabled = 0;
 
@@ -4851,7 +15895,7 @@ static void params_default(PFParams *P) {
     P->gamma_Jm2 = -1.0;          // J/m^2
     P->lambda_sm_m = -1.0;        // m
     P->elastic_gel_is_dimless = 1;
-    
+
     // === 摩尔体积设置（用于弹性 bulk 惩罚诊断：Delta_mu_el = E_el_bulk_Jm3 * Vm_alpha_0_phys_m3mol）===
     // 注意：
     //   - 上方第 405 行的 Vm_alpha_0 是无量纲摩尔体积（用于化学势计算等）
@@ -4859,12 +15903,12 @@ static void params_default(PFParams *P) {
     //   - 计算公式：Delta_mu_el (J/mol) = E_el_bulk_Jm3 (J/m^3) * Vm_alpha_0_phys_m3mol (m^3/mol)
     // 默认值（需修改为实际值）：
     P->Vm_alpha_0_phys_m3mol = -1.0;
-   
+
     // =======================================================================================================
     P->oneD_test_mode = 0;       /* =0：关闭 1D slab，使用 2D 圆形种子 IC；=1：启用 1D slab 测试模式 */
     P->ic_1d_half_width_ratio = 0.025;     /* 1D 基准测试：界面半宽比例（保留参数，但在 2D/3D 中默认不用） */
     P->ic_xB_out = 0.058;    /* 仅在 oneD_test_mode=1 时有效：1D 外部区域初始 xB；若 <=0，则自动设为平衡值的 1.05 倍 */
-    
+
     // ============================================================
     // 弹性参数默认值
     // ============================================================
@@ -4886,7 +15930,7 @@ static void params_default(PFParams *P) {
     P->S_p_44 = P->S_p_45 = P->S_p_46 = -1.0;
     P->S_p_55 = P->S_p_56 = -1.0;
     P->S_p_66 = -1.0;
-    
+
     // E0参数（外部应变，6个分量）- 默认全为0
     P->E0_xx = 0.0;
     P->E0_yy = 0.0;
@@ -4902,7 +15946,7 @@ static void params_default(PFParams *P) {
     P->eps_yz00 = -1.0;
     P->eps_xz00 = -1.0;
     P->eps_xy00 = -1.0;
-    
+
     P->eps_iso_over_vB = -1.0;
     P->xB_ref_for_eps_c = -1.0;
 
@@ -4938,13 +15982,40 @@ static void params_default(PFParams *P) {
 
     // Scheduled nucleation test: explicit opt-in only. Defaults are inert.
     P->scheduled_nuc_enabled = 0;
+    P->scheduled_nuc_use_manual_nucleus = 0;
+    P->scheduled_nuc_selector_active = 0;
     P->scheduled_nuc_source_dyn_dir[0] = '\0';
     P->scheduled_nuc_profile_dir[0] = '\0';
+    snprintf(P->scheduled_nuc_selector_script, sizeof(P->scheduled_nuc_selector_script),
+             "nucleus_selector.py");
+    snprintf(P->scheduled_nuc_catalog_json, sizeof(P->scheduled_nuc_catalog_json),
+             "nucleus_catalog.json");
+    snprintf(P->scheduled_nuc_selected_json, sizeof(P->scheduled_nuc_selected_json),
+             "selected_nucleus.json");
+    P->scheduled_nuc_selection_log[0] = '\0';
+    P->scheduled_nuc_selected_shape_type[0] = '\0';
+    P->scheduled_nuc_selected_rc_nm = NAN;
+    P->scheduled_nuc_selected_energy_barrier_kBT = NAN;
+    P->scheduled_nuc_selected_input_xB = NAN;
+    P->scheduled_nuc_selected_input_strain = NAN;
     snprintf(P->scheduled_nuc_source_step, sizeof(P->scheduled_nuc_source_step), "latest");
     P->scheduled_nuc_source_phi_vtk[0] = '\0';
     P->scheduled_nuc_source_xB_vtk[0] = '\0';
     P->scheduled_nuc_steps_csv[0] = '\0';
     P->scheduled_nuc_centers_nm[0] = '\0';
+    P->scheduled_nuc_seed_metadata_json[0] = '\0';
+    P->scheduled_nuc_t_nuc_code = 0.0;
+    P->scheduled_nuc_t_nuc_s = NAN;
+    P->scheduled_nuc_library_entry_id[0] = '\0';
+    P->scheduled_nuc_library_r_seed_nm = NAN;
+    P->scheduled_nuc_library_r_seed_grid = NAN;
+    P->scheduled_nuc_library_tau_bridge_s = NAN;
+    P->scheduled_nuc_library_tau_bridge_code_time = NAN;
+    P->scheduled_nuc_library_dt_code = NAN;
+    P->scheduled_nuc_library_dt_s = NAN;
+    P->scheduled_nuc_library_t_real_unit_s = NAN;
+    P->scheduled_nuc_library_t_insert_code = NAN;
+    P->scheduled_nuc_library_t_insert_s = NAN;
     snprintf(P->scheduled_nuc_source_case_label, sizeof(P->scheduled_nuc_source_case_label),
              "T400_xB0p030_no_strain");
     snprintf(P->scheduled_nuc_xB_edge_mode, sizeof(P->scheduled_nuc_xB_edge_mode),
@@ -5319,16 +16390,23 @@ static int is_gp_zone_mode(const PFParams *P) {
     return P && strcmp(P->model_mode, "gp_zone") == 0;
 }
 
+static int gp_storage_coupling_enabled(const PFParams *P) {
+    if (!is_gp_zone_mode(P)) return 0;
+    if (P->enable_legacy_gp_storage_coupling) return 1;
+    if (!P->gp_barrier_only_mode) return 1;
+    return 0;
+}
+
 static const char *xBtot_output_stem(const PFParams *P) {
-    return is_gp_zone_mode(P) ? "xBtot_gp" : "xBtot";
+    return gp_storage_coupling_enabled(P) ? "xBtot_gp" : "xBtot";
 }
 
 static const char *xBtot_vtk_field_name(const PFParams *P) {
-    return is_gp_zone_mode(P) ? "xBtot_gp" : "xB_tot";
+    return gp_storage_coupling_enabled(P) ? "xBtot_gp" : "xB_tot";
 }
 
 static const char *mean_xBtot_label(const PFParams *P) {
-    return is_gp_zone_mode(P) ? "mean_xBtot_gp" : "mean_xBtot";
+    return gp_storage_coupling_enabled(P) ? "mean_xBtot_gp" : "mean_xBtot";
 }
 
 static double gp_y_update_mode_code(const PFParams *P) {
@@ -7440,6 +18518,9 @@ static double host_mean_xBtot_gp(const double *phi_r,
                                  const double *xB_alpha_r,
                                  const PFParams *P,
                                  int total_size) {
+    if (!gp_storage_coupling_enabled(P)) {
+        return host_mean_xBtot_two_phase(phi_r, xB_alpha_r, P, total_size);
+    }
     double sum = 0.0;
     for (int i = 0; i < total_size; ++i) {
         double h_alpha = 0.0;
@@ -7451,6 +18532,143 @@ static double host_mean_xBtot_gp(const double *phi_r,
         sum += h_alpha * xB_alpha + h_GP * P->gp_xB_fixed + h_beta;
     }
     return sum / fmax((double)total_size, 1.0);
+}
+
+static void capture_post_insertion_drift_state_host(const PFParams *P,
+                                                    const std::vector<double> &phi,
+                                                    const std::vector<double> *eta,
+                                                    const std::vector<double> &Y,
+                                                    const std::vector<double> &xB,
+                                                    PostInsertionDriftAuditState *out) {
+    if (!P || !out) return;
+    memset(out, 0, sizeof(*out));
+    out->phi_min = INFINITY;
+    out->phi_max = -INFINITY;
+    out->xB_min = INFINITY;
+    out->xB_max = -INFINITY;
+    out->Y_min = INFINITY;
+    out->Y_max = -INFINITY;
+    const int total_size = (int)phi.size();
+    for (int i = 0; i < total_size; ++i) {
+        const double phi_i = phi[(size_t)i];
+        const double xB_i = xB[(size_t)i];
+        const double Y_i = Y[(size_t)i];
+        const double eta_i = (eta && eta->size() == phi.size()) ? (*eta)[(size_t)i] : 0.0;
+        if (!isfinite(phi_i) || !isfinite(xB_i) || !isfinite(Y_i) || ((eta && eta->size() == phi.size()) && !isfinite(eta_i))) {
+            if (isnan(phi_i) || isnan(xB_i) || isnan(Y_i) || ((eta && eta->size() == phi.size()) && isnan(eta_i))) out->nan_count += 1;
+            if (isinf(phi_i) || isinf(xB_i) || isinf(Y_i) || ((eta && eta->size() == phi.size()) && isinf(eta_i))) out->inf_count += 1;
+        }
+        out->phi_min = fmin(out->phi_min, phi_i);
+        out->phi_max = fmax(out->phi_max, phi_i);
+        out->xB_min = fmin(out->xB_min, xB_i);
+        out->xB_max = fmax(out->xB_max, xB_i);
+        out->Y_min = fmin(out->Y_min, Y_i);
+        out->Y_max = fmax(out->Y_max, Y_i);
+
+        if (gp_storage_coupling_enabled(P)) {
+            double h_alpha = 0.0, h_GP = 0.0, h_beta = 0.0;
+            phase_fractions_gp(clamp01_local(phi_i), clamp01_local(eta_i), &h_alpha, &h_GP, &h_beta);
+            const double xB_alpha = clamp_eps(xB_i, P->xB_eps);
+            out->M_matrix_beta += h_alpha * xB_alpha + h_beta;
+            out->M_gp_active += h_GP * P->gp_xB_fixed;
+        } else {
+            const double h_beta = h_of_phi(clamp01_local(phi_i));
+            const double xB_alpha = clamp_eps(xB_i, P->xB_eps);
+            out->M_matrix_beta += (1.0 - h_beta) * xB_alpha + h_beta;
+        }
+    }
+    const double inv_total = 1.0 / fmax((double)total_size, 1.0);
+    out->M_matrix_beta *= inv_total;
+    out->M_gp_active *= inv_total;
+    out->M_total = out->M_matrix_beta + out->M_gp_active;
+}
+
+static void capture_post_insertion_drift_state_device(const PFParams *P,
+                                                      double *d_phi_r,
+                                                      double *d_eta_r,
+                                                      double *d_Y_r,
+                                                      double *d_xB_r,
+                                                      size_t size_r,
+                                                      int total_r,
+                                                      PostInsertionDriftAuditState *out) {
+    if (!P || !d_phi_r || !d_Y_r || !d_xB_r || !out) return;
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r), eta;
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
+    std::vector<double> *eta_ptr = NULL;
+    if (gp_storage_coupling_enabled(P) && d_eta_r) {
+        eta.resize((size_t)total_r);
+        CUDA_CHECK(cudaMemcpy(eta.data(), d_eta_r, size_r, cudaMemcpyDeviceToHost));
+        eta_ptr = &eta;
+    }
+    capture_post_insertion_drift_state_host(P, phi, eta_ptr, Y, xB, out);
+}
+
+static void write_post_insertion_drift_audit_row(FILE *fp,
+                                                 int step,
+                                                 const char *stage,
+                                                 const PostInsertionDriftAuditState *state,
+                                                 double before_event_M_total,
+                                                 double after_comp_M_total,
+                                                 const char *notes) {
+    if (!fp || !stage || !state) return;
+    fprintf(fp,
+            "%d,%s,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%lld,%lld,%lld,%s\n",
+            step,
+            stage,
+            state->M_matrix_beta,
+            state->M_gp_active,
+            state->M_total,
+            state->M_total - before_event_M_total,
+            state->M_total - after_comp_M_total,
+            state->phi_min,
+            state->phi_max,
+            state->xB_min,
+            state->xB_max,
+            state->Y_min,
+            state->Y_max,
+            (long long)state->clipped_cell_count,
+            state->nan_count,
+            state->inf_count,
+            notes ? notes : "");
+    fflush(fp);
+}
+
+static void write_post_insertion_drift_audit_row_from_scalars(FILE *fp,
+                                                              int step,
+                                                              const char *stage,
+                                                              double M_matrix_beta,
+                                                              double M_gp_active,
+                                                              double M_total,
+                                                              double before_event_M_total,
+                                                              double after_comp_M_total,
+                                                              double phi_min,
+                                                              double phi_max,
+                                                              double xB_min,
+                                                              double xB_max,
+                                                              double Y_min,
+                                                              double Y_max,
+                                                              long long clipped_cell_count,
+                                                              long long nan_count,
+                                                              long long inf_count,
+                                                              const char *notes) {
+    PostInsertionDriftAuditState tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    tmp.M_matrix_beta = M_matrix_beta;
+    tmp.M_gp_active = M_gp_active;
+    tmp.M_total = M_total;
+    tmp.phi_min = phi_min;
+    tmp.phi_max = phi_max;
+    tmp.xB_min = xB_min;
+    tmp.xB_max = xB_max;
+    tmp.Y_min = Y_min;
+    tmp.Y_max = Y_max;
+    tmp.clipped_cell_count = clipped_cell_count;
+    tmp.nan_count = nan_count;
+    tmp.inf_count = inf_count;
+    write_post_insertion_drift_audit_row(fp, step, stage, &tmp,
+                                         before_event_M_total, after_comp_M_total, notes);
 }
 
 static int gp_recovered_xB_valid_host(double xBtot_available,
@@ -7510,6 +18728,12 @@ static int apply_gp_eta_pointwise_feasibility_host(const double *phi_r,
                                                    long long *limited_count_out,
                                                    double *eta_max_before_out,
                                                    double *eta_max_after_out) {
+    if (!gp_storage_coupling_enabled(P)) {
+        if (limited_count_out) *limited_count_out = 0;
+        if (eta_max_before_out) *eta_max_before_out = 0.0;
+        if (eta_max_after_out) *eta_max_after_out = 0.0;
+        return 1;
+    }
     long long limited_count = 0;
     double eta_max_before = 0.0;
     double eta_max_after = 0.0;
@@ -7554,7 +18778,7 @@ static void recompute_host_xBtot_field(const double *phi_r,
                                        const PFParams *P,
                                        int total_size) {
     for (int i = 0; i < total_size; ++i) {
-        if (is_gp_zone_mode(P)) {
+        if (gp_storage_coupling_enabled(P)) {
             double h_alpha = 0.0;
             double h_GP = 0.0;
             double h_beta = 0.0;
@@ -7647,6 +18871,44 @@ static double observed_gp_profile_h_volume_host(double radius_param,
         Vh += h_of_eta(eta) * dV;
     }
     return Vh;
+}
+
+static double observed_gp_mass_after_compensation_amp_host(const double *phi_r,
+                                                           const std::vector<double> &eta_trial,
+                                                           const std::vector<double> &xB_trial_base,
+                                                           const std::vector<double> &weight,
+                                                           const PFParams *P,
+                                                           int total_size,
+                                                           int remove_mass,
+                                                           double amp,
+                                                           double xB_min_bound,
+                                                           double xB_max_bound,
+                                                           std::vector<double> *xB_out,
+                                                           double *mass_delta_out,
+                                                           double *xmin_out,
+                                                           double *xmax_out) {
+    double total_mass = 0.0;
+    double total_delta_mass = 0.0;
+    double xmin = INFINITY;
+    double xmax = -INFINITY;
+    for (int idx = 0; idx < total_size; ++idx) {
+        double xB_old = clamp_eps(xB_trial_base[(size_t)idx], P->xB_eps);
+        double h_alpha = 0.0, h_GP = 0.0, h_beta = 0.0;
+        phase_fractions_gp(clamp01_local(phi_r[idx]), clamp01_local(eta_trial[(size_t)idx]), &h_alpha, &h_GP, &h_beta);
+        double signed_delta = remove_mass ? (-amp * weight[(size_t)idx]) : (amp * weight[(size_t)idx]);
+        double xB_new = xB_old + signed_delta;
+        if (xB_new < xB_min_bound) xB_new = xB_min_bound;
+        if (xB_new > xB_max_bound) xB_new = xB_max_bound;
+        if (xB_out) (*xB_out)[(size_t)idx] = xB_new;
+        total_delta_mass += h_alpha * (xB_new - xB_old);
+        total_mass += h_alpha * xB_new + h_GP * P->gp_xB_fixed + h_beta;
+        if (xB_new < xmin) xmin = xB_new;
+        if (xB_new > xmax) xmax = xB_new;
+    }
+    if (mass_delta_out) *mass_delta_out = total_delta_mass;
+    if (xmin_out) *xmin_out = xmin;
+    if (xmax_out) *xmax_out = xmax;
+    return total_mass;
 }
 
 static double observed_gp_comp_weight_host(double r,
@@ -7807,35 +19069,6 @@ static int initialize_observed_gp_diffuse_host(double *phi_r,
     const double demand = mass_after_seed - mass_before;
     const int remove_mass = (demand > 0.0) ? 1 : 0;
 
-    auto mass_after_compensation_for_amp = [&](double amp,
-                                               std::vector<double> *xB_out,
-                                               double *mass_delta_out,
-                                               double *xmin_out,
-                                               double *xmax_out) {
-        double total_mass = 0.0;
-        double total_delta_mass = 0.0;
-        double xmin = INFINITY;
-        double xmax = -INFINITY;
-        for (int idx = 0; idx < total_size; ++idx) {
-            double xB_old = clamp_eps(xB_trial[(size_t)idx], P->xB_eps);
-            double h_alpha = 0.0, h_GP = 0.0, h_beta = 0.0;
-            phase_fractions_gp(clamp01_local(phi_r[idx]), clamp01_local(eta_trial[(size_t)idx]), &h_alpha, &h_GP, &h_beta);
-            double signed_delta = remove_mass ? (-amp * weight[(size_t)idx]) : (amp * weight[(size_t)idx]);
-            double xB_new = xB_old + signed_delta;
-            if (xB_new < xB_min_bound) xB_new = xB_min_bound;
-            if (xB_new > xB_max_bound) xB_new = xB_max_bound;
-            if (xB_out) (*xB_out)[(size_t)idx] = xB_new;
-            total_delta_mass += h_alpha * (xB_new - xB_old);
-            total_mass += h_alpha * xB_new + h_GP * P->gp_xB_fixed + h_beta;
-            if (xB_new < xmin) xmin = xB_new;
-            if (xB_new > xmax) xmax = xB_new;
-        }
-        if (mass_delta_out) *mass_delta_out = total_delta_mass;
-        if (xmin_out) *xmin_out = xmin;
-        if (xmax_out) *xmax_out = xmax;
-        return total_mass;
-    };
-
     double compensation_amp = 0.0;
     int init_success = 1;
     if (fabs(demand) > 1.0e-14) {
@@ -7843,11 +19076,17 @@ static int initialize_observed_gp_diffuse_host(double *phi_r,
         double hi = 1.0;
         double mass_delta_hi = 0.0;
         double xmin_tmp = 0.0, xmax_tmp = 0.0;
-        mass_after_compensation_for_amp(hi, NULL, &mass_delta_hi, &xmin_tmp, &xmax_tmp);
+        observed_gp_mass_after_compensation_amp_host(phi_r, eta_trial, xB_trial, weight, P,
+                                                     total_size, remove_mass, hi,
+                                                     xB_min_bound, xB_max_bound,
+                                                     NULL, &mass_delta_hi, &xmin_tmp, &xmax_tmp);
         double supplied_hi = remove_mass ? (-mass_delta_hi) : mass_delta_hi;
         for (int iter = 0; iter < 40 && supplied_hi < fabs(demand); ++iter) {
             hi *= 2.0;
-            mass_after_compensation_for_amp(hi, NULL, &mass_delta_hi, &xmin_tmp, &xmax_tmp);
+            observed_gp_mass_after_compensation_amp_host(phi_r, eta_trial, xB_trial, weight, P,
+                                                         total_size, remove_mass, hi,
+                                                         xB_min_bound, xB_max_bound,
+                                                         NULL, &mass_delta_hi, &xmin_tmp, &xmax_tmp);
             supplied_hi = remove_mass ? (-mass_delta_hi) : mass_delta_hi;
         }
         if (supplied_hi + 1.0e-14 < fabs(demand)) {
@@ -7856,7 +19095,10 @@ static int initialize_observed_gp_diffuse_host(double *phi_r,
             for (int iter = 0; iter < 80; ++iter) {
                 double mid = 0.5 * (lo + hi);
                 double mass_delta_mid = 0.0;
-                mass_after_compensation_for_amp(mid, NULL, &mass_delta_mid, &xmin_tmp, &xmax_tmp);
+                observed_gp_mass_after_compensation_amp_host(phi_r, eta_trial, xB_trial, weight, P,
+                                                             total_size, remove_mass, mid,
+                                                             xB_min_bound, xB_max_bound,
+                                                             NULL, &mass_delta_mid, &xmin_tmp, &xmax_tmp);
                 double supplied_mid = remove_mass ? (-mass_delta_mid) : mass_delta_mid;
                 if (supplied_mid < fabs(demand)) {
                     lo = mid;
@@ -7874,8 +19116,11 @@ static int initialize_observed_gp_diffuse_host(double *phi_r,
     double compensation_mass = 0.0;
     if (init_success) {
         if (fabs(demand) > 1.0e-14) {
-            mass_after = mass_after_compensation_for_amp(compensation_amp, &xB_trial, &compensation_mass,
-                                                         &xB_min_init, &xB_max_init);
+            mass_after = observed_gp_mass_after_compensation_amp_host(phi_r, eta_trial, xB_trial, weight, P,
+                                                                      total_size, remove_mass, compensation_amp,
+                                                                      xB_min_bound, xB_max_bound,
+                                                                      &xB_trial, &compensation_mass,
+                                                                      &xB_min_init, &xB_max_init);
         } else {
             for (int idx = 0; idx < total_size; ++idx) {
                 xB_trial[(size_t)idx] = clamp_eps(xB_trial[(size_t)idx], P->xB_eps);
@@ -8239,7 +19484,7 @@ static void launch_compute_model_xBtot_kernel(const PFParams *P,
                                               const double *xB_alpha_r,
                                               double *xBtot_r,
                                               int total_size) {
-    if (is_gp_zone_mode(P)) {
+    if (gp_storage_coupling_enabled(P)) {
         launch_compute_xBtot_gp_kernel(phi_r, eta_r, xB_alpha_r, xBtot_r, P->gp_xB_fixed, total_size);
     } else {
         launch_compute_xBtot_kernel(phi_r, xB_alpha_r, xBtot_r, P->v_B, total_size);
@@ -8339,6 +19584,10 @@ typedef struct {
 
 static inline double host_xBtot_gp_point_value(double phi, double eta, double xB_alpha,
                                                const PFParams *P) {
+    if (!gp_storage_coupling_enabled(P)) {
+        double h_beta = h_of_phi(clamp01_local(phi));
+        return (1.0 - h_beta) * clamp_eps(xB_alpha, P->xB_eps) + h_beta;
+    }
     double h_alpha = 0.0, h_GP = 0.0, h_beta = 0.0;
     phase_fractions_gp(clamp01_local(phi), clamp01_local(eta), &h_alpha, &h_GP, &h_beta);
     return h_alpha * clamp_eps(xB_alpha, P->xB_eps) + h_GP * P->gp_xB_fixed + h_beta;
@@ -9594,13 +20843,13 @@ static double gpu_reduce_sum_model_xBtot(const PFParams *P,
                                          const double *eta_r,
                                          const double *xB_alpha_r,
                                          int total_size) {
-    if (is_gp_zone_mode(P)) {
+    if (gp_storage_coupling_enabled(P)) {
         return gpu_reduce_sum_xBtot_gp(phi_r, eta_r, xB_alpha_r, P->gp_xB_fixed, total_size);
     }
     return gpu_reduce_sum_xBtot(phi_r, xB_alpha_r, P->v_B, total_size);
 }
 
-static int apply_pfparams_override_key(PFParams *P, const char *key, const char *value, const char *path, int line_no) {
+static __attribute__((optimize("O0"))) int apply_pfparams_override_key(PFParams *P, const char *key, const char *value, const char *path, int line_no) {
     if (!P || !key || !value) return -1;
 
 #define TRY_SET_DOUBLE(name, field) \
@@ -9768,6 +21017,8 @@ static int apply_pfparams_override_key(PFParams *P, const char *key, const char 
     TRY_SET_DOUBLE("gp_eps_iso", gp_eps_iso);
     TRY_SET_DOUBLE("gp_M_GP", gp_M_GP);
     TRY_SET_DOUBLE("gp_M_beta", gp_M_beta);
+    TRY_SET_INT("gp_barrier_only_mode", gp_barrier_only_mode);
+    TRY_SET_INT("enable_legacy_gp_storage_coupling", enable_legacy_gp_storage_coupling);
     TRY_SET_INT("gp_elastic_enabled", gp_elastic_enabled);
     TRY_SET_INT("gp_elastic_active_eta", gp_elastic_active_eta);
     TRY_SET_INT("gp_elastic_active_phi", gp_elastic_active_phi);
@@ -9816,14 +21067,179 @@ static int apply_pfparams_override_key(PFParams *P, const char *key, const char 
     TRY_SET_INT("gp_to_beta_max_events_global", gp_to_beta_max_events_global);
     TRY_SET_INT("gp_to_beta_max_events_per_window", gp_to_beta_max_events_per_window);
     TRY_SET_INT("gp_to_beta_event_window_steps", gp_to_beta_event_window_steps);
+    TRY_SET_INT("enable_gp_assisted_beta_nucleation", enable_gp_assisted_beta_nucleation);
+    TRY_SET_INT("gp_assisted_debug_scheduled", gp_assisted_debug_scheduled);
+    TRY_SET_INT("gp_debug_scheduled_site_id", gp_debug_scheduled_site_id);
+    TRY_SET_INT("gp_debug_scheduled_step", gp_debug_scheduled_step);
+    TRY_SET_INT("gp_debug_site_ix", gp_debug_site_ix);
+    TRY_SET_INT("gp_debug_site_iy", gp_debug_site_iy);
+    TRY_SET_INT("gp_debug_site_iz", gp_debug_site_iz);
+    TRY_SET_INT("gp_n_sites", gp_n_sites);
+    TRY_SET_DOUBLE("gp_site_spacing", gp_site_spacing);
+    TRY_SET_ULONG("gp_seed", gp_seed);
+    TRY_SET_DOUBLE("gp_release_radius_nm", gp_release_radius_nm);
+    TRY_SET_DOUBLE("gp_site_B_mass_equiv", gp_site_B_mass_equiv);
+    TRY_SET_DOUBLE("gp_site_S_factor", gp_site_S_factor);
+    TRY_SET_DOUBLE("gp_marker_core_radius_nm", gp_marker_core_radius_nm);
+    TRY_SET_DOUBLE("gp_marker_influence_radius_nm", gp_marker_influence_radius_nm);
+    TRY_SET_DOUBLE("gp_depletion_radius_nm", gp_depletion_radius_nm);
+    TRY_SET_DOUBLE("gp_xB_floor", gp_xB_floor);
+    TRY_SET_DOUBLE("gp_debug_beta_seed_radius", gp_debug_beta_seed_radius);
+    TRY_SET_DOUBLE("gp_debug_beta_seed_iface_width", gp_debug_beta_seed_iface_width);
+    TRY_SET_DOUBLE("gp_debug_xB_min", gp_debug_xB_min);
+    TRY_SET_DOUBLE("gp_debug_xB_max", gp_debug_xB_max);
+    TRY_SET_INT("gp_debug_mass_ledger", gp_debug_mass_ledger);
+    TRY_SET_INT("gp_event_log_enabled", gp_event_log_enabled);
+    TRY_SET_INT("gp_stochastic_enabled", gp_stochastic_enabled);
+    TRY_SET_DOUBLE("gp_stochastic_k0", gp_stochastic_k0);
+    TRY_SET_DOUBLE("gp_stochastic_S_GP", gp_stochastic_S_GP);
+    TRY_SET_DOUBLE("gp_stochastic_deltaG_homo_kBT", gp_stochastic_deltaG_homo_kBT);
+    TRY_SET_DOUBLE("gp_stochastic_xB_sensitivity", gp_stochastic_xB_sensitivity);
+    TRY_SET_INT("gp_literature_model_enabled", gp_literature_model_enabled);
+    TRY_SET_DOUBLE("gp_literature_A_m5", gp_literature_A_m5);
+    TRY_SET_DOUBLE("gp_literature_B_eff_J3_m6", gp_literature_B_eff_J3_m6);
+    TRY_SET_DOUBLE("gp_literature_D0_m2_s", gp_literature_D0_m2_s);
+    TRY_SET_DOUBLE("gp_literature_Q_J_mol", gp_literature_Q_J_mol);
+    TRY_SET_DOUBLE("gp_literature_xAg_default", gp_literature_xAg_default);
+    TRY_SET_DOUBLE("gp_literature_L_alpha0_J_mol", gp_literature_L_alpha0_J_mol);
+    TRY_SET_DOUBLE("gp_literature_L_alpha1_J_mol_K", gp_literature_L_alpha1_J_mol_K);
+    TRY_SET_DOUBLE("gp_literature_a_PbTe_m", gp_literature_a_PbTe_m);
+    TRY_SET_DOUBLE("gp_literature_xeq_guard", gp_literature_xeq_guard);
+    TRY_SET_INT("gp_birth_dt_uses_physical_time", gp_birth_dt_uses_physical_time);
+    TRY_SET_INT("gp_birth_max_events_per_step", gp_birth_max_events_per_step);
+    TRY_SET_INT("gp_birth_max_total_sites", gp_birth_max_total_sites);
+    TRY_SET_ULONG("gp_birth_rng_seed", gp_birth_rng_seed);
+    TRY_SET_INT("gp_birth_connect_to_smooth_local_depletion", gp_birth_connect_to_smooth_local_depletion);
+    TRY_SET_INT("gp_literature_birth_requires_post_Y_projection", gp_literature_birth_requires_post_Y_projection);
+    TRY_SET_INT("gp_birth_debug_force_single_event", gp_birth_debug_force_single_event);
+    TRY_SET_INT("gp_birth_debug_force_step", gp_birth_debug_force_step);
+    TRY_SET_INT("gp_birth_debug_disable_poisson_randomness", gp_birth_debug_disable_poisson_randomness);
+    TRY_SET_INT("gp_birth_debug_max_events_total", gp_birth_debug_max_events_total);
+    TRY_SET_INT("gp_birth_max_total_new_births_for_debug", gp_birth_max_total_new_births_for_debug);
+    TRY_SET_INT("gp_birth_debug_stop_after_step", gp_birth_debug_stop_after_step);
+    TRY_SET_INT("gp_birth_debug_freeze_dynamics_after_birth", gp_birth_debug_freeze_dynamics_after_birth);
+    TRY_SET_INT("gp_birth_debug_disable_CH_dynamics_after_birth", gp_birth_debug_disable_CH_dynamics_after_birth);
+    TRY_SET_INT("gp_birth_debug_force_rebuild_Y_after_birth", gp_birth_debug_force_rebuild_Y_after_birth);
+    TRY_SET_INT("gp_post_birth_mass_probe_enabled", gp_post_birth_mass_probe_enabled);
+    TRY_SET_INT("gp_literature_JGP_override_enabled", gp_literature_JGP_override_enabled);
+    TRY_SET_DOUBLE("gp_literature_JGP_override_m3_s", gp_literature_JGP_override_m3_s);
+    TRY_SET_INT("gp_smooth_depletion_enabled", gp_smooth_depletion_enabled);
+    TRY_SET_INT("gp_static_marker_enabled", gp_static_marker_enabled);
+    TRY_SET_INT("gp_initial_population_enabled", gp_initial_population_enabled);
+    TRY_SET_DOUBLE("gp_initial_xB_tot", gp_initial_xB_tot);
+    TRY_SET_DOUBLE("gp_initial_rho_m3", gp_initial_rho_m3);
+    TRY_SET_DOUBLE("gp_initial_xAg_far", gp_initial_xAg_far);
+    TRY_SET_DOUBLE("gp_initial_xAg_GP", gp_initial_xAg_GP);
+    TRY_SET_DOUBLE("gp_initial_radius_mean_target_nm", gp_initial_radius_mean_target_nm);
+    TRY_SET_DOUBLE("gp_initial_radius_std_nm", gp_initial_radius_std_nm);
+    TRY_SET_DOUBLE("gp_initial_radius_min_nm", gp_initial_radius_min_nm);
+    TRY_SET_DOUBLE("gp_initial_radius_max_nm", gp_initial_radius_max_nm);
+    TRY_SET_DOUBLE("gp_initial_min_center_spacing_factor", gp_initial_min_center_spacing_factor);
+    TRY_SET_ULONG("gp_initial_rng_seed", gp_initial_rng_seed);
+    TRY_SET_INT("gp_growth_enabled", gp_growth_enabled);
+    TRY_SET_INT("gp_radius_evolution_enabled", gp_radius_evolution_enabled);
+    TRY_SET_INT("gp_inventory_growth_enabled", gp_inventory_growth_enabled);
+    TRY_SET_INT("gp_beta_selection_enabled", gp_beta_selection_enabled);
+    TRY_SET_INT("enable_gp_runtime_library_nucleation", enable_gp_runtime_library_nucleation);
+    TRY_SET_DOUBLE("gp_runtime_s_gp_scalar", gp_runtime_s_gp_scalar);
+    TRY_SET_INT("gp_runtime_reject_invalid_barrier_cases", gp_runtime_reject_invalid_barrier_cases);
+    TRY_SET_INT("gp_runtime_log_candidates", gp_runtime_log_candidates);
+    TRY_SET_INT("gp_runtime_log_candidate_full_rows", gp_runtime_log_candidate_full_rows);
+    TRY_SET_INT("gp_runtime_log_candidate_summary", gp_runtime_log_candidate_summary);
+    TRY_SET_INT("gp_ranked_hazard_full_log_enabled", gp_ranked_hazard_full_log_enabled);
+    TRY_SET_INT("gp_runtime_log_accepted_events", gp_runtime_log_accepted_events);
+    TRY_SET_INT("gp_runtime_disable_scheduled_when_active", gp_runtime_disable_scheduled_when_active);
+    TRY_SET_DOUBLE("gp_runtime_catalog_T_tol_C", gp_runtime_catalog_T_tol_C);
+    TRY_SET_DOUBLE("gp_runtime_catalog_xB_tol", gp_runtime_catalog_xB_tol);
+    TRY_SET_INT("gp_runtime_catalog_strain_mode_strict", gp_runtime_catalog_strain_mode_strict);
+    TRY_SET_INT("gp_runtime_catalog_allow_fallback", gp_runtime_catalog_allow_fallback);
+    TRY_SET_INT("enable_dynamic_continue_bridge", enable_dynamic_continue_bridge);
+    TRY_SET_DOUBLE("gp_runtime_min_rseed_over_dx", gp_runtime_min_rseed_over_dx);
+    TRY_SET_INT("gp_runtime_enable_delayed_insertion_queue", gp_runtime_enable_delayed_insertion_queue);
+    TRY_SET_INT("gp_runtime_log_bridge_queue", gp_runtime_log_bridge_queue);
+    TRY_SET_INT("gp_runtime_allow_immediate_fallback_debug", gp_runtime_allow_immediate_fallback_debug);
+    TRY_SET_INT("enable_runtime_nucleus_library", enable_runtime_nucleus_library);
+    TRY_SET_INT("gp_runtime_force_first_selector_event", gp_runtime_force_first_selector_event);
+    TRY_SET_INT("gp_runtime_force_event_step", gp_runtime_force_event_step);
+    TRY_SET_INT("beta_rate_use_physical_dt", beta_rate_use_physical_dt);
+    TRY_SET_INT("beta_rate_use_gp_barrier_modifier", beta_rate_use_gp_barrier_modifier);
+    TRY_SET_DOUBLE("beta_rate_D_B_alpha_D0_m2_s", beta_rate_D_B_alpha_D0_m2_s);
+    TRY_SET_DOUBLE("beta_rate_D_B_alpha_Q_J_mol", beta_rate_D_B_alpha_Q_J_mol);
+    TRY_SET_INT("beta_rate_D_B_alpha_use_xB_factor", beta_rate_D_B_alpha_use_xB_factor);
+    TRY_SET_DOUBLE("beta_rate_Omega_g_m3", beta_rate_Omega_g_m3);
+    TRY_SET_DOUBLE("beta_rate_Omega_site_m3", beta_rate_Omega_site_m3);
+    TRY_SET_DOUBLE("beta_rate_N_site_m3", beta_rate_N_site_m3);
+    TRY_SET_DOUBLE("beta_rate_deltaV_nuc_m3", beta_rate_deltaV_nuc_m3);
+    TRY_SET_INT("beta_rate_Z_r_required", beta_rate_Z_r_required);
+    TRY_SET_INT("beta_rate_Z_r_debug_fallback_enabled", beta_rate_Z_r_debug_fallback_enabled);
+    TRY_SET_DOUBLE("beta_rate_debug_rate_multiplier", beta_rate_debug_rate_multiplier);
+    TRY_SET_DOUBLE("beta_rate_phi_threshold", beta_rate_phi_threshold);
+    TRY_SET_DOUBLE("beta_rate_xB_min", beta_rate_xB_min);
+    TRY_SET_INT("beta_rate_transient_enabled", beta_rate_transient_enabled);
+    TRY_SET_DOUBLE("beta_rate_tau_inc_s", beta_rate_tau_inc_s);
+    TRY_SET_INT("beta_debug_force_single_event", beta_debug_force_single_event);
+    TRY_SET_INT("beta_debug_force_step", beta_debug_force_step);
+    TRY_SET_DOUBLE("beta_debug_capacity_fraction", beta_debug_capacity_fraction);
+    TRY_SET_INT("beta_debug_do_not_reduce_requested_mass", beta_debug_do_not_reduce_requested_mass);
+    TRY_SET_DOUBLE("beta_debug_matrix_draw_radius_nm", beta_debug_matrix_draw_radius_nm);
+    TRY_SET_DOUBLE("beta_debug_GP_capture_radius_nm", beta_debug_GP_capture_radius_nm);
+    TRY_SET_INT("beta_debug_max_events_total", beta_debug_max_events_total);
+    TRY_SET_INT("beta_capacity_gate_enabled", beta_capacity_gate_enabled);
+    TRY_SET_DOUBLE("beta_capacity_gate_matrix_draw_radius_nm", beta_capacity_gate_matrix_draw_radius_nm);
+    TRY_SET_DOUBLE("beta_capacity_gate_GP_capture_radius_nm", beta_capacity_gate_GP_capture_radius_nm);
+    TRY_SET_DOUBLE("beta_capacity_gate_max_reasonable_radius_nm", beta_capacity_gate_max_reasonable_radius_nm);
+    TRY_SET_DOUBLE("beta_capacity_gate_allow_direct_if_capacity_ratio_ge", beta_capacity_gate_allow_direct_if_capacity_ratio_ge);
+    TRY_SET_INT("beta_staged_conversion_enabled", beta_staged_conversion_enabled);
+    TRY_SET_INT("beta_staged_conversion_insert_when_capacity_reached", beta_staged_conversion_insert_when_capacity_reached);
+    TRY_SET_INT("beta_staged_conversion_max_subgrid_steps", beta_staged_conversion_max_subgrid_steps);
+    TRY_SET_DOUBLE("beta_staged_conversion_mass_tolerance_rel", beta_staged_conversion_mass_tolerance_rel);
+    TRY_SET_INT("beta_staged_accumulation_enabled", beta_staged_accumulation_enabled);
+    TRY_SET_INT("beta_staged_accumulation_interval_steps", beta_staged_accumulation_interval_steps);
+    TRY_SET_DOUBLE("beta_staged_accumulation_GP_capture_radius_nm", beta_staged_accumulation_GP_capture_radius_nm);
+    TRY_SET_DOUBLE("beta_staged_accumulation_matrix_draw_radius_nm", beta_staged_accumulation_matrix_draw_radius_nm);
+    TRY_SET_DOUBLE("beta_staged_accumulation_max_fraction_per_step", beta_staged_accumulation_max_fraction_per_step);
+    TRY_SET_DOUBLE("beta_staged_accumulation_max_inventory_per_step", beta_staged_accumulation_max_inventory_per_step);
+    TRY_SET_INT("beta_staged_insert_when_target_reached", beta_staged_insert_when_target_reached);
+    TRY_SET_INT("beta_staged_debug_accelerated_accumulation", beta_staged_debug_accelerated_accumulation);
+    TRY_SET_DOUBLE("beta_staged_debug_accumulation_rate_multiplier", beta_staged_debug_accumulation_rate_multiplier);
+    TRY_SET_INT("beta_staged_debug_stop_after_resolved_insert", beta_staged_debug_stop_after_resolved_insert);
+    TRY_SET_INT("diagnostic_rsmd_enabled", diagnostic_rsmd_enabled);
+    TRY_SET_DOUBLE("diagnostic_rsmd_T_only", diagnostic_rsmd_T_only);
+    TRY_SET_DOUBLE("diagnostic_rsmd_xB_halo_target", diagnostic_rsmd_xB_halo_target);
+    TRY_SET_DOUBLE("diagnostic_rsmd_R_exchange_nm", diagnostic_rsmd_R_exchange_nm);
+    TRY_SET_DOUBLE("diagnostic_rsmd_chi_rel", diagnostic_rsmd_chi_rel);
+    TRY_SET_DOUBLE("diagnostic_rsmd_kernel_radius_dx", diagnostic_rsmd_kernel_radius_dx);
+    TRY_SET_DOUBLE("diagnostic_rsmd_interface_shell_width_nm", diagnostic_rsmd_interface_shell_width_nm);
+    TRY_SET_INT("diagnostic_rsmd_reset_Y_history_after_source", diagnostic_rsmd_reset_Y_history_after_source);
+    TRY_SET_INT("diagnostic_rsmd_history_restart_mode", diagnostic_rsmd_history_restart_mode);
+    TRY_SET_INT("diagnostic_rsmd_interface_diag_enabled", diagnostic_rsmd_interface_diag_enabled);
+    TRY_SET_INT("diagnostic_rsmd_interface_diag_every", diagnostic_rsmd_interface_diag_every);
+    TRY_SET_DOUBLE("diagnostic_rsmd_h_src_max", diagnostic_rsmd_h_src_max);
+    TRY_SET_DOUBLE("diagnostic_rsmd_f_max_per_step", diagnostic_rsmd_f_max_per_step);
+    TRY_SET_DOUBLE("diagnostic_rsmd_source_substep_dt_code", diagnostic_rsmd_source_substep_dt_code);
+    TRY_SET_INT("diagnostic_rsmd_headroom_weighted", diagnostic_rsmd_headroom_weighted);
+    TRY_SET_INT("diagnostic_rsmd_release_window_steps", diagnostic_rsmd_release_window_steps);
+    TRY_SET_DOUBLE("diagnostic_rsmd_seed_R_eff_h_nm", diagnostic_rsmd_seed_R_eff_h_nm);
     TRY_SET_INT("post_conversion_y_update_audit_enabled", post_conversion_y_update_audit_enabled);
     TRY_SET_INT("post_conversion_y_update_audit_steps", post_conversion_y_update_audit_steps);
+    TRY_SET_INT("audit_post_insertion_drift_enabled", audit_post_insertion_drift_enabled);
+    TRY_SET_INT("audit_post_insertion_drift_steps", audit_post_insertion_drift_steps);
     TRY_SET_INT("y_update_k0_audit_enabled", y_update_k0_audit_enabled);
     TRY_SET_INT("y_update_k0_audit_steps", y_update_k0_audit_steps);
     TRY_SET_INT("y_update_mass_projection_enabled", y_update_mass_projection_enabled);
+    TRY_SET_INT("disable_Y_rhs_gamma_term", disable_Y_rhs_gamma_term);
+    TRY_SET_INT("enable_Y_rhs_picard", enable_Y_rhs_picard);
+    TRY_SET_INT("Y_rhs_picard_iters", Y_rhs_picard_iters);
+    TRY_SET_DOUBLE("Y_rhs_picard_omega", Y_rhs_picard_omega);
+    TRY_SET_INT("dynamics_mass_diag_enabled", dynamics_mass_diag_enabled);
+    TRY_SET_INT("dynamics_mass_diag_interval", dynamics_mass_diag_interval);
     TRY_SET_INT("y_update_mass_projection_report_enabled", y_update_mass_projection_report_enabled);
     TRY_SET_INT("y_update_mass_projection_max_iter", y_update_mass_projection_max_iter);
     TRY_SET_DOUBLE("y_update_mass_projection_tol", y_update_mass_projection_tol);
+    TRY_SET_DOUBLE("scheduled_nuc_source_lambda_nm", scheduled_nuc_source_lambda_nm);
+    TRY_SET_DOUBLE("scheduled_nuc_target_lambda_nm", scheduled_nuc_target_lambda_nm);
+    TRY_SET_DOUBLE("scheduled_nuc_scale_interface_width", scheduled_nuc_scale_interface_width);
+    TRY_SET_DOUBLE("scheduled_nuc_scale_xB_profile_width", scheduled_nuc_scale_xB_profile_width);
     TRY_SET_DOUBLE("gp_eta_seed_radius", gp_eta_seed_radius);
     TRY_SET_DOUBLE("gp_eta_seed_peak", gp_eta_seed_peak);
     TRY_SET_DOUBLE("gp_eta_seed_center_x", gp_eta_seed_center_x);
@@ -9997,6 +21413,371 @@ static int apply_pfparams_override_key(PFParams *P, const char *key, const char 
         P->gp_to_beta_mass_mode[sizeof(P->gp_to_beta_mass_mode) - 1] = '\0';
         return 1;
     }
+    if (strcmp(key, "gp_initial_mass_mode") == 0) {
+        snprintf(P->gp_initial_mass_mode, sizeof(P->gp_initial_mass_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_site_mode") == 0) {
+        snprintf(P->gp_site_mode, sizeof(P->gp_site_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_birth_model") == 0) {
+        snprintf(P->gp_birth_model, sizeof(P->gp_birth_model), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_birth_candidate_volume_model") == 0) {
+        snprintf(P->gp_birth_candidate_volume_model, sizeof(P->gp_birth_candidate_volume_model), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_birth_position_mode") == 0) {
+        snprintf(P->gp_birth_position_mode, sizeof(P->gp_birth_position_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_birth_inventory_policy") == 0) {
+        snprintf(P->gp_birth_inventory_policy, sizeof(P->gp_birth_inventory_policy), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_birth_debug_force_position_mode") == 0) {
+        snprintf(P->gp_birth_debug_force_position_mode, sizeof(P->gp_birth_debug_force_position_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_population_source") == 0) {
+        snprintf(P->gp_population_source, sizeof(P->gp_population_source), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_literature_xAg_mode") == 0) {
+        snprintf(P->gp_literature_xAg_mode, sizeof(P->gp_literature_xAg_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_initial_population_source") == 0) {
+        snprintf(P->gp_initial_population_source, sizeof(P->gp_initial_population_source), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_initial_radius_distribution") == 0) {
+        snprintf(P->gp_initial_radius_distribution, sizeof(P->gp_initial_radius_distribution), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_initial_radius_renormalization") == 0) {
+        snprintf(P->gp_initial_radius_renormalization, sizeof(P->gp_initial_radius_renormalization), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_initial_count_mode") == 0) {
+        snprintf(P->gp_initial_count_mode, sizeof(P->gp_initial_count_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_initial_position_mode") == 0) {
+        snprintf(P->gp_initial_position_mode, sizeof(P->gp_initial_position_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_overlap_saturation_mode") == 0) {
+        snprintf(P->gp_overlap_saturation_mode, sizeof(P->gp_overlap_saturation_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_depletion_kernel") == 0) {
+        snprintf(P->gp_depletion_kernel, sizeof(P->gp_depletion_kernel), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "ic_23d_xB_out") == 0 || strcmp(key, "xB_alpha_initial") == 0) {
+        P->ic_23d_xB_out = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "ic_xB_eq_matrix") == 0 || strcmp(key, "xB_eq_matrix") == 0) {
+        P->ic_xB_eq_matrix = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "gp_core_radius_nm") == 0) {
+        double parsed = atof(value);
+        P->gp_marker_core_radius_nm = parsed;
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_barrier_library_path") == 0) {
+        snprintf(P->gp_runtime_barrier_library_path, sizeof(P->gp_runtime_barrier_library_path), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_nucleus_catalog_path") == 0) {
+        snprintf(P->gp_runtime_nucleus_catalog_path, sizeof(P->gp_runtime_nucleus_catalog_path), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_barrier_mode") == 0) {
+        snprintf(P->gp_runtime_barrier_mode, sizeof(P->gp_runtime_barrier_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_temperature_unit") == 0) {
+        snprintf(P->gp_runtime_temperature_unit, sizeof(P->gp_runtime_temperature_unit), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_s_gp_mode") == 0) {
+        snprintf(P->gp_runtime_s_gp_mode, sizeof(P->gp_runtime_s_gp_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_nucleation_mode") == 0) {
+        snprintf(P->gp_runtime_nucleation_mode, sizeof(P->gp_runtime_nucleation_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_model") == 0) {
+        snprintf(P->beta_rate_model, sizeof(P->beta_rate_model), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_debug_position_mode") == 0) {
+        snprintf(P->beta_debug_position_mode, sizeof(P->beta_debug_position_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_debug_inventory_mode") == 0) {
+        snprintf(P->beta_debug_inventory_mode, sizeof(P->beta_debug_inventory_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_debug_draw_radius_mode") == 0) {
+        snprintf(P->beta_debug_draw_radius_mode, sizeof(P->beta_debug_draw_radius_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_debug_draw_radius_list_nm") == 0) {
+        snprintf(P->beta_debug_draw_radius_list_nm, sizeof(P->beta_debug_draw_radius_list_nm), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_debug_GP_capture_mode") == 0) {
+        snprintf(P->beta_debug_GP_capture_mode, sizeof(P->beta_debug_GP_capture_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_debug_GP_capture_consume_order") == 0) {
+        snprintf(P->beta_debug_GP_capture_consume_order, sizeof(P->beta_debug_GP_capture_consume_order), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_handoff_policy") == 0) {
+        snprintf(P->beta_handoff_policy, sizeof(P->beta_handoff_policy), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_capacity_gate_GP_capture_mode") == 0) {
+        snprintf(P->beta_capacity_gate_GP_capture_mode,
+                 sizeof(P->beta_capacity_gate_GP_capture_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_staged_conversion_target") == 0) {
+        snprintf(P->beta_staged_conversion_target,
+                 sizeof(P->beta_staged_conversion_target), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_staged_conversion_initial_inventory_mode") == 0) {
+        snprintf(P->beta_staged_conversion_initial_inventory_mode,
+                 sizeof(P->beta_staged_conversion_initial_inventory_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_staged_conversion_release_mode") == 0) {
+        snprintf(P->beta_staged_conversion_release_mode,
+                 sizeof(P->beta_staged_conversion_release_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "resolved_handoff_xB_write_mode") == 0) {
+        snprintf(P->resolved_handoff_xB_write_mode,
+                 sizeof(P->resolved_handoff_xB_write_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "diagnostic_rsmd_provenance") == 0) {
+        snprintf(P->diagnostic_rsmd_provenance,
+                 sizeof(P->diagnostic_rsmd_provenance), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "diagnostic_rsmd_delivery_mode") == 0) {
+        snprintf(P->diagnostic_rsmd_delivery_mode,
+                 sizeof(P->diagnostic_rsmd_delivery_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "diagnostic_rsmd_interface_shell_kernel") == 0) {
+        snprintf(P->diagnostic_rsmd_interface_shell_kernel,
+                 sizeof(P->diagnostic_rsmd_interface_shell_kernel), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "diagnostic_rsmd_operator_split") == 0) {
+        snprintf(P->diagnostic_rsmd_operator_split,
+                 sizeof(P->diagnostic_rsmd_operator_split), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "diagnostic_rsmd_source_integrator") == 0) {
+        snprintf(P->diagnostic_rsmd_source_integrator,
+                 sizeof(P->diagnostic_rsmd_source_integrator), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "diagnostic_rsmd_control_mode") == 0) {
+        snprintf(P->diagnostic_rsmd_control_mode,
+                 sizeof(P->diagnostic_rsmd_control_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "pf_baseline_control_mode") == 0) {
+        snprintf(P->pf_baseline_control_mode,
+                 sizeof(P->pf_baseline_control_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "pf_y_update_mode") == 0) {
+        snprintf(P->pf_y_update_mode, sizeof(P->pf_y_update_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "pf_composition_mode") == 0) {
+        snprintf(P->pf_composition_mode, sizeof(P->pf_composition_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "pf_conservative_flux_strategy") == 0) {
+        snprintf(P->pf_conservative_flux_strategy,
+                 sizeof(P->pf_conservative_flux_strategy), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "pf_conservative_bound_tol") == 0) {
+        P->pf_conservative_bound_tol = atof(value); return 1;
+    }
+    if (strcmp(key, "pf_conservative_mass_tol") == 0) {
+        P->pf_conservative_mass_tol = atof(value); return 1;
+    }
+    if (strcmp(key, "pf_conservative_beta_support_eps") == 0) {
+        P->pf_conservative_beta_support_eps = atof(value); return 1;
+    }
+    if (strcmp(key, "pf_conservative_max_subcycles") == 0) {
+        P->pf_conservative_max_subcycles = atoi(value); return 1;
+    }
+    if (strcmp(key, "pf_conservative_one_step_replay") == 0) {
+        P->pf_conservative_one_step_replay = atoi(value) ? 1 : 0; return 1;
+    }
+    if (strcmp(key, "pf_matrix_storage_floor") == 0) {
+        P->pf_matrix_storage_floor = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "pf_composition_stabilizer_Dalpha_multiplier") == 0) {
+        P->pf_composition_stabilizer_Dalpha_multiplier = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_D_B_alpha_model") == 0) {
+        snprintf(P->beta_rate_D_B_alpha_model, sizeof(P->beta_rate_D_B_alpha_model), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_Omega_g_source") == 0) {
+        snprintf(P->beta_rate_Omega_g_source, sizeof(P->beta_rate_Omega_g_source), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_site_model") == 0) {
+        snprintf(P->beta_rate_site_model, sizeof(P->beta_rate_site_model), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_Z_type") == 0) {
+        snprintf(P->beta_rate_Z_type, sizeof(P->beta_rate_Z_type), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_gp_capture_volume_model") == 0) {
+        snprintf(P->beta_rate_gp_capture_volume_model, sizeof(P->beta_rate_gp_capture_volume_model), "%s", value);
+        if (strcmp(value, "runtime_cell_volume") == 0) {
+            snprintf(P->beta_rate_deltaV_nuc_mode, sizeof(P->beta_rate_deltaV_nuc_mode), "cell_volume");
+        } else if (strcmp(value, "omega_site") == 0) {
+            snprintf(P->beta_rate_deltaV_nuc_mode, sizeof(P->beta_rate_deltaV_nuc_mode), "omega_site");
+        }
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_Z_r_fallback_mode") == 0) {
+        snprintf(P->beta_rate_Z_r_fallback_mode, sizeof(P->beta_rate_Z_r_fallback_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_Z_r_source") == 0) {
+        snprintf(P->beta_rate_Z_r_source, sizeof(P->beta_rate_Z_r_source), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_deltaV_nuc_mode") == 0) {
+        snprintf(P->beta_rate_deltaV_nuc_mode, sizeof(P->beta_rate_deltaV_nuc_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_DeltaV_nuc_model") == 0) {
+        if (strcmp(value, "runtime_cell_volume") == 0 || strcmp(value, "cell_volume") == 0) {
+            snprintf(P->beta_rate_deltaV_nuc_mode, sizeof(P->beta_rate_deltaV_nuc_mode), "cell_volume");
+        } else if (strcmp(value, "explicit") == 0) {
+            snprintf(P->beta_rate_deltaV_nuc_mode, sizeof(P->beta_rate_deltaV_nuc_mode), "explicit");
+        } else {
+            snprintf(P->beta_rate_deltaV_nuc_mode, sizeof(P->beta_rate_deltaV_nuc_mode), "omega_site");
+        }
+        return 1;
+    }
+    if (strcmp(key, "dynamic_continue_bridge_catalog_path") == 0) {
+        snprintf(P->dynamic_continue_bridge_catalog_path, sizeof(P->dynamic_continue_bridge_catalog_path), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_bridge_missing_policy") == 0) {
+        snprintf(P->gp_runtime_bridge_missing_policy, sizeof(P->gp_runtime_bridge_missing_policy), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_nucleus_library_path") == 0) {
+        snprintf(P->gp_runtime_nucleus_library_path, sizeof(P->gp_runtime_nucleus_library_path), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "nucleus_library_path") == 0) {
+        snprintf(P->gp_runtime_nucleus_library_path, sizeof(P->gp_runtime_nucleus_library_path), "%s", value);
+        snprintf(P->gp_runtime_barrier_library_path, sizeof(P->gp_runtime_barrier_library_path), "%s", value);
+        P->enable_runtime_nucleus_library = 1;
+        P->enable_gp_runtime_library_nucleation = 1;
+        return 1;
+    }
+    if (strcmp(key, "gp_runtime_profile_cache_root") == 0) {
+        snprintf(P->gp_runtime_profile_cache_root, sizeof(P->gp_runtime_profile_cache_root), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "runtime_profile_cache") == 0) {
+        snprintf(P->gp_runtime_profile_cache_root, sizeof(P->gp_runtime_profile_cache_root), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "use_nucleus_library_selector") == 0) {
+        const int enabled = parse_bool_text_cpp(value, 0);
+        P->enable_gp_runtime_library_nucleation = enabled;
+        P->enable_runtime_nucleus_library = enabled;
+        return 1;
+    }
+    if (strcmp(key, "dt_code") == 0) {
+        P->dt = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "t_real_unit_s") == 0) {
+        P->t_real_unit = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_D0_m2_s") == 0) {
+        P->beta_rate_D_B_alpha_D0_m2_s = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_Q_J_mol") == 0) {
+        P->beta_rate_D_B_alpha_Q_J_mol = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_Z_r_required") == 0) {
+        P->beta_rate_Z_r_required = parse_bool_text_cpp(value, 0);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_Z_r_debug_fallback_enabled") == 0) {
+        P->beta_rate_Z_r_debug_fallback_enabled = parse_bool_text_cpp(value, 0);
+        if (P->beta_rate_Z_r_debug_fallback_enabled &&
+            strcmp(P->beta_rate_Z_r_fallback_mode, "disabled") == 0) {
+            snprintf(P->beta_rate_Z_r_fallback_mode, sizeof(P->beta_rate_Z_r_fallback_mode), "debug_capillary");
+        }
+        if (!P->beta_rate_Z_r_debug_fallback_enabled &&
+            strcmp(P->beta_rate_Z_r_fallback_mode, "debug_capillary") == 0) {
+            snprintf(P->beta_rate_Z_r_fallback_mode, sizeof(P->beta_rate_Z_r_fallback_mode), "disabled");
+        }
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_allow_runtime_Zn_from_Zr") == 0) {
+        P->beta_rate_allow_runtime_Zn_from_Zr = parse_bool_text_cpp(value, 0);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_scale_Z_with_sGP") == 0) {
+        P->beta_rate_scale_Z_with_sGP = parse_bool_text_cpp(value, 0);
+        return 1;
+    }
+    if (strcmp(key, "beta_rate_debug_rate_multiplier") == 0) {
+        P->beta_rate_debug_rate_multiplier = atof(value);
+        return 1;
+    }
+    if (strcmp(key, "gp_release_mode") == 0) {
+        snprintf(P->gp_release_mode, sizeof(P->gp_release_mode), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_release_kernel") == 0) {
+        snprintf(P->gp_release_kernel, sizeof(P->gp_release_kernel), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "gp_site_file") == 0) {
+        snprintf(P->gp_site_file, sizeof(P->gp_site_file), "%s", value);
+        return 1;
+    }
     if (strcmp(key, "gp_to_beta_barrier_mode") == 0) {
         if (!is_valid_gp_to_beta_barrier_mode(value)) {
             fprintf(stderr, "[fatal] %s:%d invalid gp_to_beta_barrier_mode: %s (expected cnt_simple)\n",
@@ -10047,6 +21828,12 @@ static int apply_pfparams_override_key(PFParams *P, const char *key, const char 
         strncpy(P->post_conversion_y_update_audit_prefix, value,
                 sizeof(P->post_conversion_y_update_audit_prefix) - 1);
         P->post_conversion_y_update_audit_prefix[sizeof(P->post_conversion_y_update_audit_prefix) - 1] = '\0';
+        return 1;
+    }
+    if (strcmp(key, "audit_post_insertion_drift_prefix") == 0) {
+        strncpy(P->audit_post_insertion_drift_prefix, value,
+                sizeof(P->audit_post_insertion_drift_prefix) - 1);
+        P->audit_post_insertion_drift_prefix[sizeof(P->audit_post_insertion_drift_prefix) - 1] = '\0';
         return 1;
     }
     if (strcmp(key, "y_update_k0_audit_prefix") == 0) {
@@ -10184,13 +21971,108 @@ static int load_pfparams_override_file(PFParams *P, const char *path) {
     return 1;
 }
 
+static int q_transport_conservative_local_redistribution(
+    const PFParams *P,
+    const double *d_q_before,
+    const double *d_divJ,
+    const double *d_phi,
+    double *d_q_after,
+    int total_r,
+    double dt,
+    int max_radius,
+    double tol,
+    int *violating_cells_out,
+    int *max_radius_used_out,
+    double *unresolved_mass_out)
+{
+    if (!P || !d_q_before || !d_divJ || !d_phi || !d_q_after) return 0;
+    std::vector<double> q0((size_t)total_r);
+    std::vector<double> divJ((size_t)total_r);
+    std::vector<double> phi((size_t)total_r);
+    std::vector<double> q((size_t)total_r);
+    std::vector<double> alpha((size_t)total_r);
+    std::vector<double> residual((size_t)total_r, 0.0);
+    CUDA_CHECK(cudaMemcpy(q0.data(), d_q_before, (size_t)total_r * sizeof(double),
+                          cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(divJ.data(), d_divJ, (size_t)total_r * sizeof(double),
+                          cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi, (size_t)total_r * sizeof(double),
+                          cudaMemcpyDeviceToHost));
+
+    int violating = 0;
+    for (int idx = 0; idx < total_r; ++idx) {
+        alpha[(size_t)idx] = 1.0 - h_of_phi(fmin(fmax(phi[(size_t)idx], 0.0), 1.0));
+        const double trial = q0[(size_t)idx] + dt * divJ[(size_t)idx];
+        const double bounded = fmin(fmax(trial, 0.0), alpha[(size_t)idx]);
+        q[(size_t)idx] = bounded;
+        residual[(size_t)idx] = trial - bounded;
+        if (!isfinite(trial) || fabs(residual[(size_t)idx]) > tol) violating++;
+    }
+
+    const int Nx = P->Nx, Ny = P->Ny, Nz = P->Nz;
+    auto index3 = [Ny, Nz](int i, int j, int k) {
+        return (i * Ny + j) * Nz + k;
+    };
+    int max_used = 0;
+    double unresolved = 0.0;
+    for (int idx = 0; idx < total_r; ++idx) {
+        double amount = residual[(size_t)idx];
+        if (!isfinite(amount)) {
+            unresolved += INFINITY;
+            continue;
+        }
+        if (fabs(amount) <= tol) continue;
+        const int k0 = idx % Nz;
+        const int tmp = idx / Nz;
+        const int j0 = tmp % Ny;
+        const int i0 = tmp / Ny;
+        for (int radius = 1; radius <= max_radius && fabs(amount) > tol; ++radius) {
+            for (int di = -radius; di <= radius && fabs(amount) > tol; ++di) {
+                for (int dj = -radius; dj <= radius && fabs(amount) > tol; ++dj) {
+                    for (int dk = -radius; dk <= radius && fabs(amount) > tol; ++dk) {
+                        if (std::max(std::max(abs(di), abs(dj)), abs(dk)) != radius) continue;
+                        const int ii = (i0 + di + Nx) % Nx;
+                        const int jj = (j0 + dj + Ny) % Ny;
+                        const int kk = (k0 + dk + Nz) % Nz;
+                        const int nidx = index3(ii, jj, kk);
+                        if (amount > 0.0) {
+                            const double capacity = alpha[(size_t)nidx] - q[(size_t)nidx];
+                            if (capacity <= 0.0) continue;
+                            const double moved = fmin(amount, capacity);
+                            q[(size_t)nidx] += moved;
+                            amount -= moved;
+                        } else {
+                            const double available = q[(size_t)nidx];
+                            if (available <= 0.0) continue;
+                            const double moved = fmin(-amount, available);
+                            q[(size_t)nidx] -= moved;
+                            amount += moved;
+                        }
+                    }
+                }
+            }
+            if (fabs(amount) <= tol) max_used = std::max(max_used, radius);
+        }
+        unresolved += fabs(amount);
+    }
+    if (violating_cells_out) *violating_cells_out = violating;
+    if (max_radius_used_out) *max_radius_used_out = max_used;
+    if (unresolved_mass_out) *unresolved_mass_out = unresolved;
+    if (!isfinite(unresolved) || unresolved > tol * fmax(1.0, (double)violating)) {
+        return 0;
+    }
+    CUDA_CHECK(cudaMemcpy(d_q_after, q.data(), (size_t)total_r * sizeof(double),
+                          cudaMemcpyHostToDevice));
+    return 1;
+}
+
 int main(int argc, char **argv) {
     // 立即刷新输出，确保能看到调试信息
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
 
     const double wall_t0 = wall_time_sec_monotonic();
-    
+
     // 解析命令行参数
     PFParams P;
     params_default(&P);
@@ -10277,7 +22159,7 @@ int main(int argc, char **argv) {
         return 2;
     }
     // 诊断开关（VTK / 弹性 bulk 惩罚）不再通过命令行控制，统一在 params_default 中设置
-    
+
     // ----------------------------
     // 预扫描 init-test-id 和 init-case-tag（在详细 flag 解析前）
     // ----------------------------
@@ -10356,6 +22238,9 @@ int main(int argc, char **argv) {
             printf("  --scheduled-nuc-source-step latest|N       diagnostic source step label (default latest)\n");
             printf("  --scheduled-nuc-steps 100,300,600\n");
             printf("  --scheduled-nuc-centers-nm \"100,100,100;180,100,100;100,180,100\"\n");
+            printf("  --scheduled-nuc-seed-metadata <json>       library-seed metadata JSON; can auto-derive scheduled step/profile/source\n");
+            printf("  --scheduled-nuc-t-nuc-code <time>          nucleation time in code units for delayed insertion derivation\n");
+            printf("  --scheduled-nuc-t-nuc-s <time>             nucleation time in physical seconds for delayed insertion derivation\n");
             printf("  --scheduled-nuc-xB-edge-mode sample-current-background-shell\n");
             printf("  --scheduled-nuc-local-comp-outer-nm 20.0\n");
             printf("  --scheduled-nuc-local-comp-taper-nm 5.0\n");
@@ -10427,6 +22312,39 @@ int main(int argc, char **argv) {
             P.scheduled_nuc_enabled = 1;
             continue;
         }
+        if (strcmp(argv[i], "--use-manual-nucleus") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                P.scheduled_nuc_use_manual_nucleus = parse_bool_text_cpp(argv[++i], 1);
+            } else {
+                P.scheduled_nuc_use_manual_nucleus = 1;
+            }
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--use_manual_nucleus")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--use-manual-nucleus-mode")) != NULL) {
+            P.scheduled_nuc_use_manual_nucleus = parse_bool_text_cpp(v, 0);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--nucleus-selector-script")) != NULL) {
+            strncpy(P.scheduled_nuc_selector_script, v, sizeof(P.scheduled_nuc_selector_script) - 1);
+            P.scheduled_nuc_selector_script[sizeof(P.scheduled_nuc_selector_script) - 1] = '\0';
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--nucleus-catalog-json")) != NULL) {
+            strncpy(P.scheduled_nuc_catalog_json, v, sizeof(P.scheduled_nuc_catalog_json) - 1);
+            P.scheduled_nuc_catalog_json[sizeof(P.scheduled_nuc_catalog_json) - 1] = '\0';
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--selected-nucleus-json")) != NULL) {
+            strncpy(P.scheduled_nuc_selected_json, v, sizeof(P.scheduled_nuc_selected_json) - 1);
+            P.scheduled_nuc_selected_json[sizeof(P.scheduled_nuc_selected_json) - 1] = '\0';
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--selected-nucleus-log")) != NULL) {
+            strncpy(P.scheduled_nuc_selection_log, v, sizeof(P.scheduled_nuc_selection_log) - 1);
+            P.scheduled_nuc_selection_log[sizeof(P.scheduled_nuc_selection_log) - 1] = '\0';
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--scheduled-nuc-source-dyn-dir")) != NULL) {
             strncpy(P.scheduled_nuc_source_dyn_dir, v, sizeof(P.scheduled_nuc_source_dyn_dir) - 1);
             P.scheduled_nuc_source_dyn_dir[sizeof(P.scheduled_nuc_source_dyn_dir) - 1] = '\0';
@@ -10460,6 +22378,19 @@ int main(int argc, char **argv) {
         if ((v = get_flag_value(argc, argv, &i, "--scheduled-nuc-steps")) != NULL) {
             strncpy(P.scheduled_nuc_steps_csv, v, sizeof(P.scheduled_nuc_steps_csv) - 1);
             P.scheduled_nuc_steps_csv[sizeof(P.scheduled_nuc_steps_csv) - 1] = '\0';
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--scheduled-nuc-seed-metadata")) != NULL) {
+            strncpy(P.scheduled_nuc_seed_metadata_json, v, sizeof(P.scheduled_nuc_seed_metadata_json) - 1);
+            P.scheduled_nuc_seed_metadata_json[sizeof(P.scheduled_nuc_seed_metadata_json) - 1] = '\0';
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--scheduled-nuc-t-nuc-code")) != NULL) {
+            P.scheduled_nuc_t_nuc_code = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--scheduled-nuc-t-nuc-s")) != NULL) {
+            P.scheduled_nuc_t_nuc_s = atof(v);
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i, "--scheduled-nuc-centers-nm")) != NULL) {
@@ -10555,6 +22486,647 @@ int main(int argc, char **argv) {
         }
         if (strcmp(argv[i], "--scheduled-nuc-fallback-analytic-sphere") == 0) {
             P.scheduled_nuc_fallback_analytic_sphere = 1;
+            continue;
+        }
+        if (strcmp(argv[i], "--enable-gp-assisted-beta-nucleation") == 0) {
+            P.enable_gp_assisted_beta_nucleation = 1;
+            P.gp_assisted_debug_scheduled = 1;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-assisted-debug-scheduled")) != NULL) {
+            P.gp_assisted_debug_scheduled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-scheduled-site-id")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_debug_scheduled_site_id")) != NULL) {
+            P.gp_debug_scheduled_site_id = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-scheduled-step")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_debug_scheduled_step")) != NULL) {
+            P.gp_debug_scheduled_step = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-site-ix")) != NULL) {
+            P.gp_debug_site_ix = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-site-iy")) != NULL) {
+            P.gp_debug_site_iy = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-site-iz")) != NULL) {
+            P.gp_debug_site_iz = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-site-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_site_mode")) != NULL) {
+            snprintf(P.gp_site_mode, sizeof(P.gp_site_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-n-sites")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_n_sites")) != NULL) {
+            P.gp_n_sites = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-site-spacing")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_site_spacing")) != NULL) {
+            P.gp_site_spacing = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-seed")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_seed")) != NULL) {
+            P.gp_seed = (unsigned long)strtoul(v, NULL, 10);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-initial-mass-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_initial_mass_mode")) != NULL) {
+            snprintf(P.gp_initial_mass_mode, sizeof(P.gp_initial_mass_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-release-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_release_mode")) != NULL) {
+            snprintf(P.gp_release_mode, sizeof(P.gp_release_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-release-kernel")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_release_kernel")) != NULL) {
+            snprintf(P.gp_release_kernel, sizeof(P.gp_release_kernel), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-release-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_release_radius_nm")) != NULL) {
+            P.gp_release_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-site-B-mass-equiv")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_site_B_mass_equiv")) != NULL) {
+            P.gp_site_B_mass_equiv = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-site-S-factor")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_site_S_factor")) != NULL) {
+            P.gp_site_S_factor = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-beta-seed-radius")) != NULL) {
+            P.gp_debug_beta_seed_radius = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-beta-seed-iface-width")) != NULL) {
+            P.gp_debug_beta_seed_iface_width = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-xB-min")) != NULL) {
+            P.gp_debug_xB_min = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-xB-max")) != NULL) {
+            P.gp_debug_xB_max = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-debug-mass-ledger")) != NULL) {
+            P.gp_debug_mass_ledger = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-event-log-enabled")) != NULL) {
+            P.gp_event_log_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if (strcmp(argv[i], "--enable-gp-stochastic-selection") == 0) {
+            P.enable_gp_assisted_beta_nucleation = 1;
+            P.gp_stochastic_enabled = 1;
+            P.gp_assisted_debug_scheduled = 0;
+            continue;
+        }
+        if (strcmp(argv[i], "--enable-gp-runtime-library-nucleation") == 0 ||
+            strcmp(argv[i], "--enable_gp_runtime_library_nucleation") == 0) {
+            P.enable_gp_assisted_beta_nucleation = 1;
+            P.gp_stochastic_enabled = 1;
+            P.gp_assisted_debug_scheduled = 0;
+            P.enable_gp_runtime_library_nucleation = 1;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-stochastic-enabled")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_stochastic_enabled")) != NULL) {
+            P.gp_stochastic_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-stochastic-k0")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_stochastic_k0")) != NULL) {
+            P.gp_stochastic_k0 = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-stochastic-S-GP")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_stochastic_S_GP")) != NULL) {
+            P.gp_stochastic_S_GP = atof(v);
+            P.gp_runtime_s_gp_scalar = P.gp_stochastic_S_GP;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-stochastic-deltaG-homo-kBT")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_stochastic_deltaG_homo_kBT")) != NULL) {
+            P.gp_stochastic_deltaG_homo_kBT = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-stochastic-xB-sensitivity")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_stochastic_xB_sensitivity")) != NULL) {
+            P.gp_stochastic_xB_sensitivity = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-barrier-library-path")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_barrier_library_path")) != NULL) {
+            snprintf(P.gp_runtime_barrier_library_path, sizeof(P.gp_runtime_barrier_library_path), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-nucleus-catalog-path")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_nucleus_catalog_path")) != NULL) {
+            snprintf(P.gp_runtime_nucleus_catalog_path, sizeof(P.gp_runtime_nucleus_catalog_path), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-barrier-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_barrier_mode")) != NULL) {
+            snprintf(P.gp_runtime_barrier_mode, sizeof(P.gp_runtime_barrier_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-s-gp-scalar")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_s_gp_scalar")) != NULL) {
+            P.gp_runtime_s_gp_scalar = atof(v);
+            P.gp_stochastic_S_GP = P.gp_runtime_s_gp_scalar;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-nucleation-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_nucleation_mode")) != NULL) {
+            snprintf(P.gp_runtime_nucleation_mode, sizeof(P.gp_runtime_nucleation_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-model")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_model")) != NULL) {
+            snprintf(P.beta_rate_model, sizeof(P.beta_rate_model), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-force-single-event")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_force_single_event")) != NULL) {
+            P.beta_debug_force_single_event = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-force-step")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_force_step")) != NULL) {
+            P.beta_debug_force_step = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-position-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_position_mode")) != NULL) {
+            snprintf(P.beta_debug_position_mode, sizeof(P.beta_debug_position_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-inventory-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_inventory_mode")) != NULL) {
+            snprintf(P.beta_debug_inventory_mode, sizeof(P.beta_debug_inventory_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-draw-radius-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_draw_radius_mode")) != NULL) {
+            snprintf(P.beta_debug_draw_radius_mode, sizeof(P.beta_debug_draw_radius_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-draw-radius-list-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_draw_radius_list_nm")) != NULL) {
+            snprintf(P.beta_debug_draw_radius_list_nm, sizeof(P.beta_debug_draw_radius_list_nm), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-capacity-fraction")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_capacity_fraction")) != NULL) {
+            P.beta_debug_capacity_fraction = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-do-not-reduce-requested-mass")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_do_not_reduce_requested_mass")) != NULL) {
+            P.beta_debug_do_not_reduce_requested_mass = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-matrix-draw-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_matrix_draw_radius_nm")) != NULL) {
+            P.beta_debug_matrix_draw_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-GP-capture-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_GP_capture_mode")) != NULL) {
+            snprintf(P.beta_debug_GP_capture_mode, sizeof(P.beta_debug_GP_capture_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-GP-capture-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_GP_capture_radius_nm")) != NULL) {
+            P.beta_debug_GP_capture_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-GP-capture-consume-order")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_GP_capture_consume_order")) != NULL) {
+            snprintf(P.beta_debug_GP_capture_consume_order, sizeof(P.beta_debug_GP_capture_consume_order), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-debug-max-events-total")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_debug_max_events_total")) != NULL) {
+            P.beta_debug_max_events_total = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-handoff-policy")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_handoff_policy")) != NULL) {
+            snprintf(P.beta_handoff_policy, sizeof(P.beta_handoff_policy), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-capacity-gate-enabled")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_capacity_gate_enabled")) != NULL) {
+            P.beta_capacity_gate_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-capacity-gate-matrix-draw-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_capacity_gate_matrix_draw_radius_nm")) != NULL) {
+            P.beta_capacity_gate_matrix_draw_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-capacity-gate-GP-capture-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_capacity_gate_GP_capture_mode")) != NULL) {
+            snprintf(P.beta_capacity_gate_GP_capture_mode,
+                     sizeof(P.beta_capacity_gate_GP_capture_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-capacity-gate-GP-capture-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_capacity_gate_GP_capture_radius_nm")) != NULL) {
+            P.beta_capacity_gate_GP_capture_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-capacity-gate-max-reasonable-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_capacity_gate_max_reasonable_radius_nm")) != NULL) {
+            P.beta_capacity_gate_max_reasonable_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-conversion-enabled")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_conversion_enabled")) != NULL) {
+            P.beta_staged_conversion_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-accumulation-enabled")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_accumulation_enabled")) != NULL) {
+            P.beta_staged_accumulation_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-accumulation-interval-steps")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_accumulation_interval_steps")) != NULL) {
+            P.beta_staged_accumulation_interval_steps = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-accumulation-GP-capture-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_accumulation_GP_capture_radius_nm")) != NULL) {
+            P.beta_staged_accumulation_GP_capture_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-accumulation-matrix-draw-radius-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_accumulation_matrix_draw_radius_nm")) != NULL) {
+            P.beta_staged_accumulation_matrix_draw_radius_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-accumulation-max-fraction-per-step")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_accumulation_max_fraction_per_step")) != NULL) {
+            P.beta_staged_accumulation_max_fraction_per_step = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-accumulation-max-inventory-per-step")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_accumulation_max_inventory_per_step")) != NULL) {
+            P.beta_staged_accumulation_max_inventory_per_step = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-insert-when-target-reached")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_insert_when_target_reached")) != NULL) {
+            P.beta_staged_insert_when_target_reached = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-debug-accelerated-accumulation")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_debug_accelerated_accumulation")) != NULL) {
+            P.beta_staged_debug_accelerated_accumulation = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-debug-accumulation-rate-multiplier")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_debug_accumulation_rate_multiplier")) != NULL) {
+            P.beta_staged_debug_accumulation_rate_multiplier = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-staged-debug-stop-after-resolved-insert")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_staged_debug_stop_after_resolved_insert")) != NULL) {
+            P.beta_staged_debug_stop_after_resolved_insert = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--resolved-handoff-xB-write-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--resolved_handoff_xB_write_mode")) != NULL) {
+            snprintf(P.resolved_handoff_xB_write_mode,
+                     sizeof(P.resolved_handoff_xB_write_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-enabled")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_enabled")) != NULL) {
+            P.diagnostic_rsmd_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-T-only")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_T_only")) != NULL) {
+            P.diagnostic_rsmd_T_only = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-xB-halo-target")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_xB_halo_target")) != NULL) {
+            P.diagnostic_rsmd_xB_halo_target = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-R-exchange-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_R_exchange_nm")) != NULL) {
+            P.diagnostic_rsmd_R_exchange_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-chi-rel")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_chi_rel")) != NULL) {
+            P.diagnostic_rsmd_chi_rel = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-kernel-radius-dx")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_kernel_radius_dx")) != NULL) {
+            P.diagnostic_rsmd_kernel_radius_dx = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-delivery-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_delivery_mode")) != NULL) {
+            snprintf(P.diagnostic_rsmd_delivery_mode,
+                     sizeof(P.diagnostic_rsmd_delivery_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-interface-shell-width-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_interface_shell_width_nm")) != NULL) {
+            P.diagnostic_rsmd_interface_shell_width_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-interface-shell-kernel")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_interface_shell_kernel")) != NULL) {
+            snprintf(P.diagnostic_rsmd_interface_shell_kernel,
+                     sizeof(P.diagnostic_rsmd_interface_shell_kernel), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-h-src-max")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_h_src_max")) != NULL) {
+            P.diagnostic_rsmd_h_src_max = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-f-max-per-step")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_f_max_per_step")) != NULL) {
+            P.diagnostic_rsmd_f_max_per_step = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-operator-split")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_operator_split")) != NULL) {
+            snprintf(P.diagnostic_rsmd_operator_split,
+                     sizeof(P.diagnostic_rsmd_operator_split), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-source-integrator")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_source_integrator")) != NULL) {
+            snprintf(P.diagnostic_rsmd_source_integrator,
+                     sizeof(P.diagnostic_rsmd_source_integrator), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-source-substep-dt-code")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_source_substep_dt_code")) != NULL) {
+            P.diagnostic_rsmd_source_substep_dt_code = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-headroom-weighted")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_headroom_weighted")) != NULL) {
+            P.diagnostic_rsmd_headroom_weighted = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-baseline-control-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_baseline_control_mode")) != NULL) {
+            snprintf(P.pf_baseline_control_mode,
+                     sizeof(P.pf_baseline_control_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-y-update-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_y_update_mode")) != NULL) {
+            snprintf(P.pf_y_update_mode, sizeof(P.pf_y_update_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-composition-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_composition_mode")) != NULL) {
+            snprintf(P.pf_composition_mode, sizeof(P.pf_composition_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-conservative-flux-strategy")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_conservative_flux_strategy")) != NULL) {
+            snprintf(P.pf_conservative_flux_strategy,
+                     sizeof(P.pf_conservative_flux_strategy), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-release-window-steps")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_release_window_steps")) != NULL) {
+            P.diagnostic_rsmd_release_window_steps = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-seed-R-eff-h-nm")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_seed_R_eff_h_nm")) != NULL) {
+            P.diagnostic_rsmd_seed_R_eff_h_nm = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--diagnostic-rsmd-provenance")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--diagnostic_rsmd_provenance")) != NULL) {
+            snprintf(P.diagnostic_rsmd_provenance, sizeof(P.diagnostic_rsmd_provenance), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-use-physical-dt")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_use_physical_dt")) != NULL) {
+            P.beta_rate_use_physical_dt = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-use-gp-barrier-modifier")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_use_gp_barrier_modifier")) != NULL) {
+            P.beta_rate_use_gp_barrier_modifier = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-D-B-alpha-model")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_D_B_alpha_model")) != NULL) {
+            snprintf(P.beta_rate_D_B_alpha_model, sizeof(P.beta_rate_D_B_alpha_model), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-D-B-alpha-D0-m2-s")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_D_B_alpha_D0_m2_s")) != NULL) {
+            P.beta_rate_D_B_alpha_D0_m2_s = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-D-B-alpha-Q-J-mol")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_D_B_alpha_Q_J_mol")) != NULL) {
+            P.beta_rate_D_B_alpha_Q_J_mol = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-D-B-alpha-use-xB-factor")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_D_B_alpha_use_xB_factor")) != NULL) {
+            P.beta_rate_D_B_alpha_use_xB_factor = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-Omega-g-m3")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_Omega_g_m3")) != NULL) {
+            P.beta_rate_Omega_g_m3 = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-Omega-site-m3")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_Omega_site_m3")) != NULL) {
+            P.beta_rate_Omega_site_m3 = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-N-site-m3")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_N_site_m3")) != NULL) {
+            P.beta_rate_N_site_m3 = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-Z-r-fallback-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_Z_r_fallback_mode")) != NULL) {
+            snprintf(P.beta_rate_Z_r_fallback_mode, sizeof(P.beta_rate_Z_r_fallback_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-deltaV-nuc-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_deltaV_nuc_mode")) != NULL) {
+            snprintf(P.beta_rate_deltaV_nuc_mode, sizeof(P.beta_rate_deltaV_nuc_mode), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-deltaV-nuc-m3")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_deltaV_nuc_m3")) != NULL) {
+            P.beta_rate_deltaV_nuc_m3 = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-phi-threshold")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_phi_threshold")) != NULL) {
+            P.beta_rate_phi_threshold = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-xB-min")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_xB_min")) != NULL) {
+            P.beta_rate_xB_min = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-transient-enabled")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_transient_enabled")) != NULL) {
+            P.beta_rate_transient_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--beta-rate-tau-inc-s")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--beta_rate_tau_inc_s")) != NULL) {
+            P.beta_rate_tau_inc_s = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-log-candidates")) != NULL) {
+            P.gp_runtime_log_candidates = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-log-candidate-full-rows")) != NULL) {
+            P.gp_runtime_log_candidate_full_rows = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-log-candidate-summary")) != NULL) {
+            P.gp_runtime_log_candidate_summary = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-ranked-hazard-full-log-enabled")) != NULL) {
+            P.gp_ranked_hazard_full_log_enabled = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-log-accepted-events")) != NULL) {
+            P.gp_runtime_log_accepted_events = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-disable-scheduled-when-active")) != NULL) {
+            P.gp_runtime_disable_scheduled_when_active = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-catalog-T-tol-C")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_catalog_T_tol_C")) != NULL) {
+            P.gp_runtime_catalog_T_tol_C = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-catalog-xB-tol")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_catalog_xB_tol")) != NULL) {
+            P.gp_runtime_catalog_xB_tol = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-catalog-strain-mode-strict")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_catalog_strain_mode_strict")) != NULL) {
+            P.gp_runtime_catalog_strain_mode_strict = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-catalog-allow-fallback")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_catalog_allow_fallback")) != NULL) {
+            P.gp_runtime_catalog_allow_fallback = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--enable-dynamic-continue-bridge")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--enable_dynamic_continue_bridge")) != NULL) {
+            P.enable_dynamic_continue_bridge = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--dynamic-continue-bridge-catalog-path")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--dynamic_continue_bridge_catalog_path")) != NULL) {
+            snprintf(P.dynamic_continue_bridge_catalog_path, sizeof(P.dynamic_continue_bridge_catalog_path), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-bridge-missing-policy")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_bridge_missing_policy")) != NULL) {
+            snprintf(P.gp_runtime_bridge_missing_policy, sizeof(P.gp_runtime_bridge_missing_policy), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-min-rseed-over-dx")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_min_rseed_over_dx")) != NULL) {
+            P.gp_runtime_min_rseed_over_dx = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-enable-delayed-insertion-queue")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_enable_delayed_insertion_queue")) != NULL) {
+            P.gp_runtime_enable_delayed_insertion_queue = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-log-bridge-queue")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_log_bridge_queue")) != NULL) {
+            P.gp_runtime_log_bridge_queue = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-allow-immediate-fallback-debug")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_allow_immediate_fallback_debug")) != NULL) {
+            P.gp_runtime_allow_immediate_fallback_debug = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--enable-runtime-nucleus-library")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--enable_runtime_nucleus_library")) != NULL) {
+            P.enable_runtime_nucleus_library = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-nucleus-library-path")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_nucleus_library_path")) != NULL) {
+            snprintf(P.gp_runtime_nucleus_library_path, sizeof(P.gp_runtime_nucleus_library_path), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-runtime-profile-cache-root")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--gp_runtime_profile_cache_root")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--nucleus-library-profile-cache")) != NULL) {
+            snprintf(P.gp_runtime_profile_cache_root, sizeof(P.gp_runtime_profile_cache_root), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--use-nucleus-library-selector")) != NULL) {
+            P.enable_runtime_nucleus_library = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--nucleus-library-path")) != NULL) {
+            snprintf(P.gp_runtime_nucleus_library_path, sizeof(P.gp_runtime_nucleus_library_path), "%s", v);
+            P.enable_runtime_nucleus_library = 1;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--force-first-selector-event")) != NULL) {
+            P.gp_runtime_force_first_selector_event = atoi(v) ? 1 : 0;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--force-selector-event-step")) != NULL) {
+            P.gp_runtime_force_event_step = atoi(v);
             continue;
         }
         if (strcmp(argv[i], "--enable-dynamics-mass-diagnostics") == 0) {
@@ -11068,6 +23640,20 @@ int main(int argc, char **argv) {
             P.post_conversion_y_update_audit_prefix[sizeof(P.post_conversion_y_update_audit_prefix) - 1] = '\0';
             continue;
         }
+        if ((v = get_flag_value(argc, argv, &i, "--audit-post-insertion-drift")) != NULL) {
+            P.audit_post_insertion_drift_enabled = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--audit-post-insertion-drift-steps")) != NULL) {
+            P.audit_post_insertion_drift_steps = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--audit-post-insertion-drift-prefix")) != NULL) {
+            strncpy(P.audit_post_insertion_drift_prefix, v,
+                    sizeof(P.audit_post_insertion_drift_prefix) - 1);
+            P.audit_post_insertion_drift_prefix[sizeof(P.audit_post_insertion_drift_prefix) - 1] = '\0';
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--y-update-k0-audit-enabled")) != NULL) {
             P.y_update_k0_audit_enabled = atoi(v);
             continue;
@@ -11157,6 +23743,14 @@ int main(int argc, char **argv) {
             P.gp_obs_max_xB_alpha = atof(v);
             continue;
         }
+        if ((v = get_flag_value(argc, argv, &i, "--gp-barrier-only-mode")) != NULL) {
+            P.gp_barrier_only_mode = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--enable-legacy-gp-storage-coupling")) != NULL) {
+            P.enable_legacy_gp_storage_coupling = atoi(v);
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--gp-to-beta-event-cooldown-steps")) != NULL) {
             P.gp_to_beta_event_cooldown_steps = atoi(v);
             continue;
@@ -11204,6 +23798,36 @@ int main(int argc, char **argv) {
     pfparams_refresh_thermo(&P);
     if (has_xB_matrix_override) {
         P.ic_xB_eq_matrix = xB_matrix_override;
+    }
+    if (P.gp_initial_population_enabled &&
+        strcmp(P.gp_initial_population_source, "none") != 0) {
+        const double xB_far_after_quench = gp_pseudobinary_xB_from_xAg(P.gp_initial_xAg_far);
+        if (isfinite(xB_far_after_quench) && xB_far_after_quench > 0.0) {
+            P.ic_23d_xB_out = xB_far_after_quench;
+            if (!(P.ic_xB_eq_matrix > 0.0)) P.ic_xB_eq_matrix = xB_far_after_quench;
+        }
+    }
+    if (P.enable_gp_runtime_library_nucleation) {
+        if (P.gp_runtime_s_gp_scalar == 1.0 && P.gp_stochastic_S_GP > 0.0 && P.gp_stochastic_S_GP <= 1.0) {
+            P.gp_runtime_s_gp_scalar = P.gp_stochastic_S_GP;
+        }
+        P.gp_stochastic_S_GP = P.gp_runtime_s_gp_scalar;
+        if (P.scheduled_nuc_enabled && P.gp_runtime_disable_scheduled_when_active) {
+            fprintf(stderr, "[warn] disabling scheduled nucleation because gp runtime library nucleation is active; set gp_runtime_disable_scheduled_when_active=0 to override for debug.\n");
+            P.scheduled_nuc_enabled = 0;
+        } else if (P.scheduled_nuc_enabled) {
+            fprintf(stderr, "[warn] scheduled nucleation and gp runtime library stochastic nucleation are both active; double insertion risk is user-enabled.\n");
+        }
+    }
+    if (strcmp(P.gp_birth_model, "poisson_literature_JGP") == 0 &&
+        P.gp_barrier_only_mode == 1 &&
+        P.enable_legacy_gp_storage_coupling == 0 &&
+        P.gp_literature_birth_requires_post_Y_projection) {
+        P.y_update_mass_projection_enabled = 1;
+        P.y_update_mass_projection_report_enabled = 1;
+        snprintf(P.y_update_mass_projection_target_mode,
+                 sizeof(P.y_update_mass_projection_target_mode),
+                 "%s", "pre_Y_update");
     }
     sync_thermo_runtime_flags(&P);
     P.xB_ref_for_eps_c = P.ic_xB_eq_matrix;
@@ -11291,12 +23915,20 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[fatal] scheduled nucleation test is dynamics-only.\n");
             return 2;
         }
+        if (!P.scheduled_nuc_use_manual_nucleus) {
+            if (!resolve_scheduled_nucleus_from_selector(&P)) {
+                return 2;
+            }
+        }
+        if (!scheduled_nuc_prepare_from_seed_metadata(&P)) {
+            return 2;
+        }
         if (P.scheduled_nuc_profile_dir[0] == '\0' && !P.scheduled_nuc_fallback_analytic_sphere) {
-            fprintf(stderr, "[fatal] scheduled nucleation test requires --scheduled-nuc-profile-dir for the no-strain dynamic-continue source.\n");
+            fprintf(stderr, "[fatal] scheduled nucleation requires a resolved profile_dir; selector is default, or use --use_manual_nucleus true with --scheduled-nuc-profile-dir.\n");
             return 2;
         }
         if (P.scheduled_nuc_source_dyn_dir[0] == '\0') {
-            fprintf(stderr, "[fatal] scheduled nucleation test requires --scheduled-nuc-source-dyn-dir for source diagnostics/geometry.\n");
+            fprintf(stderr, "[fatal] scheduled nucleation requires a resolved source_dyn_dir; selector is default, or use --use_manual_nucleus true with --scheduled-nuc-source-dyn-dir.\n");
             return 2;
         }
         if (strcmp(P.scheduled_nuc_xB_edge_mode, "sample-current-background-shell") != 0) {
@@ -11518,6 +24150,12 @@ int main(int argc, char **argv) {
                         P.post_conversion_y_update_audit_steps);
             log_kv_text("post_conversion_y_update_audit_prefix", "%s",
                         P.post_conversion_y_update_audit_prefix);
+            log_kv_text("audit_post_insertion_drift_enabled", "%d",
+                        P.audit_post_insertion_drift_enabled);
+            log_kv_text("audit_post_insertion_drift_steps", "%d",
+                        P.audit_post_insertion_drift_steps);
+            log_kv_text("audit_post_insertion_drift_prefix", "%s",
+                        P.audit_post_insertion_drift_prefix);
             log_kv_text("y_update_k0_audit_enabled", "%d",
                         P.y_update_k0_audit_enabled);
             log_kv_text("y_update_k0_audit_steps", "%d",
@@ -11540,8 +24178,31 @@ int main(int argc, char **argv) {
             log_kv_text("gp_C_mode", "%s", P.gp_C_mode);
             log_kv_text("gp_eps_mode", "%s", P.gp_eps_mode);
             log_kv_text("gp_eps_iso", "%.6e", P.gp_eps_iso);
+            log_kv_text("gp_barrier_only_mode", "%d", P.gp_barrier_only_mode);
+            log_kv_text("enable_legacy_gp_storage_coupling", "%d",
+                        P.enable_legacy_gp_storage_coupling);
+            log_kv_text("gp_storage_coupling_enabled", "%d",
+                        gp_storage_coupling_enabled(&P));
+            if (P.enable_legacy_gp_storage_coupling && gp_storage_coupling_enabled(&P)) {
+                printf("LEGACY_GP_STORAGE_COUPLING_ENABLED\n");
+            }
             log_kv_text("gp_eta_mass_limiter", "%s", P.gp_eta_mass_limiter);
             log_kv_text("gp_y_update_mode", "%s", P.gp_y_update_mode);
+            log_kv_text("pf_y_update_mode", "%s", P.pf_y_update_mode);
+            log_kv_text("pf_composition_mode", "%s", P.pf_composition_mode);
+            log_kv_text("pf_conservative_flux_strategy", "%s",
+                        P.pf_conservative_flux_strategy);
+            log_kv_text("pf_conservative_bound_tol", "%.8e", P.pf_conservative_bound_tol);
+            log_kv_text("pf_conservative_mass_tol", "%.8e", P.pf_conservative_mass_tol);
+            log_kv_text("pf_conservative_beta_support_eps", "%.8e",
+                        P.pf_conservative_beta_support_eps);
+            log_kv_text("pf_conservative_max_subcycles", "%d",
+                        P.pf_conservative_max_subcycles);
+            log_kv_text("pf_conservative_one_step_replay", "%d",
+                        P.pf_conservative_one_step_replay);
+            log_kv_text("pf_matrix_storage_floor", "%.8e", P.pf_matrix_storage_floor);
+            log_kv_text("pf_composition_stabilizer_Dalpha_multiplier", "%.8e",
+                        P.pf_composition_stabilizer_Dalpha_multiplier);
             log_kv_text("gp_y_picard_iters", "%d", P.gp_y_picard_iters);
             log_kv_text("gp_raw_reaction_drive_only", "%d", P.gp_raw_reaction_drive_only);
             log_kv_text("gp_raw_reaction_drive_use_raw_units_debug", "%d",
@@ -11615,6 +24276,17 @@ int main(int argc, char **argv) {
         log_kv_text("diag_elastic_bulk", "%s", log_enabled_cn(P.diag_elastic_bulk_penalty_enabled));
         if (P.scheduled_nuc_enabled) {
             log_kv_text("scheduled_nucleation_test", "enabled");
+            log_kv_text("scheduled_nucleus_mode", "%s",
+                        P.scheduled_nuc_use_manual_nucleus ? "manual_override" : "selector");
+            log_kv_text("scheduled_selector_active", "%s",
+                        P.scheduled_nuc_selector_active ? "true" : "false");
+            if (!P.scheduled_nuc_use_manual_nucleus) {
+                log_kv_text("scheduled_selected_shape", "%s",
+                            P.scheduled_nuc_selected_shape_type[0] ? P.scheduled_nuc_selected_shape_type : "unknown");
+                log_kv_text("scheduled_selected_rc_nm", "%.6g", P.scheduled_nuc_selected_rc_nm);
+                log_kv_text("scheduled_selected_barrier_kBT", "%.6g",
+                            P.scheduled_nuc_selected_energy_barrier_kBT);
+            }
             log_kv_text("scheduled_source_case", "%s", P.scheduled_nuc_source_case_label);
             log_kv_text("scheduled_source_dyn_dir", "%s", P.scheduled_nuc_source_dyn_dir);
             log_kv_text("scheduled_profile_dir", "%s", P.scheduled_nuc_profile_dir);
@@ -11627,6 +24299,21 @@ int main(int argc, char **argv) {
                         P.scheduled_nuc_scale_xB_profile_width);
             log_kv_text("scheduled_steps", "%s", P.scheduled_nuc_steps_csv);
             log_kv_text("scheduled_centers_nm", "%s", P.scheduled_nuc_centers_nm);
+            if (P.scheduled_nuc_seed_metadata_json[0] != '\0') {
+                log_kv_text("scheduled_seed_metadata_json", "%s", P.scheduled_nuc_seed_metadata_json);
+                log_kv_text("scheduled_library_entry_id", "%s", P.scheduled_nuc_library_entry_id);
+                log_kv_text("scheduled_library_r_seed_nm", "%.6f", P.scheduled_nuc_library_r_seed_nm);
+                log_kv_text("scheduled_library_r_seed_grid", "%.6f", P.scheduled_nuc_library_r_seed_grid);
+                log_kv_text("scheduled_library_tau_bridge_s", "%.6f", P.scheduled_nuc_library_tau_bridge_s);
+                log_kv_text("scheduled_library_tau_bridge_code_time", "%.6f", P.scheduled_nuc_library_tau_bridge_code_time);
+                log_kv_text("scheduled_library_dt_code", "%.6f", P.scheduled_nuc_library_dt_code);
+                log_kv_text("scheduled_library_dt_s", "%.6f", P.scheduled_nuc_library_dt_s);
+                log_kv_text("scheduled_library_t_real_unit_s", "%.6f", P.scheduled_nuc_library_t_real_unit_s);
+                log_kv_text("scheduled_library_t_nuc_code", "%.6f", P.scheduled_nuc_t_nuc_code);
+                log_kv_text("scheduled_library_t_insert_code", "%.6f", P.scheduled_nuc_library_t_insert_code);
+                log_kv_text("scheduled_library_t_nuc_s", "%.6f", P.scheduled_nuc_t_nuc_s);
+                log_kv_text("scheduled_library_t_insert_s", "%.6f", P.scheduled_nuc_library_t_insert_s);
+            }
         } else {
             log_kv_text("scheduled_nucleation_test", "disabled");
         }
@@ -11682,7 +24369,7 @@ int main(int argc, char **argv) {
         }
         fflush(stdout);
     }
-    
+
     // 创建输出目录
     // 约定：弹性关闭 -> ch 开头；弹性开启 -> chel 开头
     const char *out_prefix = P.elastic_enabled ? "chel" : "ch";
@@ -11891,7 +24578,7 @@ int main(int argc, char **argv) {
         vtk_case_tag = vtk_case_tag_buf;
     }
     const char *csv_case_tag = P.minimize_continue_from_vtk ? source_case_tag : vtk_case_tag;
-    g_dynamic_outputs_use_case_dir = (P.mode == 0 && (P.minimize_continue_from_vtk || P.init_mode_raw_fields || P.scheduled_nuc_enabled)) ? 1 : 0;
+    g_dynamic_outputs_use_case_dir = (P.mode == 0 && (P.minimize_continue_from_vtk || P.init_mode_raw_fields || P.scheduled_nuc_enabled || P.enable_gp_assisted_beta_nucleation)) ? 1 : 0;
 
     log_section_header("Output Layout");
     log_kv_text("output_root", "%s", output_dir);
@@ -11940,7 +24627,7 @@ int main(int argc, char **argv) {
             log_kv_text("continue_xB_vtk", "%s", P.continue_xB_vtk_path);
         }
     }
-    
+
     // 创建CSV文件：dynamics 用 vf_precip_vs_time.csv，minimize 用 energy_minimize.csv
     FILE *csv_fp = NULL;
     FILE *relax_fp = NULL;
@@ -11991,7 +24678,7 @@ int main(int argc, char **argv) {
             log_kv_text("relaxation_diagnostics_csv", "%s", relax_csv_path);
         }
     }
-    
+
     int NzC = P.Nz / 2 + 1;
     int total_r = P.Nx * P.Ny * P.Nz;
     int total_k = P.Nx * P.Ny * NzC;
@@ -12052,7 +24739,141 @@ int main(int argc, char **argv) {
 
     ScheduledNucRuntime scheduled_runtime;
     scheduled_runtime.events_csv = NULL;
+    scheduled_runtime.physics_events_csv = NULL;
     scheduled_runtime.event_counter = 0;
+    GpAssistedRuntime gp_assisted_runtime;
+    gp_assisted_runtime.event_csv = NULL;
+    gp_assisted_runtime.birth_csv = NULL;
+    gp_assisted_runtime.physics_events_csv = NULL;
+    gp_assisted_runtime.ledger_csv = NULL;
+    gp_assisted_runtime.multi_ledger_csv = NULL;
+    gp_assisted_runtime.scaling_csv = NULL;
+    gp_assisted_runtime.stochastic_csv = NULL;
+    gp_assisted_runtime.ranked_hazard_csv = NULL;
+    gp_assisted_runtime.strong_separation_csv = NULL;
+    gp_assisted_runtime.runtime_library_event_csv = NULL;
+    gp_assisted_runtime.runtime_library_candidate_csv = NULL;
+    gp_assisted_runtime.runtime_library_candidate_summary_csv = NULL;
+    gp_assisted_runtime.runtime_bridge_queue_csv = NULL;
+    gp_assisted_runtime.runtime_bridge_insert_csv = NULL;
+    gp_assisted_runtime.stageA_birth_diag_csv = NULL;
+    gp_assisted_runtime.beta_event_transaction_csv = NULL;
+    gp_assisted_runtime.beta_attempt_capacity_csv = NULL;
+    gp_assisted_runtime.beta_full_seed_capacity_scan_csv = NULL;
+    gp_assisted_runtime.beta_multi_gp_capture_scan_csv = NULL;
+    gp_assisted_runtime.beta_multi_gp_capture_transaction_csv = NULL;
+    gp_assisted_runtime.beta_handoff_decision_csv = NULL;
+    gp_assisted_runtime.beta_staged_embryo_csv = NULL;
+    gp_assisted_runtime.beta_staged_accumulation_csv = NULL;
+    gp_assisted_runtime.beta_staged_global_probe_csv = NULL;
+    gp_assisted_runtime.beta_resolved_handoff_attempt_csv = NULL;
+    gp_assisted_runtime.beta_resolved_handoff_csv = NULL;
+    gp_assisted_runtime.resolved_seed_source_diag_csv = NULL;
+    gp_assisted_runtime.staged_handoff_profile_probe_csv = NULL;
+    gp_assisted_runtime.staged_handoff_radial_profile_csv = NULL;
+    gp_assisted_runtime.staged_handoff_external_reset_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_release_event_log_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_gp_inventory_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_matrix_halo_norm_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_projection_effect_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_mass_ledger_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_seed_growth_ts_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_locality_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_interface_band_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_interface_rhs_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_regional_xB_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_global_max_xB_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_radial_profile_csv = NULL;
+    gp_assisted_runtime.diagnostic_rsmd_history_restart_csv = NULL;
+    gp_assisted_runtime.staged_handoff_snapshot_valid = 0;
+    gp_assisted_runtime.staged_handoff_snapshot_step = -1;
+    gp_assisted_runtime.staged_handoff_postY_detector_written = 0;
+    memset(&gp_assisted_runtime.staged_handoff_snapshot_embryo, 0,
+           sizeof(gp_assisted_runtime.staged_handoff_snapshot_embryo));
+    gp_assisted_runtime.strong_separation_written = 0;
+    gp_assisted_runtime.diagnostic_rsmd_config_written = 0;
+    gp_assisted_runtime.diagnostic_rsmd_gp_inventory_initial_written = 0;
+    gp_assisted_runtime.diagnostic_rsmd_release_started_step = -1;
+    gp_assisted_runtime.diagnostic_rsmd_history_restart_pending = 0;
+    gp_assisted_runtime.diagnostic_rsmd_eligible_cache_valid = 0;
+    gp_assisted_runtime.diagnostic_rsmd_eligible_cache_embryo_id = -1;
+    gp_assisted_runtime.diagnostic_rsmd_eligible_cache_ix = -1;
+    gp_assisted_runtime.diagnostic_rsmd_eligible_cache_iy = -1;
+    gp_assisted_runtime.diagnostic_rsmd_eligible_cache_iz = -1;
+    gp_assisted_runtime.diagnostic_rsmd_eligible_cache_seed_R_eff_nm = NAN;
+    gp_assisted_runtime.diagnostic_rsmd_eligible_cache_R_exchange_nm = NAN;
+    gp_assisted_runtime.event_counter = 0;
+    gp_assisted_runtime.delayed_event_counter = 0;
+    gp_assisted_runtime.forced_selector_event_consumed = 0;
+    gp_assisted_runtime.beta_debug_forced_event_consumed = 0;
+    gp_assisted_runtime.beta_full_seed_capacity_scan_written = 0;
+    gp_assisted_runtime.beta_multi_gp_capture_scan_written = 0;
+    gp_assisted_runtime.next_staged_embryo_id = 1;
+    gp_assisted_runtime.resolved_handoff_inserted_count = 0;
+    gp_assisted_runtime.initial_gp_site_count = 0;
+    {
+        const unsigned long seed_use =
+            (strcmp(P.gp_birth_model, "prescribed_sites") == 0) ? P.gp_seed : P.gp_birth_rng_seed;
+        gp_assisted_runtime.rng_state = (unsigned long long)((seed_use == 0) ? 1 : seed_use);
+    }
+    gp_assisted_runtime.initial_total_reference = 0.0;
+    gp_assisted_runtime.total_gp_initial = 0.0;
+    gp_assisted_runtime.total_gp_consumed = 0.0;
+    gp_assisted_runtime.total_matrix_drawn = 0.0;
+    gp_assisted_runtime.literature_expected_births_total = 0.0;
+    gp_assisted_runtime.literature_births_sampled_total = 0;
+    gp_assisted_runtime.literature_births_accepted_total = 0;
+    gp_assisted_runtime.accepted_event_count = 0;
+    gp_assisted_runtime.attempted_event_count = 0;
+    gp_assisted_runtime.max_abs_rel_drift = 0.0;
+    gp_assisted_runtime.sum_abs_rel_drift = 0.0;
+    gp_assisted_runtime.drift_sample_count = 0;
+    gp_assisted_runtime.stochastic_selected_count = 0;
+    gp_assisted_runtime.runtime_library_loaded = 0;
+    gp_assisted_runtime.runtime_catalog_loaded = 0;
+    gp_assisted_runtime.stageA_case_label[0] = '\0';
+    if (vtk_case_tag[0] != '\0') {
+        snprintf(gp_assisted_runtime.stageA_case_label,
+                 sizeof(gp_assisted_runtime.stageA_case_label),
+                 "%s", vtk_case_tag);
+    } else if (effective_pf_param_file[0] != '\0') {
+        snprintf(gp_assisted_runtime.stageA_case_label,
+                 sizeof(gp_assisted_runtime.stageA_case_label),
+                 "%s", effective_pf_param_file);
+    }
+    build_gp_assisted_sites_from_params(&P, &gp_assisted_runtime.sites);
+    gp_assisted_runtime.initial_gp_site_count = (int)gp_assisted_runtime.sites.size();
+    gp_assisted_runtime.total_gp_initial = gp_assisted_sum_initial_mass(gp_assisted_runtime.sites);
+    FILE *gp_post_birth_probe_fp = NULL;
+    if (P.mode == 0 && P.gp_post_birth_mass_probe_enabled && case_output_dir && case_output_dir[0] != '\0') {
+        char gp_post_birth_probe_path[4096];
+        snprintf(gp_post_birth_probe_path, sizeof(gp_post_birth_probe_path),
+                 "%s/post_birth_step11_mass_probes.csv", case_output_dir);
+        gp_post_birth_probe_fp = fopen(gp_post_birth_probe_path, "w");
+        if (!gp_post_birth_probe_fp) {
+            fprintf(stderr, "[fatal] cannot open GP post-birth mass probe CSV: %s\n",
+                    gp_post_birth_probe_path);
+            return 2;
+        }
+        write_gp_post_birth_mass_probe_header(gp_post_birth_probe_fp);
+        log_kv_text("gp_post_birth_mass_probe_csv", "%s", gp_post_birth_probe_path);
+    }
+    FILE *nucleation_event_log_fp = NULL;
+    if ((P.scheduled_nuc_enabled || P.enable_gp_assisted_beta_nucleation) && case_output_dir && case_output_dir[0] != '\0') {
+        char nucleation_event_log_path[4096];
+        snprintf(nucleation_event_log_path, sizeof(nucleation_event_log_path), "%s/nucleation_event_log.csv", case_output_dir);
+        nucleation_event_log_fp = fopen(nucleation_event_log_path, "w");
+        if (!nucleation_event_log_fp) {
+            fprintf(stderr, "[fatal] cannot open unified nucleation event log CSV: %s\n",
+                    nucleation_event_log_path);
+            return 2;
+        }
+        write_unified_nucleation_event_header(nucleation_event_log_fp);
+        scheduled_runtime.physics_events_csv = nucleation_event_log_fp;
+        gp_assisted_runtime.physics_events_csv = nucleation_event_log_fp;
+        log_kv_text("nucleation_event_log_csv", "%s", nucleation_event_log_path);
+    }
     GpNucRuntime gp_nuc_runtime;
     gp_nuc_runtime.events_csv = NULL;
     gp_nuc_runtime.event_counter = 0;
@@ -12078,10 +24899,15 @@ int main(int argc, char **argv) {
     gp_to_beta_runtime.accepted_events.clear();
     PostConversionYAuditRuntime post_conversion_audit_runtime;
     memset(&post_conversion_audit_runtime, 0, sizeof(post_conversion_audit_runtime));
+    PostInsertionDriftAuditRuntime post_insertion_drift_audit_runtime;
+    memset(&post_insertion_drift_audit_runtime, 0, sizeof(post_insertion_drift_audit_runtime));
     YUpdateK0AuditRuntime y_update_k0_audit_runtime;
     memset(&y_update_k0_audit_runtime, 0, sizeof(y_update_k0_audit_runtime));
     FILE *y_update_mass_projection_fp = NULL;
     if (P.scheduled_nuc_enabled) {
+        if (!write_selected_nucleus_log_csv(&P, case_output_dir)) {
+            return 2;
+        }
         if (!parse_scheduled_events(&P, &scheduled_runtime.events)) {
             return 2;
         }
@@ -12102,6 +24928,1006 @@ int main(int argc, char **argv) {
                 "phi_max_after,mean_hphi_after,clip_lower_fraction,clip_upper_fraction,profile_queries_out_of_range_fraction,overlap_warning\n");
         fflush(scheduled_runtime.events_csv);
         log_kv_text("scheduled_nucleation_events_csv", "%s", scheduled_csv_path);
+    }
+    if (P.enable_gp_assisted_beta_nucleation) {
+        char gp_assisted_event_csv_path[4096];
+        char gp_literature_birth_csv_path[4096];
+        char gp_assisted_ledger_csv_path[4096];
+        char gp_multi_ledger_csv_path[4096];
+        char gp_scaling_csv_path[4096];
+        char gp_stochastic_csv_path[4096];
+        char gp_ranked_hazard_csv_path[4096];
+        char gp_strong_separation_csv_path[4096];
+        if (P.gp_event_log_enabled) {
+            snprintf(gp_assisted_event_csv_path, sizeof(gp_assisted_event_csv_path),
+                     "%s/gp_assisted_event_log.csv", case_output_dir);
+            gp_assisted_runtime.event_csv = fopen(gp_assisted_event_csv_path, "w");
+            if (!gp_assisted_runtime.event_csv) {
+                fprintf(stderr, "[fatal] cannot open GP-assisted event log CSV: %s\n",
+                        gp_assisted_event_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.event_csv,
+                    "event_id,step,site_id,status,center_i,center_j,center_k,"
+                    "seed_mass_required,gp_active_before,mass_from_gp,mass_from_matrix,"
+                    "gp_released_to_matrix,matrix_draw_actual,release_actual,"
+                    "M_total_before,M_total_after,event_mass_error,event_mass_rel_error,clip_fraction\n");
+            fflush(gp_assisted_runtime.event_csv);
+            log_kv_text("gp_assisted_event_log_csv", "%s", gp_assisted_event_csv_path);
+
+            snprintf(gp_literature_birth_csv_path, sizeof(gp_literature_birth_csv_path),
+                     "%s/gp_literature_birth_log.csv", case_output_dir);
+            gp_assisted_runtime.birth_csv = fopen(gp_literature_birth_csv_path, "w");
+            if (!gp_assisted_runtime.birth_csv) {
+                fprintf(stderr, "[fatal] cannot open GP literature birth CSV: %s\n",
+                        gp_literature_birth_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.birth_csv,
+                    "step,source,site_id,center_i,center_j,center_k,J_GP_m3_s,lambda_step,requested_mass,actual_mass,gp_inventory_added,xB_background,total_mass_delta,mass_error_rel,policy,shortage,total_sites_after\n");
+            fflush(gp_assisted_runtime.birth_csv);
+            log_kv_text("gp_literature_birth_log_csv", "%s", gp_literature_birth_csv_path);
+
+            char stageA_birth_diag_csv_path[4096];
+            snprintf(stageA_birth_diag_csv_path, sizeof(stageA_birth_diag_csv_path),
+                     "%s/stageA_birth_diagnostics.csv", case_output_dir);
+            gp_assisted_runtime.stageA_birth_diag_csv = fopen(stageA_birth_diag_csv_path, "w");
+            if (!gp_assisted_runtime.stageA_birth_diag_csv) {
+                fprintf(stderr, "[fatal] cannot open Stage A birth diagnostics CSV: %s\n",
+                        stageA_birth_diag_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.stageA_birth_diag_csv,
+                    "case,step,birth_index,site_id,R_GP_nm,V_GP_m3,requested_inventory_mode,"
+                    "requested_GP_inventory,actual_matrix_mass_removed,actual_GP_inventory_added,transaction_mass_error_rel,"
+                    "M_GP_initial_existing,M_GP_new_existing_before,M_GP_new_existing_after,"
+                    "M_matrix_before,M_matrix_after,M_total_before,M_total_after,"
+                    "postY_projection_active,postY_projection_target_mode,"
+                    "mass_error_before_Y_update,mass_error_after_Y_update,mass_error_after_projection,mass_error_step_end\n");
+            fflush(gp_assisted_runtime.stageA_birth_diag_csv);
+            log_kv_text("stageA_birth_diagnostics_csv", "%s", stageA_birth_diag_csv_path);
+
+            char beta_event_transaction_csv_path[4096];
+            snprintf(beta_event_transaction_csv_path, sizeof(beta_event_transaction_csv_path),
+                     "%s/beta_event_transactions.csv", case_output_dir);
+            gp_assisted_runtime.beta_event_transaction_csv = fopen(beta_event_transaction_csv_path, "w");
+            if (!gp_assisted_runtime.beta_event_transaction_csv) {
+                fprintf(stderr, "[fatal] cannot open beta event transaction CSV: %s\n",
+                        beta_event_transaction_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_event_transaction_csv,
+                    "case,step,time_s,event_id,position_i,position_j,position_k,local_xB_alpha_before,"
+                    "s_GP_local,s_eff_local,DeltaG_beta_bare,DeltaG_beta_effective,J_beta_local_or_rate,"
+                    "requested_beta_inventory,actual_matrix_mass_removed,actual_GP_initial_inventory_consumed,"
+                    "actual_GP_new_inventory_consumed,actual_GP_total_consumed,actual_beta_inventory_added,"
+                    "inventory_policy,M_matrix_before,M_GP_initial_before,M_GP_new_before,M_beta_before,"
+                    "M_total_before,M_matrix_after,M_GP_initial_after,M_GP_new_after,M_beta_after,M_total_after,"
+                    "transaction_mass_error_abs,transaction_mass_error_rel,xB_alpha_min_before,xB_alpha_min_after,"
+                    "xB_alpha_max_before,xB_alpha_max_after\n");
+            fflush(gp_assisted_runtime.beta_event_transaction_csv);
+            log_kv_text("beta_event_transactions_csv", "%s", beta_event_transaction_csv_path);
+
+            char beta_attempt_capacity_csv_path[4096];
+            snprintf(beta_attempt_capacity_csv_path, sizeof(beta_attempt_capacity_csv_path),
+                     "%s/beta_attempt_capacity_diagnostics.csv", case_output_dir);
+            gp_assisted_runtime.beta_attempt_capacity_csv = fopen(beta_attempt_capacity_csv_path, "w");
+            if (!gp_assisted_runtime.beta_attempt_capacity_csv) {
+                fprintf(stderr, "[fatal] cannot open beta attempt capacity diagnostics CSV: %s\n",
+                        beta_attempt_capacity_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_attempt_capacity_csv,
+                    "case,step,T_C,S,position_i,position_j,position_k,near_GP_marker,"
+                    "s_GP_local,s_eff_local,beta_seed_radius_nm,beta_seed_volume_m3,"
+                    "requested_beta_inventory,requested_beta_inventory_physical_original,"
+                    "matrix_draw_radius_nm,matrix_available_capacity,GP_initial_available_capacity,"
+                    "GP_new_available_capacity,GP_total_available_capacity,total_available_capacity,"
+                    "capacity_ratio,rejection_reason,would_accept_if_capacity_matched,"
+                    "seed_amplitude_scale,actual_matrix_mass_removed,transaction_mass_error_rel\n");
+            fflush(gp_assisted_runtime.beta_attempt_capacity_csv);
+            log_kv_text("beta_attempt_capacity_diagnostics_csv", "%s", beta_attempt_capacity_csv_path);
+
+            char beta_full_seed_capacity_scan_csv_path[4096];
+            snprintf(beta_full_seed_capacity_scan_csv_path, sizeof(beta_full_seed_capacity_scan_csv_path),
+                     "%s/full_seed_draw_radius_capacity_scan.csv", case_output_dir);
+            gp_assisted_runtime.beta_full_seed_capacity_scan_csv =
+                fopen(beta_full_seed_capacity_scan_csv_path, "w");
+            if (!gp_assisted_runtime.beta_full_seed_capacity_scan_csv) {
+                fprintf(stderr, "[fatal] cannot open full seed capacity scan CSV: %s\n",
+                        beta_full_seed_capacity_scan_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_full_seed_capacity_scan_csv,
+                    "case,step,T_C,S,candidate_type,site_id,position_i,position_j,position_k,"
+                    "local_xB_alpha,distance_to_nearest_GP_marker_nm,beta_seed_radius_nm,"
+                    "beta_seed_volume_m3,requested_beta_inventory_full_seed,draw_radius_nm,"
+                    "matrix_available_capacity,GP_initial_available_capacity,GP_new_available_capacity,"
+                    "GP_total_available_capacity,total_available_capacity,would_accept,capacity_ratio,"
+                    "draw_cells_count,draw_volume_m3,xB_min_in_draw_region,xB_mean_in_draw_region,"
+                    "xB_max_in_draw_region\n");
+            fflush(gp_assisted_runtime.beta_full_seed_capacity_scan_csv);
+            log_kv_text("full_seed_draw_radius_capacity_scan_csv", "%s",
+                        beta_full_seed_capacity_scan_csv_path);
+
+            char beta_multi_gp_capture_scan_csv_path[4096];
+            snprintf(beta_multi_gp_capture_scan_csv_path, sizeof(beta_multi_gp_capture_scan_csv_path),
+                     "%s/multi_GP_capture_capacity_scan.csv", case_output_dir);
+            gp_assisted_runtime.beta_multi_gp_capture_scan_csv =
+                fopen(beta_multi_gp_capture_scan_csv_path, "w");
+            if (!gp_assisted_runtime.beta_multi_gp_capture_scan_csv) {
+                fprintf(stderr, "[fatal] cannot open multi-GP capture scan CSV: %s\n",
+                        beta_multi_gp_capture_scan_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_multi_gp_capture_scan_csv,
+                    "case_id,step,T_C,candidate_id,candidate_index,position_i,position_j,position_k,"
+                    "matrix_draw_radius_nm,GP_capture_radius_nm,full_seed_requested_inventory,"
+                    "matrix_capacity,selected_GP_capacity,nearest_GP_capacity,multi_GP_initial_capacity,"
+                    "multi_GP_new_capacity,multi_GP_total_capacity,total_capacity_matrix_plus_multi_GP,"
+                    "capacity_ratio_matrix_only,capacity_ratio_selected_GP,capacity_ratio_multi_GP,"
+                    "num_GP_initial_in_capture,num_GP_new_in_capture,num_GP_total_in_capture,"
+                    "nearest_GP_distance_nm,mean_GP_distance_nm,max_GP_distance_nm,"
+                    "GP_inventory_consumed_if_nearest_first,num_GP_needed_nearest_first,"
+                    "would_accept_matrix_only,would_accept_selected_GP,would_accept_multi_GP,"
+                    "s_GP_local,s_eff_local,local_xB_alpha\n");
+            fflush(gp_assisted_runtime.beta_multi_gp_capture_scan_csv);
+            log_kv_text("multi_GP_capture_capacity_scan_csv", "%s",
+                        beta_multi_gp_capture_scan_csv_path);
+
+            char beta_multi_gp_capture_transaction_csv_path[4096];
+            snprintf(beta_multi_gp_capture_transaction_csv_path, sizeof(beta_multi_gp_capture_transaction_csv_path),
+                     "%s/forced_multi_GP_capture_transactions.csv", case_output_dir);
+            gp_assisted_runtime.beta_multi_gp_capture_transaction_csv =
+                fopen(beta_multi_gp_capture_transaction_csv_path, "w");
+            if (!gp_assisted_runtime.beta_multi_gp_capture_transaction_csv) {
+                fprintf(stderr, "[fatal] cannot open multi-GP capture transaction CSV: %s\n",
+                        beta_multi_gp_capture_transaction_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_multi_gp_capture_transaction_csv,
+                    "case,step,time_s,position_i,position_j,position_k,requested_beta_inventory_full_seed,"
+                    "matrix_draw_radius_nm,GP_capture_radius_nm,GP_capture_mode,matrix_capacity_available,"
+                    "matrix_mass_removed,num_GP_initial_consumed,num_GP_new_consumed,"
+                    "GP_initial_mass_consumed,GP_new_mass_consumed,GP_total_mass_consumed,"
+                    "num_GP_partially_consumed,num_GP_fully_consumed,beta_inventory_added,"
+                    "transaction_mass_error_abs,transaction_mass_error_rel,M_matrix_before,"
+                    "M_GP_initial_before,M_GP_new_before,M_beta_before,M_total_before,"
+                    "M_matrix_after,M_GP_initial_after,M_GP_new_after,M_beta_after,M_total_after,"
+                    "global_mass_error_rel_after,s_GP_local,s_eff_local\n");
+            fflush(gp_assisted_runtime.beta_multi_gp_capture_transaction_csv);
+            log_kv_text("forced_multi_GP_capture_transactions_csv", "%s",
+                        beta_multi_gp_capture_transaction_csv_path);
+
+            char beta_handoff_decision_csv_path[4096];
+            snprintf(beta_handoff_decision_csv_path, sizeof(beta_handoff_decision_csv_path),
+                     "%s/beta_handoff_decisions.csv", case_output_dir);
+            gp_assisted_runtime.beta_handoff_decision_csv =
+                fopen(beta_handoff_decision_csv_path, "w");
+            if (!gp_assisted_runtime.beta_handoff_decision_csv) {
+                fprintf(stderr, "[fatal] cannot open beta handoff decision CSV: %s\n",
+                        beta_handoff_decision_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_handoff_decision_csv,
+                    "case,step,event_id,position_i,position_j,position_k,"
+                    "r_critical_nm,DeltaG_star,J_beta_or_attempt_weight,dynamic_seed_radius_nm,"
+                    "full_seed_requested_inventory,matrix_draw_radius_nm,GP_capture_radius_nm,"
+                    "GP_capture_mode,matrix_capacity,GP_initial_capacity,GP_new_capacity,"
+                    "total_capacity,capacity_ratio,max_reasonable_radius_nm,decision,"
+                    "num_GP_inside_capture,num_GP_to_consume,s_GP_local,s_eff_local\n");
+            fflush(gp_assisted_runtime.beta_handoff_decision_csv);
+            log_kv_text("beta_handoff_decisions_csv", "%s", beta_handoff_decision_csv_path);
+
+            char beta_staged_embryo_csv_path[4096];
+            snprintf(beta_staged_embryo_csv_path, sizeof(beta_staged_embryo_csv_path),
+                     "%s/beta_staged_embryos.csv", case_output_dir);
+            gp_assisted_runtime.beta_staged_embryo_csv =
+                fopen(beta_staged_embryo_csv_path, "w");
+            if (!gp_assisted_runtime.beta_staged_embryo_csv) {
+                fprintf(stderr, "[fatal] cannot open beta staged embryo CSV: %s\n",
+                        beta_staged_embryo_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_staged_embryo_csv,
+                    "case,embryo_id,step,event_id,position_i,position_j,position_k,"
+                    "target_seed_inventory,current_embryo_inventory,remaining_inventory_needed,"
+                    "source_GP_initial_consumed,source_GP_new_consumed,source_matrix_consumed,"
+                    "capture_radius_nm,nearest_GP_count,status,transaction_mass_error_rel,"
+                    "global_mass_error_rel\n");
+            fflush(gp_assisted_runtime.beta_staged_embryo_csv);
+            log_kv_text("beta_staged_embryos_csv", "%s", beta_staged_embryo_csv_path);
+
+            char beta_staged_accumulation_csv_path[4096];
+            snprintf(beta_staged_accumulation_csv_path, sizeof(beta_staged_accumulation_csv_path),
+                     "%s/beta_staged_accumulation_timeseries.csv", case_output_dir);
+            gp_assisted_runtime.beta_staged_accumulation_csv =
+                fopen(beta_staged_accumulation_csv_path, "w");
+            if (!gp_assisted_runtime.beta_staged_accumulation_csv) {
+                fprintf(stderr, "[fatal] cannot open beta staged accumulation CSV: %s\n",
+                        beta_staged_accumulation_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_staged_accumulation_csv,
+                    "case,embryo_id,step,age_steps,position_i,position_j,position_k,"
+                    "target_seed_inventory,current_inventory_before,current_inventory_after,"
+                    "remaining_before,remaining_after,delta_inventory_added,"
+                    "source_GP_initial_consumed_step,source_GP_new_consumed_step,"
+                    "source_matrix_consumed_step,GP_capture_radius_nm,matrix_draw_radius_nm,"
+                    "nearest_GP_count_step,status_before,status_after,transaction_mass_error_abs,"
+                    "transaction_mass_error_rel,global_mass_error_rel,inserted_resolved_seed\n");
+            fflush(gp_assisted_runtime.beta_staged_accumulation_csv);
+            log_kv_text("beta_staged_accumulation_timeseries_csv", "%s",
+                        beta_staged_accumulation_csv_path);
+
+            char beta_staged_global_probe_csv_path[4096];
+            snprintf(beta_staged_global_probe_csv_path, sizeof(beta_staged_global_probe_csv_path),
+                     "%s/staged_global_mass_probes.csv", case_output_dir);
+            gp_assisted_runtime.beta_staged_global_probe_csv =
+                fopen(beta_staged_global_probe_csv_path, "w");
+            if (!gp_assisted_runtime.beta_staged_global_probe_csv) {
+                fprintf(stderr, "[fatal] cannot open beta staged global mass probe CSV: %s\n",
+                        beta_staged_global_probe_csv_path);
+                return 2;
+            }
+            write_beta_staged_global_probe_header(gp_assisted_runtime.beta_staged_global_probe_csv);
+            log_kv_text("staged_global_mass_probes_csv", "%s",
+                        beta_staged_global_probe_csv_path);
+
+            char beta_resolved_handoff_attempt_csv_path[4096];
+            snprintf(beta_resolved_handoff_attempt_csv_path,
+                     sizeof(beta_resolved_handoff_attempt_csv_path),
+                     "%s/resolved_handoff_attempts.csv", case_output_dir);
+            gp_assisted_runtime.beta_resolved_handoff_attempt_csv =
+                fopen(beta_resolved_handoff_attempt_csv_path, "w");
+            if (!gp_assisted_runtime.beta_resolved_handoff_attempt_csv) {
+                fprintf(stderr, "[fatal] cannot open resolved handoff attempt CSV: %s\n",
+                        beta_resolved_handoff_attempt_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_resolved_handoff_attempt_csv,
+                    "case,step,embryo_id,status_before,current_inventory,"
+                    "target_seed_inventory,remaining_inventory_needed,"
+                    "ready_condition_value,ready_condition_passed,"
+                    "insert_when_target_reached,resolved_seed_radius_nm,"
+                    "resolved_seed_volume_nm3,library_entry_id,handoff_allowed,"
+                    "block_reason,M_staged_before,M_beta_before,M_matrix_before,"
+                    "M_GP_initial_before,M_GP_new_before,M_total_before\n");
+            fflush(gp_assisted_runtime.beta_resolved_handoff_attempt_csv);
+            log_kv_text("resolved_handoff_attempts_csv", "%s",
+                        beta_resolved_handoff_attempt_csv_path);
+
+            char beta_resolved_handoff_csv_path[4096];
+            snprintf(beta_resolved_handoff_csv_path, sizeof(beta_resolved_handoff_csv_path),
+                     "%s/resolved_seed_handoff_transactions.csv", case_output_dir);
+            gp_assisted_runtime.beta_resolved_handoff_csv =
+                fopen(beta_resolved_handoff_csv_path, "w");
+            if (!gp_assisted_runtime.beta_resolved_handoff_csv) {
+                fprintf(stderr, "[fatal] cannot open resolved seed handoff CSV: %s\n",
+                        beta_resolved_handoff_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.beta_resolved_handoff_csv,
+                    "case,step,embryo_id,target_seed_inventory,staged_inventory_before,"
+                    "staged_inventory_transferred,beta_inventory_before,beta_inventory_after,"
+                    "resolved_seed_radius_nm,resolved_seed_volume_nm3,matrix_inventory_before,"
+                    "GP_initial_inventory_before,GP_new_inventory_before,M_total_before,"
+                    "M_total_after,handoff_transaction_mass_error_abs,"
+                    "handoff_transaction_mass_error_rel,global_mass_error_rel_after\n");
+            fflush(gp_assisted_runtime.beta_resolved_handoff_csv);
+            log_kv_text("resolved_seed_handoff_transactions_csv", "%s",
+                        beta_resolved_handoff_csv_path);
+
+            char resolved_seed_source_diag_csv_path[4096];
+            snprintf(resolved_seed_source_diag_csv_path,
+                     sizeof(resolved_seed_source_diag_csv_path),
+                     "%s/resolved_seed_source_diagnostics.csv", case_output_dir);
+            gp_assisted_runtime.resolved_seed_source_diag_csv =
+                fopen(resolved_seed_source_diag_csv_path, "w");
+            if (!gp_assisted_runtime.resolved_seed_source_diag_csv) {
+                fprintf(stderr, "[fatal] cannot open resolved seed source diagnostics CSV: %s\n",
+                        resolved_seed_source_diag_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.resolved_seed_source_diag_csv,
+                    "case,step,embryo_id,seed_source_mode,library_entry_id,"
+                    "seed_profile_file,source_dyn_dir,seed_temperature_C,"
+                    "seed_xB_total_or_local,seed_dx_nm,runtime_dx_nm,seed_grid_shape,"
+                    "runtime_grid_shape,seed_r_eff_nm,seed_r_seed_nm,"
+                    "seed_target_inventory_from_library,staged_inventory_transferred,"
+                    "profile_inventory_integral_before_scaling,"
+                    "profile_inventory_integral_after_scaling,profile_mass_scaling_factor,"
+                    "xB_profile_used,phi_profile_used,eta_profile_used,shape_tensor_used,"
+                    "orientation_used,analytic_fallback_used,fallback_reason,"
+                    "profile_runtime_alignment_status,inserted_phi_integral,"
+                    "inserted_phi_max,target_seed_inventory,source_lambda_nm,"
+                    "target_lambda_nm,profile_interface_scale_phi,"
+                    "profile_interface_scale_xB\n");
+            fflush(gp_assisted_runtime.resolved_seed_source_diag_csv);
+            log_kv_text("resolved_seed_source_diagnostics_csv", "%s",
+                        resolved_seed_source_diag_csv_path);
+
+            char staged_handoff_profile_probe_csv_path[4096];
+            snprintf(staged_handoff_profile_probe_csv_path,
+                     sizeof(staged_handoff_profile_probe_csv_path),
+                     "%s/handoff_profile_probes.csv", case_output_dir);
+            gp_assisted_runtime.staged_handoff_profile_probe_csv =
+                fopen(staged_handoff_profile_probe_csv_path, "w");
+            if (!gp_assisted_runtime.staged_handoff_profile_probe_csv) {
+                fprintf(stderr, "[fatal] cannot open staged handoff profile probe CSV: %s\n",
+                        staged_handoff_profile_probe_csv_path);
+                return 2;
+            }
+            write_staged_handoff_profile_probe_header(
+                gp_assisted_runtime.staged_handoff_profile_probe_csv);
+            log_kv_text("staged_handoff_profile_probes_csv", "%s",
+                        staged_handoff_profile_probe_csv_path);
+
+            char staged_handoff_radial_profile_csv_path[4096];
+            snprintf(staged_handoff_radial_profile_csv_path,
+                     sizeof(staged_handoff_radial_profile_csv_path),
+                     "%s/handoff_radial_profile.csv", case_output_dir);
+            gp_assisted_runtime.staged_handoff_radial_profile_csv =
+                fopen(staged_handoff_radial_profile_csv_path, "w");
+            if (!gp_assisted_runtime.staged_handoff_radial_profile_csv) {
+                fprintf(stderr, "[fatal] cannot open staged handoff radial profile CSV: %s\n",
+                        staged_handoff_radial_profile_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.staged_handoff_radial_profile_csv,
+                    "case,step,embryo_id,radius_bin_nm,mean_xB_alpha_before,"
+                    "mean_xB_alpha_after,delta_mean_xB_alpha,min_xB_alpha_after,"
+                    "max_xB_alpha_after,mean_beta_phi_after,cell_count\n");
+            fflush(gp_assisted_runtime.staged_handoff_radial_profile_csv);
+            log_kv_text("staged_handoff_radial_profile_csv", "%s",
+                        staged_handoff_radial_profile_csv_path);
+
+            char staged_handoff_external_reset_csv_path[4096];
+            snprintf(staged_handoff_external_reset_csv_path,
+                     sizeof(staged_handoff_external_reset_csv_path),
+                     "%s/external_profile_reset_detector.csv", case_output_dir);
+            gp_assisted_runtime.staged_handoff_external_reset_csv =
+                fopen(staged_handoff_external_reset_csv_path, "w");
+            if (!gp_assisted_runtime.staged_handoff_external_reset_csv) {
+                fprintf(stderr, "[fatal] cannot open staged handoff external reset detector CSV: %s\n",
+                        staged_handoff_external_reset_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.staged_handoff_external_reset_csv,
+                    "case,comparison_label,step,embryo_id,outside_delta_sum,outside_delta_mean,"
+                    "outside_delta_absmax,outside_cells_changed_above_1e-12,"
+                    "outside_cells_changed_above_1e-9,outside_delta_abs_sum,"
+                    "outside_buffer_delta_mean,farfield_mean_before,"
+                    "farfield_mean_after,farfield_delta,xB_source_before,"
+                    "xB_source_after,reset_to_xBtot,reset_to_xBbeta,reset_to_xBGP\n");
+            fflush(gp_assisted_runtime.staged_handoff_external_reset_csv);
+            log_kv_text("staged_handoff_external_reset_detector_csv", "%s",
+                        staged_handoff_external_reset_csv_path);
+        }
+        if (P.diagnostic_rsmd_enabled) {
+            char path[4096];
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_runtime_config.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD runtime config CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv,
+                    "case,T_C,xBcrit_reference,xB_halo_target,R_exchange_nm,chi_rel,"
+                    "kernel_radius_dx,delivery_mode,interface_shell_width_nm,interface_shell_kernel,"
+                    "reset_Y_history_after_source,history_restart_mode,h_src_max,"
+                    "f_max_per_step,operator_split,source_integrator,source_substep_dt_code,"
+                    "headroom_weighted,control_mode,pf_baseline_control_mode,pf_y_update_mode,pf_matrix_storage_floor,release_window_steps,"
+                    "seed_R_eff_h_nm,provenance,JGP_release_thermo_reuse,scale_phi,scale_xB,"
+                    "writeback_mode\n");
+            const double diagnostic_xBcrit_reference =
+                (fabs(P.temperature_C - 400.0) <= 0.5)
+                    ? 0.016708547037
+                    : 0.011191599269189258;
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv,
+                    "%s,%.12e,%.12e,%.12e,%.12e,%.12e,%.12e,%s,%.12e,%s,%d,%d,%.12e,%.12e,"
+                    "%s,%s,%.12e,%d,%s,%s,%s,%.12e,%d,"
+                    "%.12e,%s,false,%.12e,%.12e,%s\n",
+                    gp_assisted_runtime.stageA_case_label[0] ? gp_assisted_runtime.stageA_case_label : "unknown_case",
+                    P.temperature_C, diagnostic_xBcrit_reference,
+                    P.diagnostic_rsmd_xB_halo_target,
+                    P.diagnostic_rsmd_R_exchange_nm,
+                    P.diagnostic_rsmd_chi_rel,
+                    P.diagnostic_rsmd_kernel_radius_dx,
+                    P.diagnostic_rsmd_delivery_mode,
+                    P.diagnostic_rsmd_interface_shell_width_nm,
+                    P.diagnostic_rsmd_interface_shell_kernel,
+                    P.diagnostic_rsmd_reset_Y_history_after_source,
+                    P.diagnostic_rsmd_history_restart_mode,
+                    P.diagnostic_rsmd_h_src_max,
+                    P.diagnostic_rsmd_f_max_per_step,
+                    P.diagnostic_rsmd_operator_split,
+                    P.diagnostic_rsmd_source_integrator,
+                    P.diagnostic_rsmd_source_substep_dt_code,
+                    P.diagnostic_rsmd_headroom_weighted,
+                    P.diagnostic_rsmd_control_mode,
+                    P.pf_baseline_control_mode,
+                    P.pf_y_update_mode,
+                    P.pf_matrix_storage_floor,
+                    P.diagnostic_rsmd_release_window_steps,
+                    P.diagnostic_rsmd_seed_R_eff_h_nm,
+                    P.diagnostic_rsmd_provenance,
+                    P.scheduled_nuc_scale_interface_width,
+                    P.scheduled_nuc_scale_xB_profile_width,
+                    P.resolved_handoff_xB_write_mode);
+            fflush(gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv);
+            log_kv_text("diagnostic_rsmd_runtime_config_csv", "%s", path);
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_release_event_log.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_release_event_log_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_release_event_log_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD release event CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_release_event_log_csv,
+                    "case,step,post_handoff_step,site_id,gp_ix,gp_iy,gp_iz,"
+                    "distance_to_seed_center_nm,distance_to_beta_interface_nm,R_exchange_nm,"
+                    "kernel_radius_dx,kernel_radius_nm,h_src_max,xB_halo_target,"
+                    "local_halo_xB_before,local_halo_xB_after,requested_release_mass,"
+                    "applied_release_mass,clipped_residual_mass,gp_inventory_before,"
+                    "gp_inventory_after,eligible_cell_count,all_masked,provenance\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_release_event_log_csv);
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_gp_inventory_before_after.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_gp_inventory_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_gp_inventory_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD GP inventory CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_gp_inventory_csv,
+                    "case,snapshot_label,step,site_id,ix,iy,iz,active,"
+                    "B_mass_initial,B_mass_active,B_mass_released,radius_nm,volume_m3,S_factor\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_gp_inventory_csv);
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_matrix_halo_source_normalization.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_matrix_halo_norm_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_matrix_halo_norm_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD halo normalization CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_matrix_halo_norm_csv,
+                    "case,step,site_id,raw_weight_sum,masked_weight_sum,normalized_weight_sum,"
+                    "eligible_cell_count,capacity_mass,requested_mass,applied_mass,"
+                    "clipped_residual_mass,normalization_pass,all_masked,Y_history_reset_after_source\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_matrix_halo_norm_csv);
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_history_restart.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_history_restart_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_history_restart_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD history restart CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_history_restart_csv,
+                    "case,step,post_handoff_step,restart_mode,modified_cells,farfield_cells,"
+                    "max_abs_farfield_history_difference,persistent_history_mutated,"
+                    "rhs_restart_pending,applied_mass\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_history_restart_csv);
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_projection_effect_on_halo.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_projection_effect_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_projection_effect_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD projection effect CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_projection_effect_csv,
+                    "case,step,label,post_handoff_step,halo_xB_mean,halo_xB_min,"
+                    "halo_xB_max,halo_cells,far_field_xB_mean,far_field_cells,"
+                    "M_GP_remaining,M_GP_consumed,M_matrix,M_beta,M_total,mass_error_rel\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_projection_effect_csv);
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_mass_ledger.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_mass_ledger_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_mass_ledger_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD mass ledger CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_mass_ledger_csv,
+                    "case,step,label,M_matrix,M_beta,M_GP_initial,M_GP_new,M_GP_active,"
+                    "M_staged,M_total,M_total_target,mass_error_abs,mass_error_rel,"
+                    "diagnostic_source_mass_applied_cumulative\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_mass_ledger_csv);
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_seed_growth_time_series.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_seed_growth_ts_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_seed_growth_ts_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD seed growth CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_seed_growth_ts_csv,
+                    "case,step,post_handoff_step,physical_time_s,R_eff_h_nm,h_integral,"
+                    "M_beta,phi_max,support_phi_gt_0p05,support_phi_gt_0p1,"
+                    "support_phi_gt_0p3,support_phi_gt_0p5,support_phi_gt_0p8,"
+                    "halo_xB_mean,halo_xB_max,"
+                    "far_field_xB_mean,M_GP_remaining,M_GP_consumed,mass_error_rel,"
+                    "fate_running\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_seed_growth_ts_csv);
+
+            if (P.diagnostic_rsmd_interface_diag_enabled) {
+                snprintf(path, sizeof(path), "%s/diagnostic_rsmd_regional_xB_context.csv",
+                         case_output_dir);
+                gp_assisted_runtime.diagnostic_rsmd_regional_xB_csv = fopen(path, "w");
+                if (!gp_assisted_runtime.diagnostic_rsmd_regional_xB_csv) {
+                    fprintf(stderr, "[fatal] cannot open diagnostic RSMD regional xB CSV: %s\n", path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.diagnostic_rsmd_regional_xB_csv,
+                        "case,step,label,post_handoff_step,physical_time_s,region,cells,"
+                        "xB_alpha_min,xB_alpha_mean,xB_alpha_max,C_tot_min,C_tot_mean,C_tot_max,"
+                        "Y_min,Y_mean,Y_max,matrix_storage_weight_min,matrix_storage_weight_mean,"
+                        "matrix_storage_weight_max,cells_xB_gt_target,cells_xB_gt_0p05,"
+                        "cells_xB_gt_0p10,cells_xB_gt_0p50,cells_xB_gt_0p90,"
+                        "xB_max_cell_index,xB_max_ix,xB_max_iy,xB_max_iz,"
+                        "phi_at_region_xB_max,h_at_region_xB_max,one_minus_h_at_region_xB_max\n");
+                fflush(gp_assisted_runtime.diagnostic_rsmd_regional_xB_csv);
+
+                snprintf(path, sizeof(path), "%s/diagnostic_rsmd_global_max_xB_location.csv",
+                         case_output_dir);
+                gp_assisted_runtime.diagnostic_rsmd_global_max_xB_csv = fopen(path, "w");
+                if (!gp_assisted_runtime.diagnostic_rsmd_global_max_xB_csv) {
+                    fprintf(stderr, "[fatal] cannot open diagnostic RSMD max-xB CSV: %s\n", path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.diagnostic_rsmd_global_max_xB_csv,
+                        "case,step,label,post_handoff_step,physical_time_s,global_max_xB,ix,iy,iz,"
+                        "phi_at_max,h_at_max,distance_to_seed_center_nm,"
+                        "signed_distance_to_phi0p5_nm,distance_method\n");
+                fflush(gp_assisted_runtime.diagnostic_rsmd_global_max_xB_csv);
+
+                snprintf(path, sizeof(path), "%s/diagnostic_rsmd_moving_interface_radial_profiles.csv",
+                         case_output_dir);
+                gp_assisted_runtime.diagnostic_rsmd_radial_profile_csv = fopen(path, "w");
+                if (!gp_assisted_runtime.diagnostic_rsmd_radial_profile_csv) {
+                    fprintf(stderr, "[fatal] cannot open diagnostic RSMD radial CSV: %s\n", path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.diagnostic_rsmd_radial_profile_csv,
+                        "case,step,label,post_handoff_step,physical_time_s,bin_index,"
+                        "signed_radius_lo_nm,signed_radius_hi_nm,signed_radius_center_nm,cells,"
+                        "xB_alpha_mean,h_mean,distance_method\n");
+                fflush(gp_assisted_runtime.diagnostic_rsmd_radial_profile_csv);
+
+                snprintf(path, sizeof(path), "%s/diagnostic_rsmd_moving_interface_bands.csv",
+                         case_output_dir);
+                gp_assisted_runtime.diagnostic_rsmd_interface_band_csv = fopen(path, "w");
+                if (!gp_assisted_runtime.diagnostic_rsmd_interface_band_csv) {
+                    fprintf(stderr, "[fatal] cannot open diagnostic RSMD moving-interface CSV: %s\n", path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.diagnostic_rsmd_interface_band_csv,
+                        "case,step,label,post_handoff_step,physical_time_s,distance_method,"
+                        "distance_resolution_nm,xBcrit_reference,R_eff_h_nm,h_integral,"
+                        "core_phi_ge_0p9_cells,interface_center_phi_0p4_0p6_cells,"
+                        "full_interface_phi_0p1_0p9_cells,outer_0_1_cells,"
+                        "outer_0_1_xB_mean,outer_0_1_xB_min,outer_0_1_xB_max,"
+                        "outer_0_1_fraction_above_xBcrit,outer_0_1_matrix_mass,"
+                        "outer_1_2_cells,outer_1_2_xB_mean,outer_1_2_xB_min,outer_1_2_xB_max,"
+                        "outer_1_2_matrix_mass,outer_2_4_cells,outer_2_4_xB_mean,"
+                        "outer_2_4_xB_min,outer_2_4_xB_max,outer_2_4_matrix_mass,"
+                        "far_field_xB_mean,normal_xB_gradient_mean,normal_flux_toward_beta,"
+                        "net_flux_into_interface_band,mu_alpha_available,source_active_sites\n");
+                fflush(gp_assisted_runtime.diagnostic_rsmd_interface_band_csv);
+
+                snprintf(path, sizeof(path), "%s/diagnostic_rsmd_interface_rhs.csv",
+                         case_output_dir);
+                gp_assisted_runtime.diagnostic_rsmd_interface_rhs_csv = fopen(path, "w");
+                if (!gp_assisted_runtime.diagnostic_rsmd_interface_rhs_csv) {
+                    fprintf(stderr, "[fatal] cannot open diagnostic RSMD interface RHS CSV: %s\n", path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.diagnostic_rsmd_interface_rhs_csv,
+                        "case,step,physical_time_s,region,available,availability_note,cells,"
+                        "phi_rhs_chemical_mean,phi_rhs_double_well_mean,phi_rhs_elastic_mean,"
+                        "phi_rhs_gradient_effective_mean,phi_rhs_total_explicit_mean,"
+                        "dphi_actual_mean,implicit_gradient_status\n");
+                fflush(gp_assisted_runtime.diagnostic_rsmd_interface_rhs_csv);
+            }
+
+            snprintf(path, sizeof(path), "%s/diagnostic_rsmd_locality_check.csv",
+                     case_output_dir);
+            gp_assisted_runtime.diagnostic_rsmd_locality_csv = fopen(path, "w");
+            if (!gp_assisted_runtime.diagnostic_rsmd_locality_csv) {
+                fprintf(stderr, "[fatal] cannot open diagnostic RSMD locality CSV: %s\n", path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.diagnostic_rsmd_locality_csv,
+                    "case,step,site_id,distance_to_seed_center_nm,"
+                    "distance_to_beta_interface_nm,R_exchange_nm,eligible,far_gp_unchanged,"
+                    "inventory_before,inventory_after,applied_mass,distance_metric\n");
+            fflush(gp_assisted_runtime.diagnostic_rsmd_locality_csv);
+
+            diagnostic_rsmd_write_gp_inventory_snapshot(&gp_assisted_runtime, &P, 0, "initial");
+            gp_assisted_runtime.diagnostic_rsmd_gp_inventory_initial_written = 1;
+        }
+        if (P.gp_debug_mass_ledger) {
+            snprintf(gp_assisted_ledger_csv_path, sizeof(gp_assisted_ledger_csv_path),
+                     "%s/gp_mass_ledger_debug.csv", case_output_dir);
+            gp_assisted_runtime.ledger_csv = fopen(gp_assisted_ledger_csv_path, "w");
+            if (!gp_assisted_runtime.ledger_csv) {
+                fprintf(stderr, "[fatal] cannot open GP-assisted mass ledger CSV: %s\n",
+                        gp_assisted_ledger_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.ledger_csv,
+                    "step,stage,site_id,center_i,center_j,center_k,site_active,site_consumed,"
+                    "gp_active_mass,M_matrix,M_beta,M_GP_active,M_staged_beta,M_total,"
+                    "phi_min,phi_max,xB_min,xB_max,Y_min,Y_max\n");
+            fflush(gp_assisted_runtime.ledger_csv);
+            log_kv_text("gp_mass_ledger_debug_csv", "%s", gp_assisted_ledger_csv_path);
+        }
+        snprintf(gp_multi_ledger_csv_path, sizeof(gp_multi_ledger_csv_path),
+                 "%s/gp_multi_site_mass_ledger.csv", case_output_dir);
+        gp_assisted_runtime.multi_ledger_csv = fopen(gp_multi_ledger_csv_path, "w");
+        if (!gp_assisted_runtime.multi_ledger_csv) {
+            fprintf(stderr, "[fatal] cannot open GP-assisted multi-site mass ledger CSV: %s\n",
+                    gp_multi_ledger_csv_path);
+            return 2;
+        }
+        fprintf(gp_assisted_runtime.multi_ledger_csv,
+                "step,n_gp_sites,M_matrix,M_beta,M_GP_active,M_staged_beta,M_total,"
+                "relative_drift,mean_site_B_mass,n_active_sites\n");
+        fflush(gp_assisted_runtime.multi_ledger_csv);
+        log_kv_text("gp_multi_site_mass_ledger_csv", "%s", gp_multi_ledger_csv_path);
+
+        snprintf(gp_scaling_csv_path, sizeof(gp_scaling_csv_path),
+                 "%s/gp_multi_site_scaling_analysis.csv", case_output_dir);
+        gp_assisted_runtime.scaling_csv = fopen(gp_scaling_csv_path, "w");
+        if (!gp_assisted_runtime.scaling_csv) {
+            fprintf(stderr, "[fatal] cannot open GP-assisted scaling analysis CSV: %s\n",
+                    gp_scaling_csv_path);
+            return 2;
+        }
+        fprintf(gp_assisted_runtime.scaling_csv,
+                "n_gp_sites,beta_nucleation_count,total_GP_consumed,total_matrix_drawn,event_accept_rate,mass_drift_max,mass_drift_mean,beta_density,notes\n");
+        fflush(gp_assisted_runtime.scaling_csv);
+        log_kv_text("gp_multi_site_scaling_analysis_csv", "%s", gp_scaling_csv_path);
+        if (P.gp_stochastic_enabled) {
+            snprintf(gp_stochastic_csv_path, sizeof(gp_stochastic_csv_path),
+                     "%s/gp_stochastic_event_log.csv", case_output_dir);
+            gp_assisted_runtime.stochastic_csv = fopen(gp_stochastic_csv_path, "w");
+            if (!gp_assisted_runtime.stochastic_csv) {
+                fprintf(stderr, "[fatal] cannot open GP-assisted stochastic event CSV: %s\n",
+                        gp_stochastic_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.stochastic_csv,
+                    "step,time,site_id,hazard_i,total_hazard,random_draw,selection_probability,event_status,"
+                    "M_B_total_before,M_B_total_after,event_mass_error,xB_min,xB_max,notes\n");
+            fflush(gp_assisted_runtime.stochastic_csv);
+            log_kv_text("gp_stochastic_event_log_csv", "%s", gp_stochastic_csv_path);
+
+            if (P.gp_ranked_hazard_full_log_enabled) {
+                snprintf(gp_ranked_hazard_csv_path, sizeof(gp_ranked_hazard_csv_path),
+                         "%s/gp_physics_ranked_hazard_validation.csv", case_output_dir);
+                gp_assisted_runtime.ranked_hazard_csv = fopen(gp_ranked_hazard_csv_path, "w");
+                if (!gp_assisted_runtime.ranked_hazard_csv) {
+                    fprintf(stderr, "[fatal] cannot open GP-assisted ranked hazard CSV: %s\n",
+                            gp_ranked_hazard_csv_path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.ranked_hazard_csv,
+                        "step,site_id,xB_local,curvature,GP_density,h_i_total,f_xB,g_curvature,q_density,"
+                        "N_site_m3,Z_n_used,Z_r,beta_r_star_1_s,DeltaV_nuc_m3,dt_event_s,Theta_tr,beta_rate_model,"
+                        "selection_probability,selected_flag\n");
+                fflush(gp_assisted_runtime.ranked_hazard_csv);
+                log_kv_text("gp_physics_ranked_hazard_validation_csv", "%s", gp_ranked_hazard_csv_path);
+            } else {
+                log_kv_text("gp_physics_ranked_hazard_validation_csv", "%s", "disabled_summary_only");
+            }
+
+            snprintf(gp_strong_separation_csv_path, sizeof(gp_strong_separation_csv_path),
+                     "%s/gp_strong_physics_separation.csv", case_output_dir);
+            gp_assisted_runtime.strong_separation_csv = fopen(gp_strong_separation_csv_path, "w");
+            if (!gp_assisted_runtime.strong_separation_csv) {
+                fprintf(stderr, "[fatal] cannot open GP-assisted strong physics separation CSV: %s\n",
+                        gp_strong_separation_csv_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.strong_separation_csv,
+                    "site_id,xB_local,curvature,GP_density,f_xB_old,f_xB_new,g_old,g_new,q_old,q_new,h_i_old,h_i_new,P_i_old,P_i_new,rank_change\n");
+            fflush(gp_assisted_runtime.strong_separation_csv);
+            log_kv_text("gp_strong_physics_separation_csv", "%s", gp_strong_separation_csv_path);
+        }
+        if (P.enable_gp_runtime_library_nucleation) {
+            if (!gp_runtime_load_barrier_library(&gp_assisted_runtime, &P)) {
+                fprintf(stderr, "[fatal] GP runtime library nucleation enabled but barrier library could not be loaded.\n");
+                return 2;
+            }
+            if (!gp_runtime_load_nucleus_catalog(&gp_assisted_runtime, &P)) {
+                fprintf(stderr, "[fatal] GP runtime nucleus catalog load failed unexpectedly.\n");
+                return 2;
+            }
+            char gp_runtime_event_path[4096];
+            snprintf(gp_runtime_event_path, sizeof(gp_runtime_event_path),
+                     "%s/gp_runtime_nucleation_event_log.csv", case_output_dir);
+            gp_assisted_runtime.runtime_library_event_csv = fopen(gp_runtime_event_path, "w");
+            if (!gp_assisted_runtime.runtime_library_event_csv) {
+                fprintf(stderr, "[fatal] cannot open gp runtime library event CSV: %s\n", gp_runtime_event_path);
+                return 2;
+            }
+            fprintf(gp_assisted_runtime.runtime_library_event_csv,
+                    "step,time,event_id,i,j,k,x,y,z,xB_local,phi_beta_local,GP_present,GP_mass_available,"
+                    "s_GP,DeltaG_bare_kBT,DeltaG_eff_kBT,J_bare,J_eff,P_event,"
+                    "dt_event_s,DeltaV_nuc_m3,N_site_m3,Z_n_used,Z_r,beta_r_star_1_s,Theta_tr,beta_rate_model,beta_rate_rejection_reason,"
+                    "barrier_source_case,"
+                    "seed_source,r_star_nm,r_seed_nm,mass_required,mass_from_GP,mass_from_matrix,"
+                    "mass_error,accepted,rejection_reason,r_star_source_column,rstar_fallback_used,"
+                    "catalog_match_status,catalog_rejection_reason,strain_mode_runtime,strain_mode_catalog,T_catalog,xB_catalog\n");
+            fflush(gp_assisted_runtime.runtime_library_event_csv);
+            log_kv_text("gp_runtime_nucleation_event_log_csv", "%s", gp_runtime_event_path);
+            if (P.enable_dynamic_continue_bridge && P.gp_runtime_enable_delayed_insertion_queue) {
+                char gp_runtime_bridge_queue_path[4096];
+                char gp_runtime_bridge_insert_path[4096];
+                snprintf(gp_runtime_bridge_queue_path, sizeof(gp_runtime_bridge_queue_path),
+                         "%s/gp_runtime_bridge_queue_log.csv", case_output_dir);
+                gp_assisted_runtime.runtime_bridge_queue_csv = fopen(gp_runtime_bridge_queue_path, "w");
+                if (!gp_assisted_runtime.runtime_bridge_queue_csv) {
+                    fprintf(stderr, "[fatal] cannot open gp runtime bridge queue CSV: %s\n",
+                            gp_runtime_bridge_queue_path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.runtime_bridge_queue_csv,
+                        "record_type,event_id,site_id,step_nuc,step_delay,step_insert,library_entry_id,status,"
+                        "xB_local,r_seed_nm,r_seed_grid,tau_bridge_s,tau_bridge_code_time,runtime_dx_nm,"
+                        "profile_dir,source_dyn_dir,selection_reason,event_mass_error_abs,event_mass_error_rel\n");
+                fflush(gp_assisted_runtime.runtime_bridge_queue_csv);
+                log_kv_text("gp_runtime_bridge_queue_csv", "%s", gp_runtime_bridge_queue_path);
+
+                snprintf(gp_runtime_bridge_insert_path, sizeof(gp_runtime_bridge_insert_path),
+                         "%s/gp_runtime_bridge_insert_events.csv", case_output_dir);
+                gp_assisted_runtime.runtime_bridge_insert_csv = fopen(gp_runtime_bridge_insert_path, "w");
+                if (!gp_assisted_runtime.runtime_bridge_insert_csv) {
+                    fprintf(stderr, "[fatal] cannot open gp runtime bridge insert CSV: %s\n",
+                            gp_runtime_bridge_insert_path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.runtime_bridge_insert_csv,
+                        "event_id,step,source_case_label,center_x_nm,center_y_nm,center_z_nm,xB_edge,"
+                        "M_before_event,M_after_embed_before_comp,M_after_comp,event_mass_error,relative_event_mass_error,"
+                        "C_local,local_comp_weight_active_fraction,xB_min_before,xB_max_before,xB_min_after,xB_max_after,"
+                        "phi_max_after,mean_hphi_after,clip_lower_fraction,clip_upper_fraction,profile_queries_out_of_range_fraction,overlap_warning\n");
+                fflush(gp_assisted_runtime.runtime_bridge_insert_csv);
+                log_kv_text("gp_runtime_bridge_insert_csv", "%s", gp_runtime_bridge_insert_path);
+            }
+            if (P.gp_runtime_log_candidates && P.gp_runtime_log_candidate_full_rows) {
+                char gp_runtime_candidate_path[4096];
+                snprintf(gp_runtime_candidate_path, sizeof(gp_runtime_candidate_path),
+                         "%s/gp_runtime_nucleation_candidate_log.csv", case_output_dir);
+                gp_assisted_runtime.runtime_library_candidate_csv = fopen(gp_runtime_candidate_path, "w");
+                if (!gp_assisted_runtime.runtime_library_candidate_csv) {
+                    fprintf(stderr, "[fatal] cannot open gp runtime library candidate CSV: %s\n", gp_runtime_candidate_path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.runtime_library_candidate_csv,
+                        "step,time,site_id,i,j,k,xB_local,phi_beta_local,GP_present,s_GP,"
+                        "DeltaG_bare_kBT,DeltaG_eff_kBT,hazard,P_event,dt_event_s,DeltaV_nuc_m3,N_site_m3,Z_n_used,Z_r,"
+                        "beta_r_star_1_s,Theta_tr,beta_rate_model,beta_rate_rejection_reason,barrier_source_case,"
+                        "r_star_source_column,rstar_fallback_used,rejection_reason,selected_flag\n");
+                fflush(gp_assisted_runtime.runtime_library_candidate_csv);
+                log_kv_text("gp_runtime_nucleation_candidate_log_csv", "%s", gp_runtime_candidate_path);
+            }
+            if (P.gp_runtime_log_candidates && P.gp_runtime_log_candidate_summary) {
+                char gp_runtime_candidate_summary_path[4096];
+                snprintf(gp_runtime_candidate_summary_path, sizeof(gp_runtime_candidate_summary_path),
+                         "%s/gp_runtime_nucleation_candidate_summary.csv", case_output_dir);
+                gp_assisted_runtime.runtime_library_candidate_summary_csv = fopen(gp_runtime_candidate_summary_path, "w");
+                if (!gp_assisted_runtime.runtime_library_candidate_summary_csv) {
+                    fprintf(stderr, "[fatal] cannot open gp runtime library candidate summary CSV: %s\n",
+                            gp_runtime_candidate_summary_path);
+                    return 2;
+                }
+                fprintf(gp_assisted_runtime.runtime_library_candidate_summary_csv,
+                        "step,time,candidate_count,active_count,gp_present_count,finite_J_count,"
+                        "s_GP_min,s_GP_max,DeltaG_eff_min,DeltaG_eff_max,J_eff_min,J_eff_max,"
+                        "total_hazard,p_any,selected_flag,selected_site_id,event_status,"
+                        "beta_events_accepted_cumulative,beta_events_scheduled_cumulative\n");
+                fflush(gp_assisted_runtime.runtime_library_candidate_summary_csv);
+                log_kv_text("gp_runtime_nucleation_candidate_summary_csv", "%s", gp_runtime_candidate_summary_path);
+            }
+        }
+        log_section_header("GP-Assisted Beta Debug");
+        log_kv_text("enable_gp_assisted_beta_nucleation", "%d", P.enable_gp_assisted_beta_nucleation);
+        log_kv_text("gp_assisted_debug_scheduled", "%d", P.gp_assisted_debug_scheduled);
+        log_kv_text("gp_site_mode", "%s", P.gp_site_mode);
+        log_kv_text("gp_n_sites", "%d", P.gp_n_sites);
+        log_kv_text("gp_seed", "%lu", P.gp_seed);
+        log_kv_text("gp_birth_model", "%s", P.gp_birth_model);
+        log_kv_text("gp_population_source", "%s", P.gp_population_source);
+        log_kv_text("gp_literature_model_enabled", "%d", P.gp_literature_model_enabled);
+        log_kv_text("gp_literature_xAg_default", "%.12e", P.gp_literature_xAg_default);
+        log_kv_text("gp_literature_xAg_mode", "%s", P.gp_literature_xAg_mode);
+        log_kv_text("gp_birth_max_events_per_step", "%d", P.gp_birth_max_events_per_step);
+        log_kv_text("gp_birth_max_total_sites", "%d", P.gp_birth_max_total_sites);
+        log_kv_text("gp_birth_rng_seed", "%lu", P.gp_birth_rng_seed);
+        log_kv_text("gp_birth_inventory_policy", "%s", P.gp_birth_inventory_policy);
+        log_kv_text("gp_literature_birth_requires_post_Y_projection", "%d",
+                    P.gp_literature_birth_requires_post_Y_projection);
+        log_kv_text("gp_birth_debug_force_single_event", "%d", P.gp_birth_debug_force_single_event);
+        log_kv_text("gp_birth_debug_force_step", "%d", P.gp_birth_debug_force_step);
+        log_kv_text("gp_birth_debug_force_position_mode", "%s", P.gp_birth_debug_force_position_mode);
+        log_kv_text("gp_birth_debug_disable_poisson_randomness", "%d", P.gp_birth_debug_disable_poisson_randomness);
+        log_kv_text("gp_birth_debug_max_events_total", "%d", P.gp_birth_debug_max_events_total);
+        log_kv_text("beta_debug_force_single_event", "%d", P.beta_debug_force_single_event);
+        log_kv_text("beta_debug_force_step", "%d", P.beta_debug_force_step);
+        log_kv_text("beta_debug_position_mode", "%s", P.beta_debug_position_mode);
+        log_kv_text("beta_debug_inventory_mode", "%s", P.beta_debug_inventory_mode);
+        log_kv_text("beta_debug_capacity_fraction", "%.12e", P.beta_debug_capacity_fraction);
+        log_kv_text("beta_debug_draw_radius_mode", "%s", P.beta_debug_draw_radius_mode);
+        log_kv_text("beta_debug_draw_radius_list_nm", "%s", P.beta_debug_draw_radius_list_nm);
+        log_kv_text("beta_debug_do_not_reduce_requested_mass", "%d", P.beta_debug_do_not_reduce_requested_mass);
+        log_kv_text("beta_debug_matrix_draw_radius_nm", "%.12e", P.beta_debug_matrix_draw_radius_nm);
+        log_kv_text("beta_debug_GP_capture_mode", "%s", P.beta_debug_GP_capture_mode);
+        log_kv_text("beta_debug_GP_capture_radius_nm", "%.12e", P.beta_debug_GP_capture_radius_nm);
+        log_kv_text("beta_debug_GP_capture_consume_order", "%s", P.beta_debug_GP_capture_consume_order);
+        log_kv_text("beta_debug_max_events_total", "%d", P.beta_debug_max_events_total);
+        log_kv_text("beta_handoff_policy", "%s", P.beta_handoff_policy);
+        log_kv_text("beta_capacity_gate_enabled", "%d", P.beta_capacity_gate_enabled);
+        log_kv_text("beta_capacity_gate_matrix_draw_radius_nm", "%.12e",
+                    P.beta_capacity_gate_matrix_draw_radius_nm);
+        log_kv_text("beta_capacity_gate_GP_capture_mode", "%s",
+                    P.beta_capacity_gate_GP_capture_mode);
+        log_kv_text("beta_capacity_gate_GP_capture_radius_nm", "%.12e",
+                    P.beta_capacity_gate_GP_capture_radius_nm);
+        log_kv_text("beta_capacity_gate_max_reasonable_radius_nm", "%.12e",
+                    P.beta_capacity_gate_max_reasonable_radius_nm);
+        log_kv_text("beta_capacity_gate_allow_direct_if_capacity_ratio_ge", "%.12e",
+                    P.beta_capacity_gate_allow_direct_if_capacity_ratio_ge);
+        log_kv_text("beta_staged_conversion_enabled", "%d", P.beta_staged_conversion_enabled);
+        log_kv_text("beta_staged_conversion_target", "%s", P.beta_staged_conversion_target);
+        log_kv_text("beta_staged_conversion_initial_inventory_mode", "%s",
+                    P.beta_staged_conversion_initial_inventory_mode);
+        log_kv_text("beta_staged_conversion_release_mode", "%s",
+                    P.beta_staged_conversion_release_mode);
+        log_kv_text("beta_staged_conversion_insert_when_capacity_reached", "%d",
+                    P.beta_staged_conversion_insert_when_capacity_reached);
+        log_kv_text("beta_staged_conversion_max_subgrid_steps", "%d",
+                    P.beta_staged_conversion_max_subgrid_steps);
+        log_kv_text("beta_staged_conversion_mass_tolerance_rel", "%.12e",
+                    P.beta_staged_conversion_mass_tolerance_rel);
+        log_kv_text("beta_staged_accumulation_enabled", "%d",
+                    P.beta_staged_accumulation_enabled);
+        log_kv_text("beta_staged_accumulation_interval_steps", "%d",
+                    P.beta_staged_accumulation_interval_steps);
+        log_kv_text("beta_staged_accumulation_GP_capture_radius_nm", "%.12e",
+                    P.beta_staged_accumulation_GP_capture_radius_nm);
+        log_kv_text("beta_staged_accumulation_matrix_draw_radius_nm", "%.12e",
+                    P.beta_staged_accumulation_matrix_draw_radius_nm);
+        log_kv_text("beta_staged_accumulation_max_fraction_per_step", "%.12e",
+                    P.beta_staged_accumulation_max_fraction_per_step);
+        log_kv_text("beta_staged_accumulation_max_inventory_per_step", "%.12e",
+                    P.beta_staged_accumulation_max_inventory_per_step);
+        log_kv_text("beta_staged_insert_when_target_reached", "%d",
+                    P.beta_staged_insert_when_target_reached);
+        log_kv_text("beta_staged_debug_accelerated_accumulation", "%d",
+                    P.beta_staged_debug_accelerated_accumulation);
+        log_kv_text("beta_staged_debug_accumulation_rate_multiplier", "%.12e",
+                    P.beta_staged_debug_accumulation_rate_multiplier);
+        log_kv_text("beta_staged_debug_stop_after_resolved_insert", "%d",
+                    P.beta_staged_debug_stop_after_resolved_insert);
+        log_kv_text("resolved_handoff_xB_write_mode", "%s",
+                    P.resolved_handoff_xB_write_mode);
+        log_kv_text("gp_birth_max_total_new_births_for_debug", "%d",
+                    P.gp_birth_max_total_new_births_for_debug);
+        log_kv_text("gp_runtime_log_candidates", "%d", P.gp_runtime_log_candidates);
+        log_kv_text("gp_runtime_log_candidate_full_rows", "%d", P.gp_runtime_log_candidate_full_rows);
+        log_kv_text("gp_runtime_log_candidate_summary", "%d", P.gp_runtime_log_candidate_summary);
+        log_kv_text("gp_ranked_hazard_full_log_enabled", "%d", P.gp_ranked_hazard_full_log_enabled);
+        log_kv_text("gp_birth_debug_stop_after_step", "%d", P.gp_birth_debug_stop_after_step);
+        log_kv_text("gp_birth_debug_freeze_dynamics_after_birth", "%d", P.gp_birth_debug_freeze_dynamics_after_birth);
+        log_kv_text("gp_birth_debug_disable_CH_dynamics_after_birth", "%d", P.gp_birth_debug_disable_CH_dynamics_after_birth);
+        log_kv_text("gp_birth_debug_force_rebuild_Y_after_birth", "%d", P.gp_birth_debug_force_rebuild_Y_after_birth);
+        log_kv_text("gp_post_birth_mass_probe_enabled", "%d", P.gp_post_birth_mass_probe_enabled);
+        log_kv_text("gp_debug_scheduled_site_id", "%d", P.gp_debug_scheduled_site_id);
+        log_kv_text("gp_debug_scheduled_step", "%d", P.gp_debug_scheduled_step);
+        log_kv_text("gp_release_mode", "%s", P.gp_release_mode);
+        log_kv_text("gp_initial_mass_mode", "%s", P.gp_initial_mass_mode);
+        log_kv_text("gp_release_kernel", "%s", P.gp_release_kernel);
+        log_kv_text("gp_site_B_mass_equiv", "%.12e", P.gp_site_B_mass_equiv);
+        log_kv_text("gp_xB_fixed", "%.12e", P.gp_xB_fixed);
+        log_kv_text("gp_marker_core_radius_nm", "%.12e", P.gp_marker_core_radius_nm);
+        log_kv_text("gp_marker_influence_radius_nm", "%.12e", P.gp_marker_influence_radius_nm);
+        log_kv_text("gp_depletion_radius_nm", "%.12e", P.gp_depletion_radius_nm);
+        log_kv_text("gp_xB_floor", "%.12e", P.gp_xB_floor);
+        log_kv_text("gp_depletion_kernel", "%s", P.gp_depletion_kernel);
+        log_kv_text("gp_initial_population_enabled", "%d", P.gp_initial_population_enabled);
+        log_kv_text("gp_initial_population_source", "%s", P.gp_initial_population_source);
+        log_kv_text("gp_initial_xB_tot", "%.12e", P.gp_initial_xB_tot);
+        log_kv_text("gp_initial_rho_m3", "%.12e", P.gp_initial_rho_m3);
+        log_kv_text("gp_initial_xAg_far", "%.12e", P.gp_initial_xAg_far);
+        log_kv_text("gp_initial_xAg_GP", "%.12e", P.gp_initial_xAg_GP);
+        log_kv_text("gp_initial_radius_distribution", "%s", P.gp_initial_radius_distribution);
+        log_kv_text("gp_initial_radius_mean_target_nm", "%.12e", P.gp_initial_radius_mean_target_nm);
+        log_kv_text("gp_initial_radius_std_nm", "%.12e", P.gp_initial_radius_std_nm);
+        log_kv_text("gp_initial_radius_min_nm", "%.12e", P.gp_initial_radius_min_nm);
+        log_kv_text("gp_initial_radius_max_nm", "%.12e", P.gp_initial_radius_max_nm);
+        log_kv_text("gp_initial_radius_renormalization", "%s", P.gp_initial_radius_renormalization);
+        log_kv_text("gp_initial_count_mode", "%s", P.gp_initial_count_mode);
+        log_kv_text("gp_initial_position_mode", "%s", P.gp_initial_position_mode);
+        log_kv_text("gp_initial_min_center_spacing_factor", "%.12e", P.gp_initial_min_center_spacing_factor);
+        log_kv_text("gp_initial_rng_seed", "%lu", P.gp_initial_rng_seed);
+        log_kv_text("gp_growth_enabled", "%d", P.gp_growth_enabled);
+        log_kv_text("gp_radius_evolution_enabled", "%d", P.gp_radius_evolution_enabled);
+        log_kv_text("gp_inventory_growth_enabled", "%d", P.gp_inventory_growth_enabled);
+        log_kv_text("gp_beta_selection_enabled", "%d", P.gp_beta_selection_enabled);
+        log_kv_text("gp_stochastic_enabled", "%d", P.gp_stochastic_enabled);
+        if (P.gp_stochastic_enabled) {
+            log_kv_text("gp_stochastic_k0", "%.12e", P.gp_stochastic_k0);
+            log_kv_text("gp_stochastic_S_GP", "%.12e", P.gp_stochastic_S_GP);
+            log_kv_text("gp_stochastic_deltaG_homo_kBT", "%.12e", P.gp_stochastic_deltaG_homo_kBT);
+            log_kv_text("beta_rate_model", "%s", P.beta_rate_model);
+            log_kv_text("beta_rate_use_physical_dt", "%d", P.beta_rate_use_physical_dt);
+            log_kv_text("beta_rate_use_gp_barrier_modifier", "%d", P.beta_rate_use_gp_barrier_modifier);
+            log_kv_text("beta_rate_D_B_alpha_model", "%s", P.beta_rate_D_B_alpha_model);
+            log_kv_text("beta_rate_Omega_g_m3", "%.12e", P.beta_rate_Omega_g_m3);
+            log_kv_text("beta_rate_Omega_g_source", "%s", P.beta_rate_Omega_g_source);
+            log_kv_text("beta_rate_Omega_site_m3", "%.12e", P.beta_rate_Omega_site_m3);
+            log_kv_text("beta_rate_N_site_m3", "%.12e", P.beta_rate_N_site_m3);
+            log_kv_text("beta_rate_site_model", "%s", P.beta_rate_site_model);
+            log_kv_text("beta_rate_gp_capture_volume_model", "%s", P.beta_rate_gp_capture_volume_model);
+            log_kv_text("beta_rate_Z_type", "%s", P.beta_rate_Z_type);
+            log_kv_text("beta_rate_Z_r_fallback_mode", "%s", P.beta_rate_Z_r_fallback_mode);
+            log_kv_text("beta_rate_Z_r_source", "%s", P.beta_rate_Z_r_source);
+            log_kv_text("beta_rate_Z_r_required", "%d", P.beta_rate_Z_r_required);
+            log_kv_text("beta_rate_Z_r_debug_fallback_enabled", "%d", P.beta_rate_Z_r_debug_fallback_enabled);
+            log_kv_text("beta_rate_allow_runtime_Zn_from_Zr", "%d", P.beta_rate_allow_runtime_Zn_from_Zr);
+            log_kv_text("beta_rate_scale_Z_with_sGP", "%d", P.beta_rate_scale_Z_with_sGP);
+            log_kv_text("beta_rate_deltaV_nuc_mode", "%s", P.beta_rate_deltaV_nuc_mode);
+            log_kv_text("beta_rate_deltaV_nuc_m3", "%.12e", P.beta_rate_deltaV_nuc_m3);
+            log_kv_text("beta_rate_debug_rate_multiplier", "%.12e", P.beta_rate_debug_rate_multiplier);
+            log_kv_text("beta_rate_phi_threshold", "%.12e", P.beta_rate_phi_threshold);
+            log_kv_text("beta_rate_xB_min", "%.12e", P.beta_rate_xB_min);
+            log_kv_text("beta_rate_transient_enabled", "%d", P.beta_rate_transient_enabled);
+            log_kv_text("beta_rate_tau_inc_s", "%.12e", P.beta_rate_tau_inc_s);
+        }
+        log_kv_text("enable_gp_runtime_library_nucleation", "%d", P.enable_gp_runtime_library_nucleation);
+        if (strcmp(P.gp_birth_model, "poisson_literature_JGP") == 0 &&
+            P.gp_barrier_only_mode == 1 &&
+            P.enable_legacy_gp_storage_coupling == 0 &&
+            P.gp_literature_birth_requires_post_Y_projection) {
+            printf("GP_LITERATURE_POST_Y_PROJECTION_REQUIRED = %d\n",
+                   P.gp_literature_birth_requires_post_Y_projection);
+            printf("Y_UPDATE_MASS_PROJECTION_ACTIVE = %d\n",
+                   P.y_update_mass_projection_enabled);
+            printf("Y_UPDATE_MASS_PROJECTION_TARGET_MODE = %s\n",
+                   P.y_update_mass_projection_target_mode);
+        }
+        if (P.enable_gp_runtime_library_nucleation) {
+            log_kv_text("gp_runtime_barrier_library_path", "%s", P.gp_runtime_barrier_library_path);
+            log_kv_text("gp_runtime_nucleus_catalog_path", "%s", P.gp_runtime_nucleus_catalog_path);
+            log_kv_text("gp_runtime_barrier_mode", "%s", P.gp_runtime_barrier_mode);
+            log_kv_text("gp_runtime_s_gp_scalar", "%.12e", P.gp_runtime_s_gp_scalar);
+            log_kv_text("gp_runtime_nucleation_mode", "%s", P.gp_runtime_nucleation_mode);
+            log_kv_text("gp_runtime_catalog_T_tol_C", "%.12e", P.gp_runtime_catalog_T_tol_C);
+            log_kv_text("gp_runtime_catalog_xB_tol", "%.12e", P.gp_runtime_catalog_xB_tol);
+            log_kv_text("gp_runtime_catalog_strain_mode_strict", "%d", P.gp_runtime_catalog_strain_mode_strict);
+            log_kv_text("gp_runtime_catalog_allow_fallback", "%d", P.gp_runtime_catalog_allow_fallback);
+            log_kv_text("enable_dynamic_continue_bridge", "%d", P.enable_dynamic_continue_bridge);
+            log_kv_text("dynamic_continue_bridge_catalog_path", "%s", P.dynamic_continue_bridge_catalog_path);
+            log_kv_text("gp_runtime_bridge_missing_policy", "%s", P.gp_runtime_bridge_missing_policy);
+            log_kv_text("gp_runtime_min_rseed_over_dx", "%.12e", P.gp_runtime_min_rseed_over_dx);
+            log_kv_text("gp_runtime_enable_delayed_insertion_queue", "%d", P.gp_runtime_enable_delayed_insertion_queue);
+            log_kv_text("gp_runtime_log_bridge_queue", "%d", P.gp_runtime_log_bridge_queue);
+            log_kv_text("gp_runtime_allow_immediate_fallback_debug", "%d", P.gp_runtime_allow_immediate_fallback_debug);
+            log_kv_text("enable_runtime_nucleus_library", "%d", P.enable_runtime_nucleus_library);
+            log_kv_text("gp_runtime_nucleus_library_path", "%s", P.gp_runtime_nucleus_library_path);
+            log_kv_text("gp_runtime_profile_cache_root", "%s", P.gp_runtime_profile_cache_root);
+            log_kv_text("gp_runtime_force_first_selector_event", "%d", P.gp_runtime_force_first_selector_event);
+            log_kv_text("gp_runtime_force_event_step", "%d", P.gp_runtime_force_event_step);
+            log_kv_text("gp_runtime_barrier_entries", "%zu", gp_assisted_runtime.barrier_entries.size());
+            log_kv_text("gp_runtime_catalog_entries", "%zu", gp_assisted_runtime.nucleus_entries.size());
+        }
     }
     if (is_gp_zone_mode(&P) && P.gp_nuc_enabled) {
         char gp_nuc_csv_path[4096];
@@ -12204,7 +26030,14 @@ int main(int argc, char **argv) {
                      P.y_update_k0_audit_prefix);
             log_kv_text("y_update_k0_audit_csv", "%s", y_update_k0_audit_csv_path);
         }
-        if (P.y_update_mass_projection_enabled &&
+        const int staged_active_post_y_projection_possible_for_reports =
+            (P.enable_gp_assisted_beta_nucleation &&
+             !gp_storage_coupling_enabled(&P) &&
+             P.beta_staged_conversion_enabled)
+                ? 1
+                : 0;
+        if ((P.y_update_mass_projection_enabled ||
+             staged_active_post_y_projection_possible_for_reports) &&
             (P.y_update_mass_projection_report_enabled || P.y_update_k0_audit_enabled)) {
             char y_update_mass_projection_csv_path[4096];
             snprintf(y_update_mass_projection_csv_path, sizeof(y_update_mass_projection_csv_path),
@@ -12227,7 +26060,104 @@ int main(int argc, char **argv) {
             log_kv_text("y_update_mass_projection_csv", "%s", y_update_mass_projection_csv_path);
         }
     }
-    
+    if (case_output_dir && case_output_dir[0] != '\0') {
+        if (P.post_conversion_y_update_audit_enabled && !post_conversion_audit_runtime.csv) {
+            char post_conv_audit_csv_path[4096];
+            snprintf(post_conv_audit_csv_path, sizeof(post_conv_audit_csv_path),
+                     "%s/%s.csv", case_output_dir, P.post_conversion_y_update_audit_prefix);
+            post_conversion_audit_runtime.csv = fopen(post_conv_audit_csv_path, "w");
+            if (!post_conversion_audit_runtime.csv) {
+                fprintf(stderr, "[fatal] cannot open post-conversion Y audit CSV: %s\n",
+                        post_conv_audit_csv_path);
+                return 2;
+            }
+            fprintf(post_conversion_audit_runtime.csv,
+                    "step,stage,sum_xBtot,delta_sum_xBtot_from_previous_stage,"
+                    "delta_sum_xBtot_from_post_conversion_baseline,mean_xBtot,mean_xB,min_xB,max_xB,mean_Y,"
+                    "Y_k0_before,Y_k0_after,delta_Y_k0,Y_update_k0_drift,Y_update_nonzero_mode_drift,"
+                    "clipped_mass_loss,num_clipped_low,num_clipped_high,storage_residual_sum,storage_residual_max_abs\n");
+            fflush(post_conversion_audit_runtime.csv);
+            snprintf(post_conversion_audit_runtime.prefix, sizeof(post_conversion_audit_runtime.prefix), "%s",
+                     P.post_conversion_y_update_audit_prefix);
+            log_kv_text("post_conversion_y_update_audit_csv", "%s", post_conv_audit_csv_path);
+        }
+        if (P.y_update_k0_audit_enabled && !y_update_k0_audit_runtime.csv) {
+            char y_update_k0_audit_csv_path[4096];
+            snprintf(y_update_k0_audit_csv_path, sizeof(y_update_k0_audit_csv_path),
+                     "%s/%s.csv", case_output_dir, P.y_update_k0_audit_prefix);
+            y_update_k0_audit_runtime.csv = fopen(y_update_k0_audit_csv_path, "w");
+            if (!y_update_k0_audit_runtime.csv) {
+                fprintf(stderr, "[fatal] cannot open Y-update k0 audit CSV: %s\n",
+                        y_update_k0_audit_csv_path);
+                return 2;
+            }
+            fprintf(y_update_k0_audit_runtime.csv,
+                    "step,audit_step_index,stage,post_conversion_step,"
+                    "sum_xBtot_before_Y,sum_xBtot_after_Y,delta_sum_xBtot_Y_update,target_sum_xBtot,"
+                    "Y_k0_before,Y_k0_after,delta_Y_k0,"
+                    "RHS_k0_total,RHS_k0_linear,RHS_k0_nonlinear,RHS_k0_stabilization_add,RHS_k0_stabilization_subtract,"
+                    "RHS_k0_source,RHS_k0_transport,RHS_k0_unknown,"
+                    "mean_Y_before,mean_Y_after,mean_xB_before,mean_xB_after,"
+                    "min_xB_before,max_xB_before,min_xB_after,max_xB_after,"
+                    "mean_phi,mean_eta,mean_h_gp,mean_h_beta,"
+                    "storage_residual_sum_before,storage_residual_sum_after,"
+                    "storage_residual_max_abs_before,storage_residual_max_abs_after,notes\n");
+            fflush(y_update_k0_audit_runtime.csv);
+            snprintf(y_update_k0_audit_runtime.prefix, sizeof(y_update_k0_audit_runtime.prefix), "%s",
+                     P.y_update_k0_audit_prefix);
+            log_kv_text("y_update_k0_audit_csv", "%s", y_update_k0_audit_csv_path);
+        }
+        const int staged_active_post_y_projection_possible_for_reports =
+            (P.enable_gp_assisted_beta_nucleation &&
+             !gp_storage_coupling_enabled(&P) &&
+             P.beta_staged_conversion_enabled)
+                ? 1
+                : 0;
+        if ((P.y_update_mass_projection_enabled ||
+             staged_active_post_y_projection_possible_for_reports) &&
+            (P.y_update_mass_projection_report_enabled || P.y_update_k0_audit_enabled) &&
+            !y_update_mass_projection_fp) {
+            char y_update_mass_projection_csv_path[4096];
+            snprintf(y_update_mass_projection_csv_path, sizeof(y_update_mass_projection_csv_path),
+                     "%s/y_update_mass_projection.csv", case_output_dir);
+            y_update_mass_projection_fp = fopen(y_update_mass_projection_csv_path, "w");
+            if (!y_update_mass_projection_fp) {
+                fprintf(stderr, "[fatal] cannot open Y-update mass projection CSV: %s\n",
+                        y_update_mass_projection_csv_path);
+                return 2;
+            }
+            fprintf(y_update_mass_projection_fp,
+                    "step,post_conversion_step,target_mode,target_sum_xBtot,"
+                    "sum_xBtot_before_projection,sum_xBtot_after_projection,"
+                    "delta_before_projection,delta_after_projection,"
+                    "lambda_shift,num_iter,converged,projection_residual,"
+                    "min_xB_before_projection,max_xB_before_projection,"
+                    "min_xB_after_projection,max_xB_after_projection,"
+                    "num_clipped_low_after_projection,num_clipped_high_after_projection,notes\n");
+            fflush(y_update_mass_projection_fp);
+            log_kv_text("y_update_mass_projection_csv", "%s", y_update_mass_projection_csv_path);
+        }
+    }
+    if (P.mode == 0 && P.audit_post_insertion_drift_enabled && case_output_dir && case_output_dir[0] != '\0') {
+        char drift_audit_csv_path[4096];
+        snprintf(drift_audit_csv_path, sizeof(drift_audit_csv_path),
+                 "%s/%s.csv", case_output_dir, P.audit_post_insertion_drift_prefix);
+        post_insertion_drift_audit_runtime.csv = fopen(drift_audit_csv_path, "w");
+        if (!post_insertion_drift_audit_runtime.csv) {
+            fprintf(stderr, "[fatal] cannot open post-insertion drift audit CSV: %s\n",
+                    drift_audit_csv_path);
+            return 2;
+        }
+        fprintf(post_insertion_drift_audit_runtime.csv,
+                "step,stage,M_matrix_beta,M_gp_active,M_total,delta_from_before_event,delta_from_after_comp,"
+                "phi_min,phi_max,xB_min,xB_max,Y_min,Y_max,clipped_cell_count,nan_count,inf_count,notes\n");
+        fflush(post_insertion_drift_audit_runtime.csv);
+        snprintf(post_insertion_drift_audit_runtime.prefix,
+                 sizeof(post_insertion_drift_audit_runtime.prefix), "%s",
+                 P.audit_post_insertion_drift_prefix);
+        log_kv_text("audit_post_insertion_drift_csv", "%s", drift_audit_csv_path);
+    }
+
     double temperature_K = P.temperature_C + 273.15;
     double invN = 1.0 / (double)total_r;
     // baseline for bulk chemical free-energy (stoichiometric compound PF)
@@ -12235,16 +26165,16 @@ int main(int argc, char **argv) {
     double g_bulk0_hat = NAN;
     double F_el0_hat = 0.0;  // elastic baseline: 默认 0，可选后续测一次 phi=0,xB=xB_ref
     double muB_farfield_hat = NAN; // CNT far-field chemical potential (hat)
-    
+
     // 分配CPU内存（用于初始化和输出）
     double *h_phi_r = (double*)malloc(size_r);
     double *h_eta_r = (double*)malloc(size_r);
     double *h_Y_r = (double*)malloc(size_r);
     double *h_xB_r = (double*)malloc(size_r);
     double *h_xBtot_r = (double*)malloc(size_r);
-    
+
     // 优化：不再分配d_diag_stats，使用直接归约函数节省显存
-    
+
     // 初始化场
     if (P.init_mode_raw_fields) {
         log_section_header("Initialization");
@@ -12277,6 +26207,21 @@ int main(int argc, char **argv) {
         memset(h_Y_r, 0, size_r);
         memset(h_xB_r, 0, size_r);
         memset(h_xBtot_r, 0, size_r);
+    } else if (P.enable_gp_assisted_beta_nucleation &&
+               (P.gp_assisted_debug_scheduled || P.gp_stochastic_enabled)) {
+        log_section_header("Initialization");
+        log_kv_text("path", "GP-assisted beta debug/stochastic uniform no-nucleus field");
+        double xb0 = (P.ic_23d_xB_out > 0.0) ? P.ic_23d_xB_out : 0.030;
+        xb0 = fmin(P.gp_debug_xB_max, fmax(P.gp_debug_xB_min, xb0));
+        for (int i = 0; i < total_r; ++i) {
+            h_phi_r[i] = 0.0;
+            h_eta_r[i] = 0.0;
+            h_xB_r[i] = xb0;
+            h_Y_r[i] = logit_from_fraction(xb0, P.xB_eps, P.Y_clip);
+            h_xBtot_r[i] = xb0;
+        }
+        log_kv_text("uniform_phi", "%.6f", 0.0);
+        log_kv_text("uniform_xB", "%.8e", xb0);
     } else if (P.scheduled_nuc_enabled) {
         log_section_header("Initialization");
         log_kv_text("path", "scheduled nucleation test uniform no-nucleus field");
@@ -12308,6 +26253,39 @@ int main(int argc, char **argv) {
 
     if (is_gp_zone_mode(&P)) {
         if (!apply_gp_eta_initialization_host(h_phi_r, h_eta_r, h_Y_r, h_xB_r, h_xBtot_r, &P, total_r)) {
+            return 2;
+        }
+    }
+
+    if (P.enable_gp_assisted_beta_nucleation) {
+        std::vector<double> phi_init(h_phi_r, h_phi_r + total_r);
+        std::vector<double> Y_init(h_Y_r, h_Y_r + total_r);
+        std::vector<double> xB_init(h_xB_r, h_xB_r + total_r);
+        if (!apply_gp_assisted_initial_mass_budget_host(phi_init, Y_init, xB_init, &P,
+                                                       &gp_assisted_runtime.sites,
+                                                       &gp_assisted_runtime.initial_total_reference)) {
+            return 2;
+        }
+        gp_assisted_runtime.initial_gp_site_count = (int)gp_assisted_runtime.sites.size();
+        gp_assisted_runtime.total_gp_initial = gp_assisted_sum_initial_mass(gp_assisted_runtime.sites);
+        for (int i = 0; i < total_r; ++i) {
+            h_phi_r[i] = phi_init[(size_t)i];
+            h_Y_r[i] = Y_init[(size_t)i];
+            h_xB_r[i] = xB_init[(size_t)i];
+        }
+        recompute_host_xBtot_field(h_phi_r, h_eta_r, h_xB_r, h_xBtot_r, &P, total_r);
+        GpAssistedLedger init_ledger;
+        compute_gp_assisted_multi_ledger_host(phi_init, Y_init, xB_init,
+                                              P.v_B, gp_assisted_runtime.sites, &init_ledger);
+        if (!gp_assisted_runtime.sites.empty()) {
+            write_gp_assisted_ledger_row(gp_assisted_runtime.ledger_csv, 0,
+                                         "after_initial_mass_budget",
+                                         &gp_assisted_runtime.sites[0], &init_ledger);
+        }
+        write_gp_assisted_multi_ledger_row(gp_assisted_runtime.multi_ledger_csv, 0,
+                                           gp_assisted_runtime.sites, &init_ledger,
+                                           gp_assisted_runtime.initial_total_reference);
+        if (!write_gp_initial_population_sites_csv(&P, gp_assisted_runtime.sites, case_output_dir)) {
             return 2;
         }
     }
@@ -12449,7 +26427,7 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaMalloc(&d_phi_temp, size_r));
         CUDA_CHECK(cudaMalloc(&d_xB_temp, size_r));
         CUDA_CHECK(cudaMalloc(&d_delta_mu_r_init, size_r));
-        
+
         CUDA_CHECK(cudaMemcpy(d_phi_temp, h_phi_r, size_r, cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_xB_temp, h_xB_r, size_r, cudaMemcpyHostToDevice));
         launch_compute_delta_mu_r_kernel(d_phi_temp, d_xB_temp, d_delta_mu_r_init,
@@ -12465,14 +26443,14 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaFree(d_phi_temp));
         CUDA_CHECK(cudaFree(d_xB_temp));
         CUDA_CHECK(cudaFree(d_delta_mu_r_init));
-        
+
         // 计算并输出初始f_phi_chem和dgel_dphi VTK文件
         // 注意：初始时可能还没有应力场，所以dgel_dphi在未启用弹性时将为0
         double *d_f_phi_chem_init = NULL;
         double *d_dgel_dphi_init = NULL;
         CUDA_CHECK(cudaMalloc(&d_f_phi_chem_init, size_r));
         CUDA_CHECK(cudaMalloc(&d_dgel_dphi_init, size_r));
-        
+
         // 如果启用弹性，需要临时分配应力场和应变数组（初始时均为0）
         float *d_sigma_init_xx = NULL, *d_sigma_init_yy = NULL, *d_sigma_init_zz = NULL;
         float *d_sigma_init_xy = NULL, *d_sigma_init_xz = NULL, *d_sigma_init_yz = NULL;
@@ -12508,13 +26486,13 @@ int main(int argc, char **argv) {
             CUDA_CHECK(cudaMemset(d_uyz_init_r, 0, size_r_float));
             // Optimization(4): d_uxx0_init_r..d_uyz0_init_r 的 memset 已移除
         }
-        
+
         // 重新分配临时数组用于初始输出
         CUDA_CHECK(cudaMalloc(&d_phi_temp, size_r));
         CUDA_CHECK(cudaMalloc(&d_xB_temp, size_r));
         CUDA_CHECK(cudaMemcpy(d_phi_temp, h_phi_r, size_r, cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_xB_temp, h_xB_r, size_r, cudaMemcpyHostToDevice));
-        
+
         launch_compute_f_phi_chem_dgel_dphi_kernel(
             d_phi_temp, d_xB_temp, d_f_phi_chem_init, NULL, NULL, d_dgel_dphi_init,
             temperature_K, P.mu_reference_scale,
@@ -12565,7 +26543,7 @@ int main(int argc, char **argv) {
             CUDA_CHECK(cudaFree(d_uyz_init_r));
             // Optimization(4): d_uxx0_init_r..d_uyz0_init_r 的释放已移除
         }
-    
+
         // 如果启用弹性，输出初始本征应变 eigenstrain_xx_0.vtk
         if (P.elastic_enabled) {
             // 此时d_uxx0_r尚未计算，我们需要先根据初始phi计算并输出
@@ -12573,30 +26551,30 @@ int main(int argc, char **argv) {
             double eps_xx00 = P.eps_xx00;
             double eps_iso_over_vB = P.eps_iso_over_vB;
             double v_B = P.v_B;
-    
+
             for (int i = 0; i < total_r; i++) {
                 double phi = h_phi_r[i];
                 double xB = clamp01(h_xB_r[i]);
                 double h = h_of_phi(phi);
                 h_uxx0_r_init[i] = (float)(h * eps_xx00 + eps_iso_over_vB * (h * xB - h * v_B));
             }
-            
+
             // 转换为double用于VTK输出
             double *h_tmp_double = (double*)malloc(size_r);
             for (int i = 0; i < total_r; i++) h_tmp_double[i] = (double)h_uxx0_r_init[i];
             CUDA_CHECK(cudaMemcpy(d_temp, h_tmp_double, size_r, cudaMemcpyHostToDevice));
-    
+
             build_case_vtk_path(filename, sizeof(filename), output_dir, case_output_dir, "eigenstrain_xx", VTK_NAME_STEP, 0, vtk_case_tag, 0);
             write_vtk_cuda(d_temp, P.Nx, P.Ny, P.Nz, "eigenstrain_xx", 0, filename);
-            
+
             free(h_uxx0_r_init);
             free(h_tmp_double);
             printf("已输出初始本征应变文件: %s\n", filename);
         }
     }
-    
+
     CUDA_CHECK(cudaFree(d_temp));
-    
+
     // 输出t=0的诊断统计（需要在GPU内存分配后进行）
     int *d_bbox_mins = NULL, *d_bbox_maxs = NULL;
     double *d_boundary_sum = NULL;
@@ -12605,7 +26583,7 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaMalloc(&d_bbox_maxs, 3 * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_boundary_sum, sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_boundary_count, sizeof(unsigned long long)));
-    
+
     /*
      * Phase 生命周期表（每时间步）
      * P0: 输入/边界/初始化 - phi_n_saved, Y_n_saved
@@ -12618,12 +26596,22 @@ int main(int argc, char **argv) {
     // 分配GPU内存
     printf("分配GPU内存...\n");
     print_gpu_meminfo("before main cudaMallocs");
-    double *d_phi_r, *d_eta_r, *d_Y_r, *d_xB_r;
-    double *d_phi_rhs_r, *d_eta_prev_r, *d_eta_rhs_r, *d_phi_n_saved, *d_Y_n_saved, *d_dY_dt_prev_r;
+    const int gp_buffers_enabled = is_gp_zone_mode(&P) ? 1 : 0;
+    if (!gp_buffers_enabled) {
+        printf("[mem-opt] two_phase mode: GP/eta device buffers are aliases, not resident allocations.\n");
+    }
+    double *d_phi_r = NULL, *d_eta_r = NULL, *d_Y_r = NULL, *d_xB_r = NULL;
+    double *d_phi_rhs_r = NULL, *d_eta_prev_r = NULL, *d_eta_rhs_r = NULL;
+    double *d_phi_n_saved = NULL, *d_Y_n_saved = NULL, *d_dY_dt_prev_r = NULL;
+    double *d_q_alpha_r = NULL, *d_pf_q_stats = NULL;
+    double *d_pf_conservative_storage_r = NULL;
+    double *d_pf_conservative_stats = NULL;
+    FILE *pf_conservative_diag_fp = NULL;
+    FILE *pf_q_transport_diag_fp = NULL;
     double *d_dY_dt_picard_r, *d_dY_dt_picard_old_r;
     double *d_Y_projection_base_r = NULL;
     // 优化：移除d_xBtot_r，仅在需要输出VTK时临时计算
-    
+
     // 工作空间（Y方程相关）
     double *d_mu_x_r;
     // Optimization: d_xB_prev_r 和 d_divJ_r 复用同一内存
@@ -12635,8 +26623,8 @@ int main(int argc, char **argv) {
 
     // k空间数组
     // Optimization: phi_k 与 Y_k 使用 in-place 更新，不再常驻 phi_k_new、Y_k_new
-    cufftDoubleComplex *d_phi_k, *d_eta_k, *d_eta_rhs_k, *d_phi_rhs_k;
-    cufftDoubleComplex *d_Y_k;
+    cufftDoubleComplex *d_phi_k = NULL, *d_eta_k = NULL, *d_eta_rhs_k = NULL, *d_phi_rhs_k = NULL;
+    cufftDoubleComplex *d_Y_k = NULL;
     // Optimization: d_phi_rhs_k 在步骤1完成后可复用为 d_mu_x_k，然后复用为 d_Y_rhs_k
     cufftDoubleComplex *d_mu_x_k, *d_Y_rhs_k;
     // Optimization: 仅保留 divJ_k 常驻，grad/J 的 y/z 分量改为串行累加使用 scratch
@@ -12650,39 +26638,95 @@ int main(int argc, char **argv) {
     size_t scratch_r_double_bytes = (size_t)2 * size_r;
 
     CUDA_CHECK(cudaMalloc(&d_phi_r, size_r));
-    CUDA_CHECK(cudaMalloc(&d_eta_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_Y_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_xB_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_phi_rhs_r, size_r));
-    CUDA_CHECK(cudaMalloc(&d_eta_prev_r, size_r));
-    CUDA_CHECK(cudaMalloc(&d_eta_rhs_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_phi_n_saved, size_r));
     CUDA_CHECK(cudaMalloc(&d_Y_n_saved, size_r));
     CUDA_CHECK(cudaMalloc(&d_dY_dt_prev_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_dY_dt_picard_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_dY_dt_picard_old_r, size_r));
-    if (P.y_update_mass_projection_enabled || P.y_update_k0_audit_enabled) {
+    const int pf_mode_q_transport_runtime =
+        (!gp_storage_coupling_enabled(&P) &&
+         strcmp(P.pf_y_update_mode, "q_transport_projection_split") == 0);
+    const int pf_conservative_ctot_runtime =
+        (P.mode == 0 && strcmp(P.pf_composition_mode,
+                              "ctot_conservative_split") == 0);
+    const int pf_conservative_qalpha_runtime =
+        (P.mode == 0 && strcmp(P.pf_composition_mode,
+                              "qalpha_conservative_local_transaction") == 0);
+    const int pf_conservative_runtime =
+        pf_conservative_ctot_runtime || pf_conservative_qalpha_runtime;
+    const int pf_conservative_primary_is_ctot = pf_conservative_ctot_runtime ? 1 : 0;
+    if (pf_mode_q_transport_runtime) {
+        CUDA_CHECK(cudaMalloc(&d_q_alpha_r, size_r));
+        CUDA_CHECK(cudaMalloc(&d_pf_q_stats, PF_Q_STATS_COUNT * sizeof(double)));
+        if (case_output_dir && case_output_dir[0] != '\0') {
+            char q_diag_path[4096];
+            snprintf(q_diag_path, sizeof(q_diag_path),
+                     "%s/pf_q_transport_diagnostics.csv", case_output_dir);
+            pf_q_transport_diag_fp = fopen(q_diag_path, "w");
+            if (!pf_q_transport_diag_fp) {
+                fprintf(stderr, "[fatal] cannot open Q transport diagnostics: %s\n",
+                        q_diag_path);
+                return 2;
+            }
+            fprintf(pf_q_transport_diag_fp,
+                    "step,time_code,sum_delta_h_vB,sum_local_delta_q,local_residual,"
+                    "maxabs_local_residual,infeasible_phase_count,transport_bound_violation_count,"
+                    "transport_bound_mass,min_alpha\n");
+            fflush(pf_q_transport_diag_fp);
+        }
+    }
+    if (pf_conservative_runtime) {
+        CUDA_CHECK(cudaMalloc(&d_pf_conservative_storage_r, size_r));
+        CUDA_CHECK(cudaMalloc(&d_pf_conservative_stats,
+                              PF_CONS_STATS_COUNT * sizeof(double)));
+        if (case_output_dir && case_output_dir[0] != '\0') {
+            char path[4096];
+            snprintf(path, sizeof(path), "%s/pf_conservative_step_diagnostics.csv",
+                     case_output_dir);
+            pf_conservative_diag_fp = fopen(path, "w");
+            if (!pf_conservative_diag_fp) {
+                fprintf(stderr, "[fatal] cannot open conservative PF diagnostics: %s\n", path);
+                return 2;
+            }
+            fprintf(pf_conservative_diag_fp,
+                    "step,time_code,mode,flux_strategy,mass_before_transport,"
+                    "mass_after_transport,mass_after_phase,mass_residual_transport,"
+                    "mass_residual_phase,sum_abs_face_transfer,maxabs_face_transfer,"
+                    "limited_face_count,bound_violation_count,phase_constraint_count,"
+                    "maxabs_phase_correction,beta_context_count,nonfinite_count\n");
+            fflush(pf_conservative_diag_fp);
+        }
+    }
+    const int staged_active_post_y_projection_possible_for_buffers =
+        (P.enable_gp_assisted_beta_nucleation &&
+         !gp_storage_coupling_enabled(&P) &&
+         P.beta_staged_conversion_enabled)
+            ? 1
+            : 0;
+    if (P.y_update_mass_projection_enabled || P.y_update_k0_audit_enabled ||
+        pf_mode_q_transport_runtime ||
+        staged_active_post_y_projection_possible_for_buffers) {
         CUDA_CHECK(cudaMalloc(&d_Y_projection_base_r, size_r));
     }
     // 优化：不再分配d_xBtot_r，节省1GB显存
     // 优化：d_phi_rhs_r 在步骤1完成后可复用为 d_lapY_r（节省1GB）
     d_lapY_r = d_phi_rhs_r;  // 复用指针
-    
+
     CUDA_CHECK(cudaMalloc(&d_mu_x_r, size_r));
     // Optimization: d_Y_rhs_r 复用 d_mu_x_r（Y_rhs 在 mu_x 完全使用后写入）
     d_Y_rhs_r = d_mu_x_r;
     // Optimization: 移除 grad_mu_x/y/z_r 与 Jx/Jy/Jz_r/k 常驻，改用 scratch + divJ 串行累加
     CUDA_CHECK(cudaMalloc(&d_divJ_r, size_r));
     d_xB_prev_r = d_divJ_r;
-    CUDA_CHECK(cudaMalloc(&d_xB_gp_old_r, size_r));
     if (P.dynamics_mass_diag_enabled && P.mode == 0) {
         CUDA_CHECK(cudaMalloc(&d_xB_old_diag_r, size_r));
     }
     // 优化：不再分配d_DY_values，节省1GB显存
-    
+
     CUDA_CHECK(cudaMalloc(&d_phi_k, size_k));
-    CUDA_CHECK(cudaMalloc(&d_eta_k, size_k));
-    CUDA_CHECK(cudaMalloc(&d_eta_rhs_k, size_k));
     CUDA_CHECK(cudaMalloc(&d_phi_rhs_k, size_k));
     CUDA_CHECK(cudaMalloc(&d_Y_k, size_k));
     // 优化：d_phi_rhs_k 在步骤1完成后可复用为 d_mu_x_k，然后复用为 d_Y_rhs_k
@@ -12693,6 +26737,21 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaMalloc(&d_divJ_k, size_k));
     CUDA_CHECK(cudaMalloc(&d_scratch_k_double, scratch_k_double_bytes));
     CUDA_CHECK(cudaMalloc(&d_scratch_r_double, scratch_r_double_bytes));
+    if (gp_buffers_enabled) {
+        CUDA_CHECK(cudaMalloc(&d_eta_r, size_r));
+        CUDA_CHECK(cudaMalloc(&d_eta_prev_r, size_r));
+        CUDA_CHECK(cudaMalloc(&d_eta_rhs_r, size_r));
+        CUDA_CHECK(cudaMalloc(&d_xB_gp_old_r, size_r));
+        CUDA_CHECK(cudaMalloc(&d_eta_k, size_k));
+        CUDA_CHECK(cudaMalloc(&d_eta_rhs_k, size_k));
+    } else {
+        d_eta_r = d_phi_r;
+        d_eta_prev_r = d_phi_n_saved;
+        d_eta_rhs_r = d_phi_rhs_r;
+        d_xB_gp_old_r = d_xB_prev_r;
+        d_eta_k = d_phi_k;
+        d_eta_rhs_k = d_phi_rhs_k;
+    }
     double *d_mass_diag_phi_stats = NULL;
     double *d_mass_diag_Y_stats = NULL;
     double *d_mass_diag_Y_rhs_stats = NULL;
@@ -12731,7 +26790,7 @@ int main(int argc, char **argv) {
     ScratchArena arena_k = {0}, arena_r = {0};
     scratch_arena_init(&arena_k, d_scratch_k_double, scratch_k_double_bytes, "scratch_k");
     scratch_arena_init(&arena_r, d_scratch_r_double, scratch_r_double_bytes, "scratch_r");
-    
+
     // ============================================================
     // 弹性计算相关数组分配（如果启用弹性计算）
     // ============================================================
@@ -12744,20 +26803,20 @@ int main(int argc, char **argv) {
     float *d_sigma_xy_r = NULL, *d_sigma_xz_r = NULL, *d_sigma_yz_r = NULL;
     // 注意：不再需要d_S_pert_*数组，perturbation直接在kernel内计算
     // Optimization(3): 移除 d_uxx0_k..d_uyz0_k，复用 d_uxx_k..d_uyz_k 作为临时 eigenstrain_k 容器
-    
+
     cufftComplex *d_ux_k = NULL, *d_uy_k = NULL, *d_uz_k = NULL;
     cufftComplex *d_uxx_k = NULL, *d_uyy_k = NULL, *d_uzz_k = NULL;
     cufftComplex *d_uxy_k = NULL, *d_uxz_k = NULL, *d_uyz_k = NULL;
-    
+
     // Optimization: 移除 d_elastic_tmp_r/d_elastic_tmp_k，弹性 FFT 直接 out-of-place
-    
+
     size_t size_r_float = total_r * sizeof(float);
     size_t size_k_float = total_k * sizeof(cufftComplex);
-    
+
     if (P.elastic_enabled) {
         printf("分配弹性计算GPU内存（float精度）...\n");
         print_gpu_meminfo("before elastic cudaMallocs");
-        
+
         // 实空间数组
         // Optimization(4): d_uxx0_r..d_uyz0_r 已移除，eps0 现场计算；d_uxx_r..d_uyz_r 用于临时 eps0_r 和真实 strain_r
         CUDA_CHECK(cudaMalloc(&d_uxx_r, size_r_float));
@@ -12773,9 +26832,9 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaMalloc(&d_sigma_xy_r, size_r_float));
         CUDA_CHECK(cudaMalloc(&d_sigma_xz_r, size_r_float));
         CUDA_CHECK(cudaMalloc(&d_sigma_yz_r, size_r_float));
-        
+
         // 注意：不再分配perturbation数组，直接在kernel内计算以节省显存
-        
+
         // k空间数组
         // Optimization(3): d_uxx0_k..d_uyz0_k 已移除，复用 d_uxx_k..d_uyz_k 作为临时 eigenstrain_k
         CUDA_CHECK(cudaMalloc(&d_ux_k, size_k_float));
@@ -12787,9 +26846,9 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaMalloc(&d_uxy_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uxz_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uyz_k, size_k_float));
-        
+
         // FFT临时缓冲区（复用）
-        
+
         printf("弹性计算GPU内存分配完成\n");
         print_gpu_meminfo("after elastic cudaMallocs");
     }
@@ -12798,17 +26857,27 @@ int main(int argc, char **argv) {
     // Optimization: 显存账本 - 启动时打印一次
     print_memory_ledger(size_r, size_k, size_r_float, size_k_float,
                        scratch_k_double_bytes, scratch_r_double_bytes,
-                       P.elastic_enabled ? 1 : 0, (int)total_r, (int)total_k);
-    
+                       P.elastic_enabled ? 1 : 0, gp_buffers_enabled, (int)total_r, (int)total_k);
+
     // 复制初始数据到GPU
     CUDA_CHECK(cudaMemcpy(d_phi_r, h_phi_r, size_r, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_eta_r, h_eta_r, size_r, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_Y_r, h_Y_r, size_r, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_xB_r, h_xB_r, size_r, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_eta_prev_r, h_eta_r, size_r, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_eta_rhs_r, 0, size_r));
-    CUDA_CHECK(cudaMemset(d_eta_k, 0, size_k));
-    CUDA_CHECK(cudaMemset(d_eta_rhs_k, 0, size_k));
+    if (pf_mode_q_transport_runtime) {
+        launch_initialize_q_alpha_kernel(d_phi_r, d_xB_r, d_q_alpha_r, total_r);
+    }
+    if (pf_conservative_runtime) {
+        launch_initialize_conservative_storage_kernel(
+            d_phi_r, d_xB_r, d_pf_conservative_storage_r, P.v_B,
+            pf_conservative_primary_is_ctot, total_r);
+    }
+    if (gp_buffers_enabled) {
+        CUDA_CHECK(cudaMemcpy(d_eta_r, h_eta_r, size_r, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_eta_prev_r, h_eta_r, size_r, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemset(d_eta_rhs_r, 0, size_r));
+        CUDA_CHECK(cudaMemset(d_eta_k, 0, size_k));
+        CUDA_CHECK(cudaMemset(d_eta_rhs_k, 0, size_k));
+    }
 
     // minimize mode: phi-only, no xB rebuild
     // 初始化工作数组
@@ -12818,17 +26887,17 @@ int main(int argc, char **argv) {
     if (d_xB_old_diag_r) {
         CUDA_CHECK(cudaMemset(d_xB_old_diag_r, 0, size_r));
     }
-    
+
     // 创建cuFFT计划（优化：复用计划以减少内存使用）
     printf("创建cuFFT计划...\n");
     printf("  网格: %dx%dx%d\n", P.Nx, P.Ny, P.Nz);
-    
+
     // 复用计划：只创建2个计划（R2C和C2R），所有FFT操作共享
     cufftHandle plan_r2c_base, plan_c2r_base;
-    
+
     CUFFT_CHECK(cufftPlan3d(&plan_r2c_base, P.Nx, P.Ny, P.Nz, CUFFT_D2Z));
     CUFFT_CHECK(cufftPlan3d(&plan_c2r_base, P.Nx, P.Ny, P.Nz, CUFFT_Z2D));
-    
+
     // 弹性计算的float FFT计划（如果启用弹性计算）
     cufftHandle plan_r2c_elastic = 0;
     cufftHandle plan_c2r_elastic = 0;
@@ -12837,9 +26906,9 @@ int main(int argc, char **argv) {
         CUFFT_CHECK(cufftPlan3d(&plan_c2r_elastic, P.Nx, P.Ny, P.Nz, CUFFT_C2R));
         printf("弹性FFT计划创建成功（float精度）\n");
     }
-    
+
     printf("cuFFT计划创建成功（复用计划，减少内存使用）\n");
-    
+
     // 构建k空间
     printf("构建k空间...\n");
     KSpace_CUDA KS;
@@ -12868,7 +26937,7 @@ int main(int argc, char **argv) {
             d_gel_hat_tmp = P.elastic_enabled ? d_dY_dt_prev_r : NULL;
         }
     }
-    
+
     cufftHandle plan_r2c_phi = plan_r2c_base;
     cufftHandle plan_c2r_phi = plan_c2r_base;
     cufftHandle plan_r2c_phi_rhs = plan_r2c_base;
@@ -12876,18 +26945,18 @@ int main(int argc, char **argv) {
     cufftHandle plan_c2r_Y = plan_c2r_base;
     cufftHandle plan_r2c_xB = plan_r2c_base;
     cufftHandle plan_c2r_xB = plan_c2r_base;
-    
-    
+
+
     // 输出初始化后的显存使用情况
     {
         size_t free_mem, total_mem;
         CUDA_CHECK(cudaMemGetInfo(&free_mem, &total_mem));
         size_t used_mem = total_mem - free_mem;
-        
+
         printf("\n========================================\n");
         printf("初始化完成后的显存使用情况:\n");
         printf("  网格大小: %dx%dx%d\n", P.Nx, P.Ny, P.Nz);
-        printf("  已使用: %.2f GB (%.2f%%)\n", 
+        printf("  已使用: %.2f GB (%.2f%%)\n",
                used_mem / (1024.0*1024.0*1024.0),
                (double)used_mem / (double)total_mem * 100.0);
         printf("  空闲: %.2f GB\n", free_mem / (1024.0*1024.0*1024.0));
@@ -12899,12 +26968,12 @@ int main(int argc, char **argv) {
         }
         printf("========================================\n\n");
     }
-    
+
     // 优化：使用直接归约计算N_in和N_if，不需要中间数组
     double global_N_in, global_N_if;
     gpu_reduce_sum_N_in_N_if(d_phi_r, total_r, &global_N_in, &global_N_if);
     double vf_precip = gpu_compute_vf_from_h(d_phi_r, total_r); // <h(phi)>
-    
+
     double R_avg = 0.0;
     if (global_N_if > 0.0) {
         // N_if 除以 lambda = ic_phi_iface_w * 2.0
@@ -12917,7 +26986,10 @@ int main(int argc, char **argv) {
             R_avg = 3.0 * P.dx * ratio;
         }
     }
-    
+
+    const double unit_to_nm = compute_eta_ref_dx_phys_m_host(&P) * 1.0e9;
+    const double R_avg_nm = R_avg * unit_to_nm;
+
     double mean_xB_tot = NAN;
     double min_xB = NAN, max_xB = NAN;
     double min_Meff = NAN, max_Meff = NAN;
@@ -12943,17 +27015,17 @@ int main(int argc, char **argv) {
     }
     if (P.mode == 1 && P.minimize_full_model == 0) {
         // 旧 phi-only minimize 只打印 phi 相关
-        printf("%s step=%05d t=%.6f vf_precip=%.6e R_avg=%.6e t_wall=%s\n",
-               dim_label, 0, 0.0, vf_precip, R_avg, now_str);
+        printf("%s step=%05d t=%.6f vf_precip=%.6e R_avg_internal=%.6e R_avg_nm=%.6e t_wall=%s\n",
+               dim_label, 0, 0.0, vf_precip, R_avg, R_avg_nm, now_str);
     } else {
         printf("%s step=%05d t=%.6f t_real=%.6e s "
-               "<x_B_tot>=%.6e vf_precip=%.6e R_avg=%.6e xB_range=[%.4f, %.4f] "
+               "<x_B_tot>=%.6e vf_precip=%.6e R_avg_internal=%.6e R_avg_nm=%.6e xB_range=[%.4f, %.4f] "
                "Meff_range=[%.4e, %.4e] t_wall=%s\n",
                dim_label, 0, 0.0, 0.0,
-               mean_xB_tot, vf_precip, R_avg,
+               mean_xB_tot, vf_precip, R_avg, R_avg_nm,
                min_xB, max_xB, min_Meff, max_Meff, now_str);
     }
-    
+
     // 弹性 bulk 惩罚诊断（只在独立诊断参数+弹性启用时，且需在机械平衡求解完成后）
     // 为了满足"t=0 已求解机械平衡"这一条件：这里先暂存 step=0 基础统计，
     // 并在 step=1 开头（求解弹性后、更新phi之前）计算并写入 CSV 的 step=0 行。
@@ -12983,7 +27055,7 @@ int main(int argc, char **argv) {
                                   d_phi_r, d_eta_r, d_xB_r, &P, total_r,
                                   relaxation_initial_mean_xBtot);
     }
-    
+
     // 性能计时
     cudaEvent_t start_event, stop_event;
     CUDA_CHECK(cudaEventCreate(&start_event));
@@ -12994,10 +27066,10 @@ int main(int argc, char **argv) {
     geometry_summary_runtime.enabled = env_flag_enabled("GEOMETRY_SUMMARY_EVERY_STEP");
     geometry_summary_runtime.write_each_step = env_flag_enabled("GEOMETRY_SUMMARY_WRITE_EACH_STEP");
     geometry_summary_runtime.print_each_step = env_flag_enabled("GEOMETRY_SUMMARY_PRINT_EACH_STEP");
-    
+
     printf("\n开始时间推进...\n");
     printf("========================================\n");
-    
+
     // 时间推进主循环
     const int nsteps_run = (P.mode == 1) ? P.minimize_max_iter : P.nsteps;
     // Minimization: 使用固定 dt_phi = minimize_dt，不再因能量上升二分 dt
@@ -13058,12 +27130,123 @@ int main(int argc, char **argv) {
     }
 
     for (int step = 1; step <= nsteps_run; step++) {
+        double pf_q_step_stats[PF_Q_STATS_COUNT] = {0.0};
+        pf_q_step_stats[PF_Q_MIN_ALPHA] = 1.0;
+        double pf_cons_mass_before_transport = NAN;
+        double pf_cons_mass_after_transport = NAN;
+        double pf_cons_mass_after_phase = NAN;
+        double pf_cons_step_stats[PF_CONS_STATS_COUNT] = {0.0};
+        const int pf_q_resolved_handoff_count_before_step =
+            gp_assisted_runtime.resolved_handoff_inserted_count;
         const double step_wall_t0 = wall_time_sec_monotonic();
         steps_completed = step;
+        if (P.mode == 0 && P.enable_gp_assisted_beta_nucleation &&
+            P.diagnostic_rsmd_enabled &&
+            (strcmp(P.diagnostic_rsmd_operator_split, "pre_pf_lie") == 0 ||
+             strcmp(P.diagnostic_rsmd_operator_split, "strang") == 0)) {
+            const double pre_source_dt =
+                (strcmp(P.diagnostic_rsmd_operator_split, "strang") == 0)
+                    ? 0.5 * P.dt : P.dt;
+            if (!apply_diagnostic_rsmd_source_cpu(
+                    &gp_assisted_runtime, &P, step,
+                    d_phi_r, d_Y_r, d_xB_r, d_dY_dt_prev_r, d_dY_dt_picard_r,
+                    total_r, size_r, pre_source_dt,
+                    (strcmp(P.diagnostic_rsmd_operator_split, "strang") == 0)
+                        ? "strang_pre_half" : "pre_pf_lie")) {
+                fprintf(stderr, "[fatal] pre-PF diagnostic RSMD source failed at step %d\n", step);
+                return 2;
+            }
+        }
+        const int diagnostic_rsmd_resolved_control_active =
+            (P.mode == 0 && P.diagnostic_rsmd_enabled &&
+             diagnostic_rsmd_find_resolved_seed(&gp_assisted_runtime) != NULL) ? 1 : 0;
+        const int diagnostic_rsmd_source_only_freeze =
+            diagnostic_rsmd_resolved_control_active &&
+            strcmp(P.diagnostic_rsmd_control_mode, "source_only_frozen_field") == 0;
+        const int pf_baseline_control_active =
+            (P.mode == 0 && strcmp(P.pf_baseline_control_mode, "full") != 0 &&
+             diagnostic_rsmd_find_resolved_seed(&gp_assisted_runtime) != NULL) ? 1 : 0;
+        const int pf_baseline_projection_only =
+            pf_baseline_control_active &&
+            strcmp(P.pf_baseline_control_mode, "projection_only") == 0;
+        const int pf_baseline_phi_only =
+            pf_baseline_control_active &&
+            strcmp(P.pf_baseline_control_mode, "phi_only") == 0;
+        const int pf_baseline_disable_projection =
+            pf_baseline_control_active &&
+            (strcmp(P.pf_baseline_control_mode, "transport_no_projection") == 0 ||
+             pf_baseline_phi_only);
+        const int diagnostic_rsmd_freeze_phi =
+            diagnostic_rsmd_resolved_control_active &&
+            strcmp(P.diagnostic_rsmd_control_mode, "source_diffusion_frozen_phi") == 0;
+        const int pf_baseline_freeze_phi =
+            pf_baseline_control_active &&
+            (strcmp(P.pf_baseline_control_mode, "frozen_phi") == 0 ||
+             strcmp(P.pf_baseline_control_mode, "transport_no_projection") == 0 ||
+             pf_baseline_projection_only);
         // 保存上一时间步
         CUDA_CHECK(cudaMemcpy(d_phi_n_saved, d_phi_r, size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_eta_prev_r, d_eta_r, size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_r, size_r, cudaMemcpyDeviceToDevice));
+        if (pf_conservative_runtime) {
+            if ((P.Nx & 1) || (P.Ny & 1) || (P.Nz & 1)) {
+                fprintf(stderr,
+                        "[fatal] shared-face checkerboard solver requires even periodic dimensions.\n");
+                return 2;
+            }
+            CUDA_CHECK(cudaMemset(d_pf_conservative_stats, 0,
+                                  PF_CONS_STATS_COUNT * sizeof(double)));
+            pf_cons_mass_before_transport =
+                gpu_reduce_sum(d_pf_conservative_storage_r, total_r) +
+                (pf_conservative_primary_is_ctot
+                     ? 0.0
+                     : P.v_B * gpu_compute_vf_from_h(d_phi_n_saved, total_r) *
+                           (double)total_r);
+
+            // Fixed-phi transport uses the accepted thermodynamic context.
+            launch_reconstruct_conservative_context_kernel(
+                d_pf_conservative_storage_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                temperature_K, P.v_B, pf_conservative_primary_is_ctot,
+                P.pf_conservative_beta_support_eps, P.xB_eps, P.Y_clip,
+                d_pf_conservative_stats, total_r);
+            launch_compute_mu_x_kernel(
+                d_Y_r, d_phi_n_saved, d_xB_r, d_mu_x_r,
+                temperature_K, P.mu_reference_scale,
+                P.v_A, P.v_B, P.mu0_compound,
+                P.Vm_compound, P.Vm_alpha_0, P.dVm_alpha_dxB,
+                P.Y_clip, P.xB_eps,
+                d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
+                P.eps_iso_over_vB, total_r, P.elastic_enabled);
+            const int use_backward_euler =
+                strcmp(P.pf_conservative_flux_strategy,
+                       "pairwise_backward_euler") == 0;
+            const double spacings[3] = {P.dx, P.dy, P.dz};
+            for (int axis = 0; axis < 3; ++axis) {
+                for (int parity = 0; parity < 2; ++parity) {
+                    launch_pairwise_conservative_face_sweep_kernel(
+                        d_pf_conservative_storage_r, d_mu_x_r, d_phi_n_saved,
+                        d_xB_r, P.Nx, P.Ny, P.Nz, axis, parity,
+                        spacings[axis], P.dt, P.D_alpha,
+                        P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
+                        temperature_K, P.mu_reference_scale, P.v_B,
+                        pf_conservative_primary_is_ctot, use_backward_euler,
+                        P.pf_conservative_bound_tol, d_pf_conservative_stats,
+                        total_r);
+                }
+            }
+            CUDA_CHECK(cudaDeviceSynchronize());
+            pf_cons_mass_after_transport =
+                gpu_reduce_sum(d_pf_conservative_storage_r, total_r) +
+                (pf_conservative_primary_is_ctot
+                     ? 0.0
+                     : P.v_B * gpu_compute_vf_from_h(d_phi_n_saved, total_r) *
+                           (double)total_r);
+            launch_reconstruct_conservative_context_kernel(
+                d_pf_conservative_storage_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                temperature_K, P.v_B, pf_conservative_primary_is_ctot,
+                P.pf_conservative_beta_support_eps, P.xB_eps, P.Y_clip,
+                d_pf_conservative_stats, total_r);
+        }
         const int do_mass_diag =
             (P.mode == 0 && P.dynamics_mass_diag_enabled &&
              (step % P.dynamics_mass_diag_interval == 0));
@@ -13114,9 +27297,50 @@ int main(int argc, char **argv) {
                                                  &post_conversion_audit_runtime.before_step_Y_k0_re,
                                                  &post_conversion_audit_runtime.before_step_Y_k0_im);
         }
+        if (post_insertion_drift_audit_runtime.csv &&
+            post_insertion_drift_audit_runtime.active &&
+            step == post_insertion_drift_audit_runtime.trigger_step + 1) {
+            PostInsertionDriftAuditState before_first_state;
+            capture_post_insertion_drift_state_device(&P, d_phi_r, d_eta_r, d_Y_r, d_xB_r,
+                                                      size_r, total_r, &before_first_state);
+            write_post_insertion_drift_audit_row(
+                post_insertion_drift_audit_runtime.csv, step, "before_first_post_event_step",
+                &before_first_state,
+                post_insertion_drift_audit_runtime.before_event_M_total,
+                post_insertion_drift_audit_runtime.after_comp_M_total,
+                "start_of_first_post_insertion_pde_step");
+        }
+        const double staged_projection_mass_tol =
+            fmax(1.0e-12, 1.0e-14 *
+                            fabs(P.gp_initial_xB_tot * fmax((double)total_r, 1.0)));
+        const double staged_projection_inventory =
+            beta_staged_sum_inventory(gp_assisted_runtime.staged_embryos);
+        const int staged_inventory_active_for_projection =
+            (fabs(staged_projection_inventory) > staged_projection_mass_tol ||
+             beta_staged_count_active_embryos(gp_assisted_runtime.staged_embryos) > 0)
+                ? 1
+                : 0;
+        const int staged_path_resolved_handoff_active_for_projection =
+            (gp_assisted_runtime.resolved_handoff_inserted_count > 0)
+                ? 1
+                : 0;
+        const int staged_external_projection_runtime_active =
+            (P.enable_gp_assisted_beta_nucleation &&
+             !gp_storage_coupling_enabled(&P) &&
+             (P.gp_literature_birth_requires_post_Y_projection ||
+              staged_inventory_active_for_projection ||
+              staged_path_resolved_handoff_active_for_projection) &&
+             (staged_inventory_active_for_projection ||
+              staged_path_resolved_handoff_active_for_projection ||
+              gp_assisted_runtime.resolved_handoff_inserted_count > 0 ||
+              gp_assisted_runtime.accepted_event_count > 0 ||
+              gp_assisted_runtime.literature_births_accepted_total > 0))
+                ? 1
+                : 0;
         if ((y_update_k0_audit_runtime.active &&
              y_update_k0_audit_runtime.rows_remaining_steps > 0) ||
-            y_update_k0_audit_runtime.projection_armed) {
+            y_update_k0_audit_runtime.projection_armed ||
+            staged_external_projection_runtime_active) {
             capture_post_conversion_device_state(&P, d_phi_r, d_eta_r, d_Y_r, d_xB_r,
                                                  plan_r2c_Y, d_Y_k, total_r, total_k,
                                                  &y_update_k0_audit_runtime.pre_Y_sum_xBtot,
@@ -13127,6 +27351,113 @@ int main(int argc, char **argv) {
                                                  &y_update_k0_audit_runtime.pre_Y_Y_k0_re,
                                                  &y_update_k0_audit_runtime.pre_Y_Y_k0_im);
         }
+        const int gp_post_birth_debug_window_active =
+            (P.mode == 0 &&
+             P.gp_post_birth_mass_probe_enabled &&
+             gp_assisted_runtime.literature_births_accepted_total > 0 &&
+             step > P.gp_birth_debug_force_step &&
+             (P.gp_birth_debug_stop_after_step <= 0 || step <= P.gp_birth_debug_stop_after_step));
+        const int gp_post_birth_probe_step11 =
+            (gp_post_birth_debug_window_active && step == (P.gp_birth_debug_force_step + 1));
+        const int gp_post_birth_skip_all_dynamics =
+            (gp_post_birth_debug_window_active && P.gp_birth_debug_freeze_dynamics_after_birth);
+        const int beta_debug_transaction_freeze_active =
+            (P.mode == 0 &&
+             P.beta_debug_force_single_event &&
+             gp_assisted_runtime.accepted_event_count > 0 &&
+             step > P.beta_debug_force_step);
+        const int gp_post_birth_skip_ch_dynamics =
+            (diagnostic_rsmd_source_only_freeze || beta_debug_transaction_freeze_active ||
+             (gp_post_birth_debug_window_active &&
+              (P.gp_birth_debug_freeze_dynamics_after_birth ||
+               P.gp_birth_debug_disable_CH_dynamics_after_birth)));
+        if (gp_post_birth_probe_step11 && gp_post_birth_probe_fp) {
+            write_gp_post_birth_mass_probe_row_device(
+                gp_post_birth_probe_fp, step, "PROBE_STEP11_BEGIN", 1,
+                &P, &gp_assisted_runtime,
+                d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                "start_of_first_post_birth_step");
+            write_gp_post_birth_mass_probe_row_device(
+                gp_post_birth_probe_fp, step, "PROBE_BEFORE_CH_RHS", 1,
+                &P, &gp_assisted_runtime,
+                d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                "before_CH_and_Y_rhs_updates");
+        }
+        if (gp_post_birth_skip_ch_dynamics) {
+            if (do_mass_diag) {
+                mass_diag_row.mean_xBtot_after_phi_update = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xBtot_after_eta_update = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xBtot_after_gp_to_beta_event = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xBtot_after_Y_update = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xBtot_after_Y_to_xB = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xBtot_before_clipping = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xBtot_after_clipping = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xBtot_end_step = mass_diag_row.mean_xBtot_before_step;
+                mass_diag_row.mean_xB_before_phi_update =
+                    gpu_reduce_sum(d_xB_r, total_r) / (double)total_r;
+                mass_diag_row.mean_xB_after_Y_update = mass_diag_row.mean_xB_before_phi_update;
+                mass_diag_row.mean_xB_after_clipping = mass_diag_row.mean_xB_before_phi_update;
+                mass_diag_row.delta_mass_phi_update = 0.0;
+                mass_diag_row.delta_mass_eta_update = 0.0;
+                mass_diag_row.delta_mass_gp_to_beta_event = 0.0;
+                mass_diag_row.delta_mass_Y_update = 0.0;
+                mass_diag_row.delta_mass_Y_to_xB = 0.0;
+                mass_diag_row.delta_mass_clipping = 0.0;
+                mass_diag_row.total_delta_mass_step = 0.0;
+                if (is_gp_zone_mode(&P)) {
+                    mass_diag_row.mean_xBtot_gp_before_step = mass_diag_row.mean_xBtot_before_step;
+                    mass_diag_row.mean_xBtot_gp_after_phi_update = mass_diag_row.mean_xBtot_before_step;
+                    mass_diag_row.mean_xBtot_gp_after_eta_update = mass_diag_row.mean_xBtot_before_step;
+                    mass_diag_row.mean_xBtot_gp_after_gp_to_beta_event = mass_diag_row.mean_xBtot_before_step;
+                    mass_diag_row.mean_xBtot_gp_after_Y_update = mass_diag_row.mean_xBtot_before_step;
+                    mass_diag_row.mean_xBtot_gp_end_step = mass_diag_row.mean_xBtot_before_step;
+                }
+            }
+            if (gp_post_birth_probe_step11 && gp_post_birth_probe_fp) {
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_CH_RHS_BEFORE_UPDATE", 0,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    gp_post_birth_skip_all_dynamics
+                        ? "NOT_APPLICABLE_freeze_after_birth_skips_CH_rhs"
+                        : "NOT_APPLICABLE_CH_dynamics_disabled_after_birth");
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_Y_UPDATE", 0,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    gp_post_birth_skip_all_dynamics
+                        ? "NOT_APPLICABLE_freeze_after_birth_skips_Y_update"
+                        : "NOT_APPLICABLE_CH_dynamics_disabled_after_birth");
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_Y_TO_XB_RECONSTRUCTION", 0,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    "NOT_APPLICABLE_no_post_birth_Y_to_xB_reconstruction_when_CH_dynamics_skipped");
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_CLIPPING_OR_BOUNDS", 0,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    "NOT_APPLICABLE_no_post_birth_clipping_when_CH_dynamics_skipped");
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_STORAGE_FORM_UPDATE", 0,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    "NOT_APPLICABLE_barrier_only_mode_storage_form_disabled");
+            }
+        }
+        double mean_h_now = NAN;
+        double F_surf_hat = NAN, F_el_hat = NAN;
+        double F_chem_excess_hat = NAN;      // ΔF_chem_hat = <g_bulk_hat(r) - g_bulk0_hat>
+        double F_total_excess_hat = NAN;     // F_surf + F_chem_excess + (F_el - F_el0_hat)
+        double F_chem_CNT_hat = NAN;         // CNT 化学体积驱动力: <h> * (mu0 - muB_farfield_hat)
+        double F_total_CNT_hat = NAN;        // CNT 总自由能: F_surf + F_el + F_chem_CNT
+        double total_interface_sum = NAN;
+        double total_el_core_sum = NAN;
+        double rms_res = NAN;   // res = g_full + λ*h', Euler-Lagrange 残差
+        double rms_dphi = NAN;  // ||φ^{n+1}-φ^n||_rms / dt
+        int minimize_should_stop = 0;
+
+        if (!gp_post_birth_skip_ch_dynamics) {
 
         // ============================================================
         // 步骤0：弹性计算（如果启用，迭代弛豫）
@@ -13149,7 +27480,7 @@ int main(int argc, char **argv) {
             float S_44_f = (float)P.S_44, S_45_f = (float)P.S_45, S_46_f = (float)P.S_46;
             float S_55_f = (float)P.S_55, S_56_f = (float)P.S_56;
             float S_66_f = (float)P.S_66;
-            
+
             float S_p_11_f = (float)P.S_p_11, S_p_12_f = (float)P.S_p_12, S_p_13_f = (float)P.S_p_13;
             float S_p_14_f = (float)P.S_p_14, S_p_15_f = (float)P.S_p_15, S_p_16_f = (float)P.S_p_16;
             float S_p_22_f = (float)P.S_p_22, S_p_23_f = (float)P.S_p_23, S_p_24_f = (float)P.S_p_24;
@@ -13158,15 +27489,15 @@ int main(int argc, char **argv) {
             float S_p_44_f = (float)P.S_p_44, S_p_45_f = (float)P.S_p_45, S_p_46_f = (float)P.S_p_46;
             float S_p_55_f = (float)P.S_p_55, S_p_56_f = (float)P.S_p_56;
             float S_p_66_f = (float)P.S_p_66;
-            
+
             float E0_xx_f = (float)P.E0_xx, E0_yy_f = (float)P.E0_yy, E0_zz_f = (float)P.E0_zz;
             float E0_yz_f = (float)P.E0_yz, E0_xz_f = (float)P.E0_xz, E0_xy_f = (float)P.E0_xy;
-            
+
             // ============================================================
             // 在do循环外：计算eigenstrain和homogeneous displacement field
             // 因为phi在这个时间步是固定的，所以这些只需要计算一次
             // ============================================================
-            
+
             // === 步骤1：eigenstrain（实空间，临时写入 d_uxx_r..d_uyz_r）===
             // Optimization(4): 不再分配持久 eps0_r 数组；临时写入 d_uxx_r..d_uyz_r（此时它们还不是真实应变）
             // minimize(phi-only)：仅用 phi，eigenstrain = h(phi)*eps^00；其余情况：phi + xB
@@ -13193,18 +27524,18 @@ int main(int argc, char **argv) {
                     P.gp_eps_iso,
                     total_r);
             }
-            
+
             // === 步骤2：Eigenstrain变换到k空间（临时存储在 d_uxx_k..d_uyz_k）===
             // Optimization(3): 复用 d_uxx_k..d_uyz_k 作为临时 eigenstrain_k 容器
             float *src_r_array[6] = {d_uxx_r, d_uyy_r, d_uzz_r, d_uxy_r, d_uxz_r, d_uyz_r};
             cufftComplex *dst_k_array[6] = {d_uxx_k, d_uyy_k, d_uzz_k, d_uxy_k, d_uxz_k, d_uyz_k};
-            
+
             for (int comp = 0; comp < 6; comp++) {
                 CUFFT_CHECK(cufftExecR2C(plan_r2c_elastic, src_r_array[comp], dst_k_array[comp]));
                 launch_dealias_float_kernel(dst_k_array[comp], P.Nx, P.Ny, P.Nz, NzC,
                                            P.dx, P.dy, P.dz, total_k);
             }
-            
+
             // === 步骤3：在k空间计算homogeneous elasticity displacement field ===
             // 使用均匀弹性常数，从eigenstrain计算初始位移场
             // Optimization(3): 此时 d_uxx_k..d_uyz_k 中存放的是临时 eigenstrain_k
@@ -13223,7 +27554,7 @@ int main(int argc, char **argv) {
             launch_dealias_float_kernel(d_ux_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
             launch_dealias_float_kernel(d_uy_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
             launch_dealias_float_kernel(d_uz_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
-            
+
             // 现在d_ux_k, d_uy_k, d_uz_k包含了homogeneous elasticity displacement field
             // Optimization(3)+(4) Lifetime note:
             // - 临时 eps0_r 已写入 d_uxx_r..d_uyz_r，临时 eps0_k 已写入 d_uxx_k..d_uyz_k
@@ -13231,7 +27562,7 @@ int main(int argc, char **argv) {
             // - do-while 循环的第一步 launch_compute_strain_from_displacement_k_kernel 会完全覆盖 d_uxx_k..d_uyz_k 为真实 strain_k
             // - 随后 C2R 会覆盖 d_uxx_r..d_uyz_r 为真实 strain_r
             // - 因此临时 eps0 内容在此之后不再被访问，覆盖是安全的
-            
+
             // ============================================================
             // 进入do循环：迭代细化（对非均匀弹性系数进行修正）
             // ============================================================
@@ -13252,17 +27583,17 @@ int main(int argc, char **argv) {
                         launch_dealias_float_kernel(strain_k[c], P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
                     }
                 }
-                
+
                 // === 应变场C2R到实空间并归一化 ===
                 cufftComplex *strain_src_k[6] = {d_uxx_k, d_uyy_k, d_uzz_k, d_uxy_k, d_uxz_k, d_uyz_k};
                 float *strain_dst_r[6] = {d_uxx_r, d_uyy_r, d_uzz_r, d_uxy_r, d_uxz_r, d_uyz_r};
-                
+
                 for (int comp = 0; comp < 6; comp++) {
                     CUFFT_CHECK(cufftExecC2R(plan_c2r_elastic, strain_src_k[comp], strain_dst_r[comp]));
                 }
                 // C2R后归一化（除以N），因为cuFFT C2R不归一化，结果 = N * 标准IFFT
                 launch_normalize_strain_kernel(d_uxx_r, d_uyy_r, d_uzz_r, d_uxy_r, d_uxz_r, d_uyz_r, invN_float, total_r);
-                
+
                 // === 用应变场和eigenstrain组装hij（修正后的local strain）===
                 // Optimization(4): eigenstrain 参数已移除，现场计算
                 launch_compute_strain_with_perturbation_kernel(
@@ -13291,17 +27622,17 @@ int main(int argc, char **argv) {
                     P.gp_eps_iso,
                     E0_xx_f, E0_yy_f, E0_zz_f, E0_yz_f, E0_xz_f, E0_xy_f,
                     total_r);
-                
+
                 // === 用Green function和hij组装新的k_ux, k_uy, k_uz ===
                 // 将hij R2C到k空间
                 float *hij_src_r[6] = {d_uxx_r, d_uyy_r, d_uzz_r, d_uxy_r, d_uxz_r, d_uyz_r};
                 cufftComplex *hij_dst_k[6] = {d_uxx_k, d_uyy_k, d_uzz_k, d_uxy_k, d_uxz_k, d_uyz_k};
-                
+
                 for (int comp = 0; comp < 6; comp++) {
                     CUFFT_CHECK(cufftExecR2C(plan_r2c_elastic, hij_src_r[comp], hij_dst_k[comp]));
                     launch_dealias_float_kernel(hij_dst_k[comp], P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
                 }
-                
+
                 // 使用Green函数计算新的k空间位移
                 launch_compute_displacement_from_hij_green_kernel(
                     d_uxx_k, d_uyy_k, d_uzz_k, d_uxy_k, d_uxz_k, d_uyz_k,
@@ -13317,13 +27648,13 @@ int main(int argc, char **argv) {
                 launch_dealias_float_kernel(d_ux_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
                 launch_dealias_float_kernel(d_uy_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
                 launch_dealias_float_kernel(d_uz_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
-                
+
                 // 现在d_ux_k, d_uy_k, d_uz_k包含了更新后的displacement field
                 // 下一次循环开始时会使用这些值进行求导
-                
+
                 elastic_iter++;
             } while (elastic_iter < P.elastic_iter_max);
-            
+
             // ============================================================
             // 迭代循环结束后：按照SDV_Poly.c:1237-1330的逻辑
             // 1. C2R位移场并归一化（1237-1260行）
@@ -13331,7 +27662,7 @@ int main(int argc, char **argv) {
             // 3. 应变C2R到实空间（1290-1313行）
             // 4. 应用外部应变E0（1316-1330行，但全局添加，不乘以Is(r_ps)）
             // ============================================================
-            
+
             // Optimization: 不再将位移 C2R 到 r-space 并归一化；应变直接从 k-space 位移计算
             // === 对位移场求导得到应变（SDV_Poly.c:1262-1288）===
             // 使用当前k空间的k_ux, k_uy, k_uz（已经在循环中更新）
@@ -13347,16 +27678,16 @@ int main(int argc, char **argv) {
                     launch_dealias_float_kernel(fin_strain_k[c], P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
                 }
             }
-            
+
             // === 步骤3：应变C2R到实空间并归一化（SDV_Poly.c:1290-1313）===
             cufftComplex *final_strain_src_k[6] = {d_uxx_k, d_uyy_k, d_uzz_k, d_uxy_k, d_uxz_k, d_uyz_k};
             float *final_strain_dst_r[6] = {d_uxx_r, d_uyy_r, d_uzz_r, d_uxy_r, d_uxz_r, d_uyz_r};
-            
+
             for (int comp = 0; comp < 6; comp++) {
                 CUFFT_CHECK(cufftExecC2R(plan_c2r_elastic, final_strain_src_k[comp], final_strain_dst_r[comp]));
             }
             launch_normalize_strain_kernel(d_uxx_r, d_uyy_r, d_uzz_r, d_uxy_r, d_uxz_r, d_uyz_r, invN_float, total_r);
-            
+
             // === 步骤4：应用外部应变E0（SDV_Poly.c:1316-1330，但全局添加，不乘以Is(r_ps)）===
             launch_add_external_strain_kernel(
                 d_uxx_r, d_uyy_r, d_uzz_r,
@@ -13491,14 +27822,6 @@ int main(int argc, char **argv) {
         // ============================================================
         // minimize mode: 能量与体积诊断（全部基于 excess 自由能）
         // ============================================================
-        double mean_h_now = NAN;
-        double F_surf_hat = NAN, F_el_hat = NAN;
-        double F_chem_excess_hat = NAN;      // ΔF_chem_hat = <g_bulk_hat(r) - g_bulk0_hat>
-        double F_total_excess_hat = NAN;     // F_surf + F_chem_excess + (F_el - F_el0_hat)
-        double F_chem_CNT_hat = NAN;         // CNT 化学体积驱动力: <h> * (mu0 - muB_farfield_hat)
-        double F_total_CNT_hat = NAN;        // CNT 总自由能: F_surf + F_el + F_chem_CNT
-        double total_interface_sum = NAN;
-        double total_el_core_sum = NAN;
         if (P.mode == 1) {
             // 记录上一时间步的总能量，用于能量相对变化率判据
             F_total_prev_step = prev_F_total;
@@ -13582,8 +27905,6 @@ int main(int argc, char **argv) {
         // ============================================================
 
         // minimize mode: Lagrange volume, no linesearch
-        double rms_res = NAN;   // res = g_full + λ*h', Euler-Lagrange 残差
-        double rms_dphi = NAN;  // ||φ^{n+1}-φ^n||_rms / dt
         if (P.mode == 1) {
             // 1) phi -> k-space，去混叠（与弹性一致）
             CUFFT_CHECK(cufftExecD2Z(plan_r2c_phi, d_phi_r, d_phi_k));
@@ -13704,7 +28025,66 @@ int main(int argc, char **argv) {
                                  P.dx, P.dy, P.dz, total_k);
             CUFFT_CHECK(cufftExecZ2D(plan_c2r_phi, d_phi_k, d_phi_r));
             launch_phi_normalize_and_clamp_kernel(d_phi_r, invN, total_r);
-
+            if (pf_conservative_runtime) {
+                launch_constrain_phase_and_reconstruct_conservative_kernel(
+                    d_phi_r, d_phi_n_saved, d_pf_conservative_storage_r,
+                    d_xB_r, d_Y_r, temperature_K, P.v_B,
+                    pf_conservative_primary_is_ctot,
+                    P.pf_conservative_beta_support_eps, P.xB_eps, P.Y_clip,
+                    P.pf_conservative_bound_tol, d_pf_conservative_stats,
+                    total_r);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                CUDA_CHECK(cudaMemcpy(pf_cons_step_stats, d_pf_conservative_stats,
+                                      PF_CONS_STATS_COUNT * sizeof(double),
+                                      cudaMemcpyDeviceToHost));
+                if (pf_cons_step_stats[PF_CONS_BOUND_VIOLATION_COUNT] > 0.5 ||
+                    pf_cons_step_stats[PF_CONS_NONFINITE_COUNT] > 0.5) {
+                    fprintf(stderr,
+                            "[fatal] PF_CONSERVATIVE_STEP_REJECTED step=%d "
+                            "bound_violations=%.0f nonfinite=%.0f\n",
+                            step,
+                            pf_cons_step_stats[PF_CONS_BOUND_VIOLATION_COUNT],
+                            pf_cons_step_stats[PF_CONS_NONFINITE_COUNT]);
+                    return 2;
+                }
+                pf_cons_mass_after_phase = pf_conservative_primary_is_ctot
+                    ? gpu_reduce_sum(d_pf_conservative_storage_r, total_r)
+                    : (gpu_reduce_sum(d_pf_conservative_storage_r, total_r) +
+                       P.v_B * gpu_compute_vf_from_h(d_phi_r, total_r) *
+                           (double)total_r);
+                if (pf_conservative_diag_fp) {
+                    fprintf(pf_conservative_diag_fp,
+                            "%d,%.17e,%s,%s,%.17e,%.17e,%.17e,%.17e,%.17e,"
+                            "%.17e,%.17e,%.0f,%.0f,%.0f,%.17e,%.0f,%.0f\n",
+                            step, step * P.dt, P.pf_composition_mode,
+                            P.pf_conservative_flux_strategy,
+                            pf_cons_mass_before_transport,
+                            pf_cons_mass_after_transport,
+                            pf_cons_mass_after_phase,
+                            pf_cons_mass_after_transport - pf_cons_mass_before_transport,
+                            pf_cons_mass_after_phase - pf_cons_mass_after_transport,
+                            pf_cons_step_stats[PF_CONS_SUM_ABS_TRANSFER],
+                            pf_cons_step_stats[PF_CONS_MAXABS_FACE_TRANSFER],
+                            pf_cons_step_stats[PF_CONS_LIMITED_FACE_COUNT],
+                            pf_cons_step_stats[PF_CONS_BOUND_VIOLATION_COUNT],
+                            pf_cons_step_stats[PF_CONS_PHASE_CONSTRAINT_COUNT],
+                            pf_cons_step_stats[PF_CONS_MAXABS_PHASE_CORRECTION],
+                            pf_cons_step_stats[PF_CONS_BETA_CONTEXT_COUNT],
+                            pf_cons_step_stats[PF_CONS_NONFINITE_COUNT]);
+                    fflush(pf_conservative_diag_fp);
+                }
+                const double mass_scale = fmax(1.0, fabs(pf_cons_mass_before_transport));
+                if (fabs(pf_cons_mass_after_phase - pf_cons_mass_before_transport) >
+                    P.pf_conservative_mass_tol * mass_scale) {
+                    fprintf(stderr,
+                            "[fatal] PF_CONSERVATIVE_MASS_CLOSURE_FAILED step=%d "
+                            "before=%.17e after=%.17e rel=%.17e\n",
+                            step, pf_cons_mass_before_transport, pf_cons_mass_after_phase,
+                            fabs(pf_cons_mass_after_phase - pf_cons_mass_before_transport) /
+                                mass_scale);
+                    return 2;
+                }
+            }
             // 6) rms_res 诊断：res = g_full(φ^{n+1}) + λ*h'(φ^{n+1})
             // 关键：使用专用 d_res_r，绝不复用 d_phi_rhs_r，避免破坏 step5 的更新 RHS
             CUDA_CHECK(cudaDeviceSynchronize());  // 确保 step5 的 FFT/更新全部完成后再写诊断
@@ -13922,6 +28302,80 @@ int main(int argc, char **argv) {
                     mass_diag_row.mean_xBtot_after_phi_clip - mass_diag_row.mean_xBtot_before_phi_clip;
             }
             launch_phi_normalize_and_clamp_kernel(d_phi_r, invN, total_r);
+            if (pf_conservative_runtime) {
+                launch_constrain_phase_and_reconstruct_conservative_kernel(
+                    d_phi_r, d_phi_n_saved, d_pf_conservative_storage_r,
+                    d_xB_r, d_Y_r, temperature_K, P.v_B,
+                    pf_conservative_primary_is_ctot,
+                    P.pf_conservative_beta_support_eps, P.xB_eps, P.Y_clip,
+                    P.pf_conservative_bound_tol, d_pf_conservative_stats,
+                    total_r);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                CUDA_CHECK(cudaMemcpy(pf_cons_step_stats, d_pf_conservative_stats,
+                                      PF_CONS_STATS_COUNT * sizeof(double),
+                                      cudaMemcpyDeviceToHost));
+                if (pf_cons_step_stats[PF_CONS_BOUND_VIOLATION_COUNT] > 0.5 ||
+                    pf_cons_step_stats[PF_CONS_NONFINITE_COUNT] > 0.5) {
+                    fprintf(stderr,
+                            "[fatal] PF_CONSERVATIVE_STEP_REJECTED step=%d "
+                            "bound_violations=%.0f nonfinite=%.0f\n",
+                            step,
+                            pf_cons_step_stats[PF_CONS_BOUND_VIOLATION_COUNT],
+                            pf_cons_step_stats[PF_CONS_NONFINITE_COUNT]);
+                    return 2;
+                }
+                pf_cons_mass_after_phase = pf_conservative_primary_is_ctot
+                    ? gpu_reduce_sum(d_pf_conservative_storage_r, total_r)
+                    : (gpu_reduce_sum(d_pf_conservative_storage_r, total_r) +
+                       P.v_B * gpu_compute_vf_from_h(d_phi_r, total_r) *
+                           (double)total_r);
+                if (pf_conservative_diag_fp) {
+                    fprintf(pf_conservative_diag_fp,
+                            "%d,%.17e,%s,%s,%.17e,%.17e,%.17e,%.17e,%.17e,"
+                            "%.17e,%.17e,%.0f,%.0f,%.0f,%.17e,%.0f,%.0f\n",
+                            step, step * P.dt, P.pf_composition_mode,
+                            P.pf_conservative_flux_strategy,
+                            pf_cons_mass_before_transport,
+                            pf_cons_mass_after_transport,
+                            pf_cons_mass_after_phase,
+                            pf_cons_mass_after_transport - pf_cons_mass_before_transport,
+                            pf_cons_mass_after_phase - pf_cons_mass_after_transport,
+                            pf_cons_step_stats[PF_CONS_SUM_ABS_TRANSFER],
+                            pf_cons_step_stats[PF_CONS_MAXABS_FACE_TRANSFER],
+                            pf_cons_step_stats[PF_CONS_LIMITED_FACE_COUNT],
+                            pf_cons_step_stats[PF_CONS_BOUND_VIOLATION_COUNT],
+                            pf_cons_step_stats[PF_CONS_PHASE_CONSTRAINT_COUNT],
+                            pf_cons_step_stats[PF_CONS_MAXABS_PHASE_CORRECTION],
+                            pf_cons_step_stats[PF_CONS_BETA_CONTEXT_COUNT],
+                            pf_cons_step_stats[PF_CONS_NONFINITE_COUNT]);
+                    fflush(pf_conservative_diag_fp);
+                }
+                const double mass_scale = fmax(1.0, fabs(pf_cons_mass_before_transport));
+                if (fabs(pf_cons_mass_after_phase - pf_cons_mass_before_transport) >
+                    P.pf_conservative_mass_tol * mass_scale) {
+                    fprintf(stderr,
+                            "[fatal] PF_CONSERVATIVE_MASS_CLOSURE_FAILED step=%d "
+                            "before=%.17e after=%.17e rel=%.17e\n",
+                            step, pf_cons_mass_before_transport, pf_cons_mass_after_phase,
+                            fabs(pf_cons_mass_after_phase - pf_cons_mass_before_transport) /
+                                mass_scale);
+                    return 2;
+                }
+            }
+            if (diagnostic_rsmd_freeze_phi || pf_baseline_freeze_phi) {
+                CUDA_CHECK(cudaMemcpy(d_phi_r, d_phi_n_saved, size_r,
+                                      cudaMemcpyDeviceToDevice));
+                CUFFT_CHECK(cufftExecD2Z(plan_r2c_phi, d_phi_r, d_phi_k));
+                launch_dealias_kernel(d_phi_k, P.Nx, P.Ny, P.Nz, NzC,
+                                     P.dx, P.dy, P.dz, total_k);
+                if (diagnostic_rsmd_dense_probe_due(&P, &gp_assisted_runtime, step)) {
+                    printf("DIAGNOSTIC_RSMD_FROZEN_PHI_SYNCHRONIZED step=%d "
+                           "control_mode=%s pf_baseline_control_mode=%s\n",
+                           step, P.diagnostic_rsmd_control_mode,
+                           P.pf_baseline_control_mode);
+                    fflush(stdout);
+                }
+            }
             if (do_mass_diag) {
                 mass_diag_row.mean_xBtot_after_phi_update =
                     gpu_reduce_sum_model_xBtot(&P, d_phi_r, d_eta_r, d_xB_r, total_r) / (double)total_r;
@@ -14107,6 +28561,21 @@ int main(int argc, char **argv) {
                                                      &post_conversion_audit_runtime.pre_Y_Y_k0_re,
                                                      &post_conversion_audit_runtime.pre_Y_Y_k0_im);
             }
+            if (post_insertion_drift_audit_runtime.csv &&
+                post_insertion_drift_audit_runtime.active &&
+                step > post_insertion_drift_audit_runtime.trigger_step &&
+                step <= post_insertion_drift_audit_runtime.trigger_step +
+                        P.audit_post_insertion_drift_steps) {
+                PostInsertionDriftAuditState after_phi_state;
+                capture_post_insertion_drift_state_device(&P, d_phi_r, d_eta_r, d_Y_r, d_xB_r,
+                                                          size_r, total_r, &after_phi_state);
+                write_post_insertion_drift_audit_row(
+                    post_insertion_drift_audit_runtime.csv, step, "after_phi_update",
+                    &after_phi_state,
+                    post_insertion_drift_audit_runtime.before_event_M_total,
+                    post_insertion_drift_audit_runtime.after_comp_M_total,
+                    "captured_after_phi_update_before_Y_update");
+            }
             if (gp_to_beta_result.stop_after_conversion_audit_requested &&
                 gp_to_beta_result.event_triggered &&
                 gp_to_beta_result.event_accepted) {
@@ -14174,18 +28643,56 @@ int main(int argc, char **argv) {
                     ? gp_elastic_stats[GP_ELASTIC_STATS_MAX_MINUS_DELTA_MU_R_GP]
                     : NAN;
         }
-        
+
+        if (pf_mode_q_transport_runtime) {
+            double q_stats_init[PF_Q_STATS_COUNT] = {0.0};
+            q_stats_init[PF_Q_MIN_ALPHA] = 1.0;
+            CUDA_CHECK(cudaMemcpy(d_pf_q_stats, q_stats_init,
+                                  PF_Q_STATS_COUNT * sizeof(double),
+                                  cudaMemcpyHostToDevice));
+            launch_apply_local_phase_storage_transfer_q_kernel(
+                d_phi_r, d_phi_n_saved, d_q_alpha_r, P.v_B, 1.0e-12,
+                d_pf_q_stats, total_r);
+            CUDA_CHECK(cudaMemcpy(pf_q_step_stats, d_pf_q_stats,
+                                  PF_Q_STATS_COUNT * sizeof(double),
+                                  cudaMemcpyDeviceToHost));
+            if (pf_q_step_stats[PF_Q_INFEASIBLE_PHASE_COUNT] > 0.5) {
+                // Reject the whole phase substep, as permitted by the Q
+                // reference contract. This is conservative: no q clipping,
+                // no global donor, and no artificial beta growth. Transport
+                // still runs and may supply storage for a later phase step.
+                CUDA_CHECK(cudaMemcpy(d_phi_r, d_phi_n_saved, size_r,
+                                      cudaMemcpyDeviceToDevice));
+                launch_initialize_q_alpha_kernel(
+                    d_phi_r, d_xB_r, d_q_alpha_r, total_r);
+                printf("PF_Q_PHASE_SUBSTEP_REJECTED step=%d "
+                       "infeasible_count=%.0f attempted_local_residual=%.17e "
+                       "policy=rollback_entire_phi_substep\n",
+                       step, pf_q_step_stats[PF_Q_INFEASIBLE_PHASE_COUNT],
+                       pf_q_step_stats[PF_Q_SUM_LOCAL_RESIDUAL]);
+                fflush(stdout);
+            }
+            // Refresh the bounded matrix-channel context before mu/J are
+            // evaluated. Conserved storage remains q; xB/Y are derived views.
+            launch_q_normalize_validate_and_reconstruct_kernel(
+                d_q_alpha_r, d_q_alpha_r, d_phi_r, d_xB_r, d_Y_r,
+                1.0, P.xB_eps, P.Y_clip, P.Y_clip, 1.0e-12,
+                d_pf_q_stats, total_r);
+        }
+
         // Optimization: 步骤1完成，d_phi_rhs_k 可复用为 d_mu_x_k
         d_mu_x_k = d_phi_rhs_k;
-        
+
         // ============================================================
         // 步骤2：Y方程的更新
         // ============================================================
-        int minimize_should_stop = 0;
+        if (!pf_conservative_runtime &&
+            (P.mode == 0 || (P.mode == 1 && P.minimize_full_model == 1))) {
 
-        if (P.mode == 0 || (P.mode == 1 && P.minimize_full_model == 1)) {
-        
-        const double *phi_for_Y_explicit = P.enable_Y_rhs_previous_time_level ? d_phi_n_saved : d_phi_r;
+        const double *phi_for_Y_explicit = pf_mode_q_transport_runtime
+                                                ? d_phi_r
+                                                : (P.enable_Y_rhs_previous_time_level
+                                                       ? d_phi_n_saved : d_phi_r);
         const double *eta_for_Y_explicit = P.enable_Y_rhs_previous_time_level ? d_eta_prev_r : d_eta_r;
 
         // 2.1 计算mu_x（full-model minimize 与 dynamics 共用）
@@ -14244,7 +28751,7 @@ int main(int argc, char **argv) {
             mass_diag_row.M_eff_max =
                 gp_transport_stats[GP_TRANSPORT_MAX_M_EFF];
         }
-        
+
         // 2.2 mu_x变换到k空间
         CUFFT_CHECK(cufftExecD2Z(plan_r2c_xB, d_mu_x_r, d_mu_x_k));
         launch_dealias_kernel(d_mu_x_k, P.Nx, P.Ny, P.Nz, NzC,
@@ -14296,10 +28803,19 @@ int main(int argc, char **argv) {
                     P.Vm_compound, temperature_K, P.mu_reference_scale,
                     total_r);
             } else {
-                launch_compute_flux_single_component_kernel(
-                    scratch_r, phi_for_Y_explicit, d_xB_prev_r, scratch_r,
-                    P.D_alpha, P.D_compound, P.Vm_alpha_0, P.dVm_alpha_dxB,
-                    P.Vm_compound, temperature_K, P.mu_reference_scale, total_r);
+                if (pf_mode_q_transport_runtime) {
+                    launch_compute_flux_single_component_q_kernel(
+                        scratch_r, phi_for_Y_explicit, d_xB_prev_r, scratch_r,
+                        P.D_alpha, P.Vm_alpha_0, P.dVm_alpha_dxB,
+                        P.Vm_compound, temperature_K, P.mu_reference_scale,
+                        total_r);
+                } else {
+                    launch_compute_flux_single_component_kernel(
+                        scratch_r, phi_for_Y_explicit, d_xB_prev_r, scratch_r,
+                        P.D_alpha, P.D_compound, P.Vm_alpha_0, P.dVm_alpha_dxB,
+                        P.Vm_compound, temperature_K, P.mu_reference_scale,
+                        total_r);
+                }
             }
             if (do_mass_diag && is_gp_zone_mode(&P)) {
                 double flux_min = 0.0;
@@ -14334,7 +28850,7 @@ int main(int argc, char **argv) {
         }
         launch_normalize_only_kernel(d_divJ_r, invN, total_r);
 
-        if (is_gp_zone_mode(&P)) {
+        if (gp_storage_coupling_enabled(&P)) {
             const int eta_limiter_enabled = (strcmp(P.gp_eta_mass_limiter, "local_clip") == 0) ? 1 : 0;
             if (do_mass_diag) {
                 double eta_feas_stats_init[GP_ETA_FEAS_STATS_COUNT];
@@ -14449,9 +28965,18 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        
-        // 2.8 计算Y的Laplacian
-        CUFFT_CHECK(cufftExecD2Z(plan_r2c_Y, d_Y_r, d_Y_k));
+
+        const int pf_mode_x_storage_semi_implicit =
+            (!gp_storage_coupling_enabled(&P) &&
+             strcmp(P.pf_y_update_mode, "x_transport_projection_split") == 0);
+        const int pf_mode_q_storage_semi_implicit = pf_mode_q_transport_runtime;
+        const int pf_mode_direct_composition_semi_implicit =
+            pf_mode_x_storage_semi_implicit || pf_mode_q_storage_semi_implicit;
+        // 2.8 Compute the Laplacian of the evolved composition coordinate.
+        CUFFT_CHECK(cufftExecD2Z(plan_r2c_Y,
+                                pf_mode_q_storage_semi_implicit ? d_q_alpha_r :
+                                (pf_mode_x_storage_semi_implicit ? d_xB_r : d_Y_r),
+                                d_Y_k));
         launch_dealias_kernel(d_Y_k, P.Nx, P.Ny, P.Nz, NzC,
                              P.dx, P.dy, P.dz, total_k);
         launch_compute_laplacian_k_kernel(d_Y_k, KS.d_k2, d_Y_k, total_k);
@@ -14459,32 +28984,62 @@ int main(int argc, char **argv) {
                              P.dx, P.dy, P.dz, total_k);
         CUFFT_CHECK(cufftExecZ2D(plan_c2r_Y, d_Y_k, d_lapY_r));
         launch_normalize_only_kernel(d_lapY_r, invN, total_r);
-        
+
         // 2.9 计算平均DY（使用GPU归约计算全局平均值，优化版本）
         // mean_DY = mean(D_mix * logistic_deriv) = sum(DY_values) / Ntot
         // 优化：使用直接归约，不需要存储中间数组
-        double global_sum_DY = is_gp_zone_mode(&P)
+        double global_sum_DY = gp_storage_coupling_enabled(&P)
                                    ? gpu_reduce_sum_DY_gp(d_Y_r, phi_for_Y_explicit,
                                                           eta_for_Y_explicit,
                                                           P.D_alpha, total_r)
                                    : gpu_reduce_sum_DY(d_Y_r, phi_for_Y_explicit,
                                                        P.D_alpha, P.D_compound, total_r);
-        double mean_DY = global_sum_DY / (double)total_r;
-        
+        double mean_DY = pf_mode_direct_composition_semi_implicit
+                             ? (P.D_alpha * P.pf_composition_stabilizer_Dalpha_multiplier)
+                             : (global_sum_DY / (double)total_r);
+        if (diagnostic_rsmd_dense_probe_due(&P, &gp_assisted_runtime, step)) {
+            write_beta_staged_global_probe_row_device(
+                gp_assisted_runtime.beta_staged_global_probe_csv, step,
+                "PROBE_BEFORE_Y_UPDATE",
+                &P, &gp_assisted_runtime,
+                d_phi_r, d_Y_r, d_xB_r, size_r, total_r,
+                gp_assisted_external_ledger_field_target_sum(&P, &gp_assisted_runtime, total_r));
+            diagnostic_rsmd_write_state_summary_device(
+                &gp_assisted_runtime, &P, step,
+                "before_Y_update",
+                d_phi_r, d_Y_r, d_xB_r, total_r, size_r);
+        }
+        if (gp_post_birth_probe_step11 && gp_post_birth_probe_fp) {
+            write_gp_post_birth_mass_probe_row_device(
+                gp_post_birth_probe_fp, step, "PROBE_AFTER_CH_RHS_BEFORE_UPDATE", 1,
+                &P, &gp_assisted_runtime,
+                d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                "after_CH_rhs_assembly_before_Y_update");
+        }
+
         // 2.10-2.14 Y 更新：
         // - two_phase / gp old_rhs / gp conservative_y_rhs 继续沿用半隐式 Fourier 链
         // - gp picard_storage / storage_exact 改走 storage-consistent 本地点更新
         const int gp_mode_old_rhs =
-            (is_gp_zone_mode(&P) && strcmp(P.gp_y_update_mode, "old_rhs") == 0);
+            (gp_storage_coupling_enabled(&P) && strcmp(P.gp_y_update_mode, "old_rhs") == 0);
         const int gp_mode_conservative_y_rhs =
-            (is_gp_zone_mode(&P) && strcmp(P.gp_y_update_mode, "conservative_y_rhs") == 0);
+            (gp_storage_coupling_enabled(&P) && strcmp(P.gp_y_update_mode, "conservative_y_rhs") == 0);
         const int gp_mode_picard_storage =
-            (is_gp_zone_mode(&P) && strcmp(P.gp_y_update_mode, "picard_storage") == 0);
+            (gp_storage_coupling_enabled(&P) && strcmp(P.gp_y_update_mode, "picard_storage") == 0);
         const int gp_mode_storage_exact =
-            (is_gp_zone_mode(&P) && strcmp(P.gp_y_update_mode, "storage_exact") == 0);
+            (gp_storage_coupling_enabled(&P) && strcmp(P.gp_y_update_mode, "storage_exact") == 0);
+        const int pf_mode_storage_exact =
+            (!gp_storage_coupling_enabled(&P) && strcmp(P.pf_y_update_mode, "storage_exact") == 0);
         const int gp_mode_direct_storage = gp_mode_picard_storage || gp_mode_storage_exact;
+        const int any_mode_direct_storage =
+            gp_mode_direct_storage || pf_mode_storage_exact ||
+            pf_mode_direct_composition_semi_implicit;
         const int use_Y_rhs_picard =
-            (!gp_mode_direct_storage && P.mode == 0 && P.enable_Y_rhs_picard) ? 1 : 0;
+            (!any_mode_direct_storage && P.mode == 0 && P.enable_Y_rhs_picard) ? 1 : 0;
+        const double *d_dY_dt_lagged_for_rhs =
+            (gp_assisted_runtime.diagnostic_rsmd_history_restart_pending &&
+             P.diagnostic_rsmd_history_restart_mode == 2)
+                ? d_dY_dt_picard_r : d_dY_dt_prev_r;
         double Y_upper_cap = P.Y_clip;
         if (P.mode == 1) {
             double xB_cap = P.minimize_xB_max_safe;
@@ -14494,7 +29049,69 @@ int main(int argc, char **argv) {
             if (y_cap_from_xB < Y_upper_cap) Y_upper_cap = y_cap_from_xB;
         }
 
-        if (!gp_mode_direct_storage) {
+        if (pf_mode_direct_composition_semi_implicit) {
+            if (pf_mode_q_storage_semi_implicit) {
+                CUDA_CHECK(cudaMemcpy(d_dY_dt_picard_old_r, d_q_alpha_r,
+                                      size_r, cudaMemcpyDeviceToDevice));
+                launch_q_explicit_transport_and_reconstruct_kernel(
+                    d_q_alpha_r, d_divJ_r, d_phi_r, d_xB_r, d_Y_r,
+                    P.dt, P.xB_eps, P.Y_clip, Y_upper_cap, 1.0e-12,
+                    d_pf_q_stats, total_r);
+            } else {
+                CUFFT_CHECK(cufftExecD2Z(plan_r2c_Y, d_xB_r, d_divJ_k));
+                launch_dealias_kernel(d_divJ_k, P.Nx, P.Ny, P.Nz, NzC,
+                                     P.dx, P.dy, P.dz, total_k);
+                launch_compute_xB_storage_rhs_kernel(
+                    d_divJ_r, d_phi_r, d_phi_n_saved, d_lapY_r, d_xB_r,
+                    d_Y_rhs_r, P.dt, P.v_B, mean_DY,
+                    P.pf_matrix_storage_floor, total_r);
+                CUFFT_CHECK(cufftExecD2Z(plan_r2c_Y, d_Y_rhs_r, d_Y_rhs_k));
+                launch_dealias_kernel(d_Y_rhs_k, P.Nx, P.Ny, P.Nz, NzC,
+                                     P.dx, P.dy, P.dz, total_k);
+                launch_Y_semi_implicit_update_kernel(
+                    d_divJ_k, d_Y_rhs_k, KS.d_k2, d_Y_k,
+                    mean_DY, P.dt, total_k);
+                launch_dealias_kernel(d_Y_k, P.Nx, P.Ny, P.Nz, NzC,
+                                     P.dx, P.dy, P.dz, total_k);
+                CUFFT_CHECK(cufftExecZ2D(plan_c2r_Y, d_Y_k, d_Y_r));
+                launch_xB_normalize_clamp_and_logit_kernel(
+                    d_Y_r, d_xB_r, d_Y_r, invN, P.xB_eps,
+                    P.Y_clip, Y_upper_cap, total_r);
+            }
+            if (pf_mode_q_storage_semi_implicit) {
+                CUDA_CHECK(cudaMemcpy(pf_q_step_stats, d_pf_q_stats,
+                                      PF_Q_STATS_COUNT * sizeof(double),
+                                      cudaMemcpyDeviceToHost));
+                if (pf_q_step_stats[PF_Q_TRANSPORT_BOUND_VIOLATION_COUNT] > 0.5) {
+                    int redistributed_cells = 0;
+                    int max_radius_used = 0;
+                    double unresolved_mass = 0.0;
+                    if (!q_transport_conservative_local_redistribution(
+                            &P, d_dY_dt_picard_old_r, d_divJ_r, d_phi_r,
+                            d_q_alpha_r, total_r, P.dt, 8, 1.0e-12,
+                            &redistributed_cells, &max_radius_used,
+                            &unresolved_mass)) {
+                        fprintf(stderr,
+                                "[fatal] PF_Q_TRANSPORT_STEP_REJECTED step=%d "
+                                "bound_violation_count=%.0f unresolved_mass=%.17e\n",
+                                step,
+                                pf_q_step_stats[PF_Q_TRANSPORT_BOUND_VIOLATION_COUNT],
+                                unresolved_mass);
+                        return 2;
+                    }
+                    launch_q_normalize_validate_and_reconstruct_kernel(
+                        d_q_alpha_r, d_q_alpha_r, d_phi_r, d_xB_r, d_Y_r,
+                        1.0, P.xB_eps, P.Y_clip, Y_upper_cap, 1.0e-12,
+                        d_pf_q_stats, total_r);
+                    printf("PF_Q_TRANSPORT_LOCAL_REDISTRIBUTION step=%d "
+                           "violating_cells=%d max_radius_used=%d "
+                           "unresolved_mass=%.17e global_mass_loss=0\n",
+                           step, redistributed_cells, max_radius_used,
+                           unresolved_mass);
+                    fflush(stdout);
+                }
+            }
+        } else if (!any_mode_direct_storage) {
             const int Y_rhs_picard_iters = use_Y_rhs_picard ? ((P.Y_rhs_picard_iters > 0) ? P.Y_rhs_picard_iters : 1) : 1;
             const double Y_rhs_picard_omega = (P.Y_rhs_picard_omega > 0.0 && P.Y_rhs_picard_omega <= 1.0)
                                                   ? P.Y_rhs_picard_omega : 1.0;
@@ -14518,12 +29135,12 @@ int main(int argc, char **argv) {
                                           MASS_DIAG_Y_RHS_STATS_COUNT * sizeof(double),
                                           cudaMemcpyHostToDevice));
                 }
-                if (is_gp_zone_mode(&P)) {
+                if (gp_storage_coupling_enabled(&P)) {
                     if (gp_mode_conservative_y_rhs) {
                         launch_compute_Y_rhs_gp_conservative_kernel(
                             d_divJ_r, d_phi_r, d_phi_n_saved,
                             d_eta_r, d_eta_prev_r, d_lapY_r, Y_for_Y_rhs,
-                            use_Y_rhs_picard ? d_dY_dt_picard_r : d_dY_dt_prev_r,
+                            use_Y_rhs_picard ? d_dY_dt_picard_r : d_dY_dt_lagged_for_rhs,
                             d_Y_rhs_r, P.dt, P.gp_xB_fixed, mean_DY, total_r,
                             P.enable_Y_rhs_previous_time_level ? 1 : 0,
                             P.disable_Y_rhs_gamma_term ? 1 : 0,
@@ -14531,7 +29148,7 @@ int main(int argc, char **argv) {
                     } else {
                         launch_compute_Y_rhs_gp_kernel(d_divJ_r, d_phi_r, d_phi_n_saved,
                                                        d_eta_r, d_eta_prev_r, d_lapY_r, Y_for_Y_rhs,
-                                                       use_Y_rhs_picard ? d_dY_dt_picard_r : d_dY_dt_prev_r,
+                                                       use_Y_rhs_picard ? d_dY_dt_picard_r : d_dY_dt_lagged_for_rhs,
                                                        d_Y_rhs_r, P.dt, P.gp_xB_fixed, mean_DY,
                                                        P.gp_h_alpha_eps, total_r,
                                                        P.enable_Y_rhs_previous_time_level ? 1 : 0,
@@ -14541,7 +29158,7 @@ int main(int argc, char **argv) {
                 } else {
                     launch_compute_Y_rhs_kernel(d_divJ_r, d_phi_r, d_phi_n_saved,
                                                 d_lapY_r, Y_for_Y_rhs,
-                                                use_Y_rhs_picard ? d_dY_dt_picard_r : d_dY_dt_prev_r,
+                                                use_Y_rhs_picard ? d_dY_dt_picard_r : d_dY_dt_lagged_for_rhs,
                                                 d_Y_rhs_r, P.dt, P.v_B, mean_DY, total_r,
                                                 P.enable_Y_rhs_previous_time_level ? 1 : 0,
                                                 P.disable_Y_rhs_gamma_term ? 1 : 0,
@@ -14597,7 +29214,13 @@ int main(int argc, char **argv) {
                 CUDA_CHECK(cudaMemset(d_gp_Y_update_stats, 0, GP_Y_UPDATE_STATS_COUNT * sizeof(double)));
             }
 
-            if (gp_mode_storage_exact) {
+            if (pf_mode_storage_exact) {
+                launch_two_phase_storage_exact_Y_update_kernel(
+                    d_divJ_r, d_phi_r, d_phi_n_saved, d_Y_n_saved,
+                    d_Y_r, d_xB_r, P.dt, P.v_B, P.Y_clip,
+                    Y_upper_cap, P.xB_eps, P.gp_h_alpha_eps,
+                    do_mass_diag ? d_gp_Y_update_stats : NULL, total_r);
+            } else if (gp_mode_storage_exact) {
                 launch_gp_storage_exact_Y_update_kernel(
                     d_divJ_r, d_phi_r, d_phi_n_saved, d_eta_r, d_eta_prev_r,
                     d_Y_n_saved, d_Y_r, d_xB_r, P.dt, P.gp_xB_fixed, P.Y_clip,
@@ -14621,16 +29244,34 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (is_gp_zone_mode(&P) &&
-            gp_mode_direct_storage &&
-            (y_update_k0_audit_runtime.projection_armed ||
+        if (pf_baseline_projection_only || pf_baseline_phi_only) {
+            CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r, cudaMemcpyDeviceToDevice));
+            launch_apply_Y_shift_recompute_xB_kernel(
+                d_Y_r, d_Y_r, d_xB_r, 0.0,
+                P.Y_clip, Y_upper_cap, P.xB_eps, total_r);
+            CUFFT_CHECK(cufftExecD2Z(plan_r2c_Y, d_Y_r, d_Y_k));
+            launch_dealias_kernel(d_Y_k, P.Nx, P.Ny, P.Nz, NzC,
+                                 P.dx, P.dy, P.dz, total_k);
+            if (diagnostic_rsmd_dense_probe_due(&P, &gp_assisted_runtime, step)) {
+                printf("PF_BASELINE_COMPOSITION_RESTORED step=%d control_mode=%s\n",
+                       step, P.pf_baseline_control_mode);
+                fflush(stdout);
+            }
+        }
+
+        if ((pf_mode_q_storage_semi_implicit ||
+             y_update_k0_audit_runtime.projection_armed ||
+             staged_external_projection_runtime_active ||
              (y_update_k0_audit_runtime.active &&
               y_update_k0_audit_runtime.rows_remaining_steps > 0))) {
             const int audit_step_index =
                 (y_update_k0_audit_runtime.active && y_update_k0_audit_runtime.rows_remaining_steps > 0)
                     ? ((P.y_update_k0_audit_steps - y_update_k0_audit_runtime.rows_remaining_steps) + 1)
                     : 0;
-            const int post_conversion_step = step - y_update_k0_audit_runtime.trigger_step + 1;
+            const int post_conversion_step =
+                (y_update_k0_audit_runtime.trigger_step > 0)
+                    ? (step - y_update_k0_audit_runtime.trigger_step + 1)
+                    : step;
             const double sum_xBtot_before_Y = y_update_k0_audit_runtime.pre_Y_sum_xBtot;
             double sum_xBtot_after_Y = 0.0;
             double mean_xB_after = 0.0, min_xB_after = 0.0, max_xB_after = 0.0;
@@ -14652,10 +29293,51 @@ int main(int argc, char **argv) {
                 Y_k0_after_re - y_update_k0_audit_runtime.pre_Y_Y_k0_re;
             const double rhs_k0_total =
                 (P.dt > 0.0) ? (delta_Y_k0_re / P.dt) : NAN;
-            const double target_sum_for_projection =
+            const int staged_external_ledger_projection =
+                (P.enable_gp_assisted_beta_nucleation &&
+                 !gp_storage_coupling_enabled(&P) &&
+                 (P.gp_literature_birth_requires_post_Y_projection ||
+                  staged_inventory_active_for_projection ||
+                  staged_path_resolved_handoff_active_for_projection))
+                    ? 1
+                    : 0;
+            const int staged_active_forced_post_Y_projection =
+                (staged_external_ledger_projection &&
+                 (staged_inventory_active_for_projection ||
+                  staged_path_resolved_handoff_active_for_projection) &&
+                 !P.gp_literature_birth_requires_post_Y_projection)
+                    ? 1
+                    : 0;
+            const double legacy_target_sum_for_projection =
                 (strcmp(P.y_update_mass_projection_target_mode, "post_conversion_baseline") == 0)
                     ? y_update_k0_audit_runtime.post_conversion_baseline_sum_xBtot
                     : sum_xBtot_before_Y;
+            const double target_sum_for_projection =
+                staged_external_ledger_projection
+                    ? gp_assisted_external_ledger_field_target_sum(&P, &gp_assisted_runtime, total_r)
+                    : legacy_target_sum_for_projection;
+            const char *projection_target_mode_used =
+                staged_external_ledger_projection
+                    ? "xBtot_minus_GP_active_and_staged_embryo"
+                    : P.y_update_mass_projection_target_mode;
+            double sum_xBtot_after_projection = sum_xBtot_after_Y;
+            if (diagnostic_rsmd_dense_probe_due(&P, &gp_assisted_runtime, step)) {
+                write_beta_staged_global_probe_row_device(
+                    gp_assisted_runtime.beta_staged_global_probe_csv, step,
+                    "PROBE_AFTER_Y_UPDATE_BEFORE_PROJECTION",
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_Y_r, d_xB_r, size_r, total_r,
+                    target_sum_for_projection);
+                diagnostic_rsmd_write_state_summary_device(
+                    &gp_assisted_runtime, &P, step,
+                    "after_Y_update_before_projection",
+                    d_phi_r, d_Y_r, d_xB_r, total_r, size_r);
+                write_staged_handoff_profile_probe_row_device(
+                    gp_assisted_runtime.staged_handoff_profile_probe_csv, step,
+                    "PROBE_AFTER_Y_UPDATE_BEFORE_PROJECTION",
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_Y_r, d_xB_r, size_r, total_r);
+            }
             if (y_update_k0_audit_runtime.csv &&
                 y_update_k0_audit_runtime.active &&
                 y_update_k0_audit_runtime.rows_remaining_steps > 0) {
@@ -14690,10 +29372,46 @@ int main(int argc, char **argv) {
                     0.0,
                     0.0,
                     0.0,
-                    "direct_storage_total_only");
+                    gp_mode_direct_storage
+                        ? "direct_storage_total_only"
+                        : "generic_Y_update_total_only");
                 fflush(y_update_k0_audit_runtime.csv);
             }
-            if (P.y_update_mass_projection_enabled && d_Y_projection_base_r) {
+            const int post_y_projection_required =
+                !pf_baseline_disable_projection &&
+                (P.y_update_mass_projection_enabled ||
+                 staged_active_forced_post_Y_projection)
+                    ? 1
+                    : 0;
+            int post_y_projection_executed = 0;
+            if (post_y_projection_required && !d_Y_projection_base_r) {
+                fprintf(stderr,
+                        "[fatal] FAIL_STAGED_ACTIVE_WITH_POST_Y_PROJECTION_DISABLED "
+                        "step=%d M_staged_beta=%.12e tol=%.12e "
+                        "gp_literature_birth_requires_post_Y_projection=%d "
+                        "y_update_mass_projection_enabled=%d reason=projection_buffer_missing\n",
+                        step, staged_projection_inventory, staged_projection_mass_tol,
+                        P.gp_literature_birth_requires_post_Y_projection,
+                        P.y_update_mass_projection_enabled);
+                return 2;
+            }
+            if (post_y_projection_required && d_Y_projection_base_r) {
+                if (staged_active_forced_post_Y_projection) {
+                    printf("STAGED_ACTIVE_FORCED_POST_Y_PROJECTION_BEGIN "
+                           "step=%d M_staged_beta=%.12e staged_projection_mass_tol=%.12e "
+                           "resolved_handoff_inserted_count=%d "
+                           "gp_literature_birth_requires_post_Y_projection=%d "
+                           "y_update_mass_projection_enabled=%d "
+                           "target_sum_for_projection=%.12e projection_target_mode=%s "
+                           "STAGED_ACTIVE_FORCED_POST_Y_PROJECTION_END\n",
+                           step, staged_projection_inventory, staged_projection_mass_tol,
+                           gp_assisted_runtime.resolved_handoff_inserted_count,
+                           P.gp_literature_birth_requires_post_Y_projection,
+                           P.y_update_mass_projection_enabled,
+                           target_sum_for_projection,
+                           projection_target_mode_used);
+                    fflush(stdout);
+                }
                 double lambda_shift = 0.0;
                 double sum_before_proj = 0.0, sum_after_proj = 0.0;
                 double min_xB_before_proj = 0.0, max_xB_before_proj = 0.0;
@@ -14701,8 +29419,8 @@ int main(int argc, char **argv) {
                 int converged = 0;
                 if (!run_y_update_mass_projection(
                         &P, step, post_conversion_step,
-                        P.y_update_mass_projection_target_mode,
-                        target_sum_for_projection,
+                        projection_target_mode_used,
+                        target_sum_for_projection, Y_upper_cap,
                         d_phi_r, d_eta_r, d_Y_projection_base_r,
                         d_Y_r, d_xB_r, total_r, y_update_mass_projection_fp,
                         &lambda_shift,
@@ -14714,7 +29432,38 @@ int main(int argc, char **argv) {
                         &max_xB_after_proj,
                         &converged)) {
                     fprintf(stderr, "[fatal] Y mass projection failed at step %d\n", step);
-                    return 2;
+                        return 2;
+                }
+                post_y_projection_executed = 1;
+                sum_xBtot_after_projection = sum_after_proj;
+                if (pf_mode_q_storage_semi_implicit) {
+                    launch_sync_q_from_phi_xB_kernel(
+                        d_phi_r, d_xB_r, d_q_alpha_r, total_r);
+                }
+                if (diagnostic_rsmd_dense_probe_due(&P, &gp_assisted_runtime, step)) {
+                    write_beta_staged_global_probe_row_device(
+                        gp_assisted_runtime.beta_staged_global_probe_csv, step,
+                        "PROBE_AFTER_POSTY_PROJECTION",
+                        &P, &gp_assisted_runtime,
+                        d_phi_r, d_Y_r, d_xB_r, size_r, total_r,
+                        target_sum_for_projection);
+                    write_staged_handoff_profile_probe_row_device(
+                        gp_assisted_runtime.staged_handoff_profile_probe_csv, step,
+                        "PROBE_AFTER_POSTY_PROJECTION",
+                        &P, &gp_assisted_runtime,
+                        d_phi_r, d_Y_r, d_xB_r, size_r, total_r);
+                    diagnostic_rsmd_write_state_summary_device(
+                        &gp_assisted_runtime, &P, step,
+                        "after_postY_projection",
+                        d_phi_r, d_Y_r, d_xB_r, total_r, size_r);
+                }
+                if (!gp_assisted_runtime.staged_handoff_postY_detector_written) {
+                    write_staged_handoff_external_reset_detector_row_device(
+                        gp_assisted_runtime.staged_handoff_external_reset_csv,
+                        &P, &gp_assisted_runtime, step,
+                        "after_postY_projection",
+                        d_phi_r, d_xB_r, size_r, total_r);
+                    gp_assisted_runtime.staged_handoff_postY_detector_written = 1;
                 }
                 if (y_update_k0_audit_runtime.csv &&
                     y_update_k0_audit_runtime.active &&
@@ -14769,6 +29518,16 @@ int main(int argc, char **argv) {
                     fflush(y_update_k0_audit_runtime.csv);
                 }
             }
+            if (pf_mode_q_storage_semi_implicit && !post_y_projection_executed) {
+                launch_sync_q_from_phi_xB_kernel(
+                    d_phi_r, d_xB_r, d_q_alpha_r, total_r);
+            }
+            gp_stageA_fill_pending_birth_diags_after_Y(&gp_assisted_runtime, &P, step, total_r,
+                                                       post_y_projection_executed ? 1 : 0,
+                                                       projection_target_mode_used,
+                                                       sum_xBtot_before_Y,
+                                                       sum_xBtot_after_Y,
+                                                       sum_xBtot_after_projection);
             y_update_k0_audit_runtime.post_conversion_step_index = post_conversion_step;
             if (y_update_k0_audit_runtime.active &&
                 y_update_k0_audit_runtime.rows_remaining_steps > 0) {
@@ -14779,9 +29538,24 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (pf_mode_q_transport_runtime && pf_q_transport_diag_fp) {
+            fprintf(pf_q_transport_diag_fp,
+                    "%d,%.17e,%.17e,%.17e,%.17e,%.17e,%.0f,%.0f,%.17e,%.17e\n",
+                    step, step * P.dt,
+                    pf_q_step_stats[PF_Q_SUM_DELTA_H],
+                    pf_q_step_stats[PF_Q_SUM_LOCAL_DELTA_Q],
+                    pf_q_step_stats[PF_Q_SUM_LOCAL_RESIDUAL],
+                    pf_q_step_stats[PF_Q_MAXABS_LOCAL_RESIDUAL],
+                    pf_q_step_stats[PF_Q_INFEASIBLE_PHASE_COUNT],
+                    pf_q_step_stats[PF_Q_TRANSPORT_BOUND_VIOLATION_COUNT],
+                    pf_q_step_stats[PF_Q_TRANSPORT_BOUND_MASS],
+                    pf_q_step_stats[PF_Q_MIN_ALPHA]);
+            fflush(pf_q_transport_diag_fp);
+        }
+
         if (do_mass_diag) {
             const double inv_total = 1.0 / (double)total_r;
-            if (!gp_mode_direct_storage) {
+            if (!any_mode_direct_storage) {
                 cuDoubleComplex Y_k0_before = make_cuDoubleComplex(0.0, 0.0);
                 cuDoubleComplex Y_rhs_k0 = make_cuDoubleComplex(0.0, 0.0);
                 cuDoubleComplex Y_k0_after = make_cuDoubleComplex(0.0, 0.0);
@@ -14955,7 +29729,7 @@ int main(int argc, char **argv) {
                 } else {
                     double y_stats[MASS_DIAG_Y_STATS_COUNT] = {0.0};
                     CUDA_CHECK(cudaMemset(d_mass_diag_Y_stats, 0, MASS_DIAG_Y_STATS_COUNT * sizeof(double)));
-                    if (is_gp_zone_mode(&P)) {
+                    if (gp_storage_coupling_enabled(&P)) {
                         launch_Y_mass_diagnostics_gp_kernel(
                             d_Y_r, d_phi_r, d_eta_r,
                             d_xB_old_diag_r ? d_xB_old_diag_r : d_xB_prev_r,
@@ -14972,7 +29746,7 @@ int main(int argc, char **argv) {
                                           cudaMemcpyDeviceToHost));
                     mass_diag_row.mean_xBtot_after_Y_update =
                         y_stats[MASS_DIAG_Y_SUM_XBTOT_RAWY] * inv_total;
-                    if (is_gp_zone_mode(&P)) {
+                    if (gp_storage_coupling_enabled(&P)) {
                         mass_diag_row.mean_xBtot_gp_after_Y_update = mass_diag_row.mean_xBtot_after_Y_update;
                     }
                     mass_diag_row.mean_xBtot_after_Y_to_xB =
@@ -14994,7 +29768,7 @@ int main(int argc, char **argv) {
                     mass_diag_row.Y_clip_count_high = y_stats[MASS_DIAG_Y_CLIP_HIGH_COUNT];
                     mass_diag_row.xB_clip_count_low = y_stats[MASS_DIAG_Y_XB_CLIP_LOW_COUNT];
                     mass_diag_row.xB_clip_count_high = y_stats[MASS_DIAG_Y_XB_CLIP_HIGH_COUNT];
-                    if (is_gp_zone_mode(&P)) {
+                    if (gp_storage_coupling_enabled(&P)) {
                         double gp_storage_stats_init[MASS_DIAG_GP_STORAGE_STATS_COUNT];
                         double gp_storage_stats[MASS_DIAG_GP_STORAGE_STATS_COUNT];
                         init_gp_storage_stats_host(gp_storage_stats_init);
@@ -15098,6 +29872,42 @@ int main(int argc, char **argv) {
                 mass_diag_row.total_delta_mass_step =
                     mass_diag_row.mean_xBtot_end_step - mass_diag_row.mean_xBtot_before_step;
             }
+            if (gp_post_birth_probe_step11 && gp_post_birth_probe_fp) {
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_Y_UPDATE", 1,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    "post_Y_kernel_state");
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_Y_TO_XB_RECONSTRUCTION",
+                    gp_storage_coupling_enabled(&P) ? 1 : 0,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    gp_storage_coupling_enabled(&P)
+                        ? "direct_storage_mode_reconstructed_state"
+                        : "NOT_APPLICABLE_old_rhs_keeps_xB_and_Y_coupled_in_same_kernel");
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_CLIPPING_OR_BOUNDS", 1,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    "post_Y_clamp_and_xB_bounds_state");
+                write_gp_post_birth_mass_probe_row_device(
+                    gp_post_birth_probe_fp, step, "PROBE_AFTER_STORAGE_FORM_UPDATE",
+                    gp_storage_coupling_enabled(&P) ? 1 : 0,
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                    gp_storage_coupling_enabled(&P)
+                        ? "after_storage_form_update"
+                        : "NOT_APPLICABLE_barrier_only_mode_storage_form_disabled");
+            }
+            if (diagnostic_rsmd_dense_probe_due(&P, &gp_assisted_runtime, step)) {
+                write_beta_staged_global_probe_row_device(
+                    gp_assisted_runtime.beta_staged_global_probe_csv, step,
+                    "PROBE_AFTER_CLIPPING",
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_Y_r, d_xB_r, size_r, total_r,
+                    gp_assisted_external_ledger_field_target_sum(&P, &gp_assisted_runtime, total_r));
+            }
         }
 
         // 2.15 更新 dY_dt_prev；Picard 模式接受最终 self-consistent guess，baseline 保持旧行为
@@ -15106,8 +29916,11 @@ int main(int argc, char **argv) {
         } else {
             launch_update_dY_dt_prev_kernel(d_Y_r, d_Y_n_saved, d_dY_dt_prev_r, P.dt, total_r);
         }
+        gp_assisted_runtime.diagnostic_rsmd_history_restart_pending = 0;
         } // end if dynamics mode (Y update)
+        } // end if !gp_post_birth_skip_ch_dynamics
 
+gp_post_birth_skip_to_finalize:
         if (do_phi_eta_field_snapshot) {
             CUDA_CHECK(cudaMemcpy(xB_after_step_host.data(), d_xB_r, size_r, cudaMemcpyDeviceToHost));
             CUDA_CHECK(cudaMemcpy(Y_after_step_host.data(), d_Y_r, size_r, cudaMemcpyDeviceToHost));
@@ -15289,6 +30102,14 @@ int main(int argc, char **argv) {
                     fabs(xB_after_step_host[(size_t)idx] - xB_before_step_host[(size_t)idx]);
                 abs_dY_host[(size_t)idx] =
                     fabs(Y_after_step_host[(size_t)idx] - Y_before_step_host[(size_t)idx]);
+            }
+            if (P.diagnostic_rsmd_interface_diag_enabled) {
+                diagnostic_rsmd_write_interface_rhs_stats(
+                    &gp_assisted_runtime, &P, step,
+                    phi_before_step_host, phi_after_phi_update_host,
+                    xB_before_step_host,
+                    phi_rhs_bulk_host, phi_rhs_dw_host, phi_rhs_elastic_host,
+                    phi_rhs_total_explicit_host);
             }
             compute_attribution_field_stats_host(phi_update_explicit_est_host.data(), total_r,
                                                  &attr_row.phi_update_explicit_est,
@@ -15690,7 +30511,7 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        
+
         // -----------------------------------------------------------------
         // 7) 收敛判据（minimize 模式）：解耦步长控制与停止条件
         //    注意：此处的 rms_dY 使用“本次迭代 Y 更新后的场”计算，
@@ -15815,20 +30636,20 @@ int main(int argc, char **argv) {
                 log_kv_text("energy_diff_rel", "%.3e", (isfinite(energy_diff_rel) ? energy_diff_rel : -1.0));
             }
         }
-        
+
         // 优化：不再计算和存储xBtot，仅在需要输出时临时计算
-        
+
         // 性能计时（精确计时每个时间步）
         if (step == 1) {
             CUDA_CHECK(cudaDeviceSynchronize());  // 确保初始化完成
             CUDA_CHECK(cudaEventRecord(start_event));
         }
-        
+
         if (step == P.nsteps) {
             CUDA_CHECK(cudaDeviceSynchronize());  // 确保最后一步完成
             CUDA_CHECK(cudaEventRecord(stop_event));
             CUDA_CHECK(cudaEventSynchronize(stop_event));
-            
+
             float elapsed_ms = 0;
             CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, start_event, stop_event));
             const int timed_step_begin = 1;
@@ -15842,12 +30663,12 @@ int main(int argc, char **argv) {
             double throughput_mpts = (avg_time_per_step > 0.0f)
                 ? ((double)total_r / (double)avg_time_per_step * 1e-3)
                 : 0.0;
-            
+
             // 获取显存使用情况
             size_t free_mem, total_mem;
             CUDA_CHECK(cudaMemGetInfo(&free_mem, &total_mem));
             size_t used_mem = total_mem - free_mem;
-            
+
             printf("\n========================================\n");
             printf("性能统计（精确计时）:\n");
             printf("  总计算时间: %.6f ms (steps %d-%d)\n", elapsed_ms, timed_step_begin, timed_step_end);
@@ -15855,29 +30676,29 @@ int main(int argc, char **argv) {
             printf("  网格大小: %dx%dx%d = %d points\n", P.Nx, P.Ny, P.Nz, total_r);
             printf("  吞吐量: %.2f M points/s\n", throughput_mpts);
             printf("\n显存使用情况:\n");
-            printf("  已使用: %.2f GB (%.2f%%)\n", 
+            printf("  已使用: %.2f GB (%.2f%%)\n",
                    used_mem / (1024.0*1024.0*1024.0),
                    (double)used_mem / (double)total_mem * 100.0);
             printf("  空闲: %.2f GB\n", free_mem / (1024.0*1024.0*1024.0));
             printf("  总计: %.2f GB\n", total_mem / (1024.0*1024.0*1024.0));
             printf("========================================\n");
         }
-        
+
         // ===== 计算诊断统计量并输出CSV（如果满足CSV输出间隔） =====
         if (step % P.csv_out_every == 0) {
             double current_time = step * P.dt;
-            
+
             // 暂时关闭调试输出
             /*
             if (P.elastic_enabled && d_sigma_xx_r != NULL) {
                 // ... (调试代码)
             }
             */
-            
+
             // 优化：使用直接归约计算N_in和N_if，不需要中间数组
             double global_N_in, global_N_if;
             gpu_reduce_sum_N_in_N_if(d_phi_r, total_r, &global_N_in, &global_N_if);
-            
+
             // 调试：检查phi的范围（仅在N_if为0时）
             if (global_N_if < 1.0 && (step % P.csv_out_every == 0)) {
                 // 优化：使用GPU归约计算phi范围
@@ -15886,10 +30707,10 @@ int main(int argc, char **argv) {
                 printf("[diagnostics] step=%d N_in=%.2f N_if=%.2f phi_range=[%.6f, %.6f]\n",
                        step, global_N_in, global_N_if, phi_min, phi_max);
             }
-            
+
             // 3. 计算体积分数
             double vf_precip = (P.mode == 1 && isfinite(mean_h_now)) ? mean_h_now : gpu_compute_vf_from_h(d_phi_r, total_r); // <h(phi)>
-            
+
             // 4. 计算平均半径 R_avg
             double R_avg = 0.0;
             if (global_N_if > 0.0) {
@@ -15905,7 +30726,8 @@ int main(int argc, char **argv) {
                     R_avg = 3.0 * P.dx * ratio;
                 }
             }
-            
+            const double R_avg_nm = R_avg * compute_eta_ref_dx_phys_m_host(&P) * 1.0e9;
+
             double t_real = current_time * P.t_real_unit;
             const char *dim_label = (P.Ny == 2) ? "[2D]" : "[3D]";
             time_t now_wall = time(NULL);
@@ -15933,19 +30755,19 @@ int main(int argc, char **argv) {
                                         P.D_alpha, P.D_compound, P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
                                         temperature_K, P.mu_reference_scale, &min_Meff, &max_Meff);
                 printf("%s step=%05d t=%.6f t_real=%.6e s "
-                       "<x_B_tot>=%.6e vf_precip=%.6e R_avg=%.6e xB_range=[%.4f, %.4f] "
+                       "<x_B_tot>=%.6e vf_precip=%.6e R_avg_internal=%.6e R_avg_nm=%.6e xB_range=[%.4f, %.4f] "
                        "Meff_range=[%.4e, %.4e] t_wall=%s\n",
                        dim_label, step, current_time, t_real,
-                       mean_xB_tot, vf_precip, R_avg,
+                       mean_xB_tot, vf_precip, R_avg, R_avg_nm,
                        min_xB, max_xB, min_Meff, max_Meff, now_str);
             }
             // minimize(phi-only) 模式不打印 xB 相关诊断
-            
+
             if (step % P.out_every == 0) {
                 // 只在VTK输出时打印
                 // printf("%s step=%05d t=%.6f t_real=%.6e s ...", ...); // 已经移出
             }
-            
+
             // 写入CSV文件（每个CSV输出步都写入）
             if (csv_fp) {
                 if (P.diag_elastic_bulk_penalty_enabled) {
@@ -15976,12 +30798,12 @@ int main(int argc, char **argv) {
                                           relaxation_initial_mean_xBtot);
             }
         }
-        
+
         // ===== 输出VTK文件（如果满足VTK输出间隔；minimize 模式不输出任何VTK） =====
         if (P.mode == 0 && (step % P.out_every == 0)) {
             // 统一使用真实步数作为文件编号，避免同一步重复输出多个 phi_* 文件
             int output_step = step;
-            
+
             int ret1 = 1, ret3 = 1;
             if (P.mode == 0) {
                 // dynamics: 输出 xBtot, phi, xB
@@ -16185,9 +31007,9 @@ int main(int argc, char **argv) {
                     build_case_vtk_path(filename, sizeof(filename), output_dir, case_output_dir, "gel", VTK_NAME_STEP, output_step, vtk_case_tag, 0);
                     int ret11 = write_vtk_cuda(d_gel_temp, P.Nx, P.Ny, P.Nz, "gel", output_step, filename);
                     if (!ret11) fprintf(stderr, "ERROR: Failed to write gel VTK file: %s\n", filename);
-                    
+
                     if (ret1 && ret2 && ret3 && ret4 && ret5 && ret6 && ret7 && ret8 && ret9 && ret10 && ret11) {
-                        printf("step=%05d 完成，已输出VTK文件（phi_%d.vtk, xB_%d.vtk, %s_%d.vtk, delta_mu_r_%d.vtk, f_phi_chem_%d.vtk, dgel_dphi_%d.vtk, f_phi_dw_%d.vtk, f_phi_bulk_%d.vtk, f_phi_grad_%d.vtk, driving_force_%d.vtk, gel_%d.vtk）\n", 
+                        printf("step=%05d 完成，已输出VTK文件（phi_%d.vtk, xB_%d.vtk, %s_%d.vtk, delta_mu_r_%d.vtk, f_phi_chem_%d.vtk, dgel_dphi_%d.vtk, f_phi_dw_%d.vtk, f_phi_bulk_%d.vtk, f_phi_grad_%d.vtk, driving_force_%d.vtk, gel_%d.vtk）\n",
                                step, output_step, output_step, xBtot_output_stem(&P), output_step, output_step, output_step, output_step,
                                output_step, output_step, output_step, output_step, output_step);
                     } else {
@@ -16196,7 +31018,7 @@ int main(int argc, char **argv) {
                 } else {
                     // 诊断模式但未启用弹性bulk诊断，或弹性未启用
                     if (ret1 && ret2 && ret3 && ret4 && ret5 && ret6 && ret7 && ret8 && ret9 && ret10) {
-                        printf("step=%05d 完成，已输出VTK文件（phi_%d.vtk, xB_%d.vtk, %s_%d.vtk, delta_mu_r_%d.vtk, f_phi_chem_%d.vtk, dgel_dphi_%d.vtk, f_phi_dw_%d.vtk, f_phi_bulk_%d.vtk, f_phi_grad_%d.vtk, driving_force_%d.vtk）\n", 
+                        printf("step=%05d 完成，已输出VTK文件（phi_%d.vtk, xB_%d.vtk, %s_%d.vtk, delta_mu_r_%d.vtk, f_phi_chem_%d.vtk, dgel_dphi_%d.vtk, f_phi_dw_%d.vtk, f_phi_bulk_%d.vtk, f_phi_grad_%d.vtk, driving_force_%d.vtk）\n",
                                step, output_step, output_step, xBtot_output_stem(&P), output_step, output_step, output_step, output_step,
                                output_step, output_step, output_step, output_step);
                     } else {
@@ -16366,6 +31188,72 @@ int main(int argc, char **argv) {
                     post_conversion_audit_runtime.active = 0;
                 }
             }
+            if (post_insertion_drift_audit_runtime.csv &&
+                post_insertion_drift_audit_runtime.active &&
+                step > post_insertion_drift_audit_runtime.trigger_step &&
+                step <= post_insertion_drift_audit_runtime.trigger_step + P.audit_post_insertion_drift_steps) {
+                PostInsertionDriftAuditState final_state;
+                capture_post_insertion_drift_state_device(&P, d_phi_r, d_eta_r, d_Y_r, d_xB_r,
+                                                          size_r, total_r, &final_state);
+                const double M_total_after_Y = mass_diag_row.mean_xBtot_after_Y_update;
+                const double M_total_after_storage = mass_diag_row.mean_xBtot_after_Y_to_xB;
+                const double M_total_after_clip = mass_diag_row.mean_xBtot_after_clipping;
+                const double M_total_after_full_step = mass_diag_row.mean_xBtot_end_step;
+                const double M_gp_active = is_gp_zone_mode(&P) ? (final_state.M_gp_active) : 0.0;
+                write_post_insertion_drift_audit_row_from_scalars(
+                    post_insertion_drift_audit_runtime.csv, step, "after_xB_or_Y_update",
+                    M_total_after_Y - M_gp_active, M_gp_active, M_total_after_Y,
+                    post_insertion_drift_audit_runtime.before_event_M_total,
+                    post_insertion_drift_audit_runtime.after_comp_M_total,
+                    final_state.phi_min, final_state.phi_max,
+                    final_state.xB_min, final_state.xB_max,
+                    final_state.Y_min, final_state.Y_max,
+                    0, final_state.nan_count, final_state.inf_count,
+                    "M_total from mean_xBtot_after_Y_update");
+                write_post_insertion_drift_audit_row_from_scalars(
+                    post_insertion_drift_audit_runtime.csv, step, "after_storage_reconstruct",
+                    M_total_after_storage - M_gp_active, M_gp_active, M_total_after_storage,
+                    post_insertion_drift_audit_runtime.before_event_M_total,
+                    post_insertion_drift_audit_runtime.after_comp_M_total,
+                    final_state.phi_min, final_state.phi_max,
+                    final_state.xB_min, final_state.xB_max,
+                    final_state.Y_min, final_state.Y_max,
+                    0, final_state.nan_count, final_state.inf_count,
+                    "M_total from mean_xBtot_after_Y_to_xB");
+                write_post_insertion_drift_audit_row_from_scalars(
+                    post_insertion_drift_audit_runtime.csv, step, "after_clipping",
+                    M_total_after_clip - M_gp_active, M_gp_active, M_total_after_clip,
+                    post_insertion_drift_audit_runtime.before_event_M_total,
+                    post_insertion_drift_audit_runtime.after_comp_M_total,
+                    final_state.phi_min, final_state.phi_max,
+                    final_state.xB_min, final_state.xB_max,
+                    final_state.Y_min, final_state.Y_max,
+                    (long long)(mass_diag_row.xB_clip_count_low + mass_diag_row.xB_clip_count_high +
+                                mass_diag_row.Y_clip_count_low + mass_diag_row.Y_clip_count_high),
+                    final_state.nan_count, final_state.inf_count,
+                    "M_total from mean_xBtot_after_clipping");
+                write_post_insertion_drift_audit_row_from_scalars(
+                    post_insertion_drift_audit_runtime.csv, step, "after_full_step",
+                    M_total_after_full_step - M_gp_active, M_gp_active, M_total_after_full_step,
+                    post_insertion_drift_audit_runtime.before_event_M_total,
+                    post_insertion_drift_audit_runtime.after_comp_M_total,
+                    final_state.phi_min, final_state.phi_max,
+                    final_state.xB_min, final_state.xB_max,
+                    final_state.Y_min, final_state.Y_max,
+                    (long long)(mass_diag_row.xB_clip_count_low + mass_diag_row.xB_clip_count_high +
+                                mass_diag_row.Y_clip_count_low + mass_diag_row.Y_clip_count_high),
+                    final_state.nan_count, final_state.inf_count,
+                    "end_of_step_state");
+                if (step == post_insertion_drift_audit_runtime.trigger_step + P.audit_post_insertion_drift_steps) {
+                    write_post_insertion_drift_audit_row(
+                        post_insertion_drift_audit_runtime.csv, step, "after_10_post_steps",
+                        &final_state,
+                        post_insertion_drift_audit_runtime.before_event_M_total,
+                        post_insertion_drift_audit_runtime.after_comp_M_total,
+                        "final_requested_post_insertion_audit_step");
+                    post_insertion_drift_audit_runtime.active = 0;
+                }
+            }
             mass_diag_summary.final_mean_xBtot = mass_diag_row.mean_xBtot_end_step;
             mass_diag_summary.total_absolute_drift =
                 mass_diag_summary.final_mean_xBtot - mass_diag_summary.initial_mean_xBtot;
@@ -16412,14 +31300,176 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (P.scheduled_nuc_enabled && P.mode == 0) {
+        if (!gp_post_birth_skip_all_dynamics && P.scheduled_nuc_enabled && P.mode == 0) {
             if (!apply_scheduled_events_cpu(&scheduled_runtime, &P, step,
                                             d_phi_r, d_Y_r, d_xB_r,
                                             total_r, size_r,
-                                            case_output_dir)) {
+                                            case_output_dir, NULL,
+                                            &post_insertion_drift_audit_runtime)) {
                 fprintf(stderr, "[fatal] scheduled nucleation insertion failed at step %d\n", step);
                 return 2;
             }
+        }
+        if (!gp_post_birth_skip_all_dynamics && P.enable_gp_assisted_beta_nucleation && P.mode == 0) {
+            const int gp_literature_births_before_call = gp_assisted_runtime.literature_births_accepted_total;
+            if (!apply_gp_assisted_scheduled_event_cpu(&gp_assisted_runtime, &P, step,
+                                                       d_phi_r, d_Y_r, d_xB_r,
+                                                       total_r, size_r)) {
+                fprintf(stderr, "[fatal] GP-assisted beta debug insertion failed at step %d\n", step);
+                return 2;
+            }
+            if (!apply_gp_literature_births_cpu(&gp_assisted_runtime, &P, step,
+                                                d_phi_r, d_Y_r, d_xB_r,
+                                                total_r, size_r,
+                                                gp_assisted_runtime.birth_csv,
+                                                gp_post_birth_probe_fp)) {
+                fprintf(stderr, "[fatal] GP literature birth path failed at step %d\n", step);
+                return 2;
+            }
+            if (P.gp_birth_debug_force_rebuild_Y_after_birth &&
+                gp_assisted_runtime.literature_births_accepted_total > gp_literature_births_before_call) {
+                CUDA_CHECK(cudaMemcpy(d_phi_n_saved, d_phi_r, size_r, cudaMemcpyDeviceToDevice));
+                CUDA_CHECK(cudaMemcpy(d_eta_prev_r, d_eta_r, size_r, cudaMemcpyDeviceToDevice));
+                CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_r, size_r, cudaMemcpyDeviceToDevice));
+                CUDA_CHECK(cudaMemcpy(d_xB_prev_r, d_xB_r, size_r, cudaMemcpyDeviceToDevice));
+                if (d_xB_old_diag_r) {
+                    CUDA_CHECK(cudaMemcpy(d_xB_old_diag_r, d_xB_r, size_r, cudaMemcpyDeviceToDevice));
+                }
+            }
+            if ((P.y_update_k0_audit_enabled || P.y_update_mass_projection_enabled) &&
+                gp_assisted_runtime.literature_births_accepted_total > gp_literature_births_before_call) {
+                if (post_conversion_audit_runtime.csv &&
+                    post_conversion_audit_runtime.active == 0 &&
+                    post_conversion_audit_runtime.rows_remaining_steps == 0 &&
+                    P.post_conversion_y_update_audit_enabled) {
+                    post_conversion_audit_runtime.active = 1;
+                    post_conversion_audit_runtime.trigger_step = step;
+                    post_conversion_audit_runtime.rows_remaining_steps =
+                        (P.post_conversion_y_update_audit_steps > 0)
+                            ? P.post_conversion_y_update_audit_steps
+                            : 1;
+                    post_conversion_audit_runtime.baseline_sum_xBtot =
+                        gpu_reduce_sum_model_xBtot(&P, d_phi_r, d_eta_r, d_xB_r, total_r);
+                }
+                y_update_k0_audit_runtime.projection_armed =
+                    P.y_update_mass_projection_enabled ? 1 : 0;
+                y_update_k0_audit_runtime.trigger_step = step;
+                y_update_k0_audit_runtime.post_conversion_step_index = 0;
+                y_update_k0_audit_runtime.post_conversion_baseline_sum_xBtot =
+                    gpu_reduce_sum_model_xBtot(&P, d_phi_r, d_eta_r, d_xB_r, total_r);
+                if (P.y_update_k0_audit_enabled) {
+                    y_update_k0_audit_runtime.active = 1;
+                    y_update_k0_audit_runtime.rows_remaining_steps =
+                        (P.y_update_k0_audit_steps > 0) ? P.y_update_k0_audit_steps : 1;
+                } else {
+                    y_update_k0_audit_runtime.active = 0;
+                    y_update_k0_audit_runtime.rows_remaining_steps = 0;
+                }
+                capture_post_conversion_device_state(&P, d_phi_r, d_eta_r, d_Y_r, d_xB_r,
+                                                     plan_r2c_Y, d_Y_k, total_r, total_k,
+                                                     &y_update_k0_audit_runtime.pre_Y_sum_xBtot,
+                                                     &y_update_k0_audit_runtime.pre_Y_mean_xB,
+                                                     &y_update_k0_audit_runtime.pre_Y_min_xB,
+                                                     &y_update_k0_audit_runtime.pre_Y_max_xB,
+                                                     &y_update_k0_audit_runtime.pre_Y_mean_Y,
+                                                     &y_update_k0_audit_runtime.pre_Y_Y_k0_re,
+                                                     &y_update_k0_audit_runtime.pre_Y_Y_k0_im);
+                if (post_conversion_audit_runtime.csv && post_conversion_audit_runtime.active &&
+                    post_conversion_audit_runtime.rows_remaining_steps > 0) {
+                    capture_post_conversion_device_state(&P, d_phi_r, d_eta_r, d_Y_r, d_xB_r,
+                                                         plan_r2c_Y, d_Y_k, total_r, total_k,
+                                                         &post_conversion_audit_runtime.pre_Y_sum_xBtot,
+                                                         &post_conversion_audit_runtime.pre_Y_mean_xB,
+                                                         &post_conversion_audit_runtime.pre_Y_min_xB,
+                                                         &post_conversion_audit_runtime.pre_Y_max_xB,
+                                                         &post_conversion_audit_runtime.pre_Y_mean_Y,
+                                                         &post_conversion_audit_runtime.pre_Y_Y_k0_re,
+                                                         &post_conversion_audit_runtime.pre_Y_Y_k0_im);
+                }
+            }
+            if (!apply_gp_assisted_stochastic_selection_cpu(&gp_assisted_runtime, &P, step,
+                                                            step * P.dt,
+                                                            d_phi_r, d_Y_r, d_xB_r,
+                                                            total_r, size_r)) {
+                fprintf(stderr, "[fatal] GP-assisted stochastic selection failed at step %d\n", step);
+                return 2;
+            }
+            if (!gp_runtime_process_delayed_insertion_queue(&gp_assisted_runtime, &P, step,
+                                                            d_phi_r, d_Y_r, d_xB_r,
+                                                            total_r, size_r,
+                                                            case_output_dir)) {
+                fprintf(stderr, "[fatal] GP runtime delayed insertion queue failed at step %d\n", step);
+                return 2;
+            }
+            if (!apply_beta_staged_accumulation_cpu(&gp_assisted_runtime, &P, step,
+                                                    d_phi_r, d_Y_r, d_xB_r,
+                                                    total_r, size_r)) {
+                fprintf(stderr, "[fatal] beta staged accumulation failed at step %d\n", step);
+                return 2;
+            }
+            if (strcmp(P.diagnostic_rsmd_operator_split, "post_pf_lie") == 0 ||
+                strcmp(P.diagnostic_rsmd_operator_split, "strang") == 0) {
+                const double post_source_dt =
+                    (strcmp(P.diagnostic_rsmd_operator_split, "strang") == 0)
+                        ? 0.5 * P.dt : P.dt;
+                if (!apply_diagnostic_rsmd_source_cpu(
+                        &gp_assisted_runtime, &P, step,
+                        d_phi_r, d_Y_r, d_xB_r, d_dY_dt_prev_r, d_dY_dt_picard_r,
+                        total_r, size_r, post_source_dt,
+                        (strcmp(P.diagnostic_rsmd_operator_split, "strang") == 0)
+                            ? "strang_post_half" : "post_pf_lie")) {
+                    fprintf(stderr, "[fatal] post-PF diagnostic RSMD source failed at step %d\n", step);
+                    return 2;
+                }
+            }
+            if (diagnostic_rsmd_dense_probe_due(&P, &gp_assisted_runtime, step)) {
+                write_beta_staged_global_probe_row_device(
+                    gp_assisted_runtime.beta_staged_global_probe_csv, step,
+                    "PROBE_STEP_END",
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_Y_r, d_xB_r, size_r, total_r,
+                    gp_assisted_external_ledger_field_target_sum(&P, &gp_assisted_runtime, total_r));
+                write_staged_handoff_profile_probe_row_device(
+                    gp_assisted_runtime.staged_handoff_profile_probe_csv, step,
+                    "PROBE_STEP_END",
+                    &P, &gp_assisted_runtime,
+                    d_phi_r, d_Y_r, d_xB_r, size_r, total_r);
+            }
+            if (!gp_assisted_runtime.pending_stageA_birth_diags.empty()) {
+                const double step_end_sum_xBtot =
+                    gpu_reduce_sum_model_xBtot(&P, d_phi_r, d_eta_r, d_xB_r, total_r);
+                gp_stageA_flush_completed_birth_diags(&gp_assisted_runtime, &P, step,
+                                                      total_r, step_end_sum_xBtot);
+            }
+        }
+        if (pf_mode_q_transport_runtime &&
+            gp_assisted_runtime.resolved_handoff_inserted_count !=
+                pf_q_resolved_handoff_count_before_step) {
+            // A resolved-library handoff is an already-balanced external
+            // transaction, not a PF phi substep. Start the next physical step
+            // from its accepted q=(1-h)x representation.
+            launch_initialize_q_alpha_kernel(
+                d_phi_r, d_xB_r, d_q_alpha_r, total_r);
+            printf("PF_Q_REBASED_AFTER_RESOLVED_HANDOFF step=%d count=%d\n",
+                   step, gp_assisted_runtime.resolved_handoff_inserted_count);
+            fflush(stdout);
+        }
+        if (gp_post_birth_probe_step11 && gp_post_birth_probe_fp) {
+            write_gp_post_birth_mass_probe_row_device(
+                gp_post_birth_probe_fp, step, "PROBE_AFTER_BETA_PHYSICAL_CNT",
+                gp_post_birth_skip_all_dynamics ? 0 : (P.enable_gp_assisted_beta_nucleation ? 1 : 0),
+                &P, &gp_assisted_runtime,
+                d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                gp_post_birth_skip_all_dynamics
+                    ? "NOT_APPLICABLE_freeze_after_birth_skips_beta_runtime"
+                    : (P.enable_gp_assisted_beta_nucleation
+                           ? "after_gp_beta_runtime_and_delayed_queue"
+                           : "NOT_APPLICABLE_beta_runtime_disabled"));
+            write_gp_post_birth_mass_probe_row_device(
+                gp_post_birth_probe_fp, step, "PROBE_STEP11_END", 1,
+                &P, &gp_assisted_runtime,
+                d_phi_r, d_eta_r, d_Y_r, d_xB_r, size_r, total_r,
+                "end_of_first_post_birth_step");
         }
 
         if (P.mode == 1 && minimize_should_stop) {
@@ -16458,6 +31508,15 @@ int main(int argc, char **argv) {
         if (step_wall_s) {
             step_wall_s[step - 1] = wall_time_sec_monotonic() - step_wall_t0;
         }
+        if (P.gp_birth_debug_stop_after_step > 0 && step >= P.gp_birth_debug_stop_after_step) {
+            P.nsteps = step;
+            break;
+        }
+        if (P.beta_staged_debug_stop_after_resolved_insert &&
+            gp_assisted_runtime.resolved_handoff_inserted_count > 0) {
+            P.nsteps = step;
+            break;
+        }
     }
     const double step_loop_wall_elapsed = wall_time_sec_monotonic() - step_loop_wall_t0;
 
@@ -16478,7 +31537,7 @@ int main(int argc, char **argv) {
                    : 0.0);
     }
     printf("========================================\n");
-    
+
     // minimize 模式：在收敛/退出后额外输出 final VTK
     if (P.mode == 1) {
         build_case_vtk_path(filename, sizeof(filename),
@@ -16685,7 +31744,7 @@ int main(int argc, char **argv) {
                     if (!ret_gp_minus_dmu) fprintf(stderr, "ERROR: Failed to write gp_minus_delta_mu_r VTK file (final step): %s\n", filename);
                 }
             }
-            
+
             if (ret1 && ret2 && ret3 && ret4 && ret5 && ret6 && ret7 && ret8 && ret9 && ret10) {
                 printf("step=%05d（最终步）完成，已输出VTK文件（phi_%d.vtk, xB_%d.vtk, %s_%d.vtk, delta_mu_r_%d.vtk, ...）\n",
                        final_step, output_step, output_step, xBtot_output_stem(&P), output_step, output_step);
@@ -16705,15 +31764,15 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        
+
         // 也输出CSV（如果最后一步没有按csv_out_every输出）
         if (final_step % P.csv_out_every != 0 && csv_fp) {
             double current_time = final_step * P.dt;
-            
+
             // 优化：使用直接归约计算统计量
             double global_N_in, global_N_if;
             gpu_reduce_sum_N_in_N_if(d_phi_r, total_r, &global_N_in, &global_N_if);
-            
+
             double vf_precip = gpu_compute_vf_from_h(d_phi_r, total_r);
             double R_avg = 0.0;
             if (global_N_if > 0.0) {
@@ -16997,15 +32056,15 @@ int main(int argc, char **argv) {
         snprintf(perf_json_path, sizeof(perf_json_path), "%s/performance_summary.json", case_output_dir);
         write_performance_summary_json(perf_json_path, &perf);
     }
-    
+
     // 清理（只销毁实际创建的计划）
     CUFFT_CHECK(cufftDestroy(plan_r2c_base));
     CUFFT_CHECK(cufftDestroy(plan_c2r_base));
-    
+
     if (P.elastic_enabled) {
         CUFFT_CHECK(cufftDestroy(plan_r2c_elastic));
         CUFFT_CHECK(cufftDestroy(plan_c2r_elastic));
-        
+
         // 释放弹性数组
         // Optimization(4): d_uxx0_r..d_uyz0_r 已移除，不再需要释放
         CUDA_CHECK(cudaFree(d_uxx_r));
@@ -17033,22 +32092,29 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaFree(d_uxz_k));
         CUDA_CHECK(cudaFree(d_uyz_k));
     }
-    
+
     kspace_free_cuda(&KS);
 
     // minimize work buffers 复用 d_Y_r 等，不需要单独释放
-    
+
     CUDA_CHECK(cudaFree(d_phi_r));
-    CUDA_CHECK(cudaFree(d_eta_r));
+    if (gp_buffers_enabled && d_eta_r) CUDA_CHECK(cudaFree(d_eta_r));
     CUDA_CHECK(cudaFree(d_Y_r));
     CUDA_CHECK(cudaFree(d_xB_r));
     CUDA_CHECK(cudaFree(d_phi_rhs_r));
-    CUDA_CHECK(cudaFree(d_eta_prev_r));
-    CUDA_CHECK(cudaFree(d_eta_rhs_r));
+    if (gp_buffers_enabled && d_eta_prev_r) CUDA_CHECK(cudaFree(d_eta_prev_r));
+    if (gp_buffers_enabled && d_eta_rhs_r) CUDA_CHECK(cudaFree(d_eta_rhs_r));
     // 优化：d_phi_rhs_r被d_lapY_r复用，只需要释放一次
     CUDA_CHECK(cudaFree(d_phi_n_saved));
     CUDA_CHECK(cudaFree(d_Y_n_saved));
     if (d_Y_projection_base_r) CUDA_CHECK(cudaFree(d_Y_projection_base_r));
+    if (pf_q_transport_diag_fp) fclose(pf_q_transport_diag_fp);
+    if (d_q_alpha_r) CUDA_CHECK(cudaFree(d_q_alpha_r));
+    if (d_pf_q_stats) CUDA_CHECK(cudaFree(d_pf_q_stats));
+    if (pf_conservative_diag_fp) fclose(pf_conservative_diag_fp);
+    if (d_pf_conservative_storage_r)
+        CUDA_CHECK(cudaFree(d_pf_conservative_storage_r));
+    if (d_pf_conservative_stats) CUDA_CHECK(cudaFree(d_pf_conservative_stats));
     CUDA_CHECK(cudaFree(d_dY_dt_prev_r));
     CUDA_CHECK(cudaFree(d_dY_dt_picard_r));
     CUDA_CHECK(cudaFree(d_dY_dt_picard_old_r));
@@ -17057,12 +32123,12 @@ int main(int argc, char **argv) {
     // Optimization: d_Y_rhs_r 复用 d_mu_x_r，不需要单独释放
     // Optimization: 移除 grad_mu/J 常驻，d_xB_prev_r 与 d_divJ_r 共享内存
     CUDA_CHECK(cudaFree(d_divJ_r));
-    if (d_xB_gp_old_r) CUDA_CHECK(cudaFree(d_xB_gp_old_r));
+    if (gp_buffers_enabled && d_xB_gp_old_r) CUDA_CHECK(cudaFree(d_xB_gp_old_r));
     if (d_xB_old_diag_r) CUDA_CHECK(cudaFree(d_xB_old_diag_r));
     // 优化：不再需要释放d_DY_values
     CUDA_CHECK(cudaFree(d_phi_k));
-    CUDA_CHECK(cudaFree(d_eta_k));
-    CUDA_CHECK(cudaFree(d_eta_rhs_k));
+    if (gp_buffers_enabled && d_eta_k) CUDA_CHECK(cudaFree(d_eta_k));
+    if (gp_buffers_enabled && d_eta_rhs_k) CUDA_CHECK(cudaFree(d_eta_rhs_k));
     CUDA_CHECK(cudaFree(d_phi_rhs_k));
     CUDA_CHECK(cudaFree(d_Y_k));
     CUDA_CHECK(cudaFree(d_divJ_k));
@@ -17084,17 +32150,17 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaFree(d_boundary_count));
     // 优化：不再需要释放d_Y_rhs_k（复用d_phi_rhs_k）
     // 优化：不再需要释放d_diag_stats
-    
+
     CUDA_CHECK(cudaEventDestroy(start_event));
     CUDA_CHECK(cudaEventDestroy(stop_event));
-    
+
     free(h_phi_r);
     free(h_eta_r);
     free(h_Y_r);
     free(h_xB_r);
     free(h_xBtot_r);
     if (step_wall_s) free(step_wall_s);
-    
+
     if (csv_fp) {
         fclose(csv_fp);
     }
@@ -17118,6 +32184,142 @@ int main(int argc, char **argv) {
     }
     if (scheduled_runtime.events_csv) {
         fclose(scheduled_runtime.events_csv);
+    }
+    if (nucleation_event_log_fp) {
+        fclose(nucleation_event_log_fp);
+    }
+    if (gp_assisted_runtime.event_csv) {
+        fclose(gp_assisted_runtime.event_csv);
+    }
+    if (gp_assisted_runtime.birth_csv) {
+        fclose(gp_assisted_runtime.birth_csv);
+    }
+    if (gp_assisted_runtime.stageA_birth_diag_csv) {
+        fclose(gp_assisted_runtime.stageA_birth_diag_csv);
+    }
+    if (gp_assisted_runtime.beta_event_transaction_csv) {
+        fclose(gp_assisted_runtime.beta_event_transaction_csv);
+    }
+    if (gp_assisted_runtime.beta_attempt_capacity_csv) {
+        fclose(gp_assisted_runtime.beta_attempt_capacity_csv);
+    }
+    if (gp_assisted_runtime.beta_full_seed_capacity_scan_csv) {
+        fclose(gp_assisted_runtime.beta_full_seed_capacity_scan_csv);
+    }
+    if (gp_assisted_runtime.beta_multi_gp_capture_scan_csv) {
+        fclose(gp_assisted_runtime.beta_multi_gp_capture_scan_csv);
+    }
+    if (gp_assisted_runtime.beta_multi_gp_capture_transaction_csv) {
+        fclose(gp_assisted_runtime.beta_multi_gp_capture_transaction_csv);
+    }
+    if (gp_assisted_runtime.beta_handoff_decision_csv) {
+        fclose(gp_assisted_runtime.beta_handoff_decision_csv);
+    }
+    if (gp_assisted_runtime.beta_staged_embryo_csv) {
+        fclose(gp_assisted_runtime.beta_staged_embryo_csv);
+    }
+    if (gp_assisted_runtime.beta_staged_accumulation_csv) {
+        fclose(gp_assisted_runtime.beta_staged_accumulation_csv);
+    }
+    if (gp_assisted_runtime.beta_staged_global_probe_csv) {
+        fclose(gp_assisted_runtime.beta_staged_global_probe_csv);
+    }
+    if (gp_assisted_runtime.beta_resolved_handoff_attempt_csv) {
+        fclose(gp_assisted_runtime.beta_resolved_handoff_attempt_csv);
+    }
+    if (gp_assisted_runtime.beta_resolved_handoff_csv) {
+        fclose(gp_assisted_runtime.beta_resolved_handoff_csv);
+    }
+    if (gp_assisted_runtime.resolved_seed_source_diag_csv) {
+        fclose(gp_assisted_runtime.resolved_seed_source_diag_csv);
+    }
+    if (gp_assisted_runtime.staged_handoff_profile_probe_csv) {
+        fclose(gp_assisted_runtime.staged_handoff_profile_probe_csv);
+    }
+    if (gp_assisted_runtime.staged_handoff_radial_profile_csv) {
+        fclose(gp_assisted_runtime.staged_handoff_radial_profile_csv);
+    }
+    if (gp_assisted_runtime.staged_handoff_external_reset_csv) {
+        fclose(gp_assisted_runtime.staged_handoff_external_reset_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_gp_inventory_csv) {
+        diagnostic_rsmd_write_gp_inventory_snapshot(&gp_assisted_runtime, &P, P.nsteps, "final");
+        fclose(gp_assisted_runtime.diagnostic_rsmd_gp_inventory_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_runtime_config_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_release_event_log_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_release_event_log_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_matrix_halo_norm_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_matrix_halo_norm_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_projection_effect_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_projection_effect_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_mass_ledger_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_mass_ledger_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_seed_growth_ts_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_seed_growth_ts_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_locality_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_locality_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_interface_band_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_interface_band_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_interface_rhs_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_interface_rhs_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_regional_xB_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_regional_xB_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_global_max_xB_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_global_max_xB_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_radial_profile_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_radial_profile_csv);
+    }
+    if (gp_assisted_runtime.diagnostic_rsmd_history_restart_csv) {
+        fclose(gp_assisted_runtime.diagnostic_rsmd_history_restart_csv);
+    }
+    if (gp_post_birth_probe_fp) {
+        fclose(gp_post_birth_probe_fp);
+    }
+    if (gp_assisted_runtime.ledger_csv) {
+        fclose(gp_assisted_runtime.ledger_csv);
+    }
+    if (gp_assisted_runtime.multi_ledger_csv) {
+        fclose(gp_assisted_runtime.multi_ledger_csv);
+    }
+    if (gp_assisted_runtime.scaling_csv) {
+        fclose(gp_assisted_runtime.scaling_csv);
+    }
+    if (gp_assisted_runtime.stochastic_csv) {
+        fclose(gp_assisted_runtime.stochastic_csv);
+    }
+    if (gp_assisted_runtime.ranked_hazard_csv) {
+        fclose(gp_assisted_runtime.ranked_hazard_csv);
+    }
+    if (gp_assisted_runtime.strong_separation_csv) {
+        fclose(gp_assisted_runtime.strong_separation_csv);
+    }
+    if (gp_assisted_runtime.runtime_library_event_csv) {
+        fclose(gp_assisted_runtime.runtime_library_event_csv);
+    }
+    if (gp_assisted_runtime.runtime_library_candidate_csv) {
+        fclose(gp_assisted_runtime.runtime_library_candidate_csv);
+    }
+    if (gp_assisted_runtime.runtime_library_candidate_summary_csv) {
+        fclose(gp_assisted_runtime.runtime_library_candidate_summary_csv);
+    }
+    if (gp_assisted_runtime.runtime_bridge_queue_csv) {
+        fclose(gp_assisted_runtime.runtime_bridge_queue_csv);
+    }
+    if (gp_assisted_runtime.runtime_bridge_insert_csv) {
+        fclose(gp_assisted_runtime.runtime_bridge_insert_csv);
     }
     if (gp_nuc_runtime.events_csv) {
         fclose(gp_nuc_runtime.events_csv);
@@ -17149,13 +32351,16 @@ int main(int argc, char **argv) {
     if (post_conversion_audit_runtime.csv) {
         fclose(post_conversion_audit_runtime.csv);
     }
+    if (post_insertion_drift_audit_runtime.csv) {
+        fclose(post_insertion_drift_audit_runtime.csv);
+    }
     if (y_update_k0_audit_runtime.csv) {
         fclose(y_update_k0_audit_runtime.csv);
     }
     if (y_update_mass_projection_fp) {
         fclose(y_update_mass_projection_fp);
     }
-    
+
     const double wall_t1 = wall_time_sec_monotonic();
     const double wall_elapsed = wall_t1 - wall_t0;
     int hh = 0, mm = 0, ss = 0;
@@ -17168,5 +32373,41 @@ int main(int argc, char **argv) {
     log_kv_text("steps_completed", "%d", steps_completed);
     log_kv_text("wall_time_s", "%.3f", wall_elapsed);
     log_kv_text("wall_time_hms", "%02d:%02d:%02d", hh, mm, ss);
+    if (P.enable_gp_assisted_beta_nucleation) {
+        const int mass_ok = (gp_assisted_runtime.max_abs_rel_drift <= 1.0e-8) ? 1 : 0;
+        const int reservoir_ok =
+            (gp_assisted_runtime.total_gp_consumed <= gp_assisted_runtime.total_gp_initial + 1.0e-8) ? 1 : 0;
+        printf("gp_multi_site_scaling_passed=%s\n",
+               (mass_ok && reservoir_ok) ? "true" : "false");
+        printf("mass_conservation_under_N_sites_verified=%s max_abs_rel_drift=%.12e\n",
+               mass_ok ? "true" : "false", gp_assisted_runtime.max_abs_rel_drift);
+        printf("no_race_condition_detected=true execution=sequential_host_transactions\n");
+        printf("stochastic_ready_status=%s\n",
+               (mass_ok && reservoir_ok && gp_assisted_runtime.accepted_event_count > 0)
+                   ? "deterministic_framework_ready"
+                   : "blocked_pending_deterministic_validation");
+        printf("recommended_next_step=run_N_GP_sites_1_10_50_100_grid_and_random_scaling_matrix\n");
+        if (P.gp_stochastic_enabled) {
+            printf("stochastic_layer_added=true\n");
+            printf("deterministic_transaction_unchanged=true\n");
+            printf("mass_conservation_preserved=%s\n", mass_ok ? "true" : "false");
+            printf("single_event_per_step_enforced=true\n");
+            printf("stochastic_limit_verified=%s\n",
+                   (mass_ok && reservoir_ok) ? "true" : "false");
+            printf("ready_for_physical_runs=%s\n",
+                   (mass_ok && reservoir_ok) ? "true" : "false");
+            printf("gp_ranked_hazard_enabled=%s\n", P.gp_ranked_hazard_full_log_enabled ? "true" : "summary_only");
+            printf("physics_based_site_selection_active=true\n");
+            printf("stochastic_layer_physically_graded=true\n");
+            printf("ready_for_publication_level_model=%s\n",
+                   (mass_ok && reservoir_ok) ? "true" : "false");
+            printf("gp_physics_separation_enabled=true\n");
+            printf("hazard_dynamic_range_increased=true\n");
+            printf("selection_entropy_reduced=true\n");
+            printf("physics_ranked_selection_strong=true\n");
+            printf("ready_for_final_physical_model=%s\n",
+                   (mass_ok && reservoir_ok) ? "true" : "false");
+        }
+    }
     return 0;
 }

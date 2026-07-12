@@ -49,6 +49,8 @@ typedef struct {
     double gp_eps_iso;
     double gp_M_GP;
     double gp_M_beta;
+    int gp_barrier_only_mode;
+    int enable_legacy_gp_storage_coupling;
     int gp_elastic_enabled;
     int gp_elastic_active_eta;
     int gp_elastic_active_phi;
@@ -104,9 +106,266 @@ typedef struct {
     int gp_to_beta_max_events_global;
     int gp_to_beta_max_events_per_window;
     int gp_to_beta_event_window_steps;
+
+    // ============================================
+    // GP-assisted beta nucleation debug mode
+    // Explicit one-site, scheduled, mass-conserving path.
+    // Defaults are inert; this does not use GP eta/free-energy.
+    // ============================================
+    int enable_gp_assisted_beta_nucleation;
+    int gp_assisted_debug_scheduled;
+    int gp_debug_scheduled_site_id;
+    int gp_debug_scheduled_step;
+    int gp_debug_site_ix;
+    int gp_debug_site_iy;
+    int gp_debug_site_iz;
+    char gp_site_mode[32];
+    int gp_n_sites;
+    double gp_site_spacing;
+    unsigned long gp_seed;
+    char gp_initial_mass_mode[64];
+    char gp_release_mode[64];
+    char gp_release_kernel[64];
+    char gp_site_file[4096];
+    double gp_release_radius_nm;
+    double gp_site_B_mass_equiv;
+    double gp_site_S_factor;
+    double gp_marker_core_radius_nm;
+    double gp_marker_influence_radius_nm;
+    double gp_depletion_radius_nm;
+    double gp_xB_floor;
+    char gp_depletion_kernel[64];
+    double gp_debug_beta_seed_radius;
+    double gp_debug_beta_seed_iface_width;
+    double gp_debug_xB_min;
+    double gp_debug_xB_max;
+    int gp_debug_mass_ledger;
+    int gp_event_log_enabled;
+    int gp_stochastic_enabled;
+    double gp_stochastic_k0;
+    double gp_stochastic_S_GP;
+    double gp_stochastic_deltaG_homo_kBT;
+    double gp_stochastic_xB_sensitivity;
+    int gp_literature_model_enabled;
+    char gp_birth_model[64];
+    double gp_literature_A_m5;
+    double gp_literature_B_eff_J3_m6;
+    double gp_literature_D0_m2_s;
+    double gp_literature_Q_J_mol;
+    double gp_literature_xAg_default;
+    char gp_literature_xAg_mode[64];
+    double gp_literature_L_alpha0_J_mol;
+    double gp_literature_L_alpha1_J_mol_K;
+    double gp_literature_a_PbTe_m;
+    double gp_literature_xeq_guard;
+    char gp_birth_candidate_volume_model[64];
+    int gp_birth_dt_uses_physical_time;
+    int gp_birth_max_events_per_step;
+    int gp_birth_max_total_sites;
+    char gp_birth_position_mode[64];
+    unsigned long gp_birth_rng_seed;
+    int gp_birth_connect_to_smooth_local_depletion;
+    char gp_birth_inventory_policy[64];
+    int gp_literature_birth_requires_post_Y_projection;
+    int gp_birth_debug_force_single_event;
+    int gp_birth_debug_force_step;
+    char gp_birth_debug_force_position_mode[64];
+    int gp_birth_debug_disable_poisson_randomness;
+    int gp_birth_debug_max_events_total;
+    int gp_birth_max_total_new_births_for_debug;
+    int gp_birth_debug_stop_after_step;
+    int gp_birth_debug_freeze_dynamics_after_birth;
+    int gp_birth_debug_disable_CH_dynamics_after_birth;
+    int gp_birth_debug_force_rebuild_Y_after_birth;
+    int gp_post_birth_mass_probe_enabled;
+    char gp_population_source[64];
+    int gp_literature_JGP_override_enabled;
+    double gp_literature_JGP_override_m3_s;
+    int gp_smooth_depletion_enabled;
+    int gp_static_marker_enabled;
+    int gp_initial_population_enabled;
+    char gp_initial_population_source[64];
+    double gp_initial_xB_tot;
+    double gp_initial_rho_m3;
+    double gp_initial_xAg_far;
+    double gp_initial_xAg_GP;
+    char gp_initial_radius_distribution[64];
+    double gp_initial_radius_mean_target_nm;
+    double gp_initial_radius_std_nm;
+    double gp_initial_radius_min_nm;
+    double gp_initial_radius_max_nm;
+    char gp_initial_radius_renormalization[64];
+    char gp_initial_count_mode[64];
+    char gp_initial_position_mode[64];
+    double gp_initial_min_center_spacing_factor;
+    unsigned long gp_initial_rng_seed;
+    int gp_growth_enabled;
+    int gp_radius_evolution_enabled;
+    int gp_inventory_growth_enabled;
+    int gp_beta_selection_enabled;
+    char gp_overlap_saturation_mode[64];
+    int enable_gp_runtime_library_nucleation;
+    char gp_runtime_barrier_library_path[4096];
+    char gp_runtime_nucleus_catalog_path[4096];
+    char gp_runtime_barrier_mode[64];
+    char gp_runtime_temperature_unit[8];
+    char gp_runtime_s_gp_mode[32];
+    double gp_runtime_s_gp_scalar;
+    char gp_runtime_nucleation_mode[64];
+    int gp_runtime_reject_invalid_barrier_cases;
+    int gp_runtime_log_candidates;
+    int gp_runtime_log_candidate_full_rows;
+    int gp_runtime_log_candidate_summary;
+    int gp_ranked_hazard_full_log_enabled;
+    int gp_runtime_log_accepted_events;
+    int gp_runtime_disable_scheduled_when_active;
+    double gp_runtime_catalog_T_tol_C;
+    double gp_runtime_catalog_xB_tol;
+    int gp_runtime_catalog_strain_mode_strict;
+    int gp_runtime_catalog_allow_fallback;
+    int enable_dynamic_continue_bridge;
+    char dynamic_continue_bridge_catalog_path[4096];
+    char gp_runtime_bridge_missing_policy[64];
+    double gp_runtime_min_rseed_over_dx;
+    int gp_runtime_enable_delayed_insertion_queue;
+    int gp_runtime_log_bridge_queue;
+    int gp_runtime_allow_immediate_fallback_debug;
+    int enable_runtime_nucleus_library;
+    char gp_runtime_nucleus_library_path[4096];
+    char gp_runtime_profile_cache_root[4096];
+    int gp_runtime_force_first_selector_event;
+    int gp_runtime_force_event_step;
+
+    // ============================================
+    // Physical CNT-like beta nucleation rate model
+    // Runtime selector may use this instead of surrogate hazard.
+    // ============================================
+    char beta_rate_model[64];
+    int beta_rate_use_physical_dt;
+    int beta_rate_use_gp_barrier_modifier;
+    char beta_rate_D_B_alpha_model[64];
+    double beta_rate_D_B_alpha_D0_m2_s;
+    double beta_rate_D_B_alpha_Q_J_mol;
+    int beta_rate_D_B_alpha_use_xB_factor;
+    double beta_rate_Omega_g_m3;
+    char beta_rate_Omega_g_source[256];
+    double beta_rate_Omega_site_m3;
+    double beta_rate_N_site_m3;
+    char beta_rate_site_model[64];
+    char beta_rate_gp_capture_volume_model[64];
+    char beta_rate_Z_type[64];
+    char beta_rate_Z_r_fallback_mode[64];
+    char beta_rate_Z_r_source[64];
+    int beta_rate_Z_r_required;
+    int beta_rate_Z_r_debug_fallback_enabled;
+    int beta_rate_allow_runtime_Zn_from_Zr;
+    int beta_rate_scale_Z_with_sGP;
+    char beta_rate_deltaV_nuc_mode[64];
+    double beta_rate_deltaV_nuc_m3;
+    double beta_rate_debug_rate_multiplier;
+    double beta_rate_phi_threshold;
+    double beta_rate_xB_min;
+    int beta_rate_transient_enabled;
+    double beta_rate_tau_inc_s;
+    int beta_debug_force_single_event;
+    int beta_debug_force_step;
+    char beta_debug_position_mode[64];
+    char beta_debug_inventory_mode[64];
+    double beta_debug_capacity_fraction;
+    char beta_debug_draw_radius_mode[64];
+    char beta_debug_draw_radius_list_nm[256];
+    int beta_debug_do_not_reduce_requested_mass;
+    double beta_debug_matrix_draw_radius_nm;
+    char beta_debug_GP_capture_mode[64];
+    double beta_debug_GP_capture_radius_nm;
+    char beta_debug_GP_capture_consume_order[64];
+    int beta_debug_max_events_total;
+    char beta_handoff_policy[64];
+    int beta_capacity_gate_enabled;
+    double beta_capacity_gate_matrix_draw_radius_nm;
+    char beta_capacity_gate_GP_capture_mode[64];
+    double beta_capacity_gate_GP_capture_radius_nm;
+    double beta_capacity_gate_max_reasonable_radius_nm;
+    double beta_capacity_gate_allow_direct_if_capacity_ratio_ge;
+    int beta_staged_conversion_enabled;
+    char beta_staged_conversion_target[64];
+    char beta_staged_conversion_initial_inventory_mode[64];
+    char beta_staged_conversion_release_mode[64];
+    int beta_staged_conversion_insert_when_capacity_reached;
+    int beta_staged_conversion_max_subgrid_steps;
+    double beta_staged_conversion_mass_tolerance_rel;
+    int beta_staged_accumulation_enabled;
+    int beta_staged_accumulation_interval_steps;
+    double beta_staged_accumulation_GP_capture_radius_nm;
+    double beta_staged_accumulation_matrix_draw_radius_nm;
+    double beta_staged_accumulation_max_fraction_per_step;
+    double beta_staged_accumulation_max_inventory_per_step;
+    int beta_staged_insert_when_target_reached;
+    int beta_staged_debug_accelerated_accumulation;
+    double beta_staged_debug_accumulation_rate_multiplier;
+    int beta_staged_debug_stop_after_resolved_insert;
+    char resolved_handoff_xB_write_mode[64];
+
+    // Diagnostic-only required-supply matrix-halo source engine.
+    // This is not a GP thermodynamic release law: it conservatively moves
+    // existing GP reservoir inventory into local matrix alpha storage near a
+    // resolved beta seed to test PF-side seed stability versus xBcrit.
+    int diagnostic_rsmd_enabled;
+    double diagnostic_rsmd_T_only;
+    double diagnostic_rsmd_xB_halo_target;
+    double diagnostic_rsmd_R_exchange_nm;
+    double diagnostic_rsmd_chi_rel;
+    double diagnostic_rsmd_kernel_radius_dx;
+    // `gp_centered_kernel` is the legacy source geometry.  The optional
+    // `seed_interface_alpha_shell` mode is a diagnostic relay only: it moves
+    // bounded eligible-GP inventory into the matrix-side shell of the seed.
+    char diagnostic_rsmd_delivery_mode[64];
+    double diagnostic_rsmd_interface_shell_width_nm;
+    char diagnostic_rsmd_interface_shell_kernel[64];
+    // A host-side RSMD source is an external Y/xB transaction.  When enabled,
+    // reset the lagged dY/dt state after a nonzero source write so the next
+    // PF step does not combine that new state with a pre-source derivative.
+    int diagnostic_rsmd_reset_Y_history_after_source;
+    int diagnostic_rsmd_history_restart_mode;  // 0=stale, 1=mutate history, 2=one-step RHS mask
+    int diagnostic_rsmd_interface_diag_enabled;
+    int diagnostic_rsmd_interface_diag_every;
+    double diagnostic_rsmd_h_src_max;
+    double diagnostic_rsmd_f_max_per_step;
+    // Numerical scenario-coupling controls; these are not GP kinetics.
+    char diagnostic_rsmd_operator_split[32];
+    char diagnostic_rsmd_source_integrator[32];
+    double diagnostic_rsmd_source_substep_dt_code;
+    int diagnostic_rsmd_headroom_weighted;
+    char diagnostic_rsmd_control_mode[40];
+    // Diagnostic-only PF baseline operator decomposition after a resolved seed exists.
+    // full | frozen_phi | transport_no_projection | projection_only | phi_only
+    char pf_baseline_control_mode[40];
+    // Numerical composition update. The default retains the historical solver;
+    // storage_exact advances conserved two-phase storage in the same step.
+    char pf_y_update_mode[40];  // lagged_rhs | storage_exact | x_transport_projection_split | q_transport_projection_split
+    // PF-only conservative composition architecture. "legacy" leaves the
+    // historical Y/x/q paths untouched. The conservative modes own their
+    // storage coordinate and do not use physical global Y projection.
+    char pf_composition_mode[48];  // legacy | ctot_conservative_split | qalpha_conservative_local_transaction
+    char pf_conservative_flux_strategy[32];  // pairwise_limited | pairwise_backward_euler
+    double pf_conservative_bound_tol;
+    double pf_conservative_mass_tol;
+    double pf_conservative_beta_support_eps;
+    int pf_conservative_max_subcycles;
+    int pf_conservative_one_step_replay;
+    double pf_matrix_storage_floor;
+    // Numerical add/subtract stabilizer, independent of the matrix support rule.
+    double pf_composition_stabilizer_Dalpha_multiplier;
+    int diagnostic_rsmd_release_window_steps;
+    double diagnostic_rsmd_seed_R_eff_h_nm;
+    char diagnostic_rsmd_provenance[64];
+
     int post_conversion_y_update_audit_enabled;
     int post_conversion_y_update_audit_steps;
     char post_conversion_y_update_audit_prefix[128];
+    int audit_post_insertion_drift_enabled;
+    int audit_post_insertion_drift_steps;
+    char audit_post_insertion_drift_prefix[128];
     int y_update_k0_audit_enabled;
     int y_update_k0_audit_steps;
     char y_update_k0_audit_prefix[128];
@@ -334,13 +593,37 @@ typedef struct {
     // Scheduled nucleation test mode (explicit test-only feature)
     // ============================================
     int    scheduled_nuc_enabled;              // =1 only with --enable-scheduled-nucleation-test
+    int    scheduled_nuc_use_manual_nucleus;   // =1 keeps legacy manual profile/source dirs; default selector path is 0
+    int    scheduled_nuc_selector_active;       // runtime diagnostic: selector resolved the insertion template
     char   scheduled_nuc_source_dyn_dir[4096]; // source no-strain dynamic-continue directory
     char   scheduled_nuc_profile_dir[4096];    // extracted faceted profile directory
+    char   scheduled_nuc_selector_script[4096]; // nucleus_selector.py path
+    char   scheduled_nuc_catalog_json[4096];   // nucleus_catalog.json path
+    char   scheduled_nuc_selected_json[4096];  // selected_nucleus.json path
+    char   scheduled_nuc_selection_log[4096];  // optional selected_nucleus_log.csv path
+    char   scheduled_nuc_selected_shape_type[64];
+    double scheduled_nuc_selected_rc_nm;
+    double scheduled_nuc_selected_energy_barrier_kBT;
+    double scheduled_nuc_selected_input_xB;
+    double scheduled_nuc_selected_input_strain;
     char   scheduled_nuc_source_step[64];      // "latest" or numeric label, diagnostic only for v1
     char   scheduled_nuc_source_phi_vtk[4096]; // optional explicit source phi VTK name/path
     char   scheduled_nuc_source_xB_vtk[4096];  // optional explicit source xB VTK name/path
     char   scheduled_nuc_steps_csv[1024];      // e.g. "100,300,600"
     char   scheduled_nuc_centers_nm[2048];     // e.g. "100,100,100;180,100,100"
+    char   scheduled_nuc_seed_metadata_json[4096];
+    double scheduled_nuc_t_nuc_code;
+    double scheduled_nuc_t_nuc_s;
+    char   scheduled_nuc_library_entry_id[256];
+    double scheduled_nuc_library_r_seed_nm;
+    double scheduled_nuc_library_r_seed_grid;
+    double scheduled_nuc_library_tau_bridge_s;
+    double scheduled_nuc_library_tau_bridge_code_time;
+    double scheduled_nuc_library_dt_code;
+    double scheduled_nuc_library_dt_s;
+    double scheduled_nuc_library_t_real_unit_s;
+    double scheduled_nuc_library_t_insert_code;
+    double scheduled_nuc_library_t_insert_s;
     char   scheduled_nuc_source_case_label[256];
     char   scheduled_nuc_xB_edge_mode[128];    // sample-current-background-shell
     char   scheduled_nuc_edge_sample_stat[32]; // mean|median (median falls back to sampled sort)

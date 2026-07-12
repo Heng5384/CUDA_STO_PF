@@ -574,6 +574,12 @@ void launch_compute_flux_single_component_kernel(
     double Vm_compound, double temperature_K,
     double mu_reference_scale,
     int total_size);
+void launch_compute_flux_single_component_q_kernel(
+    const double *grad_mu_alpha_r, const double *phi_r,
+    const double *xB_prev_r, double *J_alpha_r,
+    double D_alpha, double Vm_alpha_0, double dVm_alpha_dxB,
+    double Vm_compound, double temperature_K,
+    double mu_reference_scale, int total_size);
 void launch_compute_flux_single_component_gp_kernel(
     const double *grad_mu_alpha_r,
     const double *phi_r,
@@ -705,10 +711,121 @@ void launch_gp_storage_exact_Y_update_kernel(const double *divJ_r,
                                              int disable_internal_clip,
                                              double *update_stats,
                                              int total_size);
+void launch_two_phase_storage_exact_Y_update_kernel(const double *divJ_r,
+                                                    const double *phi_new_r,
+                                                    const double *phi_old_r,
+                                                    const double *Y_old_r,
+                                                    double *Y_r,
+                                                    double *xB_r,
+                                                    double dt,
+                                                    double v_B,
+                                                    double Y_clip,
+                                                    double Y_upper_cap,
+                                                    double xB_eps,
+                                                    double h_alpha_eps,
+                                                    double *update_stats,
+                                                    int total_size);
+void launch_compute_xB_storage_rhs_kernel(const double *divJ_r,
+                                          const double *phi_new_r,
+                                          const double *phi_old_r,
+                                          const double *lap_xB_r,
+                                          const double *xB_old_r,
+                                          double *rhs_xB_r,
+                                          double dt,
+                                          double v_B,
+                                          double mean_Dx,
+                                          double h_alpha_eps,
+                                          int total_size);
+void launch_xB_normalize_clamp_and_logit_kernel(double *xB_ifft_r,
+                                                double *xB_r,
+                                                double *Y_r,
+                                                double invN,
+                                                double xB_eps,
+                                                double Y_clip,
+                                                double Y_upper_cap,
+                                                int total_size);
+
+enum PFQTransportStatsIndex {
+    PF_Q_SUM_DELTA_H = 0,
+    PF_Q_SUM_LOCAL_DELTA_Q = 1,
+    PF_Q_SUM_LOCAL_RESIDUAL = 2,
+    PF_Q_MAXABS_LOCAL_RESIDUAL = 3,
+    PF_Q_INFEASIBLE_PHASE_COUNT = 4,
+    PF_Q_TRANSPORT_BOUND_VIOLATION_COUNT = 5,
+    PF_Q_TRANSPORT_BOUND_MASS = 6,
+    PF_Q_MIN_ALPHA = 7,
+    PF_Q_STATS_COUNT = 8
+};
+
+enum PFConservativeStatsIndex {
+    PF_CONS_SUM_SIGNED_TRANSFER = 0,
+    PF_CONS_SUM_ABS_TRANSFER = 1,
+    PF_CONS_MAXABS_FACE_TRANSFER = 2,
+    PF_CONS_LIMITED_FACE_COUNT = 3,
+    PF_CONS_BOUND_VIOLATION_COUNT = 4,
+    PF_CONS_PHASE_CONSTRAINT_COUNT = 5,
+    PF_CONS_MAXABS_PHASE_CORRECTION = 6,
+    PF_CONS_BETA_CONTEXT_COUNT = 7,
+    PF_CONS_NONFINITE_COUNT = 8,
+    PF_CONS_STATS_COUNT = 9
+};
+
+void launch_initialize_conservative_storage_kernel(
+    const double *phi_r, const double *xB_r, double *storage_r,
+    double v_B, int primary_is_ctot, int total_size);
+void launch_reconstruct_conservative_context_kernel(
+    const double *storage_r, const double *phi_r, double *xB_r, double *Y_r,
+    double temperature_K, double v_B, int primary_is_ctot,
+    double beta_support_eps, double xB_eps, double Y_clip,
+    double *stats, int total_size);
+void launch_pairwise_conservative_face_sweep_kernel(
+    double *storage_r, const double *mu_r, const double *phi_r,
+    const double *xB_r, int Nx, int Ny, int Nz, int axis, int parity,
+    double spacing, double dt, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale,
+    double v_B, int primary_is_ctot, int backward_euler,
+    double bound_tol, double *stats, int total_size);
+void launch_constrain_phase_and_reconstruct_conservative_kernel(
+    double *phi_new_r, const double *phi_old_r, double *storage_r,
+    double *xB_r, double *Y_r, double temperature_K, double v_B,
+    int primary_is_ctot, double beta_support_eps, double xB_eps,
+    double Y_clip, double bound_tol, double *stats, int total_size);
+
+void launch_initialize_q_alpha_kernel(const double *phi_r,
+                                      const double *xB_r,
+                                      double *q_alpha_r,
+                                      int total_size);
+void launch_apply_local_phase_storage_transfer_q_kernel(
+    const double *phi_new_r, const double *phi_old_r,
+    double *q_alpha_r, double v_B, double feasibility_tol,
+    double *stats, int total_size);
+void launch_compute_q_transport_rhs_kernel(const double *divJ_r,
+                                           const double *lap_q_r,
+                                           double *rhs_q_r,
+                                           double mean_Dq,
+                                           int total_size);
+void launch_q_normalize_validate_and_reconstruct_kernel(
+    double *q_ifft_r, double *q_alpha_r, const double *phi_r,
+    double *xB_r, double *Y_r, double invN, double xB_eps,
+    double Y_clip, double Y_upper_cap, double bound_tol,
+    double *stats, int total_size);
+void launch_q_explicit_transport_and_reconstruct_kernel(
+    double *q_alpha_r, const double *divJ_r, const double *phi_r,
+    double *xB_r, double *Y_r, double dt, double xB_eps,
+    double Y_clip, double Y_upper_cap, double bound_tol,
+    double *stats, int total_size);
+void launch_sync_q_from_phi_xB_kernel(const double *phi_r,
+                                      const double *xB_r,
+                                      double *q_alpha_r,
+                                      int total_size);
 void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,
                                               double *Y_r,
                                               double *xB_r,
                                               double lambda_shift,
+                                              double Y_clip,
+                                              double Y_upper_cap,
+                                              double xB_eps,
                                               int total_size);
 void launch_gp_picard_storage_Y_update_kernel(const double *divJ_r,
                                               const double *phi_new_r,
