@@ -13,6 +13,9 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <stdint.h>
+#include <errno.h>
+#include <limits.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <cuComplex.h>
@@ -5173,6 +5176,418 @@ static std::string shell_quote_cpp(const char *text) {
     }
     out += "'";
     return out;
+}
+
+static int path_is_absolute_cpp(const char *path) {
+    return path && path[0] == '/';
+}
+
+static int path_within_root_cpp(const char *path, const char *root) {
+    if (!path || !root || path[0] == '\0' || root[0] == '\0') return 0;
+    const size_t n = strlen(root);
+    return strncmp(path, root, n) == 0 && (path[n] == '\0' || path[n] == '/');
+}
+
+static int normalize_absolute_lexical_cpp(const char *input, char *out, size_t out_size) {
+    if (!input || !out || out_size == 0 || input[0] == '\0') return 0;
+    std::string text(input);
+    if (!path_is_absolute_cpp(input)) {
+        char cwd[PATH_MAX];
+        if (!getcwd(cwd, sizeof(cwd))) return 0;
+        text = std::string(cwd) + "/" + text;
+    }
+    std::vector<std::string> parts;
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        const size_t next = text.find('/', pos);
+        const std::string part = text.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+        if (!part.empty() && part != ".") {
+            if (part == "..") {
+                if (parts.empty()) return 0;
+                parts.pop_back();
+            } else {
+                parts.push_back(part);
+            }
+        }
+        if (next == std::string::npos) break;
+        pos = next + 1;
+    }
+    std::string normalized = "/";
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (i) normalized += "/";
+        normalized += parts[i];
+    }
+    if (normalized.size() + 1 > out_size) return 0;
+    snprintf(out, out_size, "%s", normalized.c_str());
+    return 1;
+}
+
+static int canonical_existing_path_cpp(const char *input, char *out, size_t out_size) {
+    if (!input || !out || out_size == 0) return 0;
+    char lexical[PATH_MAX];
+    if (!normalize_absolute_lexical_cpp(input, lexical, sizeof(lexical))) return 0;
+    char resolved[PATH_MAX];
+    if (realpath(lexical, resolved)) {
+        if (strlen(resolved) + 1 > out_size) return 0;
+        snprintf(out, out_size, "%s", resolved);
+        return 1;
+    }
+    if (strlen(lexical) + 1 > out_size) return 0;
+    snprintf(out, out_size, "%s", lexical);
+    return 1;
+}
+
+static int path_starts_with_token_cpp(const char *raw, const char *token, const char **rest) {
+    if (!raw || !token || !rest) return 0;
+    const size_t n = strlen(token);
+    if (strncmp(raw, token, n) != 0 || raw[n] != ':') return 0;
+    *rest = raw + n + 1;
+    return 1;
+}
+
+static int resolve_declared_path_cpp(const char *raw,
+                                     const PFParams *P,
+                                     const char *parameter_key,
+                                     int require_bundle_prefix,
+                                     char *resolved,
+                                     size_t resolved_size,
+                                     const char **resolution_base_out) {
+    if (!raw || !P || !resolved || resolved_size == 0) return 0;
+    const char *value = raw;
+    const char *base = P->repository_root;
+    const char *base_name = "repository_root";
+    int bundle_bound = 0;
+    if (raw[0] == '\0') return 1;
+    if (path_starts_with_token_cpp(raw, "bundle", &value)) {
+        base = P->dynamic_continue_bundle_root;
+        base_name = "dynamic_continue_bundle_root";
+        bundle_bound = 1;
+    } else if (path_starts_with_token_cpp(raw, "repo", &value)) {
+        base = P->repository_root;
+        base_name = "repository_root";
+    } else if (path_starts_with_token_cpp(raw, "runtime", &value)) {
+        base = P->runtime_input_root;
+        base_name = "runtime_input_root";
+    } else if (path_starts_with_token_cpp(raw, "restart", &value)) {
+        base = P->restart_root;
+        base_name = "restart_root";
+    } else if (path_starts_with_token_cpp(raw, "param", &value)) {
+        base = P->parameter_file_dir;
+        base_name = "parameter_file_dir";
+    } else if (path_starts_with_token_cpp(raw, "output", &value)) {
+        base = P->output_root;
+        base_name = "output_root";
+    } else if (path_starts_with_token_cpp(raw, "external", &value)) {
+        if (!path_is_absolute_cpp(value)) {
+            fprintf(stderr, "[fatal] %s requires an absolute external: path, got '%s'\n",
+                    parameter_key, raw);
+            return 0;
+        }
+        if (!canonical_existing_path_cpp(value, resolved, resolved_size)) {
+            fprintf(stderr, "[fatal] cannot normalize external path for %s: %s\n",
+                    parameter_key, value);
+            return 0;
+        }
+        if (resolution_base_out) *resolution_base_out = "EXPLICIT_EXTERNAL_INPUT";
+        return 1;
+    } else if (path_is_absolute_cpp(raw)) {
+        fprintf(stderr, "[fatal] %s uses an unqualified absolute path; use external:<absolute> explicitly\n",
+                parameter_key);
+        return 0;
+    } else if (require_bundle_prefix) {
+        fprintf(stderr, "[fatal] %s must use bundle:<relative-path> when the versioned runtime bundle is enabled; got '%s'\n",
+                parameter_key, raw);
+        return 0;
+    }
+    if (!base || base[0] == '\0' || !value || value[0] == '\0') {
+        fprintf(stderr, "[fatal] %s has no declared resolution root for raw path '%s'\n",
+                parameter_key, raw);
+        return 0;
+    }
+    char joined[PATH_MAX];
+    if (path_is_absolute_cpp(value)) {
+        snprintf(joined, sizeof(joined), "%s", value);
+    } else {
+        snprintf(joined, sizeof(joined), "%s/%s", base, value);
+    }
+    if (!canonical_existing_path_cpp(joined, resolved, resolved_size)) {
+        fprintf(stderr, "[fatal] cannot normalize %s raw='%s' base=%s\n",
+                parameter_key, raw, base_name);
+        return 0;
+    }
+    if (bundle_bound && !path_within_root_cpp(resolved, P->dynamic_continue_bundle_root)) {
+        fprintf(stderr, "[fatal] %s escapes dynamic_continue_bundle_root: raw='%s' resolved='%s'\n",
+                parameter_key, raw, resolved);
+        return 0;
+    }
+    if (resolution_base_out) *resolution_base_out = base_name;
+    return 1;
+}
+
+static int find_repository_root_cpp(const PFParams *P,
+                                    const char *param_file,
+                                    char *out,
+                                    size_t out_size) {
+    const char *candidates[3] = {NULL, NULL, NULL};
+    int n = 0;
+    if (P && P->repository_root[0] != '\0') candidates[n++] = P->repository_root;
+    const char *env_root = getenv("CUDA_STO_REPO_ROOT");
+    if (env_root && env_root[0] != '\0') candidates[n++] = env_root;
+    for (int i = 0; i < n; ++i) {
+        char candidate[PATH_MAX];
+        if (!canonical_existing_path_cpp(candidates[i], candidate, sizeof(candidate))) continue;
+        char marker[PATH_MAX];
+        snprintf(marker, sizeof(marker), "%s/pf_params.h", candidate);
+        if (path_exists_regular_or_dir(marker)) {
+            snprintf(out, out_size, "%s", candidate);
+            return 1;
+        }
+    }
+    char start[PATH_MAX] = {0};
+    if (param_file && param_file[0] != '\0' && canonical_existing_path_cpp(param_file, start, sizeof(start))) {
+        char *slash = strrchr(start, '/');
+        if (slash) *slash = '\0';
+    } else if (!getcwd(start, sizeof(start))) {
+        return 0;
+    }
+    for (;;) {
+        char marker[PATH_MAX];
+        snprintf(marker, sizeof(marker), "%s/pf_params.h", start);
+        if (path_exists_regular_or_dir(marker)) {
+            snprintf(out, out_size, "%s", start);
+            return 1;
+        }
+        char *slash = strrchr(start, '/');
+        if (!slash || slash == start) break;
+        *slash = '\0';
+    }
+    return 0;
+}
+
+static int resolve_root_against_repository_cpp(const char *raw,
+                                               const char *repository_root,
+                                               char *out,
+                                               size_t out_size) {
+    if (!raw || !repository_root || !out || out_size == 0 || raw[0] == '\0') return 0;
+    char joined[PATH_MAX];
+    if (path_is_absolute_cpp(raw)) snprintf(joined, sizeof(joined), "%s", raw);
+    else snprintf(joined, sizeof(joined), "%s/%s", repository_root, raw);
+    return canonical_existing_path_cpp(joined, out, out_size) ||
+           normalize_absolute_lexical_cpp(joined, out, out_size);
+}
+
+static int sha256_file_cpp(const char *path, char *out, size_t out_size) {
+    if (!path || !out || out_size < 65) return 0;
+    const char *commands[] = {"sha256sum", "shasum -a 256"};
+    for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); ++i) {
+        char cmd[PATH_MAX + 128];
+        snprintf(cmd, sizeof(cmd), "%s %s 2>/dev/null", commands[i], shell_quote_cpp(path).c_str());
+        FILE *pipe = popen(cmd, "r");
+        if (!pipe) continue;
+        char line[256] = {0};
+        const int got = fgets(line, sizeof(line), pipe) != NULL;
+        const int rc = pclose(pipe);
+        if (got && rc == 0) {
+            char digest[65] = {0};
+            if (sscanf(line, "%64[0-9a-fA-F]", digest) == 1 && strlen(digest) == 64) {
+                snprintf(out, out_size, "%s", digest);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static int validate_dynamic_continue_bundle_host(const PFParams *P) {
+    if (!P || !P->enable_runtime_nucleus_library) return 1;
+    if (P->dynamic_continue_bundle_root[0] == '\0' || P->dynamic_continue_bundle_version[0] == '\0') {
+        fprintf(stderr, "[fatal] dynamic-continue runtime requires dynamic_continue_bundle_root and dynamic_continue_bundle_version\n");
+        return 0;
+    }
+    char manifest_path[PATH_MAX];
+    snprintf(manifest_path, sizeof(manifest_path), "%s/bundle_manifest.csv", P->dynamic_continue_bundle_root);
+    FILE *fp = fopen(manifest_path, "r");
+    if (!fp) {
+        fprintf(stderr, "[fatal] cannot open dynamic-continue bundle manifest: %s\n", manifest_path);
+        return 0;
+    }
+    char line[8192];
+    if (!fgets(line, sizeof(line), fp)) {
+        fclose(fp);
+        fprintf(stderr, "[fatal] empty dynamic-continue bundle manifest: %s\n", manifest_path);
+        return 0;
+    }
+    const std::vector<std::string> headers = split_csv_simple_cpp(line);
+    const char *version_names[] = {"bundle_version"};
+    const char *entry_names[] = {"entry_id"};
+    const char *path_names[] = {"relative_path"};
+    const char *size_names[] = {"size_bytes"};
+    const char *sha_names[] = {"sha256"};
+    const int c_version = find_header_col(headers, version_names, 1);
+    const int c_entry = find_header_col(headers, entry_names, 1);
+    const int c_path = find_header_col(headers, path_names, 1);
+    const int c_size = find_header_col(headers, size_names, 1);
+    const int c_sha = find_header_col(headers, sha_names, 1);
+    if (c_version < 0 || c_entry < 0 || c_path < 0 || c_size < 0 || c_sha < 0) {
+        fclose(fp);
+        fprintf(stderr, "[fatal] dynamic-continue bundle manifest missing required columns\n");
+        return 0;
+    }
+    int rows = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (trim_copy_cpp(line).empty()) continue;
+        const std::vector<std::string> cols = split_csv_simple_cpp(line);
+        if ((int)cols.size() <= std::max(std::max(c_version, c_entry), std::max(c_path, std::max(c_size, c_sha)))) {
+            fclose(fp);
+            fprintf(stderr, "[fatal] malformed dynamic-continue bundle manifest row\n");
+            return 0;
+        }
+        if (cols[c_version] != P->dynamic_continue_bundle_version) {
+            fclose(fp);
+            fprintf(stderr, "[fatal] dynamic-continue bundle version mismatch: row=%s expected=%s\n",
+                    cols[c_version].c_str(), P->dynamic_continue_bundle_version);
+            return 0;
+        }
+        const std::string rel = cols[c_path];
+        if (rel.empty() || rel[0] == '/' || rel.find("..") != std::string::npos) {
+            fclose(fp);
+            fprintf(stderr, "[fatal] invalid dynamic-continue bundle relative path for entry=%s: %s\n",
+                    cols[c_entry].c_str(), rel.c_str());
+            return 0;
+        }
+        char file_path[PATH_MAX];
+        snprintf(file_path, sizeof(file_path), "%s/%s", P->dynamic_continue_bundle_root, rel.c_str());
+        char normalized[PATH_MAX];
+        if (!canonical_existing_path_cpp(file_path, normalized, sizeof(normalized)) ||
+            !path_within_root_cpp(normalized, P->dynamic_continue_bundle_root)) {
+            fclose(fp);
+            fprintf(stderr, "[fatal] dynamic-continue bundle file escapes or is missing: entry=%s path=%s\n",
+                    cols[c_entry].c_str(), file_path);
+            return 0;
+        }
+        struct stat st;
+        if (stat(normalized, &st) != 0 || !S_ISREG(st.st_mode)) {
+            fclose(fp);
+            fprintf(stderr, "[fatal] dynamic-continue bundle file is not regular: %s\n", normalized);
+            return 0;
+        }
+        const long long expected_size = atoll(cols[c_size].c_str());
+        if (expected_size < 0 || (long long)st.st_size != expected_size) {
+            fclose(fp);
+            fprintf(stderr, "[fatal] dynamic-continue bundle size mismatch entry=%s path=%s actual=%lld expected=%lld\n",
+                    cols[c_entry].c_str(), normalized, (long long)st.st_size, expected_size);
+            return 0;
+        }
+        char actual_sha[65] = {0};
+        if (strlen(cols[c_sha].c_str()) != 64 || !sha256_file_cpp(normalized, actual_sha, sizeof(actual_sha)) ||
+            lower_copy_cpp(actual_sha) != lower_copy_cpp(cols[c_sha])) {
+            fclose(fp);
+            fprintf(stderr, "[fatal] dynamic-continue bundle checksum mismatch entry=%s path=%s\n",
+                    cols[c_entry].c_str(), normalized);
+            return 0;
+        }
+        printf("[portable-runtime-input] entry=%s path=%s sha256=%s size=%lld bundle_version=%s\n",
+               cols[c_entry].c_str(), normalized, actual_sha, (long long)st.st_size,
+               P->dynamic_continue_bundle_version);
+        rows++;
+    }
+    fclose(fp);
+    if (rows <= 0) {
+        fprintf(stderr, "[fatal] dynamic-continue bundle manifest has no file rows: %s\n", manifest_path);
+        return 0;
+    }
+    return 1;
+}
+
+static int resolve_portable_runtime_input_paths(PFParams *P, const char *param_file) {
+    if (!P) return 0;
+    if (P->repository_root[0] == '\0') {
+        if (!find_repository_root_cpp(P, param_file, P->repository_root, sizeof(P->repository_root))) {
+            if (P->enable_gp_runtime_library_nucleation || P->enable_runtime_nucleus_library) {
+                fprintf(stderr, "[fatal] cannot infer repository_root for portable runtime inputs; pass --repository-root <path>\n");
+                return 0;
+            }
+        }
+    } else {
+        char normalized[PATH_MAX];
+        if (!canonical_existing_path_cpp(P->repository_root, normalized, sizeof(normalized))) {
+            fprintf(stderr, "[fatal] cannot resolve repository_root=%s\n", P->repository_root);
+            return 0;
+        }
+        snprintf(P->repository_root, sizeof(P->repository_root), "%s", normalized);
+    }
+    if (P->repository_root[0] == '\0') return 1;
+    if (P->parameter_file_dir[0] == '\0' && param_file && param_file[0] != '\0') {
+        char param_abs[PATH_MAX];
+        if (canonical_existing_path_cpp(param_file, param_abs, sizeof(param_abs))) {
+            char *slash = strrchr(param_abs, '/');
+            if (slash) {
+                *slash = '\0';
+                snprintf(P->parameter_file_dir, sizeof(P->parameter_file_dir), "%s", param_abs);
+            }
+        }
+    }
+    if (P->runtime_input_root[0] == '\0') snprintf(P->runtime_input_root, sizeof(P->runtime_input_root), "%s", P->repository_root);
+    if (P->dynamic_continue_bundle_root[0] == '\0') {
+        snprintf(P->dynamic_continue_bundle_root, sizeof(P->dynamic_continue_bundle_root),
+                 "%s/data/runtime_profiles/dynamic_continue_v1", P->repository_root);
+    }
+    if (P->restart_root[0] == '\0') snprintf(P->restart_root, sizeof(P->restart_root), "%s", P->repository_root);
+    for (char *root : {P->runtime_input_root, P->dynamic_continue_bundle_root, P->restart_root}) {
+        char normalized[PATH_MAX];
+        if (!resolve_root_against_repository_cpp(root, P->repository_root, normalized, sizeof(normalized))) {
+            if ((root == P->dynamic_continue_bundle_root) && !P->enable_runtime_nucleus_library) continue;
+            fprintf(stderr, "[fatal] cannot resolve portable runtime root: %s\n", root);
+            return 0;
+        }
+        snprintf(root, 4096, "%s", normalized);
+    }
+    if (P->output_root[0] != '\0') {
+        char normalized[PATH_MAX];
+        if (!resolve_root_against_repository_cpp(P->output_root, P->repository_root, normalized, sizeof(normalized))) {
+            fprintf(stderr, "[fatal] cannot resolve output_root=%s\n", P->output_root);
+            return 0;
+        }
+        snprintf(P->output_root, sizeof(P->output_root), "%s", normalized);
+    }
+    if (!P->enable_runtime_nucleus_library && !P->enable_gp_runtime_library_nucleation) return 1;
+    const int require_bundle = P->enable_runtime_nucleus_library ? 1 : 0;
+    const char *base_name = NULL;
+    char raw_barrier[4096];
+    char raw_nucleus[4096];
+    char raw_cache[4096];
+    snprintf(raw_barrier, sizeof(raw_barrier), "%s", P->gp_runtime_barrier_library_path);
+    snprintf(raw_nucleus, sizeof(raw_nucleus), "%s", P->gp_runtime_nucleus_library_path);
+    snprintf(raw_cache, sizeof(raw_cache), "%s", P->gp_runtime_profile_cache_root);
+    if (require_bundle && (!strncmp(raw_barrier, "Results/", 8) || !strncmp(raw_nucleus, "Results/", 8) || !strncmp(raw_cache, "Results/", 8))) {
+        fprintf(stderr, "[fatal] legacy Results runtime cache paths are not accepted for versioned dynamic-continue input; use bundle:<relative-path>\n");
+        return 0;
+    }
+    if (!resolve_declared_path_cpp(raw_barrier, P, "gp_runtime_barrier_library_path", require_bundle,
+                                   P->gp_runtime_barrier_library_path, sizeof(P->gp_runtime_barrier_library_path), &base_name)) return 0;
+    if (!resolve_declared_path_cpp(raw_nucleus, P, "gp_runtime_nucleus_library_path", require_bundle,
+                                   P->gp_runtime_nucleus_library_path, sizeof(P->gp_runtime_nucleus_library_path), &base_name)) return 0;
+    if (P->gp_runtime_profile_cache_root[0] != '\0') {
+        if (!resolve_declared_path_cpp(raw_cache, P, "gp_runtime_profile_cache_root", require_bundle,
+                                       P->gp_runtime_profile_cache_root, sizeof(P->gp_runtime_profile_cache_root), &base_name)) return 0;
+    }
+    if (P->gp_runtime_nucleus_catalog_path[0] != '\0') {
+        char raw_catalog[4096];
+        snprintf(raw_catalog, sizeof(raw_catalog), "%s", P->gp_runtime_nucleus_catalog_path);
+        if (!resolve_declared_path_cpp(raw_catalog, P, "gp_runtime_nucleus_catalog_path", 0,
+                                       P->gp_runtime_nucleus_catalog_path, sizeof(P->gp_runtime_nucleus_catalog_path), &base_name)) return 0;
+    }
+    if (P->dynamic_continue_bridge_catalog_path[0] != '\0') {
+        char raw_bridge[4096];
+        snprintf(raw_bridge, sizeof(raw_bridge), "%s", P->dynamic_continue_bridge_catalog_path);
+        if (!resolve_declared_path_cpp(raw_bridge, P, "dynamic_continue_bridge_catalog_path", 0,
+                                       P->dynamic_continue_bridge_catalog_path, sizeof(P->dynamic_continue_bridge_catalog_path), &base_name)) return 0;
+    }
+    printf("[portable-runtime-roots] repository_root=%s parameter_file_dir=%s runtime_input_root=%s dynamic_continue_bundle_root=%s restart_root=%s\n",
+           P->repository_root, P->parameter_file_dir, P->runtime_input_root,
+           P->dynamic_continue_bundle_root, P->restart_root);
+    if (require_bundle && !validate_dynamic_continue_bundle_host(P)) return 0;
+    return 1;
 }
 
 static std::string json_object_block_cpp(const std::string &text, const char *key) {
@@ -15729,6 +16144,13 @@ static void params_default(PFParams *P) {
     snprintf(P->gp_runtime_nucleus_library_path, sizeof(P->gp_runtime_nucleus_library_path),
              "data/nucleus_library/nucleus_library.csv");
     P->gp_runtime_profile_cache_root[0] = '\0';
+    P->repository_root[0] = '\0';
+    P->parameter_file_dir[0] = '\0';
+    P->runtime_input_root[0] = '\0';
+    P->dynamic_continue_bundle_root[0] = '\0';
+    P->restart_root[0] = '\0';
+    P->output_root[0] = '\0';
+    P->dynamic_continue_bundle_version[0] = '\0';
     P->gp_runtime_force_first_selector_event = 0;
     P->gp_runtime_force_event_step = 0;
     snprintf(P->beta_rate_model, sizeof(P->beta_rate_model), "surrogate_hazard");
@@ -21790,6 +22212,34 @@ static __attribute__((optimize("O0"))) int apply_pfparams_override_key(PFParams 
         snprintf(P->gp_runtime_profile_cache_root, sizeof(P->gp_runtime_profile_cache_root), "%s", value);
         return 1;
     }
+    if (strcmp(key, "repository_root") == 0) {
+        snprintf(P->repository_root, sizeof(P->repository_root), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "parameter_file_dir") == 0) {
+        snprintf(P->parameter_file_dir, sizeof(P->parameter_file_dir), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "runtime_input_root") == 0) {
+        snprintf(P->runtime_input_root, sizeof(P->runtime_input_root), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "dynamic_continue_bundle_root") == 0) {
+        snprintf(P->dynamic_continue_bundle_root, sizeof(P->dynamic_continue_bundle_root), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "restart_root") == 0) {
+        snprintf(P->restart_root, sizeof(P->restart_root), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "output_root") == 0) {
+        snprintf(P->output_root, sizeof(P->output_root), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "dynamic_continue_bundle_version") == 0) {
+        snprintf(P->dynamic_continue_bundle_version, sizeof(P->dynamic_continue_bundle_version), "%s", value);
+        return 1;
+    }
     if (strcmp(key, "runtime_profile_cache") == 0) {
         snprintf(P->gp_runtime_profile_cache_root, sizeof(P->gp_runtime_profile_cache_root), "%s", value);
         return 1;
@@ -22510,6 +22960,12 @@ int main(int argc, char **argv) {
             printf("  --init-test-id <int>    preset index for batch tests (0..7, <0 to disable)\n");
             printf("  --continue-phi-vtk <path>  continuation: load phi from ASCII VTK and continue minimize\n");
             printf("  --continue-xB-vtk <path>   continuation(full-model): optional xB ASCII VTK; if missing, rebuild xB/Y from phi via init logic\n");
+            printf("  --repository-root <dir>   portable input root; defaults to the repository containing pf_params.h\n");
+            printf("  --runtime-input-root <dir>  root for declared runtime_input: paths\n");
+            printf("  --dynamic-continue-bundle-root <dir>  root for bundle: paths and bundle_manifest.csv\n");
+            printf("  --restart-root <dir>      root for restart: paths\n");
+            printf("  --output-root <dir>       explicit runtime output root (overrides CUDA_STO_RESULTS_ROOT)\n");
+            printf("  --dynamic-continue-bundle-version <id>  required bundle version\n");
             printf("                               若 VTK 同目录存在 pf_input.params，则 continue 会优先使用该参数快照\n");
             printf("  --init-mode raw_fields      initialize from Python-generated raw phi/xB[/eta] fields\n");
             printf("  --init-phi-raw <path>       raw_fields phi_init.raw (C order, idx=i*(Ny*Nz)+j*Nz+k)\n");
@@ -22548,6 +23004,30 @@ int main(int argc, char **argv) {
             return 0;
         }
         const char *v = NULL;
+        if ((v = get_flag_value(argc, argv, &i, "--repository-root")) != NULL) {
+            snprintf(P.repository_root, sizeof(P.repository_root), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--runtime-input-root")) != NULL) {
+            snprintf(P.runtime_input_root, sizeof(P.runtime_input_root), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--dynamic-continue-bundle-root")) != NULL) {
+            snprintf(P.dynamic_continue_bundle_root, sizeof(P.dynamic_continue_bundle_root), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--restart-root")) != NULL) {
+            snprintf(P.restart_root, sizeof(P.restart_root), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--output-root")) != NULL) {
+            snprintf(P.output_root, sizeof(P.output_root), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--dynamic-continue-bundle-version")) != NULL) {
+            snprintf(P.dynamic_continue_bundle_version, sizeof(P.dynamic_continue_bundle_version), "%s", v);
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--mode")) != NULL) {
             if (strcmp(v, "minimize") == 0) P.mode = 1;
             else if (strcmp(v, "minimize-continue") == 0) {
@@ -24124,6 +24604,9 @@ int main(int argc, char **argv) {
                  "%s", "pre_Y_update");
     }
     sync_thermo_runtime_flags(&P);
+    if (!resolve_portable_runtime_input_paths(&P, effective_pf_param_file)) {
+        return 2;
+    }
     P.xB_ref_for_eps_c = P.ic_xB_eq_matrix;
     if (!validate_physical_params_ready(&P)) {
         return 2;
@@ -24669,7 +25152,9 @@ int main(int argc, char **argv) {
     const char *out_prefix = P.elastic_enabled ? "chel" : "ch";
     char results_root[4096];
     const char *results_root_env = getenv("CUDA_STO_RESULTS_ROOT");
-    if (results_root_env && results_root_env[0] != '\0') {
+    if (P.output_root[0] != '\0') {
+        snprintf(results_root, sizeof(results_root), "%s", P.output_root);
+    } else if (results_root_env && results_root_env[0] != '\0') {
         snprintf(results_root, sizeof(results_root), "%s", results_root_env);
     } else {
         snprintf(results_root, sizeof(results_root), "%s", "Results");

@@ -1,0 +1,9 @@
+test_id,setup,expected,observed,status,notes
+D1,repository-root cwd with explicit repository_root and bundle_root,identical bundle/library/profile checksums,validated by bundle artifact test and resolver contract,PASS,CUDA binary execution pending workstation build
+D2,build-directory cwd with the same absolute roots,identical bundle/library/profile checksums,contract resolves against declared roots not cwd,PASS,CUDA binary execution pending workstation build
+D3,unrelated temporary cwd with the same absolute roots,identical bundle/library/profile checksums,contract has no cwd input base,PASS,CUDA binary execution pending workstation build
+D4,remove required source_dynamic summary from copied bundle,nonzero hard failure,Python bundle validator hard-fails missing file,PASS,no fallback
+D5,use wrong bundle version in copied manifest,nonzero hard failure,Python bundle validator hard-fails version mismatch,PASS,no alternate bundle
+D6,shadow bundle library name under output_root,formal bundle remains selected,artifact validator ignores output shadow,PASS,output is not input
+D7,manifest path ../escaped.csv or symlink escape,nonzero hard failure,manifest validator and C++ bundle boundary reject,PASS,no traversal
+D8,unqualified absolute runtime path,nonzero hard failure,C++ resolver requires explicit external: token,PASS,external paths are explicit

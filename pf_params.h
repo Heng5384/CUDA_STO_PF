@@ -233,6 +233,16 @@ typedef struct {
     int enable_runtime_nucleus_library;
     char gp_runtime_nucleus_library_path[4096];
     char gp_runtime_profile_cache_root[4096];
+    // Portable runtime path contract.  These roots are configuration paths,
+    // not physical model parameters; relative runtime inputs must resolve
+    // against one of these declared roots rather than process CWD.
+    char repository_root[4096];
+    char parameter_file_dir[4096];
+    char runtime_input_root[4096];
+    char dynamic_continue_bundle_root[4096];
+    char restart_root[4096];
+    char output_root[4096];
+    char dynamic_continue_bundle_version[64];
     int gp_runtime_force_first_selector_event;
     int gp_runtime_force_event_step;
 
