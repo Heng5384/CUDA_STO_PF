@@ -1,0 +1,6 @@
+parameter_file,changed_key,old_value,new_value,semantic_change,path_only_change,validation_status,reason
+params/gp_after_quench_initial_state/gp_AQ_Yu_APT_xB003_xAgfar0078_dx1p0.params,,,,no,no,BLOCKED,Staging library and external runtime cache cannot be safely replaced
+params/physical_cnt/physical_cnt_T380_xB003_no_strain_dx1p0.params,,,,no,no,BLOCKED,T380 overlay requires staging schema and external profile cache
+params/physical_cnt/physical_cnt_T400_xB003_no_strain_dx1p0.params,,,,no,no,BLOCKED,T400 dynamic-continue row is absent from canonical library
+params/physical_cnt/physical_cnt_T400_xB003_no_strain_dx1p0_sGP005.params,,,,no,no,BLOCKED,T400 sGP overlay requires the same unpromoted Zr/runtime data
+params/physical_cnt/physical_cnt_T450_xB003_no_strain_dx1p0.params,,,,no,no,BLOCKED,T450 dynamic-continue row is absent from canonical library

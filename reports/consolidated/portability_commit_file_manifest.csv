@@ -1,0 +1,14 @@
+path,action,artifact_role,staged_in_portability_commit,validation_status,notes
+reports/consolidated/blocked_parameter_dependency_audit.md,add,audit report,true,PASS,Five overlays and runtime reads documented
+reports/consolidated/blocked_parameter_dependency_graph.csv,add,dependency graph,true,PASS,30 path/provenance rows
+reports/consolidated/blocked_params_results_path_audit.csv,add,path role audit,true,PASS,Results paths classified individually
+reports/consolidated/runtime_path_contract.md,add,portability contract,true,PARTIAL,Documents current CWD behavior and target contract
+reports/consolidated/portable_path_resolution_code_audit.md,add,code audit,true,PARTIAL,No second resolver added
+reports/consolidated/staging_vs_canonical_nucleus_library_audit.md,add,library audit,true,PASS,No blind substitution
+reports/consolidated/staging_vs_canonical_nucleus_library_diff.csv,add,library diff,true,PASS,18 entry-level classifications
+reports/consolidated/blocked_parameter_portability_patch_audit.csv,add,patch audit,true,BLOCKED,No parameter edits approved
+reports/consolidated/physical_units_config_portability_audit.md,add,config audit,true,BLOCKED,Original local file excluded
+reports/consolidated/portable_parameter_validation_summary.csv,add,validation summary,true,PARTIAL,Static checks only; runtime checks blocked
+reports/consolidated/portable_parameter_acceptance_report.md,add,acceptance report,true,PARTIAL,Five overlays remain blocked
+data/manifests/accepted_input_manifest.csv,modify,input manifest,true,UPDATED,Adds portability status records for blocked artifacts
+reports/consolidated/portability_commit_file_manifest.csv,add,commit manifest,true,PASS,Explicit file list; no bulk staging
