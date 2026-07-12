@@ -12,8 +12,16 @@
 - `reports/PHI_ETA_*.md`: phi/eta 数值对称性 audit
 - `reports/DIAGNOSTIC_*.md`: 旋钮 triage
 - `reports/NEXT_*.md`: 下一工单候选
+- `reports/{validation,nucleation,cnt,gp,data}/`: 规范化的报告与数据输出目录
+- `docs/project_structure.md`: 目录职责、保留策略与生成物边界
+- `docs/current_model_status.md`: 当前 Mode L/X/Q 与 S3/RSMD 验收状态
 - `jobs/`: 本地运行脚本与 Slurm 提交脚本
 - `Results/`: 模拟结果输出目录（已被 Git 忽略）
+
+当前 composition architecture 仍处于验证阶段：Mode L 已确认存在 lagged-history
+正反馈，Mode X 是有界诊断路径但不满足局部 phase-storage 语义，Mode Q 在公式层面
+优先但当前通量离散尚不能保持 capacity bound。S3/RSMD source transaction 已独立验证，
+在 PF-only baseline 通过前保持冻结，不能视为 production reintegration 已开放。
 
 ## 构建
 
@@ -204,7 +212,7 @@ python3 Unit_Psedobinary.py \
 
 - 剪切分量使用张量应变定义，不是工程剪切应变 `gamma_ij`
 - 如果同时提供 `eigenstrain_tensor` 和 `eigenstrain_principal`，脚本优先使用 `eigenstrain_tensor`
-- 示例文件 [physical_inputs.example.json](/Users/heng/Documents/GitHub/CUDA_STO_PF/physical_inputs.example.json) 默认给的是主应变加单位旋转
+- 示例文件 [`physical_inputs.example.json`](physical_inputs.example.json) 默认给的是主应变加单位旋转
 - 示例文件中的 `_units` 和 `_notes` 只是说明字段，脚本会自动忽略，不影响直接读取
 - 生成后的 `eps_xx00..eps_xy00` 会自动写入 `.params` 文件，无需再手抄到命令行
 

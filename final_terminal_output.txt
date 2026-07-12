@@ -1,0 +1,27 @@
+repository_root=/Users/heng/Documents/GitHub/CUDA_STO_PF
+branch=main
+starting_git_status=14 tracked modified paths; 3728 file-level dirty paths
+
+tracked_files_deleted=3
+untracked_files_deleted=145
+files_moved=31
+duplicates_removed=93 duplicate cache members
+reports_archived=58
+files_kept_for_provenance=735 report ledger entries
+review_required_files_remaining=2777
+
+gitignore_updated=true
+broken_references_fixed=17
+absolute_runtime_paths_remaining=41 code/workflow files; most are overridable workstation defaults
+
+build_status=PASS BUILD_EXIT=0 on workstation-direct
+smoke_test_status=PASS 5/5 SMOKE_EXIT=0
+git_diff_check_status=PASS for cleanup staged diff; full worktree has unrelated main_cuda.cu trailing whitespace
+
+commit_created=true
+commit_hash=reported after commit (cannot be embedded in the commit that determines its own hash)
+commit_title=chore: clean and organize PF validation workspace
+push_performed=false
+
+final_git_status=cleanup committed separately; unrelated functional and scientific review work remains dirty
+final_status=PARTIAL_PROJECT_CLEANED_BUT_REVIEW_REQUIRED_FILES_REMAIN

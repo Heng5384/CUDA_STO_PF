@@ -223,7 +223,7 @@ cd "${REPO_ROOT}"
 
 完整 workflow 说明看这里：
 
-- [critical_radius_continue_workflow.md](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/critical_radius_continue_workflow.md)
+- [critical_radius_continue_workflow.md](critical_radius_continue_workflow.md)
 
 ---
 
@@ -297,4 +297,4 @@ cd "${REPO_ROOT}"
 
 然后按 workflow 文档执行：
 
-- [critical_radius_continue_workflow.md](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/critical_radius_continue_workflow.md)
+- [critical_radius_continue_workflow.md](critical_radius_continue_workflow.md)

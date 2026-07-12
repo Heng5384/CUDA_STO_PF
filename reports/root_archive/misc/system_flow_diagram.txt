@@ -1,0 +1,63 @@
+DUAL-TRACK HYBRID PF + CNT CALIBRATED NUCLEATION SYSTEM
+
+TRACK 1: OFFLINE CNT SCANNING / CALIBRATION
+------------------------------------------------------------
+physical inputs: T, xB, strain, gamma, elastic penalty
+        |
+        v
+cnt_scan_pipeline.py
+        |
+        +--> r scan: DeltaG(r,T,xB,strain)
+        |
+        +--> critical point extraction: r*, DeltaG*
+        |
+        +--> shape descriptors and energy-ranked nuclei
+        |
+        +--> output artifacts:
+              - nucleus_catalog.json
+              - barrier_surface_fit.csv
+              - shape_library/
+        |
+        v
+calibration only, no runtime PF calls
+
+
+ONLY COUPLING INTERFACE
+------------------------------------------------------------
+coupling_interface.json
+        |
+        +--> S-field coefficients
+        +--> DeltaG*(T,xB,strain) fit table path
+        |
+        v
+Runtime may read coefficients/tables, but may not run CNT scans.
+
+
+TRACK 2: RUNTIME PF MICROSTRUCTURE EVOLUTION
+------------------------------------------------------------
+x_B(x,t), phi_GP(x,t), phi_beta(x,t)
+        |
+        v
+s_field_definition.py
+        |
+        +--> S(x) = S(phi_GP, grad phi_GP, x_B)
+        |
+        v
+pf_dynamics_core.py / CUDA PF kernels
+        |
+        +--> CH composition evolution
+        +--> GP Allen-Cahn evolution
+        +--> beta Allen-Cahn evolution
+        +--> Delta g_beta_eff = S(x) * Delta g_beta_bulk(x_B)
+        |
+        v
+spatially resolved GP-modulated beta nucleation/growth
+
+
+FORBIDDEN RUNTIME BYPASSES
+------------------------------------------------------------
+- critical radius scan inside PF runtime
+- CNT job submission from PF runtime
+- direct nucleus template insertion from nucleus library
+- stochastic CNT event kernel as default nucleation
+- DFT/CE/minimization invocation during PF evolution

@@ -29,5 +29,5 @@ These curated analysis scripts now default to writing formal outputs back into:
 
 Workflow documentation:
 
-- [`critical_radius_continue_workflow.md`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/critical_radius_continue_workflow.md)
-- [`cluster_git_access_guide.md`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/cluster_git_access_guide.md)
+- [`critical_radius_continue_workflow.md`](critical_radius_continue_workflow.md)
+- [`cluster_git_access_guide.md`](cluster_git_access_guide.md)

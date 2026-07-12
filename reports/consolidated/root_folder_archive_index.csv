@@ -1,0 +1,5 @@
+original_path,archive_path,status
+.tmp_profile_plots,reports/root_archive/figures/profile_plots,archived_as_scientific_figures
+.pycache_tmp,,deleted_as_reproducible_python_cache
+.tmp_pycache,,deleted_as_reproducible_python_cache
+__pycache__,,deleted_as_reproducible_python_cache

@@ -2,8 +2,12 @@
 # 系统 / IDE
 # ============================================
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
 # ============================================
 # Python
@@ -11,6 +15,10 @@
 __pycache__/
 *.pyc
 *.pyo
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # ============================================
 # 临时调试产物
@@ -18,6 +26,11 @@ __pycache__/
 .tmp_*/
 .tmp_*.py
 .pycache_tmp/
+tmp/
+tmp_codex_ops/
+tmp_synced_seed_summaries/
+tmp_runtime_4grid_*
+output/
 
 # ============================================
 # 编译产物
@@ -25,7 +38,17 @@ __pycache__/
 main_cuda
 test_memory_ledger
 *.o
+*.obj
 *.so
+*.dylib
+*.a
+*.ptx
+*.cubin
+*.fatbin
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
 
 # ============================================
 # 模拟输出 / 结果目录
@@ -35,6 +58,10 @@ Results/
 Results_scan/
 step35_outputs/
 step36_radial_profiles/
+*.vtk
+*.raw
+nohup.out
+core.*
 
 # ============================================
 # Job / cluster

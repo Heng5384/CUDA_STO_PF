@@ -1,0 +1,8 @@
+original_path,archive_path,code_script_readme_hits,status
+composition_variable_audit.csv,reports/root_archive/csv/composition_variable_audit.csv,0,moved
+cuda_binding_verification.csv,reports/root_archive/csv/cuda_binding_verification.csv,0,moved
+cuda_execution_summary.csv,reports/root_archive/csv/cuda_execution_summary.csv,0,moved
+mapping_ambiguity_report.csv,reports/root_archive/csv/mapping_ambiguity_report.csv,0,moved
+physics_consistency_delta.csv,reports/root_archive/csv/physics_consistency_delta.csv,0,moved
+reference_state_audit.csv,reports/root_archive/csv/reference_state_audit.csv,0,moved
+thermo_object_inventory.csv,reports/root_archive/csv/thermo_object_inventory.csv,0,moved

@@ -248,7 +248,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 如果对方还没有这个私有仓库的访问权限，先看：
 
-- [`cluster_git_access_guide.md`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/cluster_git_access_guide.md)
+- [`cluster_git_access_guide.md`](cluster_git_access_guide.md)
 
 ## 关键脚本
 
@@ -256,7 +256,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`setup_cnt_workflow.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/setup_cnt_workflow.py)
+- [`setup_cnt_workflow.py`](setup_cnt_workflow.py)
 
 作用：
 
@@ -286,7 +286,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`submit_cnt_guide_serial.sbatch`](/Users/heng/Documents/GitHub/CUDA_STO_PF/jobs/submit_cnt_guide_serial.sbatch)
+- [`submit_cnt_guide_serial.sbatch`](../../jobs/submit_cnt_guide_serial.sbatch)
 
 作用：
 
@@ -300,7 +300,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`summarize_cnt_scan_from_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_cnt_scan_from_guide.py)
+- [`summarize_cnt_scan_from_guide.py`](summarize_cnt_scan_from_guide.py)
 
 作用：
 
@@ -330,7 +330,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`prepare_continue_dynamic_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/prepare_continue_dynamic_guide.py)
+- [`prepare_continue_dynamic_guide.py`](prepare_continue_dynamic_guide.py)
 
 作用：
 
@@ -353,7 +353,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`submit_continue_dynamic_guide_serial.sbatch`](/Users/heng/Documents/GitHub/CUDA_STO_PF/jobs/submit_continue_dynamic_guide_serial.sbatch)
+- [`submit_continue_dynamic_guide_serial.sbatch`](../../jobs/submit_continue_dynamic_guide_serial.sbatch)
 
 作用：
 
@@ -373,8 +373,8 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`summarize_continue_from_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_continue_from_guide.py)
-- [`summarize_continue_dynamic_from_guide.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/summarize_continue_dynamic_from_guide.py)
+- [`summarize_continue_from_guide.py`](summarize_continue_from_guide.py)
+- [`summarize_continue_dynamic_from_guide.py`](summarize_continue_dynamic_from_guide.py)
 
 作用：
 
@@ -403,7 +403,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`generate_continue_dynamic_geometry_summaries.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/generate_continue_dynamic_geometry_summaries.py)
+- [`generate_continue_dynamic_geometry_summaries.py`](generate_continue_dynamic_geometry_summaries.py)
 
 作用：
 
@@ -441,7 +441,7 @@ sbatch -p "${QUEUE}" --qos="${QOS}" jobs/submit_cnt_guide_serial.sbatch
 
 脚本：
 
-- [`report_guide_progress.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/tools/analysis/report_guide_progress.py)
+- [`report_guide_progress.py`](report_guide_progress.py)
 
 作用：
 
@@ -530,8 +530,8 @@ continue dynamic：
 
 当 CNT 扫描和 same-strain matrix-only reference 已经生成后，正式后处理入口在仓库根目录下的：
 
-- [`analysis/compute_explicit_nucleation_rates.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/analysis/compute_explicit_nucleation_rates.py)
-- [`analysis/energy_component_barrier_audit.py`](/Users/heng/Documents/GitHub/CUDA_STO_PF/analysis/energy_component_barrier_audit.py)
+- [`analysis/compute_explicit_nucleation_rates.py`](../../analysis/compute_explicit_nucleation_rates.py)
+- [`analysis/energy_component_barrier_audit.py`](../../analysis/energy_component_barrier_audit.py)
 
 这两个脚本现在默认把正式结果写回 workflow 内部：
 
