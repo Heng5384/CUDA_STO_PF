@@ -1,0 +1,7 @@
+T_C,T_K,D_B_alpha_m2_s,D0_m2_s,Q_J_mol,source
+350,623.15,5.97078834957e-18,4.251e-15,34030,thermo_utils.h:D_Ag_in_PbTe_m2_per_s / Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s
+380,653.15,8.0732559548e-18,4.251e-15,34030,thermo_utils.h:D_Ag_in_PbTe_m2_per_s / Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s
+400,673.15,9.72535939449e-18,4.251e-15,34030,thermo_utils.h:D_Ag_in_PbTe_m2_per_s / Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s
+410,683.15,1.06306236551e-17,4.251e-15,34030,thermo_utils.h:D_Ag_in_PbTe_m2_per_s / Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s
+440,713.15,1.36777271664e-17,4.251e-15,34030,thermo_utils.h:D_Ag_in_PbTe_m2_per_s / Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s
+450,723.15,1.4807470703e-17,4.251e-15,34030,thermo_utils.h:D_Ag_in_PbTe_m2_per_s / Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s

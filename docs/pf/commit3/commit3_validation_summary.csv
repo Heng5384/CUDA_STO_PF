@@ -1,0 +1,16 @@
+check,status,result,scope
+authoritative_candidate_list,PASS,10 candidates read from prior audit CSV,all candidates
+candidate_existence,PASS,10 of 10 exist locally,all candidates
+candidate_sha256,PASS,10 of 10 match prior audit hashes,all candidates
+candidate_privacy_scan,PASS,0 absolute/private-pattern hits in five staged candidates,staged candidates
+json_schema,PASS,3 JSON files parse; catalog schema v1; library schema v1,catalog selection library
+csv_schema,PASS,2 CSV files parse with nonempty headers and rows,library physical input
+library_csv_json_compatibility,PASS,16 entry IDs match exactly,seed library
+nucleus_library_validator,PASS,17 passes and 0 failures,canonical library pair
+nucleus_metadata_status,REVIEW_ONLY,production_valid=false and bridge_validation_status=MISSING,canonical library pair
+catalog_selection_status,REVIEW_ONLY,selected fallback_analytic_sphere and fallback_triggered=true,root metadata
+parameter_portability,BLOCKED,5 params reference excluded staging library and Results cache,after-quench/CNT params
+physical_units_config,EXCLUDED,13 local /Users paths; not modified,excluded config
+unit_conversion_smoke,PASS,schema-v1 PF params generated in /tmp,physical_inputs.example.json
+large_files_staged,PASS,0 files >=50 MB,staged set
+runtime_outputs_staged,PASS,0 logs/raw/results/reports,staged set

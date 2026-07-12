@@ -1,0 +1,63 @@
+{
+  "selected_nucleus": {
+    "id": "fallback_analytic_sphere",
+    "T_C": null,
+    "xB": null,
+    "strain_mode": "fallback",
+    "strain_value": 0.0,
+    "rc_nm": null,
+    "energy_barrier_kBT": 1e+300,
+    "energy_source": "fallback",
+    "shape_type": "spherical",
+    "aspect_ratio": 1.0,
+    "semiaxes": [],
+    "source_dyn_dir": "",
+    "profile_dir": "",
+    "source_dyn_dir_candidate": "",
+    "profile_dir_candidate": "",
+    "cuda_template_available": false,
+    "confidence_score": 0.1,
+    "origin": "fallback",
+    "summary_path": "",
+    "raw_source_table": "",
+    "notes": "Selector-only fallback. Current CUDA loader still needs a real source_dyn_dir/profile_dir unless that interface is completed."
+  },
+  "predicted_lowest_energy_nucleus": {
+    "id": "cntcon_T400_xB0p050_strictref_eyy_sm0p01",
+    "T_C": 400.0,
+    "xB": 0.05,
+    "strain_mode": "minimize",
+    "strain_value": -0.01,
+    "rc_nm": 1.8245556046158986,
+    "energy_barrier_kBT": 291.9433447129304,
+    "energy_source": "nucleation_rate_table",
+    "raw_energy_proxy": 1.061288014558619e-05,
+    "shape_type": "spherical",
+    "aspect_ratio": 1.095162,
+    "semiaxes": [
+      1.9162005,
+      1.8963405,
+      1.749696
+    ],
+    "source_dyn_dir": "",
+    "profile_dir": "",
+    "source_dyn_dir_candidate": "Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.863nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_sm0p01_r1p862553",
+    "profile_dir_candidate": "",
+    "cuda_template_available": false,
+    "confidence_score": 0.75,
+    "origin": "CNT/minimization",
+    "summary_path": "Results/workflows/T400_xB0p050/raw/chel_T400_cuda_400x400x400_dt0.03_steps30000_r1.863nm_xB0.050/cntcon_T400_xB0p050_strictref_eyy_sm0p01_r1p862553/summary.txt",
+    "raw_source_table": "Results/workflows/T400_xB0p050/analysis/nucleation_rate/current_results_master_table_fitted.csv",
+    "notes": "profile_dir empty means the energy-minimized shape is indexed but not directly insertable by scheduled CUDA profile insertion."
+  },
+  "fallback_triggered": true,
+  "candidates_considered_at_nearest_state": 0,
+  "score_components": {},
+  "cuda_args": [],
+  "cuda_now_uses_predicted_nucleus": false,
+  "validation": {
+    "selected_shape_consistent_with_lowest_energy_prediction": false,
+    "rc_match_within_tolerance": false,
+    "fallback_triggered_correctly": true
+  }
+}
