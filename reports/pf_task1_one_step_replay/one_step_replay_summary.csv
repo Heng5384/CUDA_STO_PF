@@ -1,0 +1,4 @@
+mode,first_nonconservative_or_infeasible_stage,mass_C_S0,mass_C_S5,mass_C_S9,relative_mass_change_S9,first_bad_cell,accepted_step_result
+L,S5,45.1324649330590972,43.5111425952024362,43.3990135753215185,-3.840807987e-2,none,completed_with_mass_loss
+X,S5,45.1324649330590972,43.5111425952024362,43.4621837274660052,-3.700841956e-2,none,completed_with_mass_loss
+Q,S5,45.1324649330590972,43.5447684735750542,45.1324649330591825,1.889518e-15,"(3,4,4)",phase_substep_rejected_and_rolled_back

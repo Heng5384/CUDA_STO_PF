@@ -22066,6 +22066,213 @@ static int q_transport_conservative_local_redistribution(
     return 1;
 }
 
+struct PFCompositionTraceRuntime {
+    int enabled;
+    int target_step;
+    FILE *csv;
+    double flux_min;
+    double flux_max;
+    double flux_l1_sum;
+    double flux_l2_sum;
+    long long flux_count;
+    std::vector<double> pre_projection_xB;
+};
+
+static double pf_trace_meff(double diffusivity, double gamma) {
+    const double gamma_floor = 1.0e-4;
+    const double d_safe = fmax(diffusivity, 0.0);
+    const double gamma_safe = (isfinite(gamma) && gamma > gamma_floor)
+                                  ? gamma : gamma_floor;
+    const double cap = d_safe * 1000.0;
+    const double value = d_safe / gamma_safe;
+    return (isfinite(value) && value < cap) ? value : cap;
+}
+
+static void pf_trace_reset_flux(PFCompositionTraceRuntime *trace) {
+    if (!trace) return;
+    trace->flux_min = INFINITY;
+    trace->flux_max = -INFINITY;
+    trace->flux_l1_sum = 0.0;
+    trace->flux_l2_sum = 0.0;
+    trace->flux_count = 0;
+}
+
+static void pf_trace_accumulate_flux(PFCompositionTraceRuntime *trace,
+                                     const double *d_flux, int total_r) {
+    if (!trace || !trace->enabled || !d_flux || total_r <= 0) return;
+    std::vector<double> values((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(values.data(), d_flux, (size_t)total_r * sizeof(double),
+                          cudaMemcpyDeviceToHost));
+    for (double value : values) {
+        if (!isfinite(value)) continue;
+        trace->flux_min = fmin(trace->flux_min, value);
+        trace->flux_max = fmax(trace->flux_max, value);
+        trace->flux_l1_sum += fabs(value);
+        trace->flux_l2_sum += value * value;
+        trace->flux_count++;
+    }
+}
+
+static double pf_trace_scaled_l2(const double *d_values, int total_r, double scale) {
+    if (!d_values || total_r <= 0) return NAN;
+    std::vector<double> values((size_t)total_r);
+    CUDA_CHECK(cudaMemcpy(values.data(), d_values, (size_t)total_r * sizeof(double),
+                          cudaMemcpyDeviceToHost));
+    double sumsq = 0.0;
+    for (double value : values) {
+        const double scaled = scale * value;
+        sumsq += scaled * scaled;
+    }
+    return sqrt(sumsq / (double)total_r);
+}
+
+static void pf_trace_write_stage(PFCompositionTraceRuntime *trace,
+                                 const PFParams *P,
+                                 int step,
+                                 const char *stage,
+                                 const char *actual_operator,
+                                 const double *d_phi,
+                                 const double *d_phi_old,
+                                 const double *d_xB,
+                                 const double *d_Y,
+                                 const double *d_q,
+                                 const double *d_mu,
+                                 const double *d_divJ,
+                                 int total_r,
+                                 double stabilizer_increment_l2,
+                                 int save_pre_projection,
+                                 int compare_projection) {
+    if (!trace || !trace->enabled || !trace->csv || step != trace->target_step ||
+        !P || !d_phi || !d_xB || !d_Y || total_r <= 0) return;
+
+    std::vector<double> phi((size_t)total_r), xB((size_t)total_r), Y((size_t)total_r);
+    std::vector<double> phi_old, q, mu, divJ;
+    CUDA_CHECK(cudaMemcpy(phi.data(), d_phi, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(xB.data(), d_xB, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(Y.data(), d_Y, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToHost));
+    if (d_phi_old) {
+        phi_old.resize((size_t)total_r);
+        CUDA_CHECK(cudaMemcpy(phi_old.data(), d_phi_old, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToHost));
+    }
+    if (d_q) {
+        q.resize((size_t)total_r);
+        CUDA_CHECK(cudaMemcpy(q.data(), d_q, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToHost));
+    }
+    if (d_mu) {
+        mu.resize((size_t)total_r);
+        CUDA_CHECK(cudaMemcpy(mu.data(), d_mu, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToHost));
+    }
+    if (d_divJ) {
+        divJ.resize((size_t)total_r);
+        CUDA_CHECK(cudaMemcpy(divJ.data(), d_divJ, (size_t)total_r * sizeof(double), cudaMemcpyDeviceToHost));
+    }
+
+    double mass_C = 0.0, mass_qh = 0.0;
+    double min_C = INFINITY, max_C = -INFINITY;
+    double min_q = INFINITY, max_q = -INFINITY;
+    double min_q_minus_alpha = INFINITY, max_q_minus_alpha = -INFINITY;
+    double min_x = INFINITY, max_x = -INFINITY;
+    double min_mu = INFINITY, max_mu = -INFINITY;
+    double min_mobility = INFINITY, max_mobility = -INFINITY;
+    double divergence_sum = 0.0;
+    double phase_transfer_signed = 0.0, phase_transfer_abs = 0.0;
+    long long nan_inf_count = 0;
+    int first_bad = -1;
+    double bad_phi = NAN, bad_h = NAN, bad_x = NAN, bad_q = NAN;
+    double bad_C = NAN, bad_Cmin = NAN, bad_Cmax = NAN, bad_Y = NAN;
+    const int q_mode = strcmp(P->pf_y_update_mode, "q_transport_projection_split") == 0;
+    for (int idx = 0; idx < total_r; ++idx) {
+        const double pp = fmin(fmax(phi[(size_t)idx], 0.0), 1.0);
+        const double hh = h_of_phi(pp);
+        const double alpha = 1.0 - hh;
+        const double xx = xB[(size_t)idx];
+        const double qq = q.empty() ? alpha * xx : q[(size_t)idx];
+        const double cc = qq + hh * P->v_B;
+        const double cmin = hh * P->v_B;
+        const double cmax = cmin + alpha;
+        mass_C += cc;
+        mass_qh += qq + hh * P->v_B;
+        min_C = fmin(min_C, cc); max_C = fmax(max_C, cc);
+        min_q = fmin(min_q, qq); max_q = fmax(max_q, qq);
+        min_q_minus_alpha = fmin(min_q_minus_alpha, qq-alpha);
+        max_q_minus_alpha = fmax(max_q_minus_alpha, qq-alpha);
+        min_x = fmin(min_x, xx); max_x = fmax(max_x, xx);
+        if (!mu.empty()) {
+            min_mu = fmin(min_mu, mu[(size_t)idx]);
+            max_mu = fmax(max_mu, mu[(size_t)idx]);
+        }
+        const double gamma = gamma_thermo_nonlinear(
+            xx, q_mode ? 0.0 : hh, P->Vm_alpha_0, P->dVm_alpha_dxB,
+            P->Vm_compound, P->temperature_C + 273.15, P->mu_reference_scale);
+        const double diffusivity = q_mode ? P->D_alpha
+                                          : D_mix(hh, P->D_alpha, P->D_compound);
+        const double mobility = (q_mode ? alpha : 1.0) * pf_trace_meff(diffusivity, gamma);
+        min_mobility = fmin(min_mobility, mobility);
+        max_mobility = fmax(max_mobility, mobility);
+        if (!divJ.empty()) divergence_sum += divJ[(size_t)idx];
+        if (!phi_old.empty()) {
+            const double hold = h_of_phi(fmin(fmax(phi_old[(size_t)idx], 0.0), 1.0));
+            const double transfer = (hh-hold) * P->v_B;
+            phase_transfer_signed += transfer;
+            phase_transfer_abs += fabs(transfer);
+        }
+        const int finite = isfinite(phi[(size_t)idx]) && isfinite(xx) &&
+                           isfinite(Y[(size_t)idx]) && isfinite(qq) && isfinite(cc) &&
+                           (mu.empty() || isfinite(mu[(size_t)idx])) &&
+                           (divJ.empty() || isfinite(divJ[(size_t)idx]));
+        if (!finite) nan_inf_count++;
+        const int violates = !finite || cc < cmin-1.0e-12 || cc > cmax+1.0e-12 ||
+                             qq < -1.0e-12 || qq > alpha+1.0e-12 ||
+                             xx < -1.0e-12 || xx > 1.0+1.0e-12;
+        if (violates && first_bad < 0) {
+            first_bad = idx; bad_phi = phi[(size_t)idx]; bad_h = hh; bad_x = xx;
+            bad_q = qq; bad_C = cc; bad_Cmin = cmin; bad_Cmax = cmax;
+            bad_Y = Y[(size_t)idx];
+        }
+    }
+    if (mu.empty()) min_mu = max_mu = NAN;
+    double projection_mass_increment = 0.0, projection_increment_l2 = 0.0;
+    if (save_pre_projection) trace->pre_projection_xB = xB;
+    if (compare_projection && trace->pre_projection_xB.size() == xB.size()) {
+        double sumsq = 0.0;
+        for (size_t idx = 0; idx < xB.size(); ++idx) {
+            const double delta = xB[idx] - trace->pre_projection_xB[idx];
+            const double hh = h_of_phi(fmin(fmax(phi[idx], 0.0), 1.0));
+            projection_mass_increment += (1.0-hh) * delta;
+            sumsq += delta * delta;
+        }
+        projection_increment_l2 = sqrt(sumsq / (double)total_r);
+    }
+    int bi = -1, bj = -1, bk = -1;
+    if (first_bad >= 0) {
+        bk = first_bad % P->Nz;
+        const int tmp = first_bad / P->Nz;
+        bj = tmp % P->Ny;
+        bi = tmp / P->Ny;
+    }
+    const double flux_min = trace->flux_count ? trace->flux_min : NAN;
+    const double flux_max = trace->flux_count ? trace->flux_max : NAN;
+    const double flux_l1 = trace->flux_count ? trace->flux_l1_sum / trace->flux_count : NAN;
+    const double flux_l2 = trace->flux_count ? sqrt(trace->flux_l2_sum / trace->flux_count) : NAN;
+    fprintf(trace->csv, "%d,%.17e,%.17e,%s,%s,%s,", step, step*P->dt, P->dt,
+            stage, actual_operator, P->pf_y_update_mode);
+    fprintf(trace->csv,
+            "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,"
+            "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,",
+            mass_C, mass_qh, min_C, max_C, min_q, max_q,
+            min_q_minus_alpha, max_q_minus_alpha, min_x, max_x, min_mu, max_mu,
+            min_mobility, max_mobility, flux_min, flux_max, flux_l1, flux_l2);
+    fprintf(trace->csv,
+            "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%lld,%d,%d,%d,",
+            0.0, divergence_sum, phase_transfer_signed, phase_transfer_abs,
+            stabilizer_increment_l2, projection_mass_increment, projection_increment_l2,
+            nan_inf_count, bi, bj, bk);
+    fprintf(trace->csv,
+            "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e\n",
+            bad_phi, bad_h, bad_x, bad_q, bad_C, bad_Cmin, bad_Cmax, bad_Y);
+    fflush(trace->csv);
+}
+
 int main(int argc, char **argv) {
     // 立即刷新输出，确保能看到调试信息
     setbuf(stdout, NULL);
@@ -24568,6 +24775,36 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[warn] 无法将 PF 参数快照复制到结果目录: %s -> %s\n",
                     effective_pf_param_file, case_pf_input_file);
         }
+    }
+    PFCompositionTraceRuntime pf_composition_trace = {};
+    const char *pf_trace_env = getenv("PF_COMPOSITION_TRACE_ONE_STEP");
+    pf_composition_trace.enabled =
+        (pf_trace_env && pf_trace_env[0] != '\0' && atoi(pf_trace_env) != 0) ? 1 : 0;
+    const char *pf_trace_step_env = getenv("PF_COMPOSITION_TRACE_STEP");
+    pf_composition_trace.target_step =
+        (pf_trace_step_env && atoi(pf_trace_step_env) > 0) ? atoi(pf_trace_step_env) : 1;
+    pf_trace_reset_flux(&pf_composition_trace);
+    if (pf_composition_trace.enabled) {
+        char trace_path[4096];
+        snprintf(trace_path, sizeof(trace_path), "%s/pf_composition_one_step_trace.csv",
+                 case_output_dir);
+        pf_composition_trace.csv = fopen(trace_path, "w");
+        if (!pf_composition_trace.csv) {
+            fprintf(stderr, "[fatal] cannot open PF composition trace: %s\n", trace_path);
+            return 2;
+        }
+        fprintf(pf_composition_trace.csv,
+                "step,time,dt,stage,actual_operator,legacy_mode,mass_C,mass_q_plus_hvB,"
+                "min_C,max_C,min_q,max_q,min_q_minus_1_minus_h,max_q_minus_1_minus_h,"
+                "min_active_x,max_active_x,min_mu,max_mu,min_mobility,max_mobility,"
+                "flux_min,flux_max,flux_L1_mean,flux_L2_rms,net_boundary_flux,divergence_sum,"
+                "phase_storage_signed,phase_storage_abs,stabilizer_increment_L2,"
+                "projection_mass_increment,projection_increment_L2,nan_inf_count,"
+                "first_bad_i,first_bad_j,first_bad_k,bad_phi,bad_h,bad_x,bad_q,bad_C,"
+                "bad_Cmin,bad_Cmax,bad_Y\n");
+        fflush(pf_composition_trace.csv);
+        printf("PF_COMPOSITION_TRACE_ONE_STEP enabled step=%d csv=%s\n",
+               pf_composition_trace.target_step, trace_path);
     }
 
     // 统一用于 VTK 文件名后缀（优先 init_case_tag；若为空则回退 case_<init_test_id>）
@@ -27188,6 +27425,15 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaMemcpy(d_phi_n_saved, d_phi_r, size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_eta_prev_r, d_eta_r, size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_r, size_r, cudaMemcpyDeviceToDevice));
+        pf_trace_write_stage(&pf_composition_trace, &P, step, "S0", "accepted_state",
+                             d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                             pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                             NULL, NULL, total_r, 0.0, 0, 0);
+        pf_trace_write_stage(&pf_composition_trace, &P, step, "S1",
+                             "phase_input_context_actual_order",
+                             d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                             pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                             NULL, NULL, total_r, 0.0, 0, 0);
         if (pf_conservative_runtime) {
             if ((P.Nx & 1) || (P.Ny & 1) || (P.Nz & 1)) {
                 fprintf(stderr,
@@ -28302,6 +28548,11 @@ int main(int argc, char **argv) {
                     mass_diag_row.mean_xBtot_after_phi_clip - mass_diag_row.mean_xBtot_before_phi_clip;
             }
             launch_phi_normalize_and_clamp_kernel(d_phi_r, invN, total_r);
+            pf_trace_write_stage(&pf_composition_trace, &P, step, "S5",
+                                 "phase_update_precedes_transport",
+                                 d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                                 pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                                 NULL, NULL, total_r, 0.0, 0, 0);
             if (pf_conservative_runtime) {
                 launch_constrain_phase_and_reconstruct_conservative_kernel(
                     d_phi_r, d_phi_n_saved, d_pf_conservative_storage_r,
@@ -28716,6 +28967,10 @@ int main(int argc, char **argv) {
                                       total_r,
                                       P.elastic_enabled);
         }
+        pf_trace_write_stage(&pf_composition_trace, &P, step, "S2", "mu_and_mobility",
+                             d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                             pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                             d_mu_x_r, NULL, total_r, 0.0, 0, 0);
         if (do_mass_diag && is_gp_zone_mode(&P)) {
             compute_scalar_field_stats(d_mu_x_r, total_r,
                                        &mass_diag_row.mu_C_mean,
@@ -28765,6 +29020,9 @@ int main(int argc, char **argv) {
         double *scratch_r = (double *)d_scratch_r_double;
         cufftDoubleComplex *scratch_k = (cufftDoubleComplex *)d_scratch_k_double;
         launch_zero_divJ_k_kernel(d_divJ_k, total_k);
+        if (pf_composition_trace.enabled && step == pf_composition_trace.target_step) {
+            pf_trace_reset_flux(&pf_composition_trace);
+        }
         CUDA_CHECK(cudaMemcpy(d_xB_prev_r, d_xB_r, size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_xB_gp_old_r, d_xB_r, size_r, cudaMemcpyDeviceToDevice));
         if (d_xB_old_diag_r) {
@@ -28817,6 +29075,9 @@ int main(int argc, char **argv) {
                         total_r);
                 }
             }
+            if (pf_composition_trace.enabled && step == pf_composition_trace.target_step) {
+                pf_trace_accumulate_flux(&pf_composition_trace, scratch_r, total_r);
+            }
             if (do_mass_diag && is_gp_zone_mode(&P)) {
                 double flux_min = 0.0;
                 double flux_max = 0.0;
@@ -28849,6 +29110,11 @@ int main(int argc, char **argv) {
             mass_diag_row.divJ_k0_imag_before_update = cuCimag(divJ_k0);
         }
         launch_normalize_only_kernel(d_divJ_r, invN, total_r);
+        pf_trace_write_stage(&pf_composition_trace, &P, step, "S3",
+                             "raw_flux_and_periodic_spectral_divergence",
+                             d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                             pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                             d_mu_x_r, d_divJ_r, total_r, 0.0, 0, 0);
 
         if (gp_storage_coupling_enabled(&P)) {
             const int eta_limiter_enabled = (strcmp(P.gp_eta_mass_limiter, "local_clip") == 0) ? 1 : 0;
@@ -29243,6 +29509,29 @@ int main(int argc, char **argv) {
                 }
             }
         }
+        {
+            const double trace_stabilizer_l2 =
+                (pf_composition_trace.enabled && step == pf_composition_trace.target_step)
+                    ? pf_trace_scaled_l2(d_lapY_r, total_r, P.dt * mean_DY) : 0.0;
+            pf_trace_write_stage(&pf_composition_trace, &P, step, "S4",
+                                 "composition_transport_result",
+                                 d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                                 pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                                 d_mu_x_r, d_divJ_r, total_r,
+                                 trace_stabilizer_l2, 0, 0);
+            pf_trace_write_stage(&pf_composition_trace, &P, step, "S6",
+                                 "local_storage_reconstruction",
+                                 d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                                 pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                                 d_mu_x_r, d_divJ_r, total_r,
+                                 trace_stabilizer_l2, 0, 0);
+            pf_trace_write_stage(&pf_composition_trace, &P, step, "S7",
+                                 "spectral_stabilizer_result",
+                                 d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                                 pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                                 d_mu_x_r, d_divJ_r, total_r,
+                                 trace_stabilizer_l2, 1, 0);
+        }
 
         if (pf_baseline_projection_only || pf_baseline_phi_only) {
             CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r, cudaMemcpyDeviceToDevice));
@@ -29537,6 +29826,11 @@ int main(int argc, char **argv) {
                 }
             }
         }
+        pf_trace_write_stage(&pf_composition_trace, &P, step, "S8",
+                             "optional_global_projection",
+                             d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                             pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                             d_mu_x_r, d_divJ_r, total_r, 0.0, 0, 1);
 
         if (pf_mode_q_transport_runtime && pf_q_transport_diag_fp) {
             fprintf(pf_q_transport_diag_fp,
@@ -29916,6 +30210,11 @@ int main(int argc, char **argv) {
         } else {
             launch_update_dY_dt_prev_kernel(d_Y_r, d_Y_n_saved, d_dY_dt_prev_r, P.dt, total_r);
         }
+        pf_trace_write_stage(&pf_composition_trace, &P, step, "S9",
+                             "final_reconstruction_and_history_commit",
+                             d_phi_r, d_phi_n_saved, d_xB_r, d_Y_r,
+                             pf_mode_q_transport_runtime ? d_q_alpha_r : NULL,
+                             d_mu_x_r, d_divJ_r, total_r, 0.0, 0, 0);
         gp_assisted_runtime.diagnostic_rsmd_history_restart_pending = 0;
         } // end if dynamics mode (Y update)
         } // end if !gp_post_birth_skip_ch_dynamics
@@ -32359,6 +32658,10 @@ gp_post_birth_skip_to_finalize:
     }
     if (y_update_mass_projection_fp) {
         fclose(y_update_mass_projection_fp);
+    }
+    if (pf_composition_trace.csv) {
+        fclose(pf_composition_trace.csv);
+        pf_composition_trace.csv = NULL;
     }
 
     const double wall_t1 = wall_time_sec_monotonic();
