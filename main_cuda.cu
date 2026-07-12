@@ -5315,6 +5315,11 @@ static int resolve_declared_path_cpp(const char *raw,
                 parameter_key, raw, base_name);
         return 0;
     }
+    if (!bundle_bound && base && base[0] != '\0' && !path_within_root_cpp(resolved, base)) {
+        fprintf(stderr, "[fatal] %s escapes declared root %s: raw='%s' resolved='%s'\n",
+                parameter_key, base_name, raw, resolved);
+        return 0;
+    }
     if (bundle_bound && !path_within_root_cpp(resolved, P->dynamic_continue_bundle_root)) {
         fprintf(stderr, "[fatal] %s escapes dynamic_continue_bundle_root: raw='%s' resolved='%s'\n",
                 parameter_key, raw, resolved);
