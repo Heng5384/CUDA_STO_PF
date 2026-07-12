@@ -1,0 +1,7 @@
+test_id,mutation,expected,artifact_validator,cuda_binary,status
+D4,remove source_dyn_dir/summary.txt,nonzero hard failure,PASS,NOT_RUN,PARTIAL
+D5,replace bundle version,nonzero hard failure,PASS,NOT_RUN,PARTIAL
+D6,append bytes to T400 profile,nonzero hard failure,PASS,NOT_RUN,PARTIAL
+D7,manifest relative_path=../escaped.csv,nonzero hard failure,PASS,NOT_RUN,PARTIAL
+D8,put same library name under output_root,formal bundle remains selected,PASS,NOT_RUN,PARTIAL
+D9,legacy Results cache path in enabled overlay,nonzero hard failure,static contract,PENDING,PARTIAL

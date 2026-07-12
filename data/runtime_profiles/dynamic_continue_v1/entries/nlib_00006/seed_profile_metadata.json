@@ -1,0 +1,35 @@
+{
+  "profile_type": "ellipsoid_from_library_seed",
+  "library_entry_id": "nlib_00006",
+  "case_id": "cntcon_T380_xB0p030_strictref_exx_s000",
+  "T_C": 380.0,
+  "xB": 0.03,
+  "strain_mode": "no_strain",
+  "strain_value": 0.0,
+  "r_seed_nm": 5.345573571840012,
+  "dx_nm": 1.0,
+  "r_grid": 5.345573571840012,
+  "semiaxes_nm": [
+    5.742975,
+    5.5082,
+    4.824515
+  ],
+  "semiaxes_grid": [
+    5.742975,
+    5.5082,
+    4.824515
+  ],
+  "orientation_matrix": "0.060359 -0.003876 0.998169; 0.000548 0.999992 0.00385; 0.998177 -0.000314 -0.06036",
+  "shape_tensor": "32.9817618506 0 0; 0 30.34026724 0; 0 0 23.2759449852",
+  "shape_tensor_unit": "nm2",
+  "tau_bridge_s": 89.18334858088656,
+  "tau_bridge_code_time": 80.0,
+  "dt_code": 0.02,
+  "t_real_unit_s": 1.114791857261082,
+  "mass_seed_B_equiv": 639.8402298945877,
+  "profile_dir": "entries/nlib_00006",
+  "source_dyn_dir": "entries/nlib_00006/source_dyn_dir",
+  "summary_txt": "entries/nlib_00006/source_dyn_dir/summary.txt",
+  "source_internal_units_used": false,
+  "notes": "Minimal runtime-compatible synthetic faceted profile generated from nucleus_library seed descriptor."
+}

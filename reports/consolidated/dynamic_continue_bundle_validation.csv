@@ -1,0 +1,13 @@
+check,expected,observed,status,notes
+bundle_version,dynamic_continue_v1,dynamic_continue_v1,PASS,manifest version matches
+entry_count,3,3,PASS,nlib_00006 plus T400/T450 dynamic entries
+csv_json_mirror,exact,exact,PASS,all emitted fields match
+manifest_sha256,14 rows valid,14 rows valid,PASS,Python validator recomputed every file hash
+no_absolute_paths,zero,zero,PASS,generated bundle has no user-home or cluster paths
+profile_files,12 required files,12 present,PASS,profile metadata and source-dynamic summaries present
+missing_file_negative,hard failure,hard failure,PASS,validator test
+wrong_version_negative,hard failure,hard failure,PASS,validator test
+checksum_negative,hard failure,hard failure,PASS,validator test
+traversal_negative,hard failure,hard failure,PASS,validator test
+cuda_workstation_build,EXIT=0,not_run,N/A,nvcc unavailable on this host and workstation-direct connection closed
+cuda_multi_cwd_startup,3 identical checksums,not_run,N/A,do not claim runtime PASS without CUDA log

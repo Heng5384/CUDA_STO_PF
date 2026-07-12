@@ -1,0 +1,2 @@
+parameter_file,repository_root_cwd,build_cwd,unrelated_cwd,library_checksum,bundle_checksum,entry_id,profile_checksum,status,notes
+all five overlays,static contract pass,static contract pass,static contract pass,e8b76c18fef2c9b3031dc82169b4d32b4b507996910eafe8a559e5ca4e1e1c2c,7b97a7480bfee9078399ca0c1115cfed90315b5308aa6254e3768228d408aea9,temperature-specific,manifest verified,STATIC_ONLY,CUDA startup log still required

@@ -1,0 +1,35 @@
+{
+  "profile_type": "ellipsoid_from_library_seed",
+  "library_entry_id": "nlib_dc_T450_xB003",
+  "case_id": "T450_xB0p030_no_strain",
+  "T_C": 450.0,
+  "xB": 0.03,
+  "strain_mode": "no_strain",
+  "strain_value": 0.0,
+  "r_seed_nm": 4.1896800678081085,
+  "dx_nm": 1.0,
+  "r_grid": 4.1896800678081085,
+  "semiaxes_nm": [
+    4.500966,
+    4.2899255,
+    3.805215
+  ],
+  "semiaxes_grid": [
+    4.500966,
+    4.2899255,
+    3.805215
+  ],
+  "orientation_matrix": "0.060463 -0.004152 0.998162; 0.000405 0.999991 0.004135; 0.99817 -0.000154 -0.060465",
+  "shape_tensor": "20.2586949332 0 0; 0 18.4034607956 0; 0 0 14.4796611962",
+  "shape_tensor_unit": "nm2",
+  "tau_bridge_s": 72.93615646202001,
+  "tau_bridge_code_time": 120.0,
+  "dt_code": 0.02,
+  "t_real_unit_s": 0.6078013038501667,
+  "mass_seed_B_equiv": 308.05707768462287,
+  "profile_dir": "entries/nlib_dc_T450_xB003",
+  "source_dyn_dir": "entries/nlib_dc_T450_xB003/source_dyn_dir",
+  "summary_txt": "entries/nlib_dc_T450_xB003/source_dyn_dir/summary.txt",
+  "source_internal_units_used": false,
+  "notes": "Minimal runtime-compatible synthetic faceted profile generated from nucleus_library seed descriptor."
+}

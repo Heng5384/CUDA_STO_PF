@@ -1,0 +1,15 @@
+commit_group,path,role,status,notes
+A,main_cuda.cu,path resolver and bundle integrity checks,COMMITTED,Commit 782220b
+A,pf_params.h,portable root fields,COMMITTED,Commit 782220b
+B,tools/analysis/build_dynamic_continue_input_bundle.py,bundle builder,READY,explicit staging/cache inputs only
+B,scripts/validate_dynamic_continue_bundle.py,artifact validator and negative tests,READY,no CUDA claim
+B,data/runtime_profiles/dynamic_continue_v1/,versioned runtime input bundle,READY,14 manifest files; 350480 bytes
+B,data/manifests/accepted_input_manifest.csv,bundle manifest registration,READY,reference-only status
+B,reports/consolidated/dynamic_continue_library_provenance_audit.md,provenance audit,READY,source history remains external
+B,reports/consolidated/dynamic_continue_entry_provenance.csv,entry provenance table,READY,three entries
+B,reports/consolidated/dynamic_continue_library_v1_validation.md,formal library validation,READY,CSV/JSON mirror
+B,reports/consolidated/dynamic_continue_bundle_acceptance_report.md,bundle acceptance,READY,PARTIAL
+B,reports/consolidated/dynamic_continue_bundle_validation.csv,bundle validation matrix,READY,offline PASS; CUDA pending
+C,params/*,portable overlays,BLOCKED,do not stage until CUDA multi-cwd gate passes
+C,reports/consolidated/portable_overlay_*.csv,overlay gates,BLOCKED,static only; runtime pending
+C,physical_units_config.json,local runtime census,EXCLUDED,keep external/untracked

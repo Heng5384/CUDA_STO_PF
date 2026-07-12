@@ -1,0 +1,35 @@
+{
+  "profile_type": "ellipsoid_from_library_seed",
+  "library_entry_id": "nlib_dc_T400_xB003",
+  "case_id": "T400_xB0p030_no_strain",
+  "T_C": 400.0,
+  "xB": 0.03,
+  "strain_mode": "no_strain",
+  "strain_value": 0.0,
+  "r_seed_nm": 4.726345567891332,
+  "dx_nm": 1.0,
+  "r_grid": 4.726345567891332,
+  "semiaxes_nm": [
+    5.067135,
+    4.8525685,
+    4.28523
+  ],
+  "semiaxes_grid": [
+    5.067135,
+    4.8525685,
+    4.28523
+  ],
+  "orientation_matrix": "0.061653 -0.00356 0.998091; 0.000547 0.999994 0.003533; 0.998097 -0.000329 -0.061655",
+  "shape_tensor": "25.6758571082 0 0; 0 23.5474210472 0; 0 0 18.3631961529",
+  "shape_tensor_unit": "nm2",
+  "tau_bridge_s": 74.03325376419856,
+  "tau_bridge_code_time": 80.0,
+  "dt_code": 0.02,
+  "t_real_unit_s": 0.9254156720524821,
+  "mass_seed_B_equiv": 442.2471321485564,
+  "profile_dir": "entries/nlib_dc_T400_xB003",
+  "source_dyn_dir": "entries/nlib_dc_T400_xB003/source_dyn_dir",
+  "summary_txt": "entries/nlib_dc_T400_xB003/source_dyn_dir/summary.txt",
+  "source_internal_units_used": false,
+  "notes": "Minimal runtime-compatible synthetic faceted profile generated from nucleus_library seed descriptor."
+}

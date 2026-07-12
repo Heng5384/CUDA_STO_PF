@@ -1,0 +1,16 @@
+==================== Analysis Summary ====================
+summary_file              : entries/nlib_dc_T400_xB003/source_dyn_dir/summary.txt
+mode                      : synthetic_library_seed
+grid_dimensions           : (400, 400, 400)
+spacing_sim_units         : (1.000000, 1.000000, 1.000000)
+internal_unit_to_nm       : 1.0000000000e-01
+spacing_nm                : (0.100000, 0.100000, 0.100000)
+R_avg_nm                  : 4.726346e+00
+center_of_mass_nm         : [20.000000, 20.000000, 20.000000]
+bbox_length_xyz_nm        : [8.682120, 9.802667, 10.097752]
+long_axis                 : [0.061653, -0.003560, 0.998091]
+mid_axis                  : [0.000547, 0.999994, 0.003533]
+short_axis                : [0.998097, -0.000329, -0.061655]
+L1_long_nm                : 1.013427e+01
+L2_mid_nm                 : 9.705137e+00
+L3_short_nm               : 8.570460e+00
