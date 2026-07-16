@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "research2_gp_reservoir_state.schema.json",
+  "title": "Research2 fixed GP reservoir accepted state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "research_model",
+    "population_mode",
+    "temperature_C",
+    "geometry_hash_sha256",
+    "accepted_step",
+    "accepted_time_code",
+    "reservoirs"
+  ],
+  "properties": {
+    "schema_version": {"const": "research2_gp_reservoir_state_v1"},
+    "research_model": {"const": "fixed_ctot_gp_reservoir_to_beta_diffusion_limit_v1"},
+    "population_mode": {"const": "FIXED_POPULATION_DEPLETION_ONLY"},
+    "temperature_C": {"type": "number"},
+    "geometry_hash_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "accepted_step": {"type": "integer", "minimum": 0},
+    "accepted_time_code": {"type": "number", "minimum": 0},
+    "reservoirs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/reservoir"}
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number"},
+        {"type": "number"},
+        {"type": "number"}
+      ],
+      "items": false
+    },
+    "reservoir": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gp_id",
+        "position_nm",
+        "support_kernel",
+        "support_radius_nm",
+        "capture_radius_nm",
+        "initial_inventory",
+        "current_inventory",
+        "cumulative_released_inventory",
+        "active",
+        "exhausted",
+        "temperature_provenance",
+        "source_provenance",
+        "accepted_release_event_count"
+      ],
+      "properties": {
+        "gp_id": {"type": "integer", "minimum": 0},
+        "position_nm": {"$ref": "#/$defs/vec3"},
+        "orientation": {"$ref": "#/$defs/vec3"},
+        "support_kernel": {"enum": ["compact_quintic", "truncated_gaussian"]},
+        "support_radius_nm": {"type": "number", "exclusiveMinimum": 0},
+        "capture_radius_nm": {"type": "number", "minimum": 0},
+        "initial_inventory": {"type": "number", "minimum": 0},
+        "current_inventory": {"type": "number", "minimum": 0},
+        "cumulative_released_inventory": {"type": "number", "minimum": 0},
+        "active": {"type": "boolean"},
+        "exhausted": {"type": "boolean"},
+        "temperature_provenance": {"type": "string", "minLength": 1},
+        "source_provenance": {"type": "string", "minLength": 1},
+        "accepted_release_event_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+record_status,temperature_K,phase_driving,diffusion_driving,measured_Vn,measured_JB,uncertainty_Vn,uncertainty_JB,covariance,interface_orientation,coherency_state,elastic_constraint,source_type,source_reference,state_id,replicate_id,notes
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_phase_positive,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_phase_positive,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_phase_negative,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_phase_negative,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_diffusion_positive,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_diffusion_positive,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_diffusion_negative,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_diffusion_negative,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_mixed_1,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_mixed_1,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_mixed_2,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,653.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T380_mixed_2,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_phase_positive,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_phase_positive,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_phase_negative,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_phase_negative,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_diffusion_positive,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_diffusion_positive,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_diffusion_negative,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_diffusion_negative,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_mixed_1,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_mixed_1,replicate_2,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_mixed_2,replicate_1,Replace all blank numeric fields; do not use PF curved cases
+TEMPLATE,673.15,,,,,,,,REPLACE,REPLACE,REPLACE,standalone_planar_rsmd,REPLACE_WITH_INDEPENDENT_SOURCE,T400_mixed_2,replicate_2,Replace all blank numeric fields; do not use PF curved cases

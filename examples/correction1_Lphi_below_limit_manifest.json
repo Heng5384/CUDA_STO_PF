@@ -1,0 +1,150 @@
+{
+  "schema": "correction1_ji_chen_below_limit_manifest_v1",
+  "mapping": {
+    "source": "Ji-Chen Supplementary Materials S2.18-S2.20",
+    "D_beta_over_D_alpha": 0.0,
+    "zeta0": 1.0,
+    "T400_L_phi_diff_code": 5.193879264660844,
+    "T400_L_phi_diff_physical_m3_J_s": 1.6703816964416124e-09,
+    "strictly_below_limit": true
+  },
+  "common": {
+    "geometry": "periodic_planar_beta_slab",
+    "domain_nm": 19.2,
+    "grid_transverse": [
+      2,
+      2
+    ],
+    "sharp_start_time_s": 0.1,
+    "composition_evolution_mode": "ctot_mimetic_be",
+    "automatic_dt_growth": false
+  },
+  "cases": [
+    {
+      "case_id": "T400_ratio_0p5_dx0p1_dt1",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.5,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 1.0,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "base_below_limit_scan"
+    },
+    {
+      "case_id": "T400_ratio_0p75_dx0p1_dt1",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.75,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 1.0,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "base_below_limit_scan"
+    },
+    {
+      "case_id": "T400_ratio_0p9_dx0p1_dt1",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.9,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 1.0,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "base_below_limit_scan"
+    },
+    {
+      "case_id": "T400_ratio_0p95_dx0p1_dt1",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.95,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 1.0,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "base_below_limit_scan"
+    },
+    {
+      "case_id": "T400_ratio_0p98_dx0p1_dt1",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.98,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 1.0,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "base_below_limit_scan"
+    },
+    {
+      "case_id": "T400_ratio_0p99_dx0p1_dt1",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.99,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 1.0,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "base_below_limit_scan"
+    },
+    {
+      "case_id": "T400_ratio_0p98_dx0p1_dt0p5",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.98,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 0.5,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "time_step_refinement"
+    },
+    {
+      "case_id": "T400_ratio_0p99_dx0p1_dt0p5",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.99,
+      "dx_nm": 0.1,
+      "lambda_over_dx": 6.0,
+      "dt_scale": 0.5,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "time_step_refinement"
+    },
+    {
+      "case_id": "T400_ratio_0p95_dx0p05_dt1",
+      "T_C": 400,
+      "ratio_to_L_phi_diff": 0.95,
+      "dx_nm": 0.05,
+      "lambda_over_dx": 12.0,
+      "dt_scale": 1.0,
+      "observation_time_s": 0.00020821852621180848,
+      "matrix_xB": 0.05,
+      "finite_interface_mode": "off",
+      "elasticity": "off",
+      "GP_S3": "off",
+      "purpose": "lambda_over_dx_refinement"
+    }
+  ]
+}

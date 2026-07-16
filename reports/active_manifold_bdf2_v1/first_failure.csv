@@ -1,0 +1,4 @@
+stage,case,metric,observed,gate,classification
+STAGE_7_FIXED_STEP,dt8,fallback_fraction,0.016,<=0.01,FAIL_PRODUCTION_EFFICIENCY
+STAGE_7_FIXED_STEP,dt8,internal_rejects,16,0,FAIL_ZERO_REJECT
+STAGE_7_FIXED_STEP,dt4,internal_rejects,15,0,FAIL_ZERO_REJECT

@@ -1,0 +1,7 @@
+case,candidate,description,adjusted_cells,raw_outward_cells,material_infeasible_cells_after,min_q_context,max_abs_phi_context_change,free_set_phi_difference_linf,neighbor_jump_before,neighbor_jump_after,face_context_finite,free_set_second_order_exact,arbitrary_clip,changes_authoritative_state,changes_physical_equation,feasibility_guaranteed,relative_cost,selected
+dt8,A_TANGENT_CONE_PHASE_VELOCITY,linearized normal removal,4,4,0,-1.2053933420534632e-15,5.4178480701772e-08,0.0,0.23434011827550233,0.23434011827550233,1,1,NO,NO,NO,NO_GUARANTEE,LOW,0
+dt8,B_QALPHA_ACTIVE_SET,exact q=0 complementarity manifold,4,4,0,-1.2053933420534632e-15,5.417782900085655e-08,0.0,0.23434011827550233,0.23434011827550233,1,1,NO,NO,NO,YES,LOW,1
+dt8,C_CONSTRAINED_FIXED_C_PHASE,fixed-C lower-composition box endpoint proxy,4,4,0,-1.2053933420534632e-15,5.419024040609344e-08,0.0,0.23434011827550233,0.23434011827550233,1,1,NO,NO,NO,YES,MEDIUM,0
+dt16,A_TANGENT_CONE_PHASE_VELOCITY,linearized normal removal,0,0,0,-9.361001189971653e-15,0.0,0.0,0.23613589021309134,0.23613589021309134,1,1,NO,NO,NO,NO_GUARANTEE,LOW,0
+dt16,B_QALPHA_ACTIVE_SET,exact q=0 complementarity manifold,0,0,0,-9.361001189971653e-15,0.0,0.0,0.23613589021309134,0.23613589021309134,1,1,NO,NO,NO,YES,LOW,1
+dt16,C_CONSTRAINED_FIXED_C_PHASE,fixed-C lower-composition box endpoint proxy,0,0,0,-9.361001189971653e-15,0.0,0.0,0.23613589021309134,0.23613589021309134,1,1,NO,NO,NO,YES,MEDIUM,0

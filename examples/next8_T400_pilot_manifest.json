@@ -1,0 +1,113 @@
+{
+  "schema_version": "next8-pilot-v1",
+  "status": "BLOCKED_NO_INDEPENDENT_INTERFACE_RESPONSE_BACKEND",
+  "temperature_K": 673.15,
+  "backend": null,
+  "backend_eligible": false,
+  "execution_authorized": false,
+  "workstation_only": true,
+  "cluster_forbidden": true,
+  "delta_phase": null,
+  "delta_diff": null,
+  "command": [],
+  "input_hashes": {},
+  "notes": "Symbolic matrix only. Force amplitudes and commands are intentionally unset.",
+  "cases": [
+    {
+      "case_id": "P1_rep1",
+      "state_id": "P1",
+      "replicate_id": 1,
+      "phase_force": "+delta_phase",
+      "diffusion_force": "0",
+      "random_seed": null
+    },
+    {
+      "case_id": "P1_rep2",
+      "state_id": "P1",
+      "replicate_id": 2,
+      "phase_force": "+delta_phase",
+      "diffusion_force": "0",
+      "random_seed": null
+    },
+    {
+      "case_id": "P2_rep1",
+      "state_id": "P2",
+      "replicate_id": 1,
+      "phase_force": "+delta_phase/2",
+      "diffusion_force": "0",
+      "random_seed": null
+    },
+    {
+      "case_id": "P2_rep2",
+      "state_id": "P2",
+      "replicate_id": 2,
+      "phase_force": "+delta_phase/2",
+      "diffusion_force": "0",
+      "random_seed": null
+    },
+    {
+      "case_id": "D1_rep1",
+      "state_id": "D1",
+      "replicate_id": 1,
+      "phase_force": "0",
+      "diffusion_force": "+delta_diff",
+      "random_seed": null
+    },
+    {
+      "case_id": "D1_rep2",
+      "state_id": "D1",
+      "replicate_id": 2,
+      "phase_force": "0",
+      "diffusion_force": "+delta_diff",
+      "random_seed": null
+    },
+    {
+      "case_id": "D2_rep1",
+      "state_id": "D2",
+      "replicate_id": 1,
+      "phase_force": "0",
+      "diffusion_force": "+delta_diff/2",
+      "random_seed": null
+    },
+    {
+      "case_id": "D2_rep2",
+      "state_id": "D2",
+      "replicate_id": 2,
+      "phase_force": "0",
+      "diffusion_force": "+delta_diff/2",
+      "random_seed": null
+    },
+    {
+      "case_id": "M1_rep1",
+      "state_id": "M1",
+      "replicate_id": 1,
+      "phase_force": "+delta_phase",
+      "diffusion_force": "+delta_diff",
+      "random_seed": null
+    },
+    {
+      "case_id": "M1_rep2",
+      "state_id": "M1",
+      "replicate_id": 2,
+      "phase_force": "+delta_phase",
+      "diffusion_force": "+delta_diff",
+      "random_seed": null
+    },
+    {
+      "case_id": "M2_rep1",
+      "state_id": "M2",
+      "replicate_id": 1,
+      "phase_force": "+delta_phase/2",
+      "diffusion_force": "+delta_diff/2",
+      "random_seed": null
+    },
+    {
+      "case_id": "M2_rep2",
+      "state_id": "M2",
+      "replicate_id": 2,
+      "phase_force": "+delta_phase/2",
+      "diffusion_force": "+delta_diff/2",
+      "random_seed": null
+    }
+  ]
+}

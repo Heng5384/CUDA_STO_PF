@@ -1,0 +1,5 @@
+candidate,dt_code,first_failed_step,accepted_before_failure,residual,failure_class,lower_target_violations,nonfinite_cells,disposition
+original_dt,0.003125,7,6,9.467785370124934e-11,fixed_step_nonlinear_residual_gate,0,0,REJECT_FIXED_DT
+dt_div2,0.0015625,151,150,5.89840109717597e-08,extrapolated_capacity_target_infeasible,3,0,REJECT_FIXED_DT
+dt_div4,0.00078125,336,335,2.730330182935837e-08,transport_nonlinear_globalization_failure,0,0,REJECT_FIXED_DT
+dt_div16_pre_fix_regression,0.0001953125,37,36,1.025873910687119e-12,fixed_1e-12_active_band_false_freeze,0,0,FIXED_EXACT_ULP_ACTIVE_SET_1000_STEP_PASS

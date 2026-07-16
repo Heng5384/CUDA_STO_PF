@@ -22,9 +22,11 @@ PF 参数转换子程序（集成版：含 6x6 弹性矩阵 + 完整经典成核
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 
@@ -229,6 +231,7 @@ class PhysicalInputs:
     pf_dx: float = None
     phys_dx_ref: float = None
     D_ratio: float = 0.1
+    L_phi_calibration_mode: str = "legacy_gp_eta_coupled"
     gp_gamma_alpha_gp: float = 0.05
     gp_l_eta: float = 1.0e-9
     gp_D_ratio_eta: float = 0.01
@@ -275,6 +278,11 @@ class PFParamSet:
     W: float
     kappa_phi: float
     L_phi: float
+    L_phi_calibration_mode: str
+    L_phi_phys: float
+    zeta_phi: float
+    zeta0_phi: float
+    D_beta_for_calibration: float
     D_alpha: float
     D_compound: float
     v_A: float
@@ -331,6 +339,7 @@ EXAMPLE_INPUT_UNITS = {
     "Vm_compound": "m^3/mol",
     "Vm_alpha_0": "m^3/mol",
     "D_ratio": "dimensionless (D_compound / D_alpha)",
+    "L_phi_calibration_mode": "legacy_gp_eta_coupled | one_sided_diffusion_controlled",
     "gp_gamma_alpha_gp": "J/m^2",
     "gp_l_eta": "m",
     "gp_D_ratio_eta": "dimensionless",
@@ -501,6 +510,18 @@ def linearize_mu(func, T_K: float, x_eq: float, dx: float = 1e-6) -> Tuple[float
     intercept = f0 - slope * x_eq
     return intercept, slope
 
+
+def g_alpha_second_unified(T_K: float, x: float) -> float:
+    """Second derivative of the scalar matrix free-energy backend at physical x."""
+    _validate_composition(x)
+    return R_GAS * T_K / (x * (1.0 - x)) - 2.0 * L0_PseudoBinary(T_K)
+
+
+def component_mu_slopes_from_scalar_backend(T_K: float, x: float) -> Tuple[float, float]:
+    """Return d(mu_A)/dx and d(mu_B)/dx from one scalar Gibbs energy."""
+    g_second = g_alpha_second_unified(T_K, x)
+    return -x * g_second, (1.0 - x) * g_second
+
 def D_Ag_in_PbTe_m2_per_s(T_K: float) -> float:
     D0_cm2_s = 4.251e-11
     Q_J_mol = 3.403e+04
@@ -524,6 +545,12 @@ def compute_zeta(muA_x: float, muB_x: float, vA: float, vB: float, x_eq: float) 
     pref = vA * muA_x + vB * muB_x
     bracket = vB / (vA + vB) - x_eq
     return pref * bracket
+
+
+def compute_beta_phi_zeta(T_K: float, x_eq: float, vA: float, vB: float) -> float:
+    """Beta-phi zeta from beta stoichiometry and unified scalar derivatives."""
+    muA_x, muB_x = component_mu_slopes_from_scalar_backend(T_K, x_eq)
+    return compute_zeta(muA_x, muB_x, vA, vB, x_eq)
 
 def xi_eq_profile(x: float, w: float, kappa: float) -> float:
     s = math.sqrt(w / (2.0 * kappa))
@@ -555,6 +582,37 @@ def compute_gp_eta_zeta0(lambda_sm: float, w: float, kappa: float, D_alpha: floa
     outer = [hprime[i] * dxi_vals[i] * I_vals[i] for i in range(n_quad)]
     outer_int = _trapezoid(outer, dx)
     return -2.0 * D_alpha / lambda_sm * outer_int
+
+
+def compute_beta_phi_one_sided_zeta0_analytic(
+    lambda_sm: float, w: float, kappa: float
+) -> float:
+    """Analytic removable-limit value on the existing [-lambda/2,lambda/2] window."""
+    if not (lambda_sm > 0.0 and w > 0.0 and kappa > 0.0):
+        raise ValueError("lambda_sm, w, and kappa must be positive")
+    xi_right = xi_eq_profile(0.5 * lambda_sm, w, kappa)
+    return 1.0 - 2.0 * h_switch(xi_right)
+
+
+def compute_beta_phi_one_sided_zeta0_quadrature(
+    lambda_sm: float, w: float, kappa: float, n_quad: int = 16001
+) -> float:
+    """Independent quadrature using (1-h)/[(1-h)D_alpha] -> 1/D_alpha."""
+    if n_quad < 3:
+        raise ValueError("n_quad must be at least 3")
+    x_min = -0.5 * lambda_sm
+    x_max = 0.5 * lambda_sm
+    xs = _linspace(x_min, x_max, n_quad)
+    dx = xs[1] - xs[0]
+    xi_vals = [xi_eq_profile(x, w, kappa) for x in xs]
+    dxi_vals = [dxi_dx_profile(x, w, kappa) for x in xs]
+    hprime = [h_switch_derivative(xi) for xi in xi_vals]
+    # D_alpha cancels analytically before endpoint evaluation.  This avoids a
+    # denominator floor, epsilon beta diffusion, or 0/0 at h=1.
+    inner_integral = [x - x_min for x in xs]
+    outer = [hprime[i] * dxi_vals[i] * inner_integral[i]
+             for i in range(n_quad)]
+    return -2.0 / lambda_sm * _trapezoid(outer, dx)
 
 
 def compute_zeta0(lambda_sm: float, w: float, kappa: float, D_alpha: float, D_comp: float, n_quad: int = 2001) -> float:
@@ -613,13 +671,25 @@ class PFParamConverter:
         # 5) η ζ / ζ0 / Mcrit / Lη
         zeta_eta = compute_zeta(muA_a1, muB_a1, inputs.gp_reaction_nu_A, inputs.gp_reaction_nu_B, xB_eq_eta)
         zeta0_eta = compute_gp_eta_zeta0(inputs.gp_l_eta, gp_w_phys, gp_kappa_phys, D_alpha_phys, D_alpha_phys * inputs.gp_D_ratio_eta)
-        zprod = zeta_eta * zeta0_eta
-        if abs(zprod) < 1e-30:
-            raise ValueError("zeta0*zeta≈0")
+        zprod_eta = zeta_eta * zeta0_eta
+        if abs(zprod_eta) < 1e-30:
+            raise ValueError("zeta0_eta*zeta_eta is approximately zero")
+
+        zeta_phi = compute_beta_phi_zeta(T_K, xB_eq, inputs.v_A, inputs.v_B)
+        zeta0_phi_analytic = compute_beta_phi_one_sided_zeta0_analytic(
+            inputs.lambda_sm, w, kappa)
+        zeta0_phi_numeric = compute_beta_phi_one_sided_zeta0_quadrature(
+            inputs.lambda_sm, w, kappa, n_quad=16001)
+        if abs(zeta0_phi_numeric - zeta0_phi_analytic) > 2.0e-9:
+            raise ValueError(
+                "one-sided zeta0_phi analytic/quadrature mismatch: "
+                f"{zeta0_phi_analytic:.17e} vs {zeta0_phi_numeric:.17e}"
+            )
+        zeta0_phi = zeta0_phi_analytic
 
         c_tot_phys = 1.0 / inputs.Vm_alpha_0
 
-        Mcrit_eta = 2.0 * D_alpha_phys / (abs(zprod) * inputs.gp_l_eta)
+        Mcrit_eta = 2.0 * D_alpha_phys / (abs(zprod_eta) * inputs.gp_l_eta)
         gp_M_eta_phys = inputs.gp_M_eta_phys
         if gp_M_eta_phys is None:
             if inputs.gp_M_eta_ratio_to_crit is not None:
@@ -630,11 +700,11 @@ class PFParamConverter:
         L_eta_full_phys = (
             2.0 * (inputs.gp_reaction_nu_A + inputs.gp_reaction_nu_B) / (3.0 * c_tot_phys * inputs.gp_l_eta)
         ) / (
-            (1.0 / gp_M_eta_phys) + (abs(zprod) * inputs.gp_l_eta / (2.0 * D_alpha_phys))
+            (1.0 / gp_M_eta_phys) + (abs(zprod_eta) * inputs.gp_l_eta / (2.0 * D_alpha_phys))
         )
         L_eta_diff_phys = (
             4.0 * (inputs.gp_reaction_nu_A + inputs.gp_reaction_nu_B) * D_alpha_phys
-            / (3.0 * c_tot_phys * inputs.gp_l_eta * inputs.gp_l_eta * abs(zprod))
+            / (3.0 * c_tot_phys * inputs.gp_l_eta * inputs.gp_l_eta * abs(zprod_eta))
         )
 
         L_ref = inputs.L_ref_factor * inputs.lambda_sm
@@ -643,8 +713,22 @@ class PFParamConverter:
         kappa_code = kappa / (w * phys_dx_ref ** 2)
         D_alpha_code = D_alpha_phys * t0_diff / (phys_dx_ref ** 2)
         D_comp_code = D_comp_phys * t0_diff / (phys_dx_ref ** 2)
+        if inputs.L_phi_calibration_mode == "legacy_gp_eta_coupled":
+            zprod_phi_selected = zprod_eta
+            D_beta_for_calibration = D_comp_phys
+        elif inputs.L_phi_calibration_mode == "one_sided_diffusion_controlled":
+            zprod_phi_selected = zeta_phi * zeta0_phi
+            D_beta_for_calibration = 0.0
+        else:
+            raise ValueError(
+                "L_phi_calibration_mode must be legacy_gp_eta_coupled or "
+                "one_sided_diffusion_controlled"
+            )
+        if abs(zprod_phi_selected) < 1e-30:
+            raise ValueError("selected zeta0_phi*zeta_phi is approximately zero")
         L_phi_phys = (4.0 * (inputs.v_A + inputs.v_B) * D_alpha_phys
-                      / (3.0 * c_tot_phys * (inputs.lambda_sm) ** 2 * abs(zprod)))
+                      / (3.0 * c_tot_phys * (inputs.lambda_sm) ** 2
+                         * abs(zprod_phi_selected)))
         L_phi_code = L_phi_phys * w * t0_diff
         gp_w_code = gp_w_phys / w if abs(w) > 1e-30 else float("nan")
         gp_kappa_code = gp_kappa_phys / (w * phys_dx_ref ** 2) if abs(w) > 1e-30 else float("nan")
@@ -669,6 +753,11 @@ class PFParamConverter:
             W=W_code,
             kappa_phi=kappa_code,
             L_phi=L_phi_code,
+            L_phi_calibration_mode=inputs.L_phi_calibration_mode,
+            L_phi_phys=L_phi_phys,
+            zeta_phi=zeta_phi,
+            zeta0_phi=zeta0_phi,
+            D_beta_for_calibration=D_beta_for_calibration,
             D_alpha=D_alpha_code,
             D_compound=D_comp_code,
             v_A=inputs.v_A,
@@ -724,7 +813,7 @@ def _voigt_independent_components(matrix: List[List[float]]) -> Dict[str, float]
     }
 
 
-def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict[str, float]:
+def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict[str, object]:
     pf_dx = resolve_pf_dx(inputs)
     phys_dx_ref = resolve_phys_dx_ref(inputs)
     eigenstrain_voigt = tensor3_to_voigt_strain(resolve_eigenstrain_tensor(inputs))
@@ -736,7 +825,9 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
     L_ref = inputs.L_ref_factor * inputs.lambda_sm
     t_real_unit = L_ref ** 2 / D_alpha_phys
     xB_eq_eta = inputs.gp_xB_eq_alpha_for_eta if inputs.gp_xB_eq_alpha_for_eta is not None else pfset.ic_xB_eq_matrix
-    overrides: Dict[str, float] = {
+    script_path = Path(__file__).resolve()
+    thermo_path = script_path.with_name("thermo_utils.h")
+    overrides: Dict[str, object] = {
         "pf_params_schema_version": PF_PARAMS_SCHEMA_VERSION,
         "dx": pf_dx / phys_dx_ref,
         "dy": pf_dx / phys_dx_ref,
@@ -748,6 +839,21 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
         "W": pfset.W,
         "kappa_phi": pfset.kappa_phi,
         "L_phi": pfset.L_phi,
+        "L_phi_calibration_mode": pfset.L_phi_calibration_mode,
+        "L_phi_physical_value": pfset.L_phi_phys,
+        "L_phi_code_value": pfset.L_phi,
+        "finite_interface_calibration_min_points": 10.0,
+        "finite_interface_calibration_max_points": 12.0,
+        "finite_interface_production_min_points": 12.0,
+        "finite_interface_resolution_test_override": 0,
+        "finite_interface_violation_diagnostics_enabled": 0,
+        "zeta_phi": pfset.zeta_phi,
+        "zeta0_phi": pfset.zeta0_phi,
+        "D_beta_for_calibration": pfset.D_beta_for_calibration,
+        "zeta_eta": pfset.gp_zeta_eta,
+        "zeta0_eta": pfset.gp_zeta0_eta,
+        "thermodynamic_backend_hash": hashlib.sha256(thermo_path.read_bytes()).hexdigest(),
+        "calibration_script_hash": hashlib.sha256(script_path.read_bytes()).hexdigest(),
         "D_alpha": pfset.D_alpha,
         "D_compound": pfset.D_compound,
         "v_A": pfset.v_A,
@@ -815,13 +921,15 @@ def load_physical_inputs(input_json_path: str | None) -> PhysicalInputs:
     return PhysicalInputs(**base)
 
 
-def write_main_cuda_override_file(path: str, overrides: Dict[str, float]) -> None:
+def write_main_cuda_override_file(path: str, overrides: Dict[str, object]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write("# Auto-generated by Unit_Psedobinary.py\n")
         f.write("# Format: key=value, consumable by ./main_cuda --pf-param-file <file>\n")
         for key in sorted(overrides.keys()):
             value = overrides[key]
-            if isinstance(value, int):
+            if isinstance(value, str):
+                f.write(f"{key}={value}\n")
+            elif isinstance(value, int):
                 f.write(f"{key}={value}\n")
             else:
                 f.write(f"{key}={value:.16e}\n")
@@ -841,6 +949,7 @@ def write_example_input_json(path: str) -> None:
         "gp_M_eta_ratio_to_crit": "优先推荐的 eta 迁移率输入方式：给 M_eta / Mcrit_eta。",
         "gp_M_eta_phys": "若需要绝对迁移率，可直接给物理量 M_eta。",
         "gp_xB_eq_alpha_for_eta": "eta 采用的平衡 xB；未填时回退到 xB_eq。",
+        "L_phi_calibration_mode": "legacy 保留旧 GP-eta 交叉标定；新 candidate 使用 one_sided_diffusion_controlled。",
         "eigenstrain_rotation_matrix": "单位矩阵表示无旋转；主应变方向与模拟坐标系一致。",
         "eigenstrain_tensor_priority": "若同时提供 eigenstrain_tensor 和 eigenstrain_principal，脚本优先使用 eigenstrain_tensor。",
         "eps_iso": "脚本会自动换算为 main_cuda 需要的 eps_iso_over_vB = eps_iso / v_B。",
@@ -994,6 +1103,17 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
                 "zeta0_eta": pfset.gp_zeta0_eta,
                 "Mcrit_eta_phys": pfset.Mcrit_eta_phys,
             },
+            "beta_phi_kinetics": {
+                "L_phi_calibration_mode": pfset.L_phi_calibration_mode,
+                "L_phi_phys": pfset.L_phi_phys,
+                "L_phi_code": pfset.L_phi,
+                "zeta_phi": pfset.zeta_phi,
+                "zeta0_phi": pfset.zeta0_phi,
+                "D_alpha_m2_per_s": D_alpha_phys,
+                "D_beta_for_calibration_m2_per_s": pfset.D_beta_for_calibration,
+                "one_sided_transport_law": "D_one_sided(h)=(1-h)*D_alpha",
+                "zeta0_removable_limit": "(1-h)/((1-h)*D_alpha)=1/D_alpha",
+            },
             "inputs_C_tensor_PbTe_GPa": inputs.C_tensor_PbTe_GPa,
             "inputs_C_tensor_Ag2Te_GPa": inputs.C_tensor_Ag2Te_GPa,
             "eigenstrain_input": {
@@ -1095,7 +1215,10 @@ def run_from_config() -> None:
         for key, value in pf_params.items():
             # 跳过矩阵类型的打印，避免报错
             if not isinstance(value, list):
-                print(f"{key:22s}: {value:.6e}")
+                if isinstance(value, str):
+                    print(f"{key:22s}: {value}")
+                else:
+                    print(f"{key:22s}: {value:.6e}")
 
         print("\n--- main_cuda 可直接覆盖的参数 ---")
         print(f"可自动落地字段数        : {len(main_cuda_overrides)}")
@@ -1192,11 +1315,11 @@ def run_from_config() -> None:
         print(f"C11_Ag2Te (GPa)         : {C_Ag2Te[0][0]:.3f}")
         print(f"C12_Ag2Te (GPa)         : {C_Ag2Te[0][1]:.3f}")
         print(f"C44_Ag2Te (GPa)         : {C_Ag2Te[3][3]:.3f}")
-        
+
         # 打印完整矩阵
         print_matrix("Dimensionless Matrix Stiffness (PbTe)", pf_params['C_tensor_matrix_hat'])
         print_matrix("Dimensionless Precipitate Stiffness (Ag2Te)", pf_params['C_tensor_precip_hat'])
-        
+
         c11_mat = pf_params['C_tensor_matrix_hat'][0][0]
         print(f"\nMagnitude Check: PbTe C11_hat = {c11_mat:.2f}")
 

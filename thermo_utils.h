@@ -121,10 +121,10 @@
 // DEVICE_FUNC static inline double solve_x_eq_device(double T) {
 //     double L = get_L_param(T);
 //     double RT = R_GAS * T;
-    
+
 //     // 初始猜测: 稀溶液近似 x ~ exp(-L/RT)
 //     double x = exp(-L / RT);
-    
+
 //     // 边界保护初始值
 //     if (x < 1e-9) x = 1e-9;
 //     if (x > 0.99) x = 0.5; // 如果 L 很小或负值，避免初始值过大
@@ -135,17 +135,17 @@
 //     for (int i = 0; i < 20; ++i) {
 //         double f = RT * log(x) + L * (1.0 - x) * (1.0 - x);
 //         double df = RT / x - 2.0 * L * (1.0 - x);
-        
+
 //         double delta = f / df;
 //         x -= delta;
-        
+
 //         // 强制边界约束，防止 x <= 0 导致 log 崩溃
 //         if (x < 1e-10) x = 1e-10;
 //         if (x > 0.999) x = 0.999;
-        
+
 //         if (fabs(delta) < 1e-8) break; // 收敛
 //     }
-    
+
 //     return x;
 // }
 
@@ -228,18 +228,18 @@
 //     // 稳定性增强：当 xB 超过限制时，固定热力学因子在 0.08 处的值，防止进入 spinodal 区域导致 Meff 发散
 //     double xB_limit = 0.08;
 //     double xB_calc = (xB > xB_limit) ? xB_limit : xB;
-    
+
 //     double c_bulk = c_xB_phi(xB_calc, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
 //     double dx = 1e-5; // 稍微减小差分步长
 //     double x_plus = clamp_fraction_eps(xB_calc + dx);
 //     double x_minus = clamp_fraction_eps(xB_calc - dx);
-    
+
 //     // 注意：这里使用的是新的 mu_A_dimless (PbTe) 和 mu_B_dimless (Ag2Te)
 //     double dmuA_dx = (mu_A_dimless(x_plus, temperature_K, energy_scale) -
 //                       mu_A_dimless(x_minus, temperature_K, energy_scale)) / (x_plus - x_minus);
 //     double dmuB_dx = (mu_B_dimless(x_plus, temperature_K, energy_scale) -
 //                       mu_B_dimless(x_minus, temperature_K, energy_scale)) / (x_plus - x_minus);
-                      
+
 //     return c_bulk * (dmuB_dx - dmuA_dx);
 // }
 
@@ -260,15 +260,12 @@
 // CUDA设备函数标记
 #define DEVICE_FUNC __device__ __host__
 
-#ifdef THERMO_UTILS_DEFINE_GLOBALS
 #ifdef __CUDACC__
-__device__ __constant__ int d_thermo_convex_extrapolation_enabled = 1;
+static __device__ __constant__ int d_thermo_convex_extrapolation_enabled = 1;
 #endif
+#ifdef THERMO_UTILS_DEFINE_GLOBALS
 int h_thermo_convex_extrapolation_enabled = 1;
 #else
-#ifdef __CUDACC__
-extern __device__ __constant__ int d_thermo_convex_extrapolation_enabled;
-#endif
 extern int h_thermo_convex_extrapolation_enabled;
 #endif
 
@@ -392,41 +389,79 @@ DEVICE_FUNC static inline double dmu_Ag2Te_calphad_dx(double T, double xB) {
     return R_GAS * T / x - 2.0 * L * (1.0 - x);
 }
 
-// --- [核心修改] 安全的化学势函数 (带凸化外推) ---
-
-// 溶剂 PbTe (Matrix) 的化学势
-DEVICE_FUNC static inline double mu_PbTe_raw(double T, double xB) {
-    if (!thermo_convex_extrapolation_enabled_runtime() || xB <= X_LIMIT_CONVEX) {
-        // 正常区域：使用物理模型
-        return mu_PbTe_calphad(T, xB);
-    } else {
-        // 虚构区域：凸化外推
-        // mu(x) = mu(xc) + slope * (x - xc) + K * (x - xc)^2
-        double xc = X_LIMIT_CONVEX;
-        double mu_c = mu_PbTe_calphad(T, xc);
-        double slope_c = dmu_PbTe_calphad_dx(T, xc);
-        double K_penalty = 5000.0; // 强惩罚系数，确保能量迅速升高
-        
-        double delta_x = xB - xc;
-        return mu_c + slope_c * delta_x + K_penalty * delta_x * delta_x;
-    }
+// Unified matrix molar free energy.  The optional high-composition branch is a
+// numerical convex extension, not a calibrated high-x thermodynamic model.
+DEVICE_FUNC static inline double g_alpha_calphad(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    const double GA = G_PbTe_Solid(T);
+    const double GB = G_Ag2Te_Solid(T);
+    const double L = get_L_param(T);
+    return (1.0 - x) * GA + x * GB
+         + R_GAS * T * ((1.0 - x) * log(1.0 - x) + x * log(x))
+         + L * x * (1.0 - x);
 }
 
-// 溶质 Ag2Te (Precipitate) 的化学势
-DEVICE_FUNC static inline double mu_Ag2Te_raw(double T, double xB) {
-    if (!thermo_convex_extrapolation_enabled_runtime() || xB <= X_LIMIT_CONVEX) {
-        // 正常区域：使用物理模型
-        return mu_Ag2Te_calphad(T, xB);
-    } else {
-        // 虚构区域：凸化外推
-        double xc = X_LIMIT_CONVEX;
-        double mu_c = mu_Ag2Te_calphad(T, xc);
-        double slope_c = dmu_Ag2Te_calphad_dx(T, xc);
-        double K_penalty = 5000.0; // 强惩罚系数
-        
-        double delta_x = xB - xc;
-        return mu_c + slope_c * delta_x + K_penalty * delta_x * delta_x;
+DEVICE_FUNC static inline double g_alpha_prime_calphad(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    const double L = get_L_param(T);
+    return G_Ag2Te_Solid(T) - G_PbTe_Solid(T)
+         + R_GAS * T * log(x / (1.0 - x))
+         + L * (1.0 - 2.0 * x);
+}
+
+DEVICE_FUNC static inline double g_alpha_second_calphad(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    return R_GAS * T / (x * (1.0 - x)) - 2.0 * get_L_param(T);
+}
+
+DEVICE_FUNC static inline double g_alpha_extension_K(double T) {
+    const double xc = X_LIMIT_CONVEX;
+    const double g_second_c = g_alpha_second_calphad(T, xc);
+    const double ideal_curvature = R_GAS * T / (xc * (1.0 - xc));
+    return (g_second_c > ideal_curvature) ? g_second_c : ideal_curvature;
+}
+
+DEVICE_FUNC static inline double g_alpha_raw(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    if (!thermo_convex_extrapolation_enabled_runtime() || x <= X_LIMIT_CONVEX) {
+        return g_alpha_calphad(T, x);
     }
+    const double xc = X_LIMIT_CONVEX;
+    const double dx = x - xc;
+    return g_alpha_calphad(T, xc)
+         + g_alpha_prime_calphad(T, xc) * dx
+         + 0.5 * g_alpha_extension_K(T) * dx * dx;
+}
+
+DEVICE_FUNC static inline double g_alpha_prime_raw(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    if (!thermo_convex_extrapolation_enabled_runtime() || x <= X_LIMIT_CONVEX) {
+        return g_alpha_prime_calphad(T, x);
+    }
+    return g_alpha_prime_calphad(T, X_LIMIT_CONVEX)
+         + g_alpha_extension_K(T) * (x - X_LIMIT_CONVEX);
+}
+
+DEVICE_FUNC static inline double g_alpha_second_raw(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    if (!thermo_convex_extrapolation_enabled_runtime() || x <= X_LIMIT_CONVEX) {
+        return g_alpha_second_calphad(T, x);
+    }
+    return g_alpha_extension_K(T);
+}
+
+DEVICE_FUNC static inline double mu_PbTe_raw(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    const double g = g_alpha_raw(T, x);
+    const double gp = g_alpha_prime_raw(T, x);
+    return g - x * gp;
+}
+
+DEVICE_FUNC static inline double mu_Ag2Te_raw(double T, double xB) {
+    const double x = clamp_fraction_eps(xB);
+    const double g = g_alpha_raw(T, x);
+    const double gp = g_alpha_prime_raw(T, x);
+    return g + (1.0 - x) * gp;
 }
 
 // =========================================================
@@ -453,10 +488,10 @@ DEVICE_FUNC static inline double mu_B_dimless(double xB, double temperature_K, d
 DEVICE_FUNC static inline double solve_x_eq_device(double T) {
     double L = get_L_param(T);
     double RT = R_GAS * T;
-    
+
     // 初始猜测: 稀溶液近似 x ~ exp(-L/RT)
     double x = exp(-L / RT);
-    
+
     // 边界保护
     if (x < 1e-9) x = 1e-9;
     if (x > 0.99) x = 0.5;
@@ -465,16 +500,16 @@ DEVICE_FUNC static inline double solve_x_eq_device(double T) {
     for (int i = 0; i < 20; ++i) {
         double f = RT * log(x) + L * (1.0 - x) * (1.0 - x);
         double df = RT / x - 2.0 * L * (1.0 - x);
-        
+
         double delta = f / df;
         x -= delta;
-        
+
         if (x < 1e-10) x = 1e-10;
         if (x > 0.999) x = 0.999;
-        
+
         if (fabs(delta) < 1e-8) break;
     }
-    
+
     return x;
 }
 
@@ -548,32 +583,74 @@ DEVICE_FUNC static inline double D_mix(double h, double D_alpha, double D_compou
     return (1.0 - h) * D_alpha + h * D_compound;
 }
 
-// 热力学因子 Γ (使用差分法计算二阶导)
+// Matrix thermodynamic factor from the same scalar free-energy backend.
 DEVICE_FUNC static inline double gamma_thermo_nonlinear(double xB, double h,
                                             double Vm_alpha_0, double dVm_alpha_dxB,
                                             double Vm_compound,
                                             double temperature_K, double energy_scale){
-    // Restore the legacy high-composition driving-force limiter behind the
-    // existing thermodynamic stabilization switch. Above xB=0.08, Gamma is
-    // evaluated at the cutoff and therefore remains constant.
-    double xB_calc = xB;
-    if (thermo_convex_extrapolation_enabled_runtime() && xB_calc > 0.08) {
-        xB_calc = 0.08;
-    }
+    const double x = clamp_fraction_eps(xB);
+    const double scale = (fabs(energy_scale) < 1e-30)
+                           ? ((energy_scale >= 0.0) ? 1e-30 : -1e-30)
+                           : energy_scale;
+    const double c_bulk = c_xB_phi(x, Vm_alpha_0, dVm_alpha_dxB,
+                                    Vm_compound, h);
+    return c_bulk * g_alpha_second_raw(temperature_K, x) / scale;
+}
 
-    double c_bulk = c_xB_phi(xB_calc, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
-    double dx = 1e-5; 
-    double x_plus = clamp_fraction_eps(xB_calc + dx);
-    double x_minus = clamp_fraction_eps(xB_calc - dx);
-    
-    double dmuA_dx = (mu_A_dimless(x_plus, temperature_K, energy_scale) -
-                      mu_A_dimless(x_minus, temperature_K, energy_scale)) / (x_plus - x_minus);
-    double dmuB_dx = (mu_B_dimless(x_plus, temperature_K, energy_scale) -
-                      mu_B_dimless(x_minus, temperature_K, energy_scale)) / (x_plus - x_minus);
-                      
-    // 返回 thermo_factor = c_bulk * d(mu_B - mu_A)/dx
-    // 由于凸化，d(mu_B - mu_A)/dx 在高浓度区也是正的且很大的
-    return c_bulk * (dmuB_dx - dmuA_dx);
+// Candidate-only constitutive mobility.  No floor, absolute value, or sign
+// correction is permitted: nonpositive/nonfinite Gamma is a gate failure.
+DEVICE_FUNC static inline double matrix_mobility_alpha_candidate(
+    double xB, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double energy_scale) {
+    const double gamma_alpha = gamma_thermo_nonlinear(
+        xB, 0.0, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, energy_scale);
+    if (!isfinite(D_alpha) || D_alpha < 0.0 ||
+        !isfinite(gamma_alpha) || gamma_alpha <= 0.0) {
+        return NAN;
+    }
+    return D_alpha / gamma_alpha;
+}
+
+DEVICE_FUNC static inline double matrix_capacity_mobility_candidate(
+    double h, double xB, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double energy_scale,
+    double matrix_support_eps) {
+    const double alpha = 1.0 - h;
+    if (!isfinite(alpha) || !isfinite(matrix_support_eps) ||
+        matrix_support_eps < 0.0 || alpha > 1.0) return NAN;
+    // One-sided closed beta support. The quintic h evaluation can exceed one
+    // by roundoff near phi=1; only the same inactive-support tolerance band is
+    // interpreted as the exact alpha=0 removable limit. A materially negative
+    // capacity remains a constitutive failure and is not clipped or hidden.
+    if (alpha < -matrix_support_eps) return NAN;
+    if (alpha <= matrix_support_eps) return 0.0;
+    const double M_alpha = matrix_mobility_alpha_candidate(
+        xB, D_alpha, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, energy_scale);
+    return alpha * M_alpha;
+}
+
+// Coarse4-only numerical closure.  The exact legacy expression is returned
+// when a_M=0 so every default path retains its prior floating-point operation
+// sequence.  b=4h(1-h) vanishes in both bulks and is nonnegative on the
+// admissible phase interval.
+DEVICE_FUNC static inline double matrix_capacity_mobility_coarse_candidate(
+    double h, double xB, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double energy_scale,
+    double matrix_support_eps, double a_M) {
+    const double base = matrix_capacity_mobility_candidate(
+        h, xB, D_alpha, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, energy_scale, matrix_support_eps);
+    if (a_M == 0.0 || !isfinite(base) || base == 0.0) return base;
+    if (!isfinite(a_M) || a_M < 0.0 || !isfinite(h) ||
+        h < 0.0 || h > 1.0) return NAN;
+    const double b = 4.0 * h * (1.0 - h);
+    const double factor = 1.0 + a_M * b;
+    return isfinite(factor) && factor >= 1.0 ? base * factor : NAN;
 }
 
 #endif // THERMO_UTILS_H

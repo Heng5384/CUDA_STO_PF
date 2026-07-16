@@ -1,7 +1,7 @@
 #ifndef PF_PARAMS_H
 #define PF_PARAMS_H
 
-#define PF_PARAMS_SCHEMA_VERSION 1
+#define PF_PARAMS_SCHEMA_VERSION 2
 
 typedef struct {
     int pf_params_schema_version;
@@ -353,6 +353,113 @@ typedef struct {
     double pf_conservative_beta_support_eps;
     int pf_conservative_max_subcycles;
     int pf_conservative_one_step_replay;
+    // Production Ctot candidates. This selector is independent of legacy L/X/Q
+    // and the earlier conservative diagnostic selectors above.
+    char composition_evolution_mode[48];  // legacy_lagged_y | ctot_mimetic_be | ctot_fv_be | ctot_spectral_be(test-only)
+    // Default-off multifidelity research contract.  These fields alter no
+    // legacy path unless PF_RESEARCH_MODEL selects the coarse4 model.
+    char PF_RESEARCH_MODEL[96];
+    // Physics and time-integration contracts are intentionally independent.
+    // "legacy" preserves every existing Ctot path. The two versioned values
+    // below are default-off production-research candidates.
+    char ctot_numerics_contract[96];
+    char ctot_split_defect_policy[40];  // OFF | polish policies | LIE/IMEX no-polish policies
+    int ctot_max_coupling_correctors;
+    double ctot_split_defect_skip_threshold;
+    double ctot_split_defect_hard_cap;
+    double ctot_split_defect_scale;
+    char PHASE_KINETICS_MODE[64];  // FINITE_LPHI_BE | QUASI_EQUILIBRIUM_FAST_INTERFACE_V1
+    char coarse_interface_mobility_mode[64];  // off | INTERFACE_BAND_BOOST_V1
+    double coarse_interface_mobility_a_M;
+    char GP_population_mode[64];  // OFF | FIXED_POPULATION_DEPLETION_ONLY
+    // Checkpoint provenance for the coarse surrogate.  The three hashes and
+    // uncertainty version are mandatory when the coarse4 model is selected.
+    char coarse_model_name[96];
+    char coarse_model_version[32];
+    char fine_reference_hash[65];
+    char coarse_calibration_hash[65];
+    char coarse_uncertainty_version[64];
+    // Coarse4-only mechanical precision/acceptance provenance.  The legacy
+    // solver and gate remain selected by default; the FP32-aware contract is
+    // admitted only after its external qualification evidence is frozen.
+    char mechanics_precision_mode[48];
+    char mechanics_acceptance_mode[64];
+    char eta_floor_version[64];
+    double eta_accept;
+    char double_oracle_contract_hash[65];
+    char residual_normalization_version[64];
+    // Default-off small-grid evidence capture.  This never changes a solve;
+    // it only records the first completed mechanics state of a run.
+    int mechanics_fp32_diagnostics_enabled;
+    int mechanics_fp32_dump_first_solve_fields;
+    int mechanics_fp32_diagnostic_solve_index;
+    int ctot_nonlinear_max_iter;
+    double ctot_residual_abs_tol;
+    double ctot_residual_rel_tol;
+    double ctot_line_search_min;
+    // Nonlinear coordinate only; the conservative FV operator is unchanged.
+    // legacy_logit_newton is the historical default. The adaptive mode starts
+    // from that coordinate and switches to authoritative Ctot only when the
+    // logit line search fails; it never clips physical mass.
+    char ctot_transport_nonlinear_coordinate[48];
+    // Default-off outer fixed-point acceleration. Raw x/Y are never mixed.
+    char ctot_outer_acceleration[32];
+    // Acceptance/reporting policy only.  The default preserves the historical
+    // zero-reject qualification; the bounded-retry policy never changes a
+    // physical operator, nonlinear tolerance, or retry algorithm.
+    char ctot_retry_acceptance_contract[64];
+    int ctot_step_max_retries;
+    double ctot_retry_shrink_factor;
+    double ctot_dt_min_ratio;
+    int ctot_automatic_dt_growth;
+    int ctot_debug_force_first_attempt_reject;
+    // Default-off rollback oracle for an attempt that selected BDF2.
+    int ctot_debug_force_first_bdf2_attempt_reject;
+    // Default-off active-set crossing guard and atomic Lie-BE event fallback.
+    // These flags alter only the time integrator transaction around a detected
+    // nonsmooth capacity event; all physical operators and tolerances remain
+    // unchanged.
+    int bdf2_event_preflight_v1;
+    int bdf2_event_be_subcycling_v1;
+    // Default-off tiny-grid residual-floor archaeology. This diagnostic may
+    // replay fixed-phi transport solves but never changes the accepted state.
+    int ctot_debug_transport_floor_audit;
+    int ctot_elastic_validation_enabled;
+    int ctot_debug_force_elastic_post_phi_reject;
+    double ctot_matrix_support_eps;
+    int ctot_phase_constraint_enabled;
+    int ctot_phase_semismooth_pdas_enabled;
+    int ctot_phase_restart_solver_migration_allowed;
+    int ctot_phase_linear_max_iter;
+    double ctot_phase_linear_rel_tol;
+    double ctot_phase_fd_rel_step;
+    int ctot_diagnostics_enabled;
+    // Engineering-only P0/P1 profiler. Default-off and excluded from the
+    // accepted-state/checkpoint numerical contract.
+    int ctot_performance_profile_enabled;
+    int ctot_initialization_dry_run;
+    int ctot_phase_only_dry_run;
+    double ctot_preconditioner_a_ref;
+    double ctot_preconditioner_D_ref_multiplier;
+    int ctot_spectral_fv_warm_start_diagnostic;
+    int ctot_nonadjoint_hybrid_test_only;
+    int ctot_finite_interface_antitrapping_enabled;
+    double finite_interface_calibration_min_points;
+    double finite_interface_calibration_max_points;
+    double finite_interface_production_min_points;
+    int finite_interface_resolution_test_override;
+    int finite_interface_violation_diagnostics_enabled;
+    double ctot_solver_k0_max_abs_shift;
+    double ctot_energy_rel_tol;
+    double ctot_energy_balance_rel_tol;
+    double ctot_energy_abs_tol;
+    int ctot_outer_max_iter;
+    double ctot_outer_rel_tol;
+    double ctot_outer_abs_tol;
+    double ctot_outer_C_scale;
+    double ctot_outer_phi_scale;
+    double ctot_outer_sigma_scale;
+    double ctot_outer_displacement_scale;
     double pf_matrix_storage_floor;
     // Numerical add/subtract stabilizer, independent of the matrix support rule.
     double pf_composition_stabilizer_Dalpha_multiplier;
@@ -435,6 +542,16 @@ typedef struct {
 
     // 相场动力学参数
     double L_phi;
+    char L_phi_calibration_mode[64];
+    double L_phi_physical_value;
+    double L_phi_code_value;
+    double zeta_phi;
+    double zeta0_phi;
+    double D_beta_for_calibration;
+    double zeta_eta;
+    double zeta0_eta;
+    char thermodynamic_backend_hash[65];
+    char calibration_script_hash[65];
 
     // 化学扩散系数
     double D_alpha;       // 基体相 (matrix) 扩散系数
@@ -519,13 +636,13 @@ typedef struct {
     // ============================================
     // 弹性计算相关参数
     // ============================================
-    
+
     // 弹性计算控制
     int elastic_enabled;     // 是否启用弹性计算（0/1）
     int elastic_iter_max;    // 弹性弛豫最大迭代次数（类似SDV_Poly.c的total）
     // 无量纲的弹性 shift 能量密度（加在 delta_mu 上）；仅在 elastic_enabled=1 时有效
     double elastic_shift_dimless;
-    
+
     // 基体弹性刚度矩阵（21个独立分量，Voigt记号）
     double S_11, S_12, S_13, S_14, S_15, S_16;
     double S_22, S_23, S_24, S_25, S_26;
@@ -533,7 +650,7 @@ typedef struct {
     double S_44, S_45, S_46;
     double S_55, S_56;
     double S_66;
-    
+
     // 弹性常数perturbation（析出相相对基体的弹性常数差，21个分量）
     double S_p_11, S_p_12, S_p_13, S_p_14, S_p_15, S_p_16;
     double S_p_22, S_p_23, S_p_24, S_p_25, S_p_26;
@@ -541,7 +658,7 @@ typedef struct {
     double S_p_44, S_p_45, S_p_46;
     double S_p_55, S_p_56;
     double S_p_66;
-    
+
     // 外部应变（6个分量，Voigt记号：xx, yy, zz, yz, xz, xy）
     double E0_xx, E0_yy, E0_zz, E0_yz, E0_xz, E0_xy;
 
@@ -586,6 +703,9 @@ typedef struct {
     int    init_mode_raw_fields;               // =1 时从 Python 生成的 raw 场读取
     char   init_phi_raw_path[4096];            // raw_fields: phi_init.raw
     char   init_xB_raw_path[4096];             // raw_fields: xB_init.raw
+    char   init_ctot_raw_path[4096];           // raw_fields: optional authoritative Ctot checkpoint
+    char   init_ctot_nm1_raw_path[4096];       // raw_fields: optional BDF2 Ctot history
+    char   init_phi_nm1_raw_path[4096];        // raw_fields: optional BDF2 phi history
     char   init_eta_raw_path[4096];            // raw_fields: optional eta_init.raw
     char   init_meta_path[4096];               // raw_fields: init_meta.json
 

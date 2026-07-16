@@ -1,0 +1,4 @@
+stage,case,metric,observed,gate,classification
+STAGE_7_DT8_EVENT_ACCURACY,dt8,Ctot_increment_relative,0.03186716984034507,0.02,FAIL
+STAGE_7_DT8_EVENT_ACCURACY,dt8,matrix_profile_capacity_L1_increment_relative,0.0370656689997347,0.03,FAIL
+STAGE_7_DT8_EVENT_OVERHEAD,dt8,event_fallback_fraction,0.5119521912350598,0.01,FAIL_PERSISTENT_NOT_SINGLE_EVENT

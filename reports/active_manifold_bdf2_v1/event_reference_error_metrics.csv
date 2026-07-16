@@ -1,0 +1,3 @@
+case,event_step,reference,Ctot_increment_error,phi_increment_error,hvolume_increment_error,interface_error_dx,matrix_profile_increment_error,direction_unchanged,Ctot_gate_2pct,phi_gate_2pct,hvolume_gate_2pct,interface_gate_0p25dx,profile_gate_3pct
+dt8,1,eight_Lie_BE_eighth_steps_same_macro_time,0.017797122893316475,0.0005673049777641945,0.00021371966015482142,4.0501095810441257e-08,0.020731559782305252,1,1,1,1,1,1
+dt16,115,eight_Lie_BE_eighth_steps_same_macro_time,0.005937578007974426,9.03587927225179e-05,5.720444980103968e-05,5.6366502576565836e-09,0.006670451319865512,1,1,1,1,1,1

@@ -1,0 +1,42 @@
+{
+  "research_model": "fixed_ctot_gp_reservoir_to_beta_diffusion_limit_v1",
+  "matrix_to_beta_kinetics": "FAST_INTERFACE_DIFFUSION_CONTROLLED_LIMIT",
+  "finite_interface_mode": "off",
+  "L_phi_fast_factor": 1000.0,
+  "factor_semantics": "multiplier_of_temperature_specific_source_derived_one_sided_reference",
+  "T400": {
+    "L_phi_reference_code": 5.3440884654323835,
+    "L_phi_reference_physical": 1.7186898466354515e-09,
+    "L_phi_fast_code": 5344.088465432384,
+    "L_phi_fast_physical": 1.7186898466354515e-06,
+    "plateau_pair": {
+      "low_factor": 1000.0,
+      "high_factor": 3000.0,
+      "velocity_change_rel": 0.017819729203753302,
+      "beta_gain_change_rel": 0.030503413079786504,
+      "matrix_flux_change_rel": 0.030503413079786417,
+      "all_hard_gates_pass": true,
+      "plateau_10pct_pass": true,
+      "plateau_5pct_pass": true
+    }
+  },
+  "T380": {
+    "L_phi_reference_code": 4.294671927878996,
+    "L_phi_reference_physical": 1.1465603741957184e-09,
+    "L_phi_fast_code": 4294.671927878996,
+    "L_phi_fast_physical": 1.1465603741957184e-06,
+    "confirmation_pair": {
+      "low_factor": 1000.0,
+      "high_factor": 3000.0,
+      "velocity_change_rel": 0.02536145991701556,
+      "beta_gain_change_rel": 0.06420757896882764,
+      "matrix_flux_change_rel": 0.06420757896882774,
+      "all_hard_gates_pass": true,
+      "plateau_10pct_pass": true,
+      "plateau_5pct_pass": false
+    }
+  },
+  "absolute_interface_mobility_claimed": false,
+  "GP_source_enabled_during_plateau": false,
+  "plateau_status": "PASS"
+}

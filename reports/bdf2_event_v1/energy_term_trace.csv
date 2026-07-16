@@ -1,0 +1,16 @@
+case,step,term,value,finite
+dt16,5483,delta_F,-1.5532523089945016e-07,1
+dt16,5483,dissipation,1.0356161888478648e-07,1
+dt16,5483,history_work,-5.178700658230381e-08,1
+dt16,5483,transport_history,-3.6150404618379546e-08,1
+dt16,5483,phase_history,-1.5636601963924266e-08,1
+dt16,5483,nonlinear_chain,nan,0
+dt16,5483,transport_chain,nan,0
+dt16,5483,phase_chain,nan,0
+dt16,5483,explicit_context_work,nan,0
+dt16,5483,mechanics_work,0.0,1
+dt16,5483,transport_residual_work,1.7462447352373473e-14,1
+dt16,5483,phase_residual_work,-7.27500448640429e-15,1
+dt16,5483,balance,nan,0
+dt16,5483,balance_rel,nan,0
+dt16,5483,pass,0.0,1

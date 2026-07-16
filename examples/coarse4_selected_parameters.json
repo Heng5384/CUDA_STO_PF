@@ -1,0 +1,20 @@
+{
+  "schema": "coarse4_selected_parameters_v1",
+  "status": "BLOCKED_ONE_PARAMETER_COARSE_CLOSURE_INSUFFICIENT",
+  "selected_phase_candidate": null,
+  "selected_a_M": null,
+  "best_observed_nonaccepted": {
+    "phase_candidate": "finite_lphi",
+    "a_M": 0.5,
+    "complete": true,
+    "hard_gates_pass": true,
+    "objective": 0.35533792042844975,
+    "calibration_pass": false,
+    "flux_error_max": 0.2379772986481747,
+    "inventory_error_max": 0.7807820603868968,
+    "trajectory_error_max": 0.8099909741329114
+  },
+  "physics_changed": false,
+  "second_parameter_added": false,
+  "heldout_refit_allowed": false
+}

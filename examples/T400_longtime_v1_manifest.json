@@ -1,0 +1,479 @@
+{
+  "schema": "T400_longtime_v1_test_manifest",
+  "temperature_C": 400.0,
+  "physics_model": "pbte_ag2te_gp_coarse4_stoich_rd_v2",
+  "numerics": "ctot_jichen_imex_bdf2_v1",
+  "selected_dt_code": 0.000390625,
+  "selected_dt_physical_s": 0.016066244306466707,
+  "dt_refinement_codes": [
+    0.000390625,
+    0.0001953125,
+    9.765625e-05
+  ],
+  "box_lengths_nm_by_direction": {
+    "growth": [
+      512.0,
+      1024.0
+    ],
+    "dissolution": [
+      3072.0,
+      4096.0
+    ]
+  },
+  "subcell_shifts_dx": [
+    0.0,
+    0.5
+  ],
+  "minimum_displacement_nm": 8.0,
+  "case_definitions": {
+    "growth": {
+      "matrix_xB": 0.05,
+      "initial_beta_half_width_nm": 16.0,
+      "target_displacement_nm": 8.0,
+      "sense": 1
+    },
+    "dissolution": {
+      "matrix_xB": 0.0001,
+      "initial_beta_half_width_nm": 16.0,
+      "target_displacement_nm": -8.0,
+      "sense": -1
+    }
+  },
+  "boundary_conditions": "periodic_planar_slab_two_interfaces",
+  "transverse_grid": [
+    1,
+    1
+  ],
+  "references": {
+    "direct_JiChen": "independent_host_double_solution_logit_reaction_diffusion",
+    "fine_Ctot": {
+      "lambda_nm": 0.3,
+      "dx_nm": 0.025,
+      "lambda_over_dx": 12.0,
+      "Lphi_over_Ldiff": 0.9,
+      "finite_interface_mode": "off"
+    },
+    "sharp": "finite_box_matrix_diffusion_plus_Stefan_and_finite_Lphi_comparator"
+  },
+  "states": [
+    {
+      "case_id": "T400_growth_N512_shift0p0",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "growth",
+      "Nx": 512,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.0,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.05,
+      "h_volume_cell_units": 31.99999999999975,
+      "total_C_cell_units": 55.99999999999975,
+      "mean_Ctot": 0.10937499999999951,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.6347437747808766e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.3322676295501878e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.000246765805403823,
+        "h_volume_residual_cell_units": -2.4868995751603507e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997462048691
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "3a69447f232dfefce4e0a2ef67c172654bcc1520de4e703c9fca4ecf25721acb"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "210314a5ff59199df91fc4c9bc9556795e520f41906ec62d10509252f5347b84"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "c05457ef585dc40ae91aded43a8531cfd72213d8da7b82243105d63cd1c60524"
+        }
+      }
+    },
+    {
+      "case_id": "T400_growth_N512_shift0p5",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "growth",
+      "Nx": 512,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.5,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.05,
+      "h_volume_cell_units": 31.99999999999976,
+      "total_C_cell_units": 55.99999999999976,
+      "mean_Ctot": 0.10937499999999953,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.1401304970562159e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.1102230246251565e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.0001704306902252095,
+        "h_volume_residual_cell_units": -2.4158453015843406e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997749296758
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "cf2b8284bd241b4fc0f311358661300667c7f4997e18ff7482144728476f3a9b"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "210314a5ff59199df91fc4c9bc9556795e520f41906ec62d10509252f5347b84"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "ddcf6a9b07a89a9cb019883f403575c63c6e5890aaf0e8b005623d9fb799535a"
+        }
+      }
+    },
+    {
+      "case_id": "T400_growth_N1024_shift0p0",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "growth",
+      "Nx": 1024,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.0,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.05,
+      "h_volume_cell_units": 31.99999999999975,
+      "total_C_cell_units": 81.59999999999975,
+      "mean_Ctot": 0.07968749999999976,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.6347437747808766e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.3322676295501878e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.000246765575569477,
+        "h_volume_residual_cell_units": -2.4868995751603507e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997462048691
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "31139a5fa8f915e7eb7f94c30d8e13b13ec1661e030f57e8206043482ed58c42"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "cd2fee52014710c45d088454ec71abe30b46e618820c8d219500e72db7dd9fcb"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "1d825dda1b88004df90139f4ca23cd5e95f106b9224cc08a32185acd52c16c7d"
+        }
+      }
+    },
+    {
+      "case_id": "T400_growth_N1024_shift0p5",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "growth",
+      "Nx": 1024,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.5,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.05,
+      "h_volume_cell_units": 31.99999999999976,
+      "total_C_cell_units": 81.59999999999977,
+      "mean_Ctot": 0.07968749999999977,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.1401304970562159e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.1102230246251565e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.00017043073702419087,
+        "h_volume_residual_cell_units": -2.4158453015843406e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997749296758
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "e4ac8b5bb2edbb4bfcd4fa27a8eb330f71de1acca4916b4686a936928af446db"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "cd2fee52014710c45d088454ec71abe30b46e618820c8d219500e72db7dd9fcb"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "b4abea7a3d4cedd0b64d12f88b30538c23dbd77fb069aadf9705bdb5a995bfdc"
+        }
+      }
+    },
+    {
+      "case_id": "T400_dissolution_N3072_shift0p0",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "dissolution",
+      "Nx": 3072,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.0,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.0001,
+      "h_volume_cell_units": 31.99999999999975,
+      "total_C_cell_units": 32.30399999999976,
+      "mean_Ctot": 0.010515624999999923,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.6347437747808766e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.3322676295501878e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.00024676556050430565,
+        "h_volume_residual_cell_units": -2.4868995751603507e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997462048691
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "496047aff25412a6b9e6d376735dea5e6a5c80a36caf0394a50db72d1f2b94af"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "1157b1787931d94f649750ef552fa58fd10c7899863f9356b3eec2124710a5c5"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "3da6ac715c363fa7f86242207e43b355918134a79a353259dd73ba3ca5f59dbc"
+        }
+      }
+    },
+    {
+      "case_id": "T400_dissolution_N3072_shift0p5",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "dissolution",
+      "Nx": 3072,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.5,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.0001,
+      "h_volume_cell_units": 31.99999999999976,
+      "total_C_cell_units": 32.30399999999976,
+      "mean_Ctot": 0.010515624999999923,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.1401304970562159e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.1102230246251565e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.0001704307400811622,
+        "h_volume_residual_cell_units": -2.4158453015843406e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997749296758
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "8a201a5123d59589e8756455a891caf6e91da99e7d1fdcd8f6e43c718119d91b"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "1157b1787931d94f649750ef552fa58fd10c7899863f9356b3eec2124710a5c5"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "7a43c5b0e30e051532d630a3681c5d24e1bb71f57d78c64021c1a9c61df6a783"
+        }
+      }
+    },
+    {
+      "case_id": "T400_dissolution_N4096_shift0p0",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "dissolution",
+      "Nx": 4096,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.0,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.0001,
+      "h_volume_cell_units": 31.99999999999975,
+      "total_C_cell_units": 32.40639999999976,
+      "mean_Ctot": 0.007911718749999942,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.6347437747808766e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.3322676295501878e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.000246765560375492,
+        "h_volume_residual_cell_units": -2.4868995751603507e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997462048691
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "bc99ffee0d551975438b4a6ac6a6876b8b01f7c4541217eab98496336f012363"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "eb8c16a91fed5a8d3fdb910079355d5d9196015ece9b8d18589e87c47070cc7c"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "e7b5f05f7990e46714abff43847ac1c9bafe89f37c3bf26c30a48af6ec1b11df"
+        }
+      }
+    },
+    {
+      "case_id": "T400_dissolution_N4096_shift0p5",
+      "schema": "T400_longtime_matched_planar_state_v1",
+      "direction": "dissolution",
+      "Nx": 4096,
+      "Ny": 1,
+      "Nz": 1,
+      "dx_nm": 1.0,
+      "lambda_nm": 4.0,
+      "lambda_over_dx": 4.0,
+      "dtype": "float64",
+      "order": "C",
+      "authoritative_state": "Ctot",
+      "geometry": "periodic_planar_beta_slab_two_interfaces",
+      "interface_center_shift_dx": 0.5,
+      "initial_beta_half_width_nm": 16.0,
+      "matrix_xB": 0.0001,
+      "h_volume_cell_units": 31.99999999999976,
+      "total_C_cell_units": 32.40639999999977,
+      "mean_Ctot": 0.007911718749999944,
+      "q_min": 0.0,
+      "q_capacity_margin_min": 1.1401304970562159e-19,
+      "C_minus_h_min": 0.0,
+      "one_minus_C_min": -1.1102230246251565e-15,
+      "finite": true,
+      "zero_driving_stationary_profile": {
+        "construction": "analytic_continuum_stationary_profile",
+        "runtime_hold_required": true,
+        "phase_residual_linf": 0.0001704307401072247,
+        "h_volume_residual_cell_units": -2.4158453015843406e-13,
+        "volume_multiplier": 0.0,
+        "phi_min": 0.0,
+        "phi_max": 0.9999997749296758
+      },
+      "zero_driving_volume_multiplier": 0.0,
+      "profile_role": "analytic zero-driving stationary candidate with exact h-volume; production-runtime zero-driving hold required before use",
+      "files": {
+        "phi": {
+          "path": "phi_init.raw",
+          "sha256": "6a3864fff45a77287496efe1b1e6f329e9ddf43ca54c375e93d1238cedeb9e86"
+        },
+        "xB": {
+          "path": "xB_init.raw",
+          "sha256": "eb8c16a91fed5a8d3fdb910079355d5d9196015ece9b8d18589e87c47070cc7c"
+        },
+        "Ctot": {
+          "path": "Ctot_init.raw",
+          "sha256": "4fe9aed3e4b7f8f7cd6368a544d2a0b800d0bf4d71f8a5b12629a02ca649a03f"
+        }
+      }
+    }
+  ],
+  "forbidden": [
+    "T380",
+    "GP",
+    "S3",
+    "curvature",
+    "multi_particle",
+    "cluster",
+    "adaptive_dt",
+    "variable_step_BDF2",
+    "formal_3D_production"
+  ]
+}

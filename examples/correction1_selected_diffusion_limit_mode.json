@@ -1,0 +1,15 @@
+{
+  "schema": "correction1_selected_diffusion_limit_mode_v1",
+  "PF_RESEARCH_MODEL": "fixed_ctot_gp_reservoir_to_beta_diffusion_limit_v1",
+  "finite_interface_mode": "off",
+  "L_phi_research_diff_code": 4.67449133819476,
+  "L_phi_research_diff_physical_m3_J_s": 1.5033435267974513e-09,
+  "ratio_to_L_phi_diff": 0.9,
+  "selection_rule": "smallest_below_limit_row_passing_next_row_10pct_direction_and_hard_gates",
+  "sharp_velocity_error_rel": 0.9135418961908572,
+  "quantitative_sharp_match": false,
+  "matrix_to_beta_assumption": "JI_CHEN_BELOW_DIFFUSION_LIMIT_FROM_BELOW",
+  "absolute_interface_kinetics_claimed": false,
+  "GP_S3_enabled": false,
+  "status": "PASS_JI_CHEN_DIFFUSION_LIMIT_LPHI_SELECTED"
+}

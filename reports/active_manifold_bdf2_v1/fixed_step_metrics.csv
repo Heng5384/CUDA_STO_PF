@@ -1,0 +1,4 @@
+case,dt_code,steps,BDF2_macros,event_BE_macros,history_BE_macros,fallback_fraction,internal_rejects,max_mass_error,max_phase_KKT,energy_failures,p99_nonlinear_iterations,clipping,physical_projection,hard_gates_pass,zero_reject_pass,fallback_gate_pass,production_gate_pass,wall_seconds,accepted_physical_time_s,physical_s_per_GPU_hour
+dt4,0.00078125,2000,1976,14,10,0.007,15,9.876544027065393e-13,1.0072709333286411e-10,0,121.0,0,0,True,False,True,False,185.052083417,64.26497722586683,1250.2097449601965
+dt8,0.000390625,1000,969,16,15,0.016,16,9.166001291305292e-13,9.972744852149162e-11,0,102.01999999999998,0,0,True,False,False,False,192.244648833,16.066244306466707,300.8587227492795
+dt16,0.0001953125,2000,2000,0,0,0.0,0,9.947598300641403e-13,1.0010048345776568e-10,0,42.0,0,0,True,True,True,True,118.771971917,16.066244306466707,486.97077744654035

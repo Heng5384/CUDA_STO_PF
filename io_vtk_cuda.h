@@ -7,17 +7,86 @@
 #include <string.h>
 #include <errno.h>
 
+static inline int write_raw_cuda_double(const double *d_field, size_t count,
+                                        const char *fname)
+{
+    double *host = (double *)malloc(count * sizeof(double));
+    if (!host) return 0;
+    cudaError_t err = cudaMemcpy(host, d_field, count * sizeof(double),
+                                 cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        free(host);
+        return 0;
+    }
+    FILE *fp = fopen(fname, "wb");
+    if (!fp) {
+        free(host);
+        return 0;
+    }
+    const size_t written = fwrite(host, sizeof(double), count, fp);
+    const int close_ok = fclose(fp) == 0;
+    free(host);
+    return written == count && close_ok;
+}
+
+static inline int write_raw_cuda_float(const float *d_field, size_t count,
+                                       const char *fname)
+{
+    float *host = (float *)malloc(count * sizeof(float));
+    if (!host) return 0;
+    cudaError_t err = cudaMemcpy(host, d_field, count * sizeof(float),
+                                 cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        free(host);
+        return 0;
+    }
+    FILE *fp = fopen(fname, "wb");
+    if (!fp) {
+        free(host);
+        return 0;
+    }
+    const size_t written = fwrite(host, sizeof(float), count, fp);
+    const int close_ok = fclose(fp) == 0;
+    free(host);
+    return written == count && close_ok;
+}
+
+static inline int write_raw_cuda_complex_float(const cufftComplex *d_field,
+                                               size_t count,
+                                               const char *fname)
+{
+    cufftComplex *host =
+        (cufftComplex *)malloc(count * sizeof(cufftComplex));
+    if (!host) return 0;
+    cudaError_t err = cudaMemcpy(host, d_field,
+                                 count * sizeof(cufftComplex),
+                                 cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        free(host);
+        return 0;
+    }
+    FILE *fp = fopen(fname, "wb");
+    if (!fp) {
+        free(host);
+        return 0;
+    }
+    const size_t written = fwrite(host, sizeof(cufftComplex), count, fp);
+    const int close_ok = fclose(fp) == 0;
+    free(host);
+    return written == count && close_ok;
+}
+
 /**
  * CUDA版本的VTK输出函数
  * 从GPU内存复制数据，重新排列为VTK格式，并写入文件
- * 
+ *
  * @param d_field GPU上的场数据（x-y-z顺序，大小为Nx*Ny*Nz）
  * @param Nx, Ny, Nz 网格尺寸
  * @param field_name VTK文件中的标量名称（如"phi"或"xB_tot"）
  * @param step 时间步数（用于文件名）
  * @param fname 输出文件名
  */
-static inline int write_vtk_cuda(const double *d_field, 
+static inline int write_vtk_cuda(const double *d_field,
                                   int Nx, int Ny, int Nz,
                                   const char *field_name,
                                   int step,
@@ -30,7 +99,7 @@ static inline int write_vtk_cuda(const double *d_field,
         fprintf(stderr, "ERROR: Failed to allocate %zu bytes host memory for VTK output\n", data_size);
         return 0;
     }
-    
+
     // 从GPU复制数据到CPU
     cudaError_t err = cudaMemcpy(h_field, d_field, data_size, cudaMemcpyDeviceToHost);
     if (err != cudaSuccess) {
@@ -38,7 +107,7 @@ static inline int write_vtk_cuda(const double *d_field,
         free(h_field);
         return 0;
     }
-    
+
     // 打开输出文件
     FILE *fo = fopen(fname, "w");
     if (fo == NULL) {
@@ -46,13 +115,13 @@ static inline int write_vtk_cuda(const double *d_field,
         free(h_field);
         return 0;
     }
-    
+
     // 写入VTK文件头
     fprintf(fo, "# vtk DataFile Version 3.0\n");
     fprintf(fo, "Phase Field Simulation\n");
     fprintf(fo, "ASCII\n");
     fprintf(fo, "DATASET STRUCTURED_POINTS\n");
-    
+
     if (Ny == 2) {
         // 2D case: DIMENSIONS Nx 1 Nz
         fprintf(fo, "DIMENSIONS %d %d %d\n", Nx, 1, Nz);
@@ -66,16 +135,16 @@ static inline int write_vtk_cuda(const double *d_field,
         fprintf(fo, "ORIGIN 0 0 0\n");
         fprintf(fo, "POINT_DATA %d\n", Nx * Ny * Nz);
     }
-    
+
     fprintf(fo, "SCALARS %s double 1\n", field_name);
     fprintf(fo, "LOOKUP_TABLE default\n");
-    
+
     // 重新排列数据为VTK格式（z-y-x顺序）
     // GPU数据存储：cuFFT布局是Z轴最快（最内层），然后是Y轴，最后是X轴
     // 索引映射：idx = i * (Ny * Nz) + j * Nz + k
     // VTK需要：z-y-x顺序输出（z最外层，y中间，x最内层）
     // 输出顺序：for k, for j, for i，读取h_field[i * (Ny * Nz) + j * Nz + k]
-    
+
     if (Ny == 2) {
         // 2D模式：只输出j=0层
         for (int k = 0; k < Nz; k++) {      // z (outermost)
@@ -99,11 +168,11 @@ static inline int write_vtk_cuda(const double *d_field,
             }
         }
     }
-    
+
     fprintf(fo, "\n");
     fclose(fo);
     free(h_field);
-    
+
     return 1;
 }
 

@@ -1,6 +1,6 @@
 /**
  * 第二阶段：CUDA Kernel实现
- * 
+ *
  * 实现的核心kernel：
  * 1. 去混叠kernel（2/3规则）
  * 2. 相场方程RHS计算kernel
@@ -13,9 +13,16 @@
 #include "cuda_kernels.h"
 #include "pf_params.h"
 #include "phase_functions.h"
+#include "phase_kkt_utils.h"
 #include "thermo_utils.h"
+#include "ctot_transport_bound_utils.h"
 #include <cufft.h>
 #include <cuComplex.h>
+
+void sync_thermo_runtime_flag_cuda_kernels(int enabled) {
+    CUDA_CHECK(cudaMemcpyToSymbol(d_thermo_convex_extrapolation_enabled,
+                                  &enabled, sizeof(int)));
+}
 
 // 与 main_cuda.cu / CPU 版本保持一致的辅助函数：限制 xB 在 [eps, 1-eps] 区间
 __host__ __device__ static inline double clamp_eps(double v, double eps) {
@@ -39,6 +46,8 @@ __device__ static inline double stabilized_meff(double Dm, double gamma) {
 
 // 前置声明：gpu_reduce_sum 在后部实现，这里先声明以供前面函数使用
 double gpu_reduce_sum(const double *d_array, int n);
+void gpu_reduce_sum_to_device(const double *d_array, int n,
+                              double *d_result);
 
 __device__ static inline double atomicMaxAbsDouble(double *address, double value_abs) {
     unsigned long long int *address_as_ull = (unsigned long long int*)address;
@@ -108,23 +117,23 @@ __global__ void dealias_23_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 计算三维索引
     int k = idx % NzC;
     int remainder = idx / NzC;
     int j = remainder % Ny;
     int i = remainder / Ny;
-    
+
     const double k_max_factor = 2.0 / 3.0;
     const double kx_max = M_PI * k_max_factor / dx;
     const double ky_max = M_PI * k_max_factor / dy;
     const double kz_max = M_PI * k_max_factor / dz;
-    
+
     // 计算k向量
     double kx = kx_wrap(i, Nx, dx);
     double ky = ky_wrap(j, Ny, dy);
     double kz = kz_wrap(k, Nz, dz);
-    
+
     // 如果超出2/3截断范围，置零
     if (fabs(kx) >= kx_max || fabs(ky) >= ky_max || fabs(kz) >= kz_max) {
         f_k[idx] = make_cuDoubleComplex(0.0, 0.0);
@@ -201,10 +210,10 @@ void eigenstrain_phi_xB_point(
 {
     double h   = h_of_phi(phi);
     double xB_c = clamp01(xB);
-    
+
     // 化学体积膨胀：ε^c(x_B) = x_B * (ε_iso / v_B)
     double eps_c = xB_c * eps_iso_over_vB;
-    
+
     // stress-free transformation strain：只在析出相（φ→1）启动
     double eps_xx00_d = (double)eps_xx00;
     double eps_yy00_d = (double)eps_yy00;
@@ -212,17 +221,17 @@ void eigenstrain_phi_xB_point(
     double eps_yz00_d = (double)eps_yz00;
     double eps_xz00_d = (double)eps_xz00;
     double eps_xy00_d = (double)eps_xy00;
-    
+
     // 总 eigenstrain: ε^0_ij = (1-h) ε^c δ_ij + h ε^00_ij
     double one_minus_h = 1.0 - h;
-    
+
     double eps_xx0 = one_minus_h * eps_c + h * eps_xx00_d;
     double eps_yy0 = one_minus_h * eps_c + h * eps_yy00_d;
     double eps_zz0 = one_minus_h * eps_c + h * eps_zz00_d;
     double eps_yz0 =                       h * eps_yz00_d;
     double eps_xz0 =                       h * eps_xz00_d;
     double eps_xy0 =                       h * eps_xy00_d;
-    
+
     // 写回 float（与原先 kernel 一致）
     eps_xx0_f = (float)eps_xx0;
     eps_yy0_f = (float)eps_yy0;
@@ -374,7 +383,7 @@ void eigenstrain_phi_only_point(
     double eps_yz00_d = (double)eps_yz00;
     double eps_xz00_d = (double)eps_xz00;
     double eps_xy00_d = (double)eps_xy00;
-    
+
     eps_xx0_f = (float)(h * eps_xx00_d);
     eps_yy0_f = (float)(h * eps_yy00_d);
     eps_zz0_f = (float)(h * eps_zz00_d);
@@ -433,13 +442,13 @@ __global__ void compute_phi_rhs_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double phi = phi_r[idx];
     double hp  = h_prime_of_phi(phi);
     double gp  = g_prime_of_phi(phi);
     double h   = h_of_phi(phi);
     double eta = eta_r ? clamp01(eta_r[idx]) : 0.0;
-    
+
     double xB  = clamp01(xB_r[idx]);
 
     // double-well driving is always kept
@@ -472,7 +481,7 @@ __global__ void compute_phi_rhs_kernel(
         double sigma_xy = (double)sigma_xy_r[idx];
         double sigma_xz = (double)sigma_xz_r[idx];
         double sigma_yz = (double)sigma_yz_r[idx];
-    
+
         double eps_c = xB * eps_iso_over_vB;
         double eps_c_prime = eps_iso_over_vB;
         double diag_iso_term = -eps_c + eps_c_prime * (xB - v_B);
@@ -483,7 +492,7 @@ __global__ void compute_phi_rhs_kernel(
         double d_eps_xy0_dphi = hp * eps_xy00;
         double d_eps_xz0_dphi = hp * eps_xz00;
         double d_eps_yz0_dphi = hp * eps_yz00;
-    
+
         double dgel_eigen =
             -( sigma_xx * d_eps_xx0_dphi
              + sigma_yy * d_eps_yy0_dphi
@@ -504,7 +513,7 @@ __global__ void compute_phi_rhs_kernel(
             eps_iso_over_vB,
             eps_xx0_f, eps_yy0_f, eps_zz0_f,
             eps_xy0_f, eps_xz0_f, eps_yz0_f);
-        
+
         double exx_el = (double)uxx_r[idx] - (double)eps_xx0_f;
         double eyy_el = (double)uyy_r[idx] - (double)eps_yy0_f;
         double ezz_el = (double)uzz_r[idx] - (double)eps_zz0_f;
@@ -763,13 +772,13 @@ __global__ void phi_semi_implicit_update_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double L_dt = L_phi * dt;
     double denom = 1.0 + L_dt * kappa_phi * k2[idx];
-    
+
     cuDoubleComplex phi_old = phi_k_old[idx];
     cuDoubleComplex rhs = rhs_k[idx];
-    
+
     // phi_k_new = (phi_k_old - L_dt * rhs_k) / denom
     cuDoubleComplex numerator = cuCsub(phi_old, cuCmul(make_cuDoubleComplex(L_dt, 0.0), rhs));
     phi_k_new[idx] = cuCdiv(numerator, make_cuDoubleComplex(denom, 0.0));
@@ -1008,9 +1017,9 @@ __global__ void phi_normalize_and_clamp_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     phi_r[idx] *= invN;
-    
+
     // 截断到合理范围
     if (phi_r[idx] < -1e-6) phi_r[idx] = -1e-6;
     if (phi_r[idx] > 1.0 + 1e-6) phi_r[idx] = 1.0 + 1e-6;
@@ -1219,7 +1228,7 @@ __global__ void compute_mu_x_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 从logit转换为xB
     double Y = Y_r[idx];
     double xB = sigmoid_from_logit(Y, Y_clip, xB_eps);
@@ -1227,12 +1236,12 @@ __global__ void compute_mu_x_kernel(
 
     double phi = phi_r[idx];
     double h   = h_of_phi(phi);
-    
+
     double muA = mu_A_dimless(xB, temperature_K, mu_reference_scale);
     double muB = mu_B_dimless(xB, temperature_K, mu_reference_scale);
     double c_bulk = c_xB_phi(xB, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
     double mu_total = mu_tot_mix(muA, muB, xB, mu0_compound, h);
-    
+
     double mu_x_val = c_bulk * (muB - muA - c_bulk * mu_total * dVm_alpha_dxB);
 
 
@@ -1382,15 +1391,15 @@ __global__ void compute_delta_mu_r_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double xB = clamp01(xB_r[idx]);
     double muA = mu_A_dimless(xB, temperature_K, mu_reference_scale);
     double muB = mu_B_dimless(xB, temperature_K, mu_reference_scale);
-    
+
     // delta_mu = mu0_compound - v_A * muA - v_B * muB - elastic_shift_dimless
     // 统一约定：输入的 elastic_shift_dimless 作为要减去的弹性 shift
     double delta_mu = mu0_compound - v_A * muA - v_B * muB - elastic_shift_dimless;
-    
+
     delta_mu_r[idx] = delta_mu;
 }
 
@@ -1437,33 +1446,33 @@ __global__ void compute_f_phi_chem_dgel_dphi_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double phi = phi_r[idx];
     double hp  = h_prime_of_phi(phi);
     double gp  = g_prime_of_phi(phi);
     double h   = h_of_phi(phi);
-    
+
     double xB  = clamp01(xB_r[idx]);
     double muA = mu_A_dimless(xB, temperature_K, mu_reference_scale);
     double muB = mu_B_dimless(xB, temperature_K, mu_reference_scale);
-    
+
     // delta_mu = mu0_compound - v_A * muA - v_B * muB - elastic_shift_dimless
     // 统一约定：输入的 elastic_shift_dimless 作为要减去的弹性 shift
     double delta_mu = mu0_compound - v_A * muA - v_B * muB - elastic_shift_dimless;
-    
+
     double c_bulk = c_xB_phi(xB, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
     double mu_total = mu_tot_mix(muA, muB, xB, mu0_compound, h);
     double Vm_alpha = Vm_alpha_of_xB(xB, Vm_alpha_0, dVm_alpha_dxB);
     double volume_term = Vm_compound - Vm_alpha + dVm_alpha_dxB * (xB - v_B);
-    
+
     double partial_g_bulk = c_bulk * hp * (delta_mu - c_bulk * mu_total * volume_term);
     double f_phi_dw = W * gp;
     double f_phi_chem = partial_g_bulk + f_phi_dw;
-    
+
     f_phi_chem_r[idx] = f_phi_chem;
     if (f_phi_dw_r)   f_phi_dw_r[idx] = f_phi_dw;
     if (f_phi_bulk_r) f_phi_bulk_r[idx] = partial_g_bulk;
-    
+
     // 计算弹性驱动力 dgel/dphi = dgel_eigen + dgel_C
     double dgel_dphi = 0.0;
     if (elastic_enabled) {
@@ -1473,7 +1482,7 @@ __global__ void compute_f_phi_chem_dgel_dphi_kernel(
         double sigma_xy = (double)sigma_xy_r[idx];
         double sigma_xz = (double)sigma_xz_r[idx];
         double sigma_yz = (double)sigma_yz_r[idx];
-    
+
         double eps_c = xB * eps_iso_over_vB;
         double eps_c_prime = eps_iso_over_vB;
         double diag_iso_term = -eps_c + eps_c_prime * (xB - v_B);
@@ -1484,7 +1493,7 @@ __global__ void compute_f_phi_chem_dgel_dphi_kernel(
         double d_eps_xy0_dphi = hp * eps_xy00;
         double d_eps_xz0_dphi = hp * eps_xz00;
         double d_eps_yz0_dphi = hp * eps_yz00;
-    
+
         double dgel_eigen =
             -( sigma_xx * d_eps_xx0_dphi
              + sigma_yy * d_eps_yy0_dphi
@@ -1854,20 +1863,20 @@ __global__ void compute_gradient_k_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 计算三维索引
     int k = idx % NzC;
     int remainder = idx / NzC;
     int j = remainder % Ny;
     int i = remainder / Ny;
-    
+
     double kx = kx_wrap(i, Nx, dx);
     double ky = ky_wrap(j, Ny, dy);
     double kz = kz_wrap(k, Nz, dz);
-    
+
     cuDoubleComplex f = f_k[idx];
     cuDoubleComplex I_k = make_cuDoubleComplex(0.0, 1.0);
-    
+
     grad_x_k[idx] = cuCmul(I_k, cuCmul(make_cuDoubleComplex(kx, 0.0), f));
     grad_y_k[idx] = cuCmul(I_k, cuCmul(make_cuDoubleComplex(ky, 0.0), f));
     grad_z_k[idx] = cuCmul(I_k, cuCmul(make_cuDoubleComplex(kz, 0.0), f));
@@ -1897,18 +1906,18 @@ __global__ void compute_flux_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double phi = phi_r[idx];
     double h = h_of_phi(phi);
     double xB0 = xB_prev_r[idx];
-    
+
     // 计算混合扩散系数和热力学因子
     double Dm = D_mix(h, D_alpha, D_compound);
-    double G = gamma_thermo_nonlinear(xB0, h, Vm_alpha_0, dVm_alpha_dxB, 
+    double G = gamma_thermo_nonlinear(xB0, h, Vm_alpha_0, dVm_alpha_dxB,
                                       Vm_compound, temperature_K, mu_reference_scale);
-    
+
     double Meff = stabilized_meff(Dm, G);
-    
+
     Jx_r[idx] = Meff * grad_mu_x_r[idx];
     Jy_r[idx] = Meff * grad_mu_y_r[idx];
     Jz_r[idx] = Meff * grad_mu_z_r[idx];
@@ -1940,7 +1949,7 @@ __global__ void compute_flux_single_component_kernel(
     double G = gamma_thermo_nonlinear(xB0, h, Vm_alpha_0, dVm_alpha_dxB,
                                       Vm_compound, temperature_K, mu_reference_scale);
     double Meff = stabilized_meff(Dm, G);
-    
+
     J_alpha_r[idx] = Meff * grad_mu_alpha_r[idx];
 }
 
@@ -2091,23 +2100,23 @@ __global__ void compute_divergence_k_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 计算三维索引
     int k = idx % NzC;
     int remainder = idx / NzC;
     int j = remainder % Ny;
     int i = remainder / Ny;
-    
+
     double kx = kx_wrap(i, Nx, dx);
     double ky = ky_wrap(j, Ny, dy);
     double kz = kz_wrap(k, Nz, dz);
-    
+
     cuDoubleComplex I_k = make_cuDoubleComplex(0.0, 1.0);
-    
+
     cuDoubleComplex term_x = cuCmul(I_k, cuCmul(make_cuDoubleComplex(kx, 0.0), Jx_k[idx]));
     cuDoubleComplex term_y = cuCmul(I_k, cuCmul(make_cuDoubleComplex(ky, 0.0), Jy_k[idx]));
     cuDoubleComplex term_z = cuCmul(I_k, cuCmul(make_cuDoubleComplex(kz, 0.0), Jz_k[idx]));
-    
+
     divJ_k[idx] = cuCadd(cuCadd(term_x, term_y), term_z);
 }
 
@@ -2134,13 +2143,13 @@ __global__ void compute_Y_rhs_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double phi_new = phi_r[idx];
     double phi_old = phi_prev[idx];
     double h_new = h_of_phi(phi_new);
     double h_old = h_of_phi(phi_old);
     double dh_dt = (h_new - h_old) / dt;
-    
+
     // 从 Y 稳定地计算 xB 与 logistic 导数，避免直接 exp(±Y) 带来的溢出
     double Y_val = Y_r[idx];
     double xB;
@@ -2163,10 +2172,10 @@ __global__ void compute_Y_rhs_kernel(
         dY_dt = dY_dt_prev[idx];
     }
     double term_gamma = disable_gamma_term ? 0.0 : (gamma_local * dY_dt);
-    
+
     double lapY = lapY_r[idx];
     double term_lap = mean_DY * lapY;
-    
+
     double S_term = -term_h - term_lap - term_gamma;
     rhs_r[idx] = divJ_r[idx] + S_term;
 
@@ -2376,12 +2385,12 @@ __global__ void Y_semi_implicit_update_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double denom = 1.0 + dt * mean_DY * k2[idx];
-    
+
     cuDoubleComplex Y_old = Y_k_old[idx];
     cuDoubleComplex rhs = rhs_k[idx];
-    
+
     // Y_k_new = (Y_k_old + dt * rhs_k) / denom
     cuDoubleComplex numerator = cuCadd(Y_old, cuCmul(make_cuDoubleComplex(dt, 0.0), rhs));
     Y_k_new[idx] = cuCdiv(numerator, make_cuDoubleComplex(denom, 0.0));
@@ -2402,12 +2411,12 @@ __global__ void Y_normalize_and_clamp_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double Y_new = Y_r[idx] * invN;
-    
+
     if (Y_new > Y_upper_cap) Y_new = Y_upper_cap;
     if (Y_new < -Y_clip) Y_new = -Y_clip;
-    
+
     Y_r[idx] = Y_new;
     xB_r[idx] = sigmoid_from_logit(Y_new, Y_clip, xB_eps);
 }
@@ -3126,6 +3135,813 @@ __global__ void constrain_phase_and_reconstruct_conservative_kernel(
     Y_r[idx] = logit_from_fraction(x, xB_eps, Y_clip);
 }
 
+__global__ void compute_ctot_from_phi_x_kernel(
+    const double *phi_r, const double *xB_r, double *ctot_r,
+    double v_B, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(phi_r[idx]);
+    ctot_r[idx] = (1.0 - h) * xB_r[idx] + h * v_B;
+}
+
+__global__ void reconstruct_x_q_Y_from_ctot_kernel(
+    const double *ctot_r, const double *phi_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double x_inactive_context,
+    double v_B, double matrix_support_eps, double xB_eps, double Y_clip,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double C = ctot_r[idx];
+    const double h = h_of_phi(phi_r[idx]);
+    const double alpha = 1.0 - h;
+    const double q = C - h * v_B;
+    q_alpha_r[idx] = q;
+    if (alpha > matrix_support_eps) {
+        const double x = q / alpha;
+        active_matrix_mask_r[idx] = 1.0;
+        xB_context_r[idx] = x;
+        if (isfinite(x) && x > 0.0 && x < 1.0) {
+            Y_r[idx] = log(x / (1.0 - x));
+        } else {
+            Y_r[idx] = NAN;
+            if (stats) atomicAdd(&stats[CTOT_AUDIT_NONFINITE_COUNT], 1.0);
+        }
+    } else {
+        active_matrix_mask_r[idx] = 0.0;
+        xB_context_r[idx] = x_inactive_context;
+        Y_r[idx] = logit_from_fraction(x_inactive_context, xB_eps, Y_clip);
+    }
+}
+
+__global__ void reconstruct_x_q_Y_from_ctot_bound_aware_kernel(
+    const double *ctot_r, const double *phi_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double x_inactive_context,
+    double v_B, double matrix_support_eps, double xB_context_eps,
+    double Y_safety_cap, double bound_tol, double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double C = ctot_r[idx];
+    const double h = phase_kkt_h_stable(phi_r[idx]);
+    const double alpha = phase_kkt_alpha(phi_r[idx]);
+    const double q = phase_kkt_q_from_ctot(phi_r[idx], C, v_B);
+    q_alpha_r[idx] = q;
+    int context_normalized = 0;
+    double context_normalization_defect = 0.0;
+    const double q_context = ctot_storage_context_q_ulp64(
+        q, alpha, C, v_B, &context_normalized,
+        &context_normalization_defect);
+    if (!isfinite(C) || !isfinite(h) || !isfinite(alpha) || !isfinite(q) ||
+        !isfinite(q_context) || alpha < 0.0 || alpha > 1.0) {
+        xB_context_r[idx] = NAN;
+        Y_r[idx] = NAN;
+        active_matrix_mask_r[idx] = 0.0;
+        if (stats) {
+            if (!isfinite(C) || !isfinite(h) || !isfinite(alpha) ||
+                !isfinite(q))
+                atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+            else
+                atomicAdd(&stats[CTOT_TRANSPORT_BOUND_VIOLATION_COUNT], 1.0);
+        }
+        return;
+    }
+    if (stats && context_normalized) {
+        atomicAdd(
+            &stats[CTOT_TRANSPORT_CONTEXT_ULP_NORMALIZATION_COUNT], 1.0);
+        atomicMaxDouble(
+            &stats[CTOT_TRANSPORT_CONTEXT_ULP_MAX_DEFECT],
+            context_normalization_defect);
+    }
+    if (stats) {
+        const double margin = fmin(q, alpha - q);
+        atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_C_MARGIN], margin);
+        atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_Q_MARGIN], margin);
+    }
+    if (alpha > matrix_support_eps) {
+        const double x = q_context / alpha;
+        xB_context_r[idx] = x;
+        Y_r[idx] = ctot_transport_logit_context(
+            x, xB_context_eps, Y_safety_cap);
+        active_matrix_mask_r[idx] = 1.0;
+        if (stats) {
+            atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_X_ACTIVE], x);
+            atomicMaxDouble(&stats[CTOT_TRANSPORT_MAX_X_ACTIVE], x);
+            if (q_context <= bound_tol)
+                atomicAdd(&stats[CTOT_TRANSPORT_LOWER_ACTIVE_COUNT], 1.0);
+            else if (alpha - q_context <= bound_tol)
+                atomicAdd(&stats[CTOT_TRANSPORT_UPPER_ACTIVE_COUNT], 1.0);
+        }
+    } else {
+        xB_context_r[idx] = x_inactive_context;
+        Y_r[idx] = ctot_transport_logit_context(
+            x_inactive_context, xB_context_eps, Y_safety_cap);
+        active_matrix_mask_r[idx] = 0.0;
+        if (stats)
+            atomicAdd(&stats[CTOT_TRANSPORT_INACTIVE_SUPPORT_COUNT], 1.0);
+    }
+}
+
+__global__ void compute_ctot_from_Y_kernel(
+    const double *phi_r, const double *Y_r, double *ctot_r,
+    double v_B, double xB_eps, double Y_clip, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(phi_r[idx]);
+    const double x = sigmoid_from_logit(Y_r[idx], Y_clip, xB_eps);
+    ctot_r[idx] = (1.0 - h) * x + h * v_B;
+}
+
+__global__ void audit_ctot_admissibility_kernel(
+    const double *ctot_r, const double *phi_r, const double *xB_context_r,
+    const double *q_alpha_r, const double *active_matrix_mask_r,
+    double v_B, double matrix_support_eps, double bound_tol,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double C = ctot_r[idx];
+    const double h = h_of_phi(phi_r[idx]);
+    const double alpha = 1.0 - h;
+    const double q = q_alpha_r[idx];
+    const double lo = h * v_B;
+    const double hi = lo + alpha;
+    if (!isfinite(C) || !isfinite(h) || !isfinite(q)) {
+        atomicAdd(&stats[CTOT_AUDIT_NONFINITE_COUNT], 1.0);
+        return;
+    }
+    const double c_margin = fmin(C - lo, hi - C);
+    const double q_margin = fmin(q, alpha - q);
+    atomicMinDouble(&stats[CTOT_AUDIT_MIN_C_MARGIN], c_margin);
+    atomicMinDouble(&stats[CTOT_AUDIT_MIN_Q_MARGIN], q_margin);
+    atomicAdd(&stats[CTOT_AUDIT_TOTAL_C_MASS], C);
+    if (c_margin < -bound_tol || q_margin < -bound_tol) {
+        atomicAdd(&stats[CTOT_AUDIT_BOUND_VIOLATION_COUNT], 1.0);
+    }
+    const bool active = alpha > matrix_support_eps && active_matrix_mask_r[idx] > 0.5;
+    if (active) {
+        const double x = xB_context_r[idx];
+        atomicAdd(&stats[CTOT_AUDIT_ACTIVE_COUNT], 1.0);
+        if (!isfinite(x)) {
+            atomicAdd(&stats[CTOT_AUDIT_NONFINITE_COUNT], 1.0);
+        } else {
+            atomicMinDouble(&stats[CTOT_AUDIT_MIN_ACTIVE_X], x);
+            atomicMaxDouble(&stats[CTOT_AUDIT_MAX_ACTIVE_X], x);
+            if (x > X_LIMIT_CONVEX) {
+                atomicAdd(&stats[CTOT_AUDIT_EXTENSION_CELL_COUNT], 1.0);
+                atomicAdd(&stats[CTOT_AUDIT_EXTENSION_C_MASS], C);
+            }
+        }
+    } else {
+        atomicAdd(&stats[CTOT_AUDIT_INACTIVE_COUNT], 1.0);
+    }
+    atomicMaxAbsDouble(&stats[CTOT_AUDIT_MAXABS_ROUNDTRIP],
+                       fabs((q + h * v_B) - C));
+}
+
+__global__ void phi_normalize_project_ctot_kernel(
+    double *phi_trial_ifft_r, const double *phi_old_r, const double *ctot_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double invN, double x_inactive_context,
+    double v_B, double x_min, double x_max, double matrix_support_eps,
+    double xB_eps, double Y_clip, double bound_tol,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double raw_phi = phi_trial_ifft_r[idx] * invN;
+    const double old_phi = phi_old_r[idx];
+    const double C = ctot_r[idx];
+    if (!isfinite(raw_phi) || !isfinite(old_phi) || !isfinite(C)) {
+        atomicAdd(&stats[CTOT_PHASE_NONFINITE_COUNT], 1.0);
+        phi_trial_ifft_r[idx] = old_phi;
+        return;
+    }
+    double h_min = 0.0;
+    double h_max = 1.0;
+    if (v_B > x_max) h_min = fmax(0.0, (C - x_max) / (v_B - x_max));
+    if (v_B > x_min) h_max = fmin(1.0, (C - x_min) / (v_B - x_min));
+    h_min = fmax(0.0, fmin(1.0, h_min));
+    h_max = fmax(0.0, fmin(1.0, h_max));
+    if (!isfinite(h_min) || !isfinite(h_max) || h_min > h_max + bound_tol) {
+        atomicAdd(&stats[CTOT_PHASE_BOUND_VIOLATION_COUNT], 1.0);
+        phi_trial_ifft_r[idx] = old_phi;
+        return;
+    }
+    const double phi_min = h_inverse_bisection_device(h_min);
+    const double phi_max = h_inverse_bisection_device(h_max);
+    const double phi_new = fmin(fmax(raw_phi, phi_min), phi_max);
+    const double projection = phi_new - raw_phi;
+    const double raw_violation = fmax(phi_min - raw_phi, raw_phi - phi_max);
+    if (raw_phi < phi_min) atomicAdd(&stats[CTOT_PHASE_LOWER_ACTIVE_COUNT], 1.0);
+    else if (raw_phi > phi_max) atomicAdd(&stats[CTOT_PHASE_UPPER_ACTIVE_COUNT], 1.0);
+    else atomicAdd(&stats[CTOT_PHASE_INTERIOR_COUNT], 1.0);
+    atomicMaxAbsDouble(&stats[CTOT_PHASE_MAX_PROJECTION], fabs(projection));
+    atomicMaxAbsDouble(&stats[CTOT_PHASE_MAX_RAW_VIOLATION], fmax(raw_violation, 0.0));
+
+    const double h_old = h_of_phi(old_phi);
+    const double h_new = h_of_phi(phi_new);
+    const double alpha = 1.0 - h_new;
+    const double q_old = C - h_old * v_B;
+    const double q_new = C - h_new * v_B;
+    const double storage_residual =
+        q_new - q_old + (h_new - h_old) * v_B;
+    const double lo = h_new * v_B;
+    const double hi = lo + alpha;
+    const double c_margin = fmin(C - lo, hi - C);
+    const double q_margin = fmin(q_new, alpha - q_new);
+    double projected_kkt_residual = fabs(phi_new - raw_phi);
+    if (phi_new <= phi_min + bound_tol) {
+        projected_kkt_residual = fmax(raw_phi - phi_min, 0.0);
+    } else if (phi_new >= phi_max - bound_tol) {
+        projected_kkt_residual = fmax(phi_max - raw_phi, 0.0);
+    }
+    atomicMaxAbsDouble(&stats[CTOT_PHASE_MAX_STORAGE_RESIDUAL],
+                       fabs(storage_residual));
+    atomicMaxAbsDouble(&stats[CTOT_PHASE_MAX_PROJECTED_KKT_RESIDUAL],
+                       projected_kkt_residual);
+    atomicMinDouble(&stats[CTOT_PHASE_MIN_C_MARGIN], c_margin);
+    atomicMinDouble(&stats[CTOT_PHASE_MIN_Q_MARGIN], q_margin);
+    if (c_margin < -bound_tol || q_margin < -bound_tol) {
+        atomicAdd(&stats[CTOT_PHASE_BOUND_VIOLATION_COUNT], 1.0);
+    }
+
+    phi_trial_ifft_r[idx] = phi_new;
+    q_alpha_r[idx] = q_new;
+    if (alpha > matrix_support_eps) {
+        const double x = q_new / alpha;
+        active_matrix_mask_r[idx] = 1.0;
+        xB_context_r[idx] = x;
+        if (!isfinite(x) || x <= 0.0 || x >= 1.0) {
+            atomicAdd(&stats[CTOT_PHASE_NONFINITE_COUNT], 1.0);
+            Y_r[idx] = NAN;
+        } else {
+            Y_r[idx] = log(x / (1.0 - x));
+        }
+    } else {
+        active_matrix_mask_r[idx] = 0.0;
+        xB_context_r[idx] = x_inactive_context;
+        Y_r[idx] = logit_from_fraction(x_inactive_context, xB_eps, Y_clip);
+    }
+}
+
+__global__ void ctot_candidate_state_from_Y_kernel(
+    const double *Y_r, const double *phi_r, const double *ctot_old_r,
+    double *ctot_trial_r, double *xB_context_r, double *q_alpha_r,
+    double *active_matrix_mask_r, double x_inactive_context, double v_B,
+    double matrix_support_eps, double Y_safety_cap, double bound_tol,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(phi_r[idx]);
+    const double alpha = 1.0 - h;
+    double C = ctot_old_r[idx];
+    double q = C - h * v_B;
+    double x = x_inactive_context;
+    if (alpha > matrix_support_eps) {
+        const double Y = Y_r[idx];
+        if (!isfinite(Y)) {
+            atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+        } else if (fabs(Y) >= Y_safety_cap) {
+            atomicAdd(&stats[CTOT_TRANSPORT_Y_CAP_COUNT], 1.0);
+        }
+        x = sigmoid_from_logit_unclipped_local(Y);
+        q = alpha * x;
+        C = h * v_B + q;
+        active_matrix_mask_r[idx] = 1.0;
+        atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_X_ACTIVE], x);
+        atomicMaxDouble(&stats[CTOT_TRANSPORT_MAX_X_ACTIVE], x);
+    } else {
+        active_matrix_mask_r[idx] = 0.0;
+    }
+    const double lo = h * v_B;
+    const double hi = lo + alpha;
+    const double c_margin = fmin(C - lo, hi - C);
+    const double q_margin = fmin(q, alpha - q);
+    atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_C_MARGIN], c_margin);
+    atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_Q_MARGIN], q_margin);
+    if (!isfinite(C) || !isfinite(q) || !isfinite(x)) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+    }
+    if (c_margin < -bound_tol || q_margin < -bound_tol) {
+        atomicAdd(&stats[CTOT_TRANSPORT_BOUND_VIOLATION_COUNT], 1.0);
+    }
+    ctot_trial_r[idx] = C;
+    q_alpha_r[idx] = q;
+    xB_context_r[idx] = x;
+}
+
+__global__ void compute_mu_x_from_xB_candidate_kernel(
+    const double *phi_r, const double *xB_r, double *mu_x_r,
+    double temperature_K, double mu_reference_scale,
+    double v_A, double v_B, double mu0_compound,
+    double Vm_compound, double Vm_alpha_0, double dVm_alpha_dxB,
+    const float *sigma_xx_r, const float *sigma_yy_r,
+    const float *sigma_zz_r, double eps_iso_over_vB,
+    int total_size, int elastic_enabled, double *stats)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double xB = xB_r[idx];
+    const double h = h_of_phi(phi_r[idx]);
+    // Exact endpoint x is allowed only as a derived thermodynamic context for
+    // an authoritative bound-active Ctot state. The free-energy backend already
+    // supplies its documented finite endpoint evaluation; no Ctot is clipped.
+    if (!isfinite(xB) || xB < 0.0 || xB > 1.0) {
+        if (stats) atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+        mu_x_r[idx] = NAN;
+        return;
+    }
+    const double muA = mu_A_dimless(xB, temperature_K, mu_reference_scale);
+    const double muB = mu_B_dimless(xB, temperature_K, mu_reference_scale);
+    const double c_bulk = c_xB_phi(
+        xB, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);
+    const double mu_total = mu_tot_mix(muA, muB, xB, mu0_compound, h);
+    double mu = c_bulk *
+        (muB - muA - c_bulk * mu_total * dVm_alpha_dxB);
+    if (elastic_enabled) {
+        mu += -eps_iso_over_vB *
+            ((double)sigma_xx_r[idx] + (double)sigma_yy_r[idx] +
+             (double)sigma_zz_r[idx]);
+    }
+    if (!isfinite(mu) && stats) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+    }
+    mu_x_r[idx] = mu;
+}
+
+__global__ void compute_flux_single_component_ctot_candidate_kernel(
+    const double *grad_mu_alpha_r, const double *phi_r,
+    const double *xB_context_r, double *J_alpha_r, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale, double matrix_support_eps,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(phi_r[idx]);
+    const double M = matrix_capacity_mobility_candidate(
+        h, xB_context_r[idx], D_alpha, Vm_alpha_0, dVm_alpha_dxB,
+        Vm_compound, temperature_K, mu_reference_scale, matrix_support_eps);
+    if (!isfinite(M) || M < 0.0) {
+        atomicAdd(&stats[CTOT_TRANSPORT_MOBILITY_FAILURE_COUNT], 1.0);
+        J_alpha_r[idx] = NAN;
+        return;
+    }
+    atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_M], M);
+    atomicMaxDouble(&stats[CTOT_TRANSPORT_MAX_M], M);
+    atomicAdd(&stats[CTOT_TRANSPORT_DISSIPATION_SUM],
+              M * grad_mu_alpha_r[idx] * grad_mu_alpha_r[idx]);
+    J_alpha_r[idx] = M * grad_mu_alpha_r[idx];
+    if (!isfinite(J_alpha_r[idx])) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+    }
+}
+
+__global__ void compute_ctot_be_residual_kernel(
+    const double *ctot_trial_r, const double *ctot_old_r,
+    const double *divJ_r, double dt, double *residual_r, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    residual_r[idx] = ctot_trial_r[idx] - ctot_old_r[idx] - dt * divJ_r[idx];
+}
+
+__global__ void ctot_deterministic_residual_reduction_kernel(
+    const double *residual_r, double *result_r, int total_size)
+{
+    if (blockIdx.x != 0 || threadIdx.x != 0) return;
+    double max_abs = 0.0;
+    double sum = 0.0;
+    double sumsq = 0.0;
+    int worst_idx = 0;
+    for (int idx = 0; idx < total_size; ++idx) {
+        const double value = residual_r[idx];
+        const double abs_value = fabs(value);
+        sum += value;
+        sumsq += value * value;
+        if (abs_value > max_abs) {
+            max_abs = abs_value;
+            worst_idx = idx;
+        }
+    }
+    result_r[0] = max_abs;
+    result_r[1] = sum;
+    result_r[2] = sumsq;
+    result_r[3] = (double)worst_idx;
+}
+
+__global__ void ctot_outer_convex_blend_kernel(
+    const double *previous_r, const double *candidate_r,
+    double *blended_r, double omega, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    blended_r[idx] = ctot_outer_convex_blend(
+        previous_r[idx], candidate_r[idx], omega);
+}
+
+__global__ void ctot_outer_local_phase_feasibility_filter_kernel(
+    const double *previous_r, const double *candidate_r,
+    const double *ctot_old_r, const double *ctot_current_r,
+    const double *divJ_r,
+    double *filtered_r, double dt, double v_B,
+    double *filter_stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double previous = previous_r[idx];
+    const double candidate = candidate_r[idx];
+    const double C_current = ctot_current_r[idx];
+    const double C_be_target = ctot_old_r[idx] + dt * divJ_r[idx];
+    const double C_target = fmin(C_be_target, C_current);
+    if (!isfinite(previous) || !isfinite(candidate) ||
+        !isfinite(C_current) || !isfinite(C_be_target) ||
+        !isfinite(C_target) || !(v_B > 0.0)) {
+        filtered_r[idx] = NAN;
+        if (filter_stats) atomicAdd(&filter_stats[3], 1.0);
+        return;
+    }
+    const double h_target = C_target / v_B;
+    const double h_candidate = phase_kkt_h_stable(candidate);
+    if (h_candidate <= h_target) {
+        filtered_r[idx] = candidate;
+        if (filter_stats) atomicAdd(&filter_stats[0], 1.0);
+        return;
+    }
+    if (h_target < 0.0) {
+        // No phi in [0,1] can satisfy a negative local conserved target.
+        // Fail closed so the whole physical step is rejected and restored.
+        filtered_r[idx] = NAN;
+        if (filter_stats) atomicAdd(&filter_stats[3], 1.0);
+        return;
+    }
+    double filtered = phase_kkt_h_inverse_upper_feasible(h_target);
+    if (filtered > candidate) filtered = candidate;
+    filtered_r[idx] = filtered;
+    if (filter_stats) {
+        // Going below the preceding outer state is a valid coupled predictor:
+        // the final phase state is still required to pass the original PDAS,
+        // BE, energy, and storage gates before any commit.
+        atomicAdd(&filter_stats[filtered < previous ? 2 : 1], 1.0);
+    }
+}
+
+__global__ void apply_ctot_preconditioner_k_kernel(
+    cuDoubleComplex *residual_k, const double *k2,
+    double a_ref, double D_ref, double dt,
+    int Nx, int Ny, int Nz, int NzC, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int k = idx % NzC;
+    const int remainder = idx / NzC;
+    const int j = remainder % Ny;
+    const int i = remainder / Ny;
+    const int retained = ctot_r2c_mode_retained_by_23(
+        i, j, k, Nx, Ny, Nz);
+    const double denom = a_ref + (retained ? dt * D_ref * k2[idx] : 0.0);
+    residual_k[idx].x /= denom;
+    residual_k[idx].y /= denom;
+}
+
+__global__ void ctot_trial_Y_update_kernel(
+    const double *Y_current_r, const double *correction_r,
+    const double *active_matrix_mask_r, double lambda,
+    double *Y_trial_r, double Y_safety_cap,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double trial = active_matrix_mask_r[idx] > 0.5
+        ? Y_current_r[idx] - lambda * correction_r[idx]
+        : Y_current_r[idx];
+    Y_trial_r[idx] = trial;
+    if (!isfinite(trial)) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+    } else if (fabs(trial) >= Y_safety_cap) {
+        atomicAdd(&stats[CTOT_TRANSPORT_Y_CAP_COUNT], 1.0);
+    }
+}
+
+__global__ void ctot_trial_feasible_C_update_kernel(
+    const double *C_current_r, const double *residual_r, const double *phi_r,
+    double lambda, double *C_trial_r, double v_B,
+    double matrix_support_eps, double xB_context_eps, double Y_safety_cap,
+    double active_tol, double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const CtotFeasibleStorageTrial trial = ctot_build_feasible_storage_trial(
+        C_current_r[idx], residual_r[idx],
+        phase_kkt_h_stable(phi_r[idx]), phase_kkt_alpha(phi_r[idx]),
+        lambda, v_B,
+        matrix_support_eps, xB_context_eps, Y_safety_cap, active_tol);
+    C_trial_r[idx] = trial.C;
+    if (trial.context_normalized) {
+        atomicAdd(
+            &stats[CTOT_TRANSPORT_CONTEXT_ULP_NORMALIZATION_COUNT], 1.0);
+        atomicMaxDouble(
+            &stats[CTOT_TRANSPORT_CONTEXT_ULP_MAX_DEFECT],
+            trial.context_normalization_defect);
+    }
+    if (trial.status == CTOT_STORAGE_INVALID) {
+        atomicAdd(&stats[CTOT_TRANSPORT_BOUND_VIOLATION_COUNT], 1.0);
+    } else if (trial.status == CTOT_STORAGE_LOWER_ACTIVE) {
+        atomicAdd(&stats[CTOT_TRANSPORT_LOWER_ACTIVE_COUNT], 1.0);
+    } else if (trial.status == CTOT_STORAGE_UPPER_ACTIVE) {
+        atomicAdd(&stats[CTOT_TRANSPORT_UPPER_ACTIVE_COUNT], 1.0);
+    } else if (trial.status == CTOT_STORAGE_INACTIVE_SUPPORT) {
+        atomicAdd(&stats[CTOT_TRANSPORT_INACTIVE_SUPPORT_COUNT], 1.0);
+    }
+}
+
+__global__ void ctot_build_mass_tangent_direction_kernel(
+    const double *C_current_r, const double *phi_r, double *direction_r,
+    double *free_mask_r, double v_B, double matrix_support_eps,
+    double active_tol, double min_lambda, int initialize_mask, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int was_free = initialize_mask || free_mask_r[idx] > 0.5;
+    const int is_free = was_free && ctot_direction_is_free_in_mass_tangent(
+        C_current_r[idx], phase_kkt_h_stable(phi_r[idx]),
+        phase_kkt_alpha(phi_r[idx]), direction_r[idx], v_B,
+        matrix_support_eps, active_tol, min_lambda);
+    free_mask_r[idx] = is_free ? 1.0 : 0.0;
+    if (!is_free) direction_r[idx] = 0.0;
+}
+
+__global__ void ctot_subtract_free_direction_mean_kernel(
+    double *direction_r, const double *free_mask_r, double mean,
+    int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    if (free_mask_r[idx] > 0.5) direction_r[idx] -= mean;
+}
+
+__global__ void ctot_active_capacity_kernel(
+    const double *Y_r, const double *phi_r,
+    const double *active_matrix_mask_r, double *capacity_r, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    if (active_matrix_mask_r[idx] <= 0.5) {
+        capacity_r[idx] = 0.0;
+        return;
+    }
+    const double x = sigmoid_from_logit_unclipped_local(Y_r[idx]);
+    capacity_r[idx] = phase_kkt_alpha(phi_r[idx]) * x * (1.0 - x);
+}
+
+__global__ void ctot_add_active_Y_shift_kernel(
+    double *Y_r, const double *active_matrix_mask_r, double shift,
+    double Y_safety_cap, double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size || active_matrix_mask_r[idx] <= 0.5) return;
+    const double value = Y_r[idx] + shift;
+    Y_r[idx] = value;
+    if (!isfinite(value)) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+    } else if (fabs(value) >= Y_safety_cap) {
+        atomicAdd(&stats[CTOT_TRANSPORT_Y_CAP_COUNT], 1.0);
+    }
+}
+
+__global__ void ctot_fv_positive_face_flux_kernel(
+    const double *mu_r, const double *phi_r, const double *xB_context_r,
+    double *face_flux_r, int Nx, int Ny, int Nz, int axis, double spacing,
+    double D_alpha, double Vm_alpha_0, double dVm_alpha_dxB,
+    double Vm_compound, double temperature_K, double mu_reference_scale,
+    double matrix_support_eps, double coarse_interface_mobility_a_M,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int k = idx % Nz;
+    const int tmp = idx / Nz;
+    const int j = tmp % Ny;
+    const int i = tmp / Ny;
+    int ip = i, jp = j, kp = k;
+    if (axis == 0) ip = (i + 1) % Nx;
+    else if (axis == 1) jp = (j + 1) % Ny;
+    else kp = (k + 1) % Nz;
+    const int nidx = (ip * Ny + jp) * Nz + kp;
+    const double hi = h_of_phi(phi_r[idx]);
+    const double hj = h_of_phi(phi_r[nidx]);
+    const double Mi = matrix_capacity_mobility_coarse_candidate(
+        hi, xB_context_r[idx], D_alpha,
+        Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale, matrix_support_eps,
+        coarse_interface_mobility_a_M);
+    const double Mj = matrix_capacity_mobility_coarse_candidate(
+        hj, xB_context_r[nidx], D_alpha,
+        Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale, matrix_support_eps,
+        coarse_interface_mobility_a_M);
+    if (!isfinite(Mi) || !isfinite(Mj) || Mi < 0.0 || Mj < 0.0) {
+        atomicAdd(&stats[CTOT_TRANSPORT_MOBILITY_FAILURE_COUNT], 1.0);
+        face_flux_r[idx] = NAN;
+        return;
+    }
+    atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_M], fmin(Mi, Mj));
+    atomicMaxDouble(&stats[CTOT_TRANSPORT_MAX_M], fmax(Mi, Mj));
+    double Mface = 0.0;
+    if (Mi > 0.0 && Mj > 0.0) {
+        Mface = 2.0 * Mi * Mj / (Mi + Mj);
+    } else {
+        atomicAdd(&stats[CTOT_TRANSPORT_ZERO_FACE_COUNT], 1.0);
+    }
+    face_flux_r[idx] = Mface * (mu_r[nidx] - mu_r[idx]) / spacing;
+    const double grad_mu = (mu_r[nidx] - mu_r[idx]) / spacing;
+    atomicAdd(&stats[CTOT_TRANSPORT_DISSIPATION_SUM],
+              Mface * grad_mu * grad_mu);
+    if (!isfinite(face_flux_r[idx])) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+    }
+}
+
+__global__ void ctot_positive_face_flux_from_cell_gradient_kernel(
+    const double *grad_mu_r, const double *mu_r, const double *phi_r,
+    const double *xB_context_r, double *face_flux_r,
+    int Nx, int Ny, int Nz, int axis, double spacing, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale,
+    double matrix_support_eps, double coarse_interface_mobility_a_M,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int k = idx % Nz;
+    const int tmp = idx / Nz;
+    const int j = tmp % Ny;
+    const int i = tmp / Ny;
+    int ip = i, jp = j, kp = k;
+    if (axis == 0) ip = (i + 1) % Nx;
+    else if (axis == 1) jp = (j + 1) % Ny;
+    else kp = (k + 1) % Nz;
+    const int nidx = (ip * Ny + jp) * Nz + kp;
+    const double hi = h_of_phi(phi_r[idx]);
+    const double hj = h_of_phi(phi_r[nidx]);
+    const double Mi = matrix_capacity_mobility_coarse_candidate(
+        hi, xB_context_r[idx], D_alpha,
+        Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale, matrix_support_eps,
+        coarse_interface_mobility_a_M);
+    const double Mj = matrix_capacity_mobility_coarse_candidate(
+        hj, xB_context_r[nidx], D_alpha,
+        Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
+        temperature_K, mu_reference_scale, matrix_support_eps,
+        coarse_interface_mobility_a_M);
+    if (!isfinite(Mi) || !isfinite(Mj) || Mi < 0.0 || Mj < 0.0) {
+        atomicAdd(&stats[CTOT_TRANSPORT_MOBILITY_FAILURE_COUNT], 1.0);
+        face_flux_r[idx] = NAN;
+        return;
+    }
+    atomicMinDouble(&stats[CTOT_TRANSPORT_MIN_M], fmin(Mi, Mj));
+    atomicMaxDouble(&stats[CTOT_TRANSPORT_MAX_M], fmax(Mi, Mj));
+    double Mface = 0.0;
+    if (Mi > 0.0 && Mj > 0.0) {
+        Mface = 2.0 * Mi * Mj / (Mi + Mj);
+    } else {
+        atomicAdd(&stats[CTOT_TRANSPORT_ZERO_FACE_COUNT], 1.0);
+    }
+    const double grad_face = 0.5 * (grad_mu_r[idx] + grad_mu_r[nidx]);
+    face_flux_r[idx] = Mface * grad_face;
+    const double adjoint_face_gradient =
+        (mu_r[nidx] - mu_r[idx]) / spacing;
+    atomicAdd(&stats[CTOT_TRANSPORT_DISSIPATION_SUM],
+              face_flux_r[idx] * adjoint_face_gradient);
+    if (!isfinite(face_flux_r[idx])) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+    }
+}
+
+__device__ static inline double ctot_centered_phi_gradient_component(
+    const double *phi_r, int i, int j, int k,
+    int Nx, int Ny, int Nz, int axis,
+    double dx, double dy, double dz)
+{
+    int ip = i, jp = j, kp = k;
+    int im = i, jm = j, km = k;
+    double spacing = dx;
+    if (axis == 0) {
+        ip = (i + 1) % Nx;
+        im = (i - 1 + Nx) % Nx;
+    } else if (axis == 1) {
+        jp = (j + 1) % Ny;
+        jm = (j - 1 + Ny) % Ny;
+        spacing = dy;
+    } else {
+        kp = (k + 1) % Nz;
+        km = (k - 1 + Nz) % Nz;
+        spacing = dz;
+    }
+    const int plus = (ip * Ny + jp) * Nz + kp;
+    const int minus = (im * Ny + jm) * Nz + km;
+    return (phi_r[plus] - phi_r[minus]) / (2.0 * spacing);
+}
+
+__global__ void ctot_add_antitrapping_face_flux_kernel(
+    const double *phi_r, const double *phi_old_r,
+    const double *xB_context_r, double *face_flux_r,
+    int Nx, int Ny, int Nz, int axis,
+    double dx, double dy, double dz, double lambda_code,
+    double dt, double v_B, const double *mu_r,
+    double *stats, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int k = idx % Nz;
+    const int tmp = idx / Nz;
+    const int j = tmp % Ny;
+    const int i = tmp / Ny;
+    int ip = i, jp = j, kp = k;
+    if (axis == 0) ip = (i + 1) % Nx;
+    else if (axis == 1) jp = (j + 1) % Ny;
+    else kp = (k + 1) % Nz;
+    const int nidx = (ip * Ny + jp) * Nz + kp;
+
+    const double phi_face = 0.5 * (phi_r[idx] + phi_r[nidx]);
+    if (!(phi_face > 1.0e-12 && phi_face < 1.0 - 1.0e-12) ||
+        !(dt > 0.0) || !(lambda_code > 0.0)) return;
+    const double h = h_of_phi(phi_face);
+    // Mapping the Echebarria et al. one-sided condition p=h-1 from
+    // psi in [-1,1] to phi=(psi+1)/2 gives this coefficient exactly.
+    const double shape =
+        h * (1.0 - h) / (4.0 * phi_face * (1.0 - phi_face));
+    const double phi_t = 0.5 * (
+        (phi_r[idx] - phi_old_r[idx]) +
+        (phi_r[nidx] - phi_old_r[nidx])) / dt;
+
+    double gradient_face[3];
+    for (int component = 0; component < 3; ++component) {
+        const double gi = ctot_centered_phi_gradient_component(
+            phi_r, i, j, k, Nx, Ny, Nz, component, dx, dy, dz);
+        const double gj = ctot_centered_phi_gradient_component(
+            phi_r, ip, jp, kp, Nx, Ny, Nz, component, dx, dy, dz);
+        gradient_face[component] = 0.5 * (gi + gj);
+    }
+    const double magnitude = sqrt(
+        gradient_face[0] * gradient_face[0] +
+        gradient_face[1] * gradient_face[1] +
+        gradient_face[2] * gradient_face[2]);
+    if (!(magnitude > 1.0e-14) || !isfinite(magnitude)) return;
+    const double normal_beta_axis = gradient_face[axis] / magnitude;
+    const double x_face =
+        0.5 * (xB_context_r[idx] + xB_context_r[nidx]);
+    // The Echebarria current is proportional to the matrix-minus-product
+    // composition jump. Their usual k<1 solid rejects solute; this model's
+    // stoichiometric beta has v_B>x_alpha and must receive it instead.
+    const double correction_flux =
+        lambda_code * shape * (x_face - v_B) * phi_t * normal_beta_axis;
+    if (!isfinite(correction_flux)) {
+        atomicAdd(&stats[CTOT_TRANSPORT_NONFINITE_COUNT], 1.0);
+        return;
+    }
+    face_flux_r[idx] += correction_flux;
+    const double spacing = axis == 0 ? dx : (axis == 1 ? dy : dz);
+    const double adjoint_gradient =
+        (mu_r[nidx] - mu_r[idx]) / spacing;
+    const double work = correction_flux * adjoint_gradient;
+    // Anti-trapping is a signed finite-interface correction, not a
+    // positive-semidefinite mobility dissipation. Keep its work separate so
+    // the energy ledger can audit it without changing the transport gate.
+    atomicAdd(&stats[CTOT_TRANSPORT_ANTITRAPPING_WORK_SUM], work);
+    atomicMaxAbsDouble(
+        &stats[CTOT_TRANSPORT_ANTITRAPPING_MAX_FACE_FLUX],
+        fabs(correction_flux));
+}
+
+__global__ void ctot_fv_divergence_kernel(
+    const double *face_x_r, const double *face_y_r, const double *face_z_r,
+    double *divJ_r, int Nx, int Ny, int Nz,
+    double dx, double dy, double dz, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int k = idx % Nz;
+    const int tmp = idx / Nz;
+    const int j = tmp % Ny;
+    const int i = tmp / Ny;
+    const int im = (i - 1 + Nx) % Nx;
+    const int jm = (j - 1 + Ny) % Ny;
+    const int km = (k - 1 + Nz) % Nz;
+    const int idx_im = (im * Ny + j) * Nz + k;
+    const int idx_jm = (i * Ny + jm) * Nz + k;
+    const int idx_km = (i * Ny + j) * Nz + km;
+    divJ_r[idx] = (face_x_r[idx] - face_x_r[idx_im]) / dx +
+                  (face_y_r[idx] - face_y_r[idx_jm]) / dy +
+                  (face_z_r[idx] - face_z_r[idx_km]) / dz;
+}
+
 
 __global__ void gp_picard_storage_Y_update_kernel(
     const double *divJ_r,
@@ -3302,7 +4118,7 @@ __global__ void clamp_xB_max_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
-    
+
     if (xB[idx] > xB_max) xB[idx] = xB_max;
     if (xB[idx] < 0.0) xB[idx] = 0.0;  // 避免负值
 }
@@ -3319,7 +4135,7 @@ __global__ void compute_laplacian_k_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // lap_k = -k^2 * f_k
     lap_k[idx] = cuCmul(f_k[idx], make_cuDoubleComplex(-k2[idx], 0.0));
 }
@@ -3337,7 +4153,7 @@ __global__ void update_dY_dt_prev_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     dY_dt_prev_r[idx] = (Y_r[idx] - Y_n_saved[idx]) / dt;
 }
 
@@ -3381,11 +4197,11 @@ __global__ void compute_DY_values_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double phi = phi_r[idx];
     double h = h_of_phi(phi);
     double Dm = D_mix(h, D_alpha, D_compound);
-    
+
     double Y_val = Y_r[idx];
     double xB;
     if (Y_val >= 0.0) {
@@ -3398,7 +4214,7 @@ __global__ void compute_DY_values_kernel(
     if (xB < 1e-12) xB = 1e-12;
     if (xB > 1.0 - 1e-12) xB = 1.0 - 1e-12;
     double logistic_deriv = xB * (1.0 - xB);
-    
+
     DY_values[idx] = Dm * logistic_deriv;
 }
 
@@ -3414,11 +4230,11 @@ __global__ void reduce_sum_kernel(
     extern __shared__ double sdata[];
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // 加载数据到共享内存
     sdata[tid] = (i < n) ? input[i] : 0.0;
     __syncthreads();
-    
+
     // 归约
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
@@ -3426,7 +4242,7 @@ __global__ void reduce_sum_kernel(
         }
         __syncthreads();
     }
-    
+
     // 写入结果
     if (tid == 0) {
         output[blockIdx.x] = sdata[0];
@@ -3446,11 +4262,11 @@ __global__ void compute_xBtot_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double phi = phi_r[idx];
     double h = h_of_phi(phi);
     double xB = xB_r[idx];
-    
+
     xBtot_r[idx] = (1.0 - h) * xB + v_B * h;
 }
 
@@ -3485,23 +4301,23 @@ __global__ void reduce_sum_N_in_N_if_kernel(
     extern __shared__ double sdata[];
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // 计算当前点的N_in和N_if贡献
     double N_in_val = 0.0;
     double N_if_val = 0.0;
-    
+
     if (i < total_size) {
         double phi = phi_r[i];
         N_in_val = (phi > 0.5) ? 1.0 : 0.0;
         // 界面判定范围：0.12 < phi < 0.88
         N_if_val = ((phi > 0.12) && (phi < 0.88)) ? 1.0 : 0.0;
     }
-    
+
     // 使用共享内存进行归约（存储两个值：N_in和N_if）
     sdata[2*tid] = N_in_val;
     sdata[2*tid+1] = N_if_val;
     __syncthreads();
-    
+
     // 归约
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
@@ -3510,7 +4326,7 @@ __global__ void reduce_sum_N_in_N_if_kernel(
         }
         __syncthreads();
     }
-    
+
     // 写入结果
     if (tid == 0) {
         block_sums_N_in[blockIdx.x] = sdata[0];
@@ -3532,7 +4348,7 @@ __global__ void reduce_sum_xBtot_kernel(
     extern __shared__ double sdata[];
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // 计算xBtot
     double val = 0.0;
     if (i < total_size) {
@@ -3541,11 +4357,11 @@ __global__ void reduce_sum_xBtot_kernel(
         double xB = xB_r[i];
         val = (1.0 - h) * xB + v_B * h;
     }
-    
+
     // 加载到共享内存
     sdata[tid] = val;
     __syncthreads();
-    
+
     // 归约
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
@@ -3553,7 +4369,7 @@ __global__ void reduce_sum_xBtot_kernel(
         }
         __syncthreads();
     }
-    
+
     // 写入结果
     if (tid == 0) {
         block_sums[blockIdx.x] = sdata[0];
@@ -3611,14 +4427,14 @@ __global__ void reduce_sum_DY_kernel(
     extern __shared__ double sdata[];
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // 计算DY值
     double val = 0.0;
     if (i < total_size) {
         double phi = phi_r[i];
         double h = h_of_phi(phi);
         double Dm = D_mix(h, D_alpha, D_compound);
-        
+
         double Y_val = Y_r[i];
         double xB;
         if (Y_val >= 0.0) {
@@ -3631,14 +4447,14 @@ __global__ void reduce_sum_DY_kernel(
         if (xB < 1e-12) xB = 1e-12;
         if (xB > 1.0 - 1e-12) xB = 1.0 - 1e-12;
         double logistic_deriv = xB * (1.0 - xB);
-        
+
         val = Dm * logistic_deriv;
     }
-    
+
     // 加载到共享内存
     sdata[tid] = val;
     __syncthreads();
-    
+
     // 归约
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
@@ -3646,7 +4462,7 @@ __global__ void reduce_sum_DY_kernel(
         }
         __syncthreads();
     }
-    
+
     // 写入结果
     if (tid == 0) {
         block_sums[blockIdx.x] = sdata[0];
@@ -3706,11 +4522,11 @@ __global__ void reduce_sum_sigma_hydro_in_precipitate_kernel(
     extern __shared__ double sdata[];
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // 计算当前点的贡献
     double sigma_sum = 0.0;
     double count = 0.0;
-    
+
     if (i < total_size) {
         double phi = phi_r[i];
         // 只计算析出相内部（phi > 0.5）的点
@@ -3720,12 +4536,12 @@ __global__ void reduce_sum_sigma_hydro_in_precipitate_kernel(
             count = 1.0;
         }
     }
-    
+
     // 使用共享内存进行归约（存储两个值：sigma_sum和count）
     sdata[2*tid] = sigma_sum;
     sdata[2*tid+1] = count;
     __syncthreads();
-    
+
     // 归约
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
@@ -3734,7 +4550,7 @@ __global__ void reduce_sum_sigma_hydro_in_precipitate_kernel(
         }
         __syncthreads();
     }
-    
+
     // 写入结果
     if (tid == 0) {
         block_sums_sigma[blockIdx.x] = sdata[0];
@@ -3750,29 +4566,29 @@ double gpu_reduce_avg_sigma_hydro_in_precipitate(
     int total_size)
 {
     if (total_size <= 0) return 0.0;
-    
+
     int threads_per_block = 256;
     int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     // 分配临时数组存储每个block的归约结果
     double *d_block_sums_sigma, *d_block_sums_count;
     CUDA_CHECK(cudaMalloc(&d_block_sums_sigma, num_blocks * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_block_sums_count, num_blocks * sizeof(double)));
-    
+
     // 第一次归约：每个block归约
     size_t shared_mem_size = 2 * threads_per_block * sizeof(double);  // 存储sigma_sum和count
     reduce_sum_sigma_hydro_in_precipitate_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
         phi_r, sigma_xx_r, sigma_yy_r, sigma_zz_r,
         d_block_sums_sigma, d_block_sums_count, total_size);
     CUDA_CHECK(cudaDeviceSynchronize());
-    
+
     // 递归归约：对block结果再次归约
     double sum_sigma = gpu_reduce_sum(d_block_sums_sigma, num_blocks);
     double sum_count = gpu_reduce_sum(d_block_sums_count, num_blocks);
-    
+
     CUDA_CHECK(cudaFree(d_block_sums_sigma));
     CUDA_CHECK(cudaFree(d_block_sums_count));
-    
+
     // 计算平均值
     if (sum_count > 0.0) {
         return sum_sigma / sum_count;
@@ -3794,17 +4610,17 @@ __global__ void reduce_min_max_kernel(
     extern __shared__ double sdata[];
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // 加载数据：对于超出范围的值，min使用很大的数，max使用很小的数
     // 这样在归约时它们不会影响有效数据的min/max
     double min_val = (i < total_size) ? input[i] : 1e30;
     double max_val = (i < total_size) ? input[i] : -1e30;
-    
+
     // 存储到共享内存（交错存储min和max）
     sdata[2*tid] = min_val;
     sdata[2*tid+1] = max_val;
     __syncthreads();
-    
+
     // 归约
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
@@ -3813,7 +4629,7 @@ __global__ void reduce_min_max_kernel(
         }
         __syncthreads();
     }
-    
+
     // 写入结果
     if (tid == 0) {
         block_mins[blockIdx.x] = sdata[0];
@@ -3842,31 +4658,31 @@ __global__ void reduce_min_max_meff_kernel(
     extern __shared__ double sdata[];
     unsigned int tid = threadIdx.x;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     double min_val = 1e30;
     double max_val = -1e30;
-    
+
     if (i < total_size) {
         double phi = phi_r[i];
         double h = h_of_phi(phi);
         double xB = xB_r[i];
-        
+
         // 计算混合扩散系数和热力学因子 (与 compute_flux_kernel 逻辑一致)
         double Dm = D_mix(h, D_alpha, D_compound);
-        double G = gamma_thermo_nonlinear(xB, h, Vm_alpha_0, dVm_alpha_dxB, 
+        double G = gamma_thermo_nonlinear(xB, h, Vm_alpha_0, dVm_alpha_dxB,
                                           Vm_compound, temperature_K, mu_reference_scale);
-        
+
         double Meff = stabilized_meff(Dm, G);
-        
+
         min_val = Meff;
         max_val = Meff;
     }
-    
+
     // 使用共享内存进行归约
     sdata[2*tid] = min_val;
     sdata[2*tid+1] = max_val;
     __syncthreads();
-    
+
     // 归约
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
@@ -3875,7 +4691,7 @@ __global__ void reduce_min_max_meff_kernel(
         }
         __syncthreads();
     }
-    
+
     // 写入结果
     if (tid == 0) {
         block_mins[blockIdx.x] = sdata[0];
@@ -5102,6 +5918,322 @@ void launch_constrain_phase_and_reconstruct_conservative_kernel(
         stats, total_size);
 }
 
+void launch_compute_ctot_from_phi_x_kernel(
+    const double *phi_r, const double *xB_r, double *ctot_r,
+    double v_B, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    compute_ctot_from_phi_x_kernel<<<blocks, threads>>>(
+        phi_r, xB_r, ctot_r, v_B, total_size);
+}
+
+void launch_reconstruct_x_q_Y_from_ctot_kernel(
+    const double *ctot_r, const double *phi_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double x_inactive_context,
+    double v_B, double matrix_support_eps, double xB_eps, double Y_clip,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    reconstruct_x_q_Y_from_ctot_kernel<<<blocks, threads>>>(
+        ctot_r, phi_r, xB_context_r, q_alpha_r, Y_r,
+        active_matrix_mask_r, x_inactive_context, v_B,
+        matrix_support_eps, xB_eps, Y_clip, stats, total_size);
+}
+
+void launch_reconstruct_x_q_Y_from_ctot_bound_aware_kernel(
+    const double *ctot_r, const double *phi_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double x_inactive_context,
+    double v_B, double matrix_support_eps, double xB_context_eps,
+    double Y_safety_cap, double bound_tol, double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    reconstruct_x_q_Y_from_ctot_bound_aware_kernel<<<blocks, threads>>>(
+        ctot_r, phi_r, xB_context_r, q_alpha_r, Y_r,
+        active_matrix_mask_r, x_inactive_context, v_B,
+        matrix_support_eps, xB_context_eps, Y_safety_cap, bound_tol,
+        stats, total_size);
+}
+
+void launch_compute_ctot_from_Y_kernel(
+    const double *phi_r, const double *Y_r, double *ctot_r,
+    double v_B, double xB_eps, double Y_clip, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    compute_ctot_from_Y_kernel<<<blocks, threads>>>(
+        phi_r, Y_r, ctot_r, v_B, xB_eps, Y_clip, total_size);
+}
+
+void launch_audit_ctot_admissibility_kernel(
+    const double *ctot_r, const double *phi_r, const double *xB_context_r,
+    const double *q_alpha_r, const double *active_matrix_mask_r,
+    double v_B, double matrix_support_eps, double bound_tol,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    audit_ctot_admissibility_kernel<<<blocks, threads>>>(
+        ctot_r, phi_r, xB_context_r, q_alpha_r, active_matrix_mask_r,
+        v_B, matrix_support_eps, bound_tol, stats, total_size);
+}
+
+void launch_phi_normalize_project_ctot_kernel(
+    double *phi_trial_ifft_r, const double *phi_old_r, const double *ctot_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double invN, double x_inactive_context,
+    double v_B, double x_min, double x_max, double matrix_support_eps,
+    double xB_eps, double Y_clip, double bound_tol,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    phi_normalize_project_ctot_kernel<<<blocks, threads>>>(
+        phi_trial_ifft_r, phi_old_r, ctot_r, xB_context_r, q_alpha_r, Y_r,
+        active_matrix_mask_r, invN, x_inactive_context, v_B, x_min, x_max,
+        matrix_support_eps, xB_eps, Y_clip, bound_tol, stats, total_size);
+}
+
+void launch_ctot_candidate_state_from_Y_kernel(
+    const double *Y_r, const double *phi_r, const double *ctot_old_r,
+    double *ctot_trial_r, double *xB_context_r, double *q_alpha_r,
+    double *active_matrix_mask_r, double x_inactive_context, double v_B,
+    double matrix_support_eps, double Y_safety_cap, double bound_tol,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_candidate_state_from_Y_kernel<<<blocks, threads>>>(
+        Y_r, phi_r, ctot_old_r, ctot_trial_r, xB_context_r, q_alpha_r,
+        active_matrix_mask_r, x_inactive_context, v_B, matrix_support_eps,
+        Y_safety_cap, bound_tol, stats, total_size);
+}
+
+void launch_compute_mu_x_from_xB_candidate_kernel(
+    const double *phi_r, const double *xB_r, double *mu_x_r,
+    double temperature_K, double mu_reference_scale,
+    double v_A, double v_B, double mu0_compound,
+    double Vm_compound, double Vm_alpha_0, double dVm_alpha_dxB,
+    const float *sigma_xx_r, const float *sigma_yy_r,
+    const float *sigma_zz_r, double eps_iso_over_vB,
+    int total_size, int elastic_enabled, double *stats)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    compute_mu_x_from_xB_candidate_kernel<<<blocks, threads>>>(
+        phi_r, xB_r, mu_x_r, temperature_K, mu_reference_scale,
+        v_A, v_B, mu0_compound, Vm_compound, Vm_alpha_0,
+        dVm_alpha_dxB, sigma_xx_r, sigma_yy_r, sigma_zz_r,
+        eps_iso_over_vB, total_size, elastic_enabled, stats);
+}
+
+void launch_compute_flux_single_component_ctot_candidate_kernel(
+    const double *grad_mu_alpha_r, const double *phi_r,
+    const double *xB_context_r, double *J_alpha_r, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale, double matrix_support_eps,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    compute_flux_single_component_ctot_candidate_kernel<<<blocks, threads>>>(
+        grad_mu_alpha_r, phi_r, xB_context_r, J_alpha_r, D_alpha,
+        Vm_alpha_0, dVm_alpha_dxB, Vm_compound, temperature_K,
+        mu_reference_scale, matrix_support_eps, stats, total_size);
+}
+
+void launch_compute_ctot_be_residual_kernel(
+    const double *ctot_trial_r, const double *ctot_old_r,
+    const double *divJ_r, double dt, double *residual_r, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    compute_ctot_be_residual_kernel<<<blocks, threads>>>(
+        ctot_trial_r, ctot_old_r, divJ_r, dt, residual_r, total_size);
+}
+
+void launch_ctot_deterministic_residual_reduction_kernel(
+    const double *residual_r, double *result_r, int total_size)
+{
+    ctot_deterministic_residual_reduction_kernel<<<1, 1>>>(
+        residual_r, result_r, total_size);
+}
+
+void launch_ctot_outer_convex_blend_kernel(
+    const double *previous_r, const double *candidate_r,
+    double *blended_r, double omega, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_outer_convex_blend_kernel<<<blocks, threads>>>(
+        previous_r, candidate_r, blended_r, omega, total_size);
+}
+
+void launch_ctot_outer_local_phase_feasibility_filter_kernel(
+    const double *previous_r, const double *candidate_r,
+    const double *ctot_old_r, const double *ctot_current_r,
+    const double *divJ_r,
+    double *filtered_r, double dt, double v_B,
+    double *filter_stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_outer_local_phase_feasibility_filter_kernel<<<blocks, threads>>>(
+        previous_r, candidate_r, ctot_old_r, ctot_current_r, divJ_r,
+        filtered_r, dt, v_B, filter_stats, total_size);
+}
+
+void launch_apply_ctot_preconditioner_k_kernel(
+    cuDoubleComplex *residual_k, const double *k2,
+    double a_ref, double D_ref, double dt,
+    int Nx, int Ny, int Nz, int NzC, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    apply_ctot_preconditioner_k_kernel<<<blocks, threads>>>(
+        residual_k, k2, a_ref, D_ref, dt,
+        Nx, Ny, Nz, NzC, total_size);
+}
+
+void launch_ctot_trial_Y_update_kernel(
+    const double *Y_current_r, const double *correction_r,
+    const double *active_matrix_mask_r, double lambda,
+    double *Y_trial_r, double Y_safety_cap,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_trial_Y_update_kernel<<<blocks, threads>>>(
+        Y_current_r, correction_r, active_matrix_mask_r, lambda,
+        Y_trial_r, Y_safety_cap,
+        stats, total_size);
+}
+
+void launch_ctot_trial_feasible_C_update_kernel(
+    const double *C_current_r, const double *residual_r, const double *phi_r,
+    double lambda, double *C_trial_r, double v_B,
+    double matrix_support_eps, double xB_context_eps, double Y_safety_cap,
+    double active_tol, double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_trial_feasible_C_update_kernel<<<blocks, threads>>>(
+        C_current_r, residual_r, phi_r, lambda, C_trial_r, v_B,
+        matrix_support_eps, xB_context_eps, Y_safety_cap, active_tol,
+        stats, total_size);
+}
+
+void launch_ctot_build_mass_tangent_direction_kernel(
+    const double *C_current_r, const double *phi_r, double *direction_r,
+    double *free_mask_r, double v_B, double matrix_support_eps,
+    double active_tol, double min_lambda, int initialize_mask, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_build_mass_tangent_direction_kernel<<<blocks, threads>>>(
+        C_current_r, phi_r, direction_r, free_mask_r, v_B,
+        matrix_support_eps, active_tol, min_lambda, initialize_mask,
+        total_size);
+}
+
+void launch_ctot_subtract_free_direction_mean_kernel(
+    double *direction_r, const double *free_mask_r, double mean,
+    int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_subtract_free_direction_mean_kernel<<<blocks, threads>>>(
+        direction_r, free_mask_r, mean, total_size);
+}
+
+void launch_ctot_active_capacity_kernel(
+    const double *Y_r, const double *phi_r,
+    const double *active_matrix_mask_r, double *capacity_r, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_active_capacity_kernel<<<blocks, threads>>>(
+        Y_r, phi_r, active_matrix_mask_r, capacity_r, total_size);
+}
+
+void launch_ctot_add_active_Y_shift_kernel(
+    double *Y_r, const double *active_matrix_mask_r, double shift,
+    double Y_safety_cap, double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_add_active_Y_shift_kernel<<<blocks, threads>>>(
+        Y_r, active_matrix_mask_r, shift, Y_safety_cap, stats, total_size);
+}
+
+void launch_ctot_fv_positive_face_flux_kernel(
+    const double *mu_r, const double *phi_r, const double *xB_context_r,
+    double *face_flux_r, int Nx, int Ny, int Nz, int axis, double spacing,
+    double D_alpha, double Vm_alpha_0, double dVm_alpha_dxB,
+    double Vm_compound, double temperature_K, double mu_reference_scale,
+    double matrix_support_eps, double coarse_interface_mobility_a_M,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_fv_positive_face_flux_kernel<<<blocks, threads>>>(
+        mu_r, phi_r, xB_context_r, face_flux_r, Nx, Ny, Nz, axis, spacing,
+        D_alpha, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, temperature_K,
+        mu_reference_scale, matrix_support_eps,
+        coarse_interface_mobility_a_M, stats, total_size);
+}
+
+void launch_ctot_positive_face_flux_from_cell_gradient_kernel(
+    const double *grad_mu_r, const double *mu_r, const double *phi_r,
+    const double *xB_context_r, double *face_flux_r,
+    int Nx, int Ny, int Nz, int axis, double spacing, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale,
+    double matrix_support_eps, double coarse_interface_mobility_a_M,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_positive_face_flux_from_cell_gradient_kernel<<<blocks, threads>>>(
+        grad_mu_r, mu_r, phi_r, xB_context_r, face_flux_r,
+        Nx, Ny, Nz, axis, spacing, D_alpha, Vm_alpha_0, dVm_alpha_dxB,
+        Vm_compound, temperature_K, mu_reference_scale,
+        matrix_support_eps, coarse_interface_mobility_a_M,
+        stats, total_size);
+}
+
+void launch_ctot_add_antitrapping_face_flux_kernel(
+    const double *phi_r, const double *phi_old_r,
+    const double *xB_context_r, double *face_flux_r,
+    int Nx, int Ny, int Nz, int axis,
+    double dx, double dy, double dz, double lambda_code,
+    double dt, double v_B, const double *mu_r,
+    double *stats, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_add_antitrapping_face_flux_kernel<<<blocks, threads>>>(
+        phi_r, phi_old_r, xB_context_r, face_flux_r,
+        Nx, Ny, Nz, axis, dx, dy, dz, lambda_code,
+        dt, v_B, mu_r, stats, total_size);
+}
+
+void launch_ctot_fv_divergence_kernel(
+    const double *face_x_r, const double *face_y_r, const double *face_z_r,
+    double *divJ_r, int Nx, int Ny, int Nz,
+    double dx, double dy, double dz, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_fv_divergence_kernel<<<blocks, threads>>>(
+        face_x_r, face_y_r, face_z_r, divJ_r, Nx, Ny, Nz,
+        dx, dy, dz, total_size);
+}
+
 void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,
                                               double *Y_r,
                                               double *xB_r,
@@ -5248,57 +6380,89 @@ double gpu_compute_vf_from_h(const double *d_phi_r, int total_size) {
     return sum_h / (double)total_size;
 }
 
-// GPU归约求和函数（优化版本，适合大数组）
+namespace {
+double *g_reduce_workspace_a = NULL;
+double *g_reduce_workspace_b = NULL;
+double *g_reduce_zero = NULL;
+int g_reduce_capacity_a = 0;
+int g_reduce_capacity_b = 0;
+}
+
+void gpu_reduce_workspace_reserve(int max_n) {
+    if (max_n <= 0) return;
+    const int need_a = (max_n + 255) / 256;
+    const int need_b = (need_a + 255) / 256;
+    if (need_a > g_reduce_capacity_a) {
+        if (g_reduce_workspace_a) CUDA_CHECK(cudaFree(g_reduce_workspace_a));
+        CUDA_CHECK(cudaMalloc(&g_reduce_workspace_a,
+                              (size_t)need_a * sizeof(double)));
+        g_reduce_capacity_a = need_a;
+    }
+    if (need_b > g_reduce_capacity_b) {
+        if (g_reduce_workspace_b) CUDA_CHECK(cudaFree(g_reduce_workspace_b));
+        CUDA_CHECK(cudaMalloc(&g_reduce_workspace_b,
+                              (size_t)need_b * sizeof(double)));
+        g_reduce_capacity_b = need_b;
+    }
+    if (!g_reduce_zero) CUDA_CHECK(cudaMalloc(&g_reduce_zero, sizeof(double)));
+}
+
+void gpu_reduce_workspace_release(void) {
+    if (g_reduce_workspace_a) CUDA_CHECK(cudaFree(g_reduce_workspace_a));
+    if (g_reduce_workspace_b) CUDA_CHECK(cudaFree(g_reduce_workspace_b));
+    if (g_reduce_zero) CUDA_CHECK(cudaFree(g_reduce_zero));
+    g_reduce_workspace_a = NULL;
+    g_reduce_workspace_b = NULL;
+    g_reduce_zero = NULL;
+    g_reduce_capacity_a = 0;
+    g_reduce_capacity_b = 0;
+}
+
+size_t gpu_reduce_workspace_bytes(void) {
+    return ((size_t)g_reduce_capacity_a + (size_t)g_reduce_capacity_b +
+            (g_reduce_zero ? 1u : 0u)) * sizeof(double);
+}
+
+void gpu_reduce_sum_to_device(const double *d_array, int n,
+                              double *d_result) {
+    if (!d_result) return;
+    if (n <= 0) {
+        CUDA_CHECK(cudaMemsetAsync(d_result, 0, sizeof(double)));
+        return;
+    }
+    gpu_reduce_workspace_reserve(n);
+    const int threads = 256;
+    const size_t shared_bytes = (size_t)threads * sizeof(double);
+    int remaining = n;
+    int blocks = (remaining + threads - 1) / threads;
+    reduce_sum_kernel<<<blocks, threads, shared_bytes>>>(
+        d_array, g_reduce_workspace_a, remaining);
+    remaining = blocks;
+    double *input = g_reduce_workspace_a;
+    double *output = g_reduce_workspace_b;
+    while (remaining > 1) {
+        blocks = (remaining + threads - 1) / threads;
+        reduce_sum_kernel<<<blocks, threads, shared_bytes>>>(
+            input, output, remaining);
+        remaining = blocks;
+        double *tmp = input;
+        input = output;
+        output = tmp;
+    }
+    CUDA_CHECK(cudaMemcpyAsync(d_result, input, sizeof(double),
+                               cudaMemcpyDeviceToDevice));
+}
+
+// Host-returning compatibility API. The reduction tree is unchanged; only
+// its allocations are persistent and the final blocking copy orders the
+// default stream.
 double gpu_reduce_sum(const double *d_array, int n) {
     if (n <= 0) return 0.0;
-    
-    int threads_per_block = 256;
-    int num_blocks = (n + threads_per_block - 1) / threads_per_block;
-
-    // 分配临时数组存储每个block的归约结果
-    double *d_block_sums;
-    CUDA_CHECK(cudaMalloc(&d_block_sums, num_blocks * sizeof(double)));
-    
-    // 第一次归约：每个block归约
-    size_t shared_mem_size = threads_per_block * sizeof(double);
-    reduce_sum_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
-        d_array, d_block_sums, n);
-    CUDA_CHECK(cudaDeviceSynchronize());
-    
-    // 如果只有一个block，直接返回结果
+    gpu_reduce_workspace_reserve(n);
+    gpu_reduce_sum_to_device(d_array, n, g_reduce_zero);
     double result = 0.0;
-    if (num_blocks == 1) {
-        CUDA_CHECK(cudaMemcpy(&result, d_block_sums, sizeof(double), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaFree(d_block_sums));
-        return result;
-    }
-    
-    // 递归归约：对block结果再次归约
-    int remaining = num_blocks;
-    double *d_input = d_block_sums;
-    
-    while (remaining > 1) {
-        int new_blocks = (remaining + threads_per_block - 1) / threads_per_block;
-        
-        double *d_output;
-        CUDA_CHECK(cudaMalloc(&d_output, new_blocks * sizeof(double)));
-        
-        // 直接对 remaining 个元素做归约（现代 CUDA 的 1D gridDim.x 支持远超 65535）
-        reduce_sum_kernel<<<new_blocks, threads_per_block, shared_mem_size>>>(
-            d_input, d_output, remaining);
-        CUDA_CHECK(cudaDeviceSynchronize());
-        
-        if (d_input != d_block_sums) {
-            CUDA_CHECK(cudaFree(d_input));
-        }
-        d_input = d_output;
-        remaining = new_blocks;
-    }
-    
-    CUDA_CHECK(cudaMemcpy(&result, d_input, sizeof(double), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaFree(d_input));
-    CUDA_CHECK(cudaFree(d_block_sums));
-    
+    CUDA_CHECK(cudaMemcpy(&result, g_reduce_zero, sizeof(double),
+                          cudaMemcpyDeviceToHost));
     return result;
 }
 
@@ -5315,13 +6479,13 @@ __global__ void compute_diagnostics_stats_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     double phi = phi_r[idx];
-    
+
     // N_in: phi > 0.5的点数 (存储在stats的前半部分)
     double count_in = (phi > 0.5) ? 1.0 : 0.0;
     stats[idx] = count_in;
-    
+
     // N_if: 0.12 < phi < 0.88的点数 (存储在stats的后半部分)
     double count_if = ((phi > 0.12) && (phi < 0.88)) ? 1.0 : 0.0;
     stats[idx + total_size] = count_if;
@@ -5334,7 +6498,7 @@ void launch_compute_diagnostics_stats_kernel(
 {
     int threads_per_block = 256;
     int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     compute_diagnostics_stats_kernel<<<num_blocks, threads_per_block>>>(
         phi_r, d_stats, total_size);
 }
@@ -5351,28 +6515,28 @@ void gpu_reduce_sum_N_in_N_if(const double *phi_r, int total_size,
         *N_if_sum = 0.0;
         return;
     }
-    
+
     int threads_per_block = 256;
     int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     // 分配临时数组存储每个block的归约结果
     double *d_block_sums_N_in, *d_block_sums_N_if;
     CUDA_CHECK(cudaMalloc(&d_block_sums_N_in, num_blocks * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_block_sums_N_if, num_blocks * sizeof(double)));
-    
+
     // 第一次归约：每个block归约
     size_t shared_mem_size = 2 * threads_per_block * sizeof(double);  // 存储N_in和N_if
     reduce_sum_N_in_N_if_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
         phi_r, d_block_sums_N_in, d_block_sums_N_if, total_size);
     CUDA_CHECK(cudaDeviceSynchronize());
-    
+
     // 递归归约：对block结果再次归约（对N_in和N_if分别归约）
     double sum_N_in = gpu_reduce_sum(d_block_sums_N_in, num_blocks);
     double sum_N_if = gpu_reduce_sum(d_block_sums_N_if, num_blocks);
-    
+
     CUDA_CHECK(cudaFree(d_block_sums_N_in));
     CUDA_CHECK(cudaFree(d_block_sums_N_if));
-    
+
     *N_in_sum = sum_N_in;
     *N_if_sum = sum_N_if;
 }
@@ -5385,23 +6549,23 @@ double gpu_reduce_sum_xBtot(const double *phi_r, const double *xB_r,
                             double v_B, int total_size)
 {
     if (total_size <= 0) return 0.0;
-    
+
     int threads_per_block = 256;
     int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     // 分配临时数组存储每个block的归约结果
     double *d_block_sums;
     CUDA_CHECK(cudaMalloc(&d_block_sums, num_blocks * sizeof(double)));
-    
+
     // 第一次归约：每个block归约
     size_t shared_mem_size = threads_per_block * sizeof(double);
     reduce_sum_xBtot_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
         phi_r, xB_r, d_block_sums, v_B, total_size);
     CUDA_CHECK(cudaDeviceSynchronize());
-    
+
     // 递归归约：对block结果再次归约
     double result = gpu_reduce_sum(d_block_sums, num_blocks);
-    
+
     CUDA_CHECK(cudaFree(d_block_sums));
 
     return result;
@@ -5438,25 +6602,25 @@ double gpu_reduce_sum_DY(const double *Y_r, const double *phi_r,
                         double D_alpha, double D_compound, int total_size)
 {
     if (total_size <= 0) return 0.0;
-    
+
     int threads_per_block = 256;
     int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     // 分配临时数组存储每个block的归约结果
     double *d_block_sums;
     CUDA_CHECK(cudaMalloc(&d_block_sums, num_blocks * sizeof(double)));
-    
+
     // 第一次归约：每个block归约
     size_t shared_mem_size = threads_per_block * sizeof(double);
     reduce_sum_DY_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
         Y_r, phi_r, d_block_sums, D_alpha, D_compound, total_size);
     CUDA_CHECK(cudaDeviceSynchronize());
-    
+
     // 递归归约：对block结果再次归约
     double result = gpu_reduce_sum(d_block_sums, num_blocks);
-    
+
     CUDA_CHECK(cudaFree(d_block_sums));
-    
+
     return result;
 }
 
@@ -5525,21 +6689,21 @@ void gpu_reduce_min_max(const double *d_array, int n,
         *max_val = 0.0;
         return;
     }
-    
+
     int threads_per_block = 256;
     int num_blocks = (n + threads_per_block - 1) / threads_per_block;
-    
+
     // 分配临时数组存储每个block的归约结果
     double *d_block_mins, *d_block_maxs;
     CUDA_CHECK(cudaMalloc(&d_block_mins, num_blocks * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_block_maxs, num_blocks * sizeof(double)));
-    
+
     // 第一次归约：每个block归约
     size_t shared_mem_size = 2 * threads_per_block * sizeof(double);  // 存储min和max
     reduce_min_max_kernel<<<num_blocks, threads_per_block, shared_mem_size>>>(
         d_array, d_block_mins, d_block_maxs, n);
     CUDA_CHECK(cudaDeviceSynchronize());
-    
+
     // 递归归约：对block结果再次归约
     // 对于min，需要使用特殊处理（找到最小值）
     // 对于max，需要使用特殊处理（找到最大值）
@@ -5553,18 +6717,18 @@ void gpu_reduce_min_max(const double *d_array, int n,
         double *h_block_maxs = (double*)malloc(num_blocks * sizeof(double));
         CUDA_CHECK(cudaMemcpy(h_block_mins, d_block_mins, num_blocks * sizeof(double), cudaMemcpyDeviceToHost));
         CUDA_CHECK(cudaMemcpy(h_block_maxs, d_block_maxs, num_blocks * sizeof(double), cudaMemcpyDeviceToHost));
-        
+
         *min_val = h_block_mins[0];
         *max_val = h_block_maxs[0];
         for (int i = 1; i < num_blocks; i++) {
             if (h_block_mins[i] < *min_val) *min_val = h_block_mins[i];
             if (h_block_maxs[i] > *max_val) *max_val = h_block_maxs[i];
         }
-        
+
         free(h_block_mins);
         free(h_block_maxs);
     }
-    
+
     CUDA_CHECK(cudaFree(d_block_mins));
     CUDA_CHECK(cudaFree(d_block_maxs));
 }
@@ -5582,7 +6746,7 @@ void launch_update_dY_dt_prev_kernel(
 {
     int threads_per_block = 256;
     int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     update_dY_dt_prev_kernel<<<num_blocks, threads_per_block>>>(
         Y_r, Y_n_saved, dY_dt_prev_r, dt, total_size);
 }
@@ -5621,10 +6785,10 @@ void compute_divJ_from_grad_mu_optimized(
     cufftDoubleComplex *d_Jy_k_temp = NULL;
     cufftDoubleComplex *d_Jz_k_temp = NULL;
     cufftDoubleComplex *d_divJ_k_temp = NULL;
-    
+
     size_t size_r = total_r * sizeof(double);
     size_t size_k = total_k * sizeof(cufftDoubleComplex);
-    
+
     CUDA_CHECK(cudaMalloc(&d_Jx_temp, size_r));
     CUDA_CHECK(cudaMalloc(&d_Jy_temp, size_r));
     CUDA_CHECK(cudaMalloc(&d_Jz_temp, size_r));
@@ -5632,7 +6796,7 @@ void compute_divJ_from_grad_mu_optimized(
     CUDA_CHECK(cudaMalloc(&d_Jy_k_temp, size_k));
     CUDA_CHECK(cudaMalloc(&d_Jz_k_temp, size_k));
     CUDA_CHECK(cudaMalloc(&d_divJ_k_temp, size_k));
-    
+
     // 2.5 计算通量
     launch_compute_flux_kernel(grad_mu_x_r, grad_mu_y_r, grad_mu_z_r,
                               phi_r, xB_prev_r,
@@ -5641,23 +6805,23 @@ void compute_divJ_from_grad_mu_optimized(
                               Vm_alpha_0, dVm_alpha_dxB,
                               Vm_compound, temperature_K,
                               mu_reference_scale, total_r);
-    
+
     // 2.6 通量变换到k空间并计算散度
     CUFFT_CHECK(cufftExecD2Z(plan_r2c_xB, d_Jx_temp, d_Jx_k_temp));
     CUFFT_CHECK(cufftExecD2Z(plan_r2c_xB, d_Jy_temp, d_Jy_k_temp));
     CUFFT_CHECK(cufftExecD2Z(plan_r2c_xB, d_Jz_temp, d_Jz_k_temp));
-    
+
     launch_dealias_kernel(d_Jx_k_temp, Nx, Ny, Nz, NzC, dx, dy, dz, total_k);
     launch_dealias_kernel(d_Jy_k_temp, Nx, Ny, Nz, NzC, dx, dy, dz, total_k);
     launch_dealias_kernel(d_Jz_k_temp, Nx, Ny, Nz, NzC, dx, dy, dz, total_k);
-    
+
     launch_compute_divergence_k_kernel(d_Jx_k_temp, d_Jy_k_temp, d_Jz_k_temp, d_divJ_k_temp,
                                       Nx, Ny, Nz, NzC, dx, dy, dz, total_k);
-    
+
     // 2.7 反变换散度
     CUFFT_CHECK(cufftExecZ2D(plan_c2r_xB, d_divJ_k_temp, divJ_r));
     launch_normalize_only_kernel(divJ_r, invN, total_r);
-    
+
     // 释放临时数组
     CUDA_CHECK(cudaFree(d_Jx_temp));
     CUDA_CHECK(cudaFree(d_Jy_temp));
@@ -5692,32 +6856,32 @@ __global__ void initialize_phi_3d_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 计算当前点的3D坐标
     int k = idx % Nz;
     int j = (idx / Nz) % Ny;
     int i = idx / (Ny * Nz);
-    
+
     double x = i * dx;
     double y = j * dy;
     double z = k * dz;
-    
+
     // 计算所有种子的最大值
     double max_phi = 0.0;
     for (int s = 0; s < N_seeds; s++) {
         double cx = centers[3*s + 0];
         double cy = centers[3*s + 1];
         double cz = centers[3*s + 2];
-        
+
         double rx = periodic_delta_device(x, cx, Lx);
         double ry = periodic_delta_device(y, cy, Ly);
         double rz = periodic_delta_device(z, cz, Lz);
-        
+
         double r = sqrt(rx*rx + ry*ry + rz*rz);
         double seed = 0.5 * (1.0 + tanh((R - r) / w));
         if (seed > max_phi) max_phi = seed;
     }
-    
+
     phi_r[idx] = clamp01(max_phi);
 }
 
@@ -5734,32 +6898,32 @@ __global__ void initialize_phi_2d_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 计算当前点的2D坐标（忽略y）
     int k = idx % Nz;
     int j = (idx / Nz) % Ny;
     int i = idx / (Ny * Nz);
-    
+
     // 只对j=0层计算，然后复制到所有y层
     if (j == 0) {
         double x = i * dx;
         double z = k * dz;
-        
+
         double max_phi = 0.0;
         for (int s = 0; s < N_seeds; s++) {
             double cx = centers[3*s + 0];
             double cz = centers[3*s + 2];
-            
+
             double rx = periodic_delta_device(x, cx, Lx);
             double rz = periodic_delta_device(z, cz, Lz);
-            
+
             double r = sqrt(rx*rx + rz*rz);
             double seed = 0.5 * (1.0 + tanh((R - r) / w));
             if (seed > max_phi) max_phi = seed;
         }
-        
+
         max_phi = clamp01(max_phi);
-        
+
         // 写入所有y层
         for (int jj = 0; jj < Ny; jj++) {
             int idx_all = (i * Ny + jj) * Nz + k;
@@ -5780,7 +6944,7 @@ void launch_initialize_phi_kernel(
 {
     int threads_per_block = 256;
     int num_blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     if (Ny > 2) {
         // 3D模式
         initialize_phi_3d_kernel<<<num_blocks, threads_per_block>>>(
@@ -5928,7 +7092,7 @@ __global__ void compute_phi_rhs_minimize_kernel(
             (float)eps_yz00, (float)eps_xz00, (float)eps_xy00,
             eps_xx0_f, eps_yy0_f, eps_zz0_f,
             eps_xy0_f, eps_xz0_f, eps_yz0_f);
-        
+
         double exx_el = (double)uxx_r[idx] - (double)eps_xx0_f;
         double eyy_el = (double)uyy_r[idx] - (double)eps_yy0_f;
         double ezz_el = (double)uzz_r[idx] - (double)eps_zz0_f;
@@ -5958,7 +7122,7 @@ __global__ void normalize_displacement_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     ux_r[idx] *= invN;
     uy_r[idx] *= invN;
     uz_r[idx] *= invN;
@@ -5973,7 +7137,7 @@ __global__ void normalize_strain_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     uxx_r[idx] *= invN;
     uyy_r[idx] *= invN;
     uzz_r[idx] *= invN;
@@ -5996,7 +7160,7 @@ __global__ void add_external_strain_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 全局添加外部应变（SDV_Poly.c:1322-1327，但不需要乘以Is(r_ps)）
     uxx_r[idx] += E0_xx;
     uyy_r[idx] += E0_yy;
@@ -6028,13 +7192,13 @@ __global__ void compute_displacement_from_hij_green_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_k) return;
-    
+
     // 计算三维索引
     int k = idx % NzC;
     int remainder = idx / NzC;
     int j = remainder % Ny;
     int i = remainder / Ny;
-    
+
     // k=0特殊处理（设置为0）
     if (i == 0 && j == 0 && k == 0) {
         k_ux[0] = make_cuFloatComplex(0.0f, 0.0f);
@@ -6042,7 +7206,7 @@ __global__ void compute_displacement_from_hij_green_kernel(
         k_uz[0] = make_cuFloatComplex(0.0f, 0.0f);
         return;
     }
-    
+
     // 计算kx, ky, kz（考虑周期性边界条件）
     double kx, ky, kz;
     if (i <= Nx/2) {
@@ -6050,47 +7214,47 @@ __global__ void compute_displacement_from_hij_green_kernel(
     } else {
         kx = 2.0 * M_PI * (i - Nx) / (dx * Nx);
     }
-    
+
     if (j <= Ny/2) {
         ky = 2.0 * M_PI * j / (dy * Ny);
     } else {
         ky = 2.0 * M_PI * (j - Ny) / (dy * Ny);
     }
-    
+
     kz = 2.0 * M_PI * k / (dz * Nz);
-    
+
     double kx2 = kx * kx;
     double ky2 = ky * ky;
     double kz2 = kz * kz;
-    
+
     cufftComplex I = make_cuFloatComplex(0.0f, -1.0f);  // -I (注意SDV_Poly.c中是-I)
-    
+
     // 按照SDV_Poly.c:1227-1245行的新方法：使用公共中间量
     /* 公共中间量 */
     double gA = kx2*S_15 + kz2*S_35 + ky*kz*(S_36 + S_45)
                 + ky2*S_46 + kx*kz*(S_13 + S_55) + kx*ky*(S_14 + S_56);
-    
+
     double gB = ky2*S_24 + kz2*S_34 + ky*kz*(S_23 + S_44)
                 + kx*kz*(S_36 + S_45) + kx*ky*(S_25 + S_46) + kx2*S_56;
-    
+
     double gC = kz2*S_33 + 2.0*kz*(ky*S_34 + kx*S_35)
                 + ky2*S_44 + 2.0*kx*ky*S_45 + kx2*S_55;
-    
+
     double gD = ky2*S_22 + 2.0*ky*(kz*S_24 + kx*S_26)
                 + kz2*S_44 + 2.0*kx*kz*S_46 + kx2*S_66;
-    
+
     double gE = kx2*S_11 + 2.0*kx*(kz*S_15 + ky*S_16)
                 + kz2*S_55 + 2.0*ky*kz*S_56 + ky2*S_66;
-    
+
     double gF = kx2*S_16 + ky2*S_26 + kz2*S_45
                 + ky*kz*(S_25 + S_46) + kx*kz*(S_14 + S_56)
                 + kx*ky*(S_12 + S_66);
-    
+
     /* det(G^{-1}) - 按照SDV_Poly.c:1248-1250行 */
     double tmp1 = gA * (-gA * gD + gB * gF)
                   - gB * (gB * gE - gA * gF)
                   + gC * (gD * gE - gF * gF);
-    
+
     // 避免除零（如果tmp1接近0，则跳过该点）
     if (fabs(tmp1) < 1e-30) {
         k_ux[idx] = make_cuFloatComplex(0.0f, 0.0f);
@@ -6098,7 +7262,7 @@ __global__ void compute_displacement_from_hij_green_kernel(
         k_uz[idx] = make_cuFloatComplex(0.0f, 0.0f);
         return;
     }
-    
+
     /* Gij - 按照SDV_Poly.c:1253-1258行 */
     double tmp2 = (-gB * gB + gC * gD) / tmp1;           // G11
     double tmp3 = (gB * gA - gC * gF) / tmp1;           // G12
@@ -6107,7 +7271,7 @@ __global__ void compute_displacement_from_hij_green_kernel(
     double tmp6 = (-gB * gE + gA * gF) / tmp1;           // G23
     double tmp7 = (gD * gE - gF * gF) / tmp1;  // 正确的 G33
     // double tmp7 = (gD * gE - gF * gD * gE - gF) / tmp1;  // G33 (按照SDV_Poly.c:1258行)
-    
+
     // 转换为float
     float tmp2_f = (float)tmp2;
     float tmp3_f = (float)tmp3;
@@ -6115,15 +7279,15 @@ __global__ void compute_displacement_from_hij_green_kernel(
     float tmp5_f = (float)tmp5;
     float tmp6_f = (float)tmp6;
     float tmp7_f = (float)tmp7;
-    
+
     float kx_f = (float)kx;
     float ky_f = (float)ky;
     float kz_f = (float)kz;
-    
+
     cufftComplex kx_c = make_cuFloatComplex(kx_f, 0.0f);
     cufftComplex ky_c = make_cuFloatComplex(ky_f, 0.0f);
     cufftComplex kz_c = make_cuFloatComplex(kz_f, 0.0f);
-    
+
     // 获取hij的k空间值
     cufftComplex hij_xx = k_uxx[idx];
     cufftComplex hij_yy = k_uyy[idx];
@@ -6131,7 +7295,7 @@ __global__ void compute_displacement_from_hij_green_kernel(
     cufftComplex hij_xy = k_uxy[idx];
     cufftComplex hij_xz = k_uxz[idx];
     cufftComplex hij_yz = k_uyz[idx];
-    
+
     // 按照SDV_Poly.c:1224-1226计算新的位移场
     // term1 = kx*hij_xx + ky*hij_xy + kz*hij_xz
     // term2 = kx*hij_xy + ky*hij_yy + kz*hij_yz
@@ -6139,21 +7303,21 @@ __global__ void compute_displacement_from_hij_green_kernel(
     cufftComplex term1 = cuCaddf(cuCaddf(cuCmulf(kx_c, hij_xx), cuCmulf(ky_c, hij_xy)), cuCmulf(kz_c, hij_xz));
     cufftComplex term2 = cuCaddf(cuCaddf(cuCmulf(kx_c, hij_xy), cuCmulf(ky_c, hij_yy)), cuCmulf(kz_c, hij_yz));
     cufftComplex term3 = cuCaddf(cuCaddf(cuCmulf(kx_c, hij_xz), cuCmulf(ky_c, hij_yz)), cuCmulf(kz_c, hij_zz));
-    
+
     // k_ux = -I*(tmp2*term1 + tmp3*term2 + tmp4*term3)
     cufftComplex sum_ux = cuCaddf(cuCaddf(
         cuCmulf(make_cuFloatComplex(tmp2_f, 0.0f), term1),
         cuCmulf(make_cuFloatComplex(tmp3_f, 0.0f), term2)),
         cuCmulf(make_cuFloatComplex(tmp4_f, 0.0f), term3));
     k_ux[idx] = cuCmulf(I, sum_ux);  // I = -I，所以这里已经是-I*sum
-    
+
     // k_uy = -I*(tmp3*term1 + tmp5*term2 + tmp6*term3)
     cufftComplex sum_uy = cuCaddf(cuCaddf(
         cuCmulf(make_cuFloatComplex(tmp3_f, 0.0f), term1),
         cuCmulf(make_cuFloatComplex(tmp5_f, 0.0f), term2)),
         cuCmulf(make_cuFloatComplex(tmp6_f, 0.0f), term3));
     k_uy[idx] = cuCmulf(I, sum_uy);
-    
+
     // k_uz = -I*(tmp4*term1 + tmp6*term2 + tmp7*term3)
     cufftComplex sum_uz = cuCaddf(cuCaddf(
         cuCmulf(make_cuFloatComplex(tmp4_f, 0.0f), term1),
@@ -6179,7 +7343,7 @@ void launch_compute_displacement_from_hij_green_kernel(
 {
     int threadsPerBlock = 256;
     int blocksPerGrid = (total_k + threadsPerBlock - 1) / threadsPerBlock;
-    
+
     compute_displacement_from_hij_green_kernel<<<blocksPerGrid, threadsPerBlock>>>(
         k_uxx, k_uyy, k_uzz, k_uxy, k_uxz, k_uyz,
         k_ux, k_uy, k_uz,
@@ -6192,7 +7356,7 @@ void launch_compute_displacement_from_hij_green_kernel(
         Nx, Ny, Nz, NzC,
         dx, dy, dz,
         total_k);
-    
+
     CUDA_CHECK(cudaGetLastError());
 }
 
@@ -6210,46 +7374,46 @@ __global__ void compute_strain_from_displacement_k_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_k) return;
-    
+
     // 计算三维索引
     int k = idx % NzC;
     int remainder = idx / NzC;
     int j = remainder % Ny;
     int i = remainder / Ny;
-    
+
     double kx = kx_wrap(i, Nx, dx);
     double ky = ky_wrap(j, Ny, dy);
     double kz = kz_wrap(k, Nz, dz);
-    
+
     cufftComplex I = make_cuFloatComplex(0.0f, 1.0f);
     cufftComplex ux = ux_k[idx];
     cufftComplex uy = uy_k[idx];
     cufftComplex uz = uz_k[idx];
-    
+
     // 不除以N，在C2R后再归一化（与主程序保持一致）
     // 这样可以保持与主程序弹性迭代流程的兼容性
     cufftComplex kx_c = make_cuFloatComplex((float)kx, 0.0f);
     cufftComplex ky_c = make_cuFloatComplex((float)ky, 0.0f);
     cufftComplex kz_c = make_cuFloatComplex((float)kz, 0.0f);
-    
+
     // uxx = I*kx*ux （不除以N，在C2R后归一化）
     uxx_k[idx] = cuCmulf(cuCmulf(I, kx_c), ux);
-    
+
     // uyy = I*ky*uy （不除以N）
     uyy_k[idx] = cuCmulf(cuCmulf(I, ky_c), uy);
-    
+
     // uzz = I*kz*uz （不除以N）
     uzz_k[idx] = cuCmulf(cuCmulf(I, kz_c), uz);
-    
+
     // uxy = I*(ky*ux + kx*uy)/2 （不除以N）
     cufftComplex term_xy = cuCaddf(cuCmulf(ky_c, ux), cuCmulf(kx_c, uy));
     cufftComplex half_c = make_cuFloatComplex(0.5f, 0.0f);
     uxy_k[idx] = cuCmulf(cuCmulf(I, term_xy), half_c);
-    
+
     // uxz = I*(kz*ux + kx*uz)/2 （不除以N）
     cufftComplex term_xz = cuCaddf(cuCmulf(kz_c, ux), cuCmulf(kx_c, uz));
     uxz_k[idx] = cuCmulf(cuCmulf(I, term_xz), half_c);
-    
+
     // uyz = I*(ky*uz + kz*uy)/2 （不除以N）
     cufftComplex term_yz = cuCaddf(cuCmulf(ky_c, uz), cuCmulf(kz_c, uy));
     uyz_k[idx] = cuCmulf(cuCmulf(I, term_yz), half_c);
@@ -6493,7 +7657,7 @@ __global__ void compute_displacement_from_eigenstrain_k_kernel(
     // 计算 k 空间位移 ux(k), uy(k), uz(k)
     // 修正：位移场与力向量有 90 度相位差 (u = -i * K^-1 * F)
     // 因此：u_real = (K^-1 * F)_imag, u_imag = -(K^-1 * F)_real
-    
+
     // 先计算 (K^-1 * F) 的实部和虚部
     double sum_x_r = (Ax * V1_r + Bx * V2_r + Cx * V3_r) * inv_tmp1;
     double sum_x_i = (Ax * V1_i + Bx * V2_i + Cx * V3_i) * inv_tmp1;
@@ -6568,7 +7732,7 @@ __global__ void compute_strain_with_perturbation_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 读取初始应变
     float tmp1 = uxx_init[idx];
     float tmp2 = uyy_init[idx];
@@ -6576,7 +7740,7 @@ __global__ void compute_strain_with_perturbation_kernel(
     float tmp4 = uxy_init[idx];
     float tmp5 = uxz_init[idx];
     float tmp6 = uyz_init[idx];
-    
+
     // Optimization(4): 现场计算 eigenstrain
     double phi = phi_r[idx];
     double eta = eta_r ? eta_r[idx] : 0.0;
@@ -6591,12 +7755,12 @@ __global__ void compute_strain_with_perturbation_kernel(
         eigenstrain_phi_only_point(phi, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
                                    r_uxx0, r_uyy0, r_uzz0, r_uxy0, r_uxz0, r_uyz0);
     }
-    
+
     // 直接在kernel内计算perturbation（使用h(phi)插值，按照SDV_Poly.c:1101-1121行的逻辑）
     // 用户要求忽略substrate和Air phase，只考虑单个phase field
     // phi 已在上面声明，无需重复声明
     double h_val = stiffness_beta_weight_point(phi, eta, gp_mode_enabled, gp_elastic_enabled);
-    
+
     // 计算perturbation项（直接在strain计算中使用，不存储）
     float tmpp1 = (float)(h_val * S_p_11);
     float tmpp2 = (float)(h_val * S_p_22);
@@ -6619,23 +7783,23 @@ __global__ void compute_strain_with_perturbation_kernel(
     float tmpp19 = (float)(h_val * S_p_45);
     float tmpp20 = (float)(h_val * S_p_46);
     float tmpp21 = (float)(h_val * S_p_56);
-    
+
     // 注意：用户要求忽略Is(r_ps)部分，所以tmp8=0（外部应变应用简化）
     // 按照SDV_Poly.c:1126-1131行的公式计算（忽略substrate相关项）
     // 简化的外部应变应用（不考虑Is插值）
-    
+
     // 按照SDV_Poly.c:1126-1131行的公式计算所有应变分量
     // 注意：用户要求忽略Is(r_ps)部分，所以tmp8=0（外部应变直接应用）
-    
+
     // r_uxx (SDV_Poly.c:1126行)
-    uxx[idx] = -(S_11+tmpp1)*tmp1 - 2.0f*(S_16+tmpp12)*tmp4 - 2.0f*(S_15+tmpp11)*tmp5 
+    uxx[idx] = -(S_11+tmpp1)*tmp1 - 2.0f*(S_16+tmpp12)*tmp4 - 2.0f*(S_15+tmpp11)*tmp5
                 - (S_12+tmpp7)*tmp2 - 2.0f*(S_14+tmpp10)*tmp6 - (S_13+tmpp8)*tmp3
                 - (S_11+tmpp1)*E0_xx - 2.0f*(S_16+tmpp12)*E0_xy - 2.0f*(S_15+tmpp11)*E0_xz
                 - (S_12+tmpp7)*E0_yy - 2.0f*(S_14+tmpp10)*E0_yz - (S_13+tmpp8)*E0_zz
                 + tmp1*S_11 + tmp2*S_12 + tmp3*S_13 + 2.0f*tmp6*S_14 + 2.0f*tmp5*S_15 + 2.0f*tmp4*S_16
                 + 2.0f*(S_16+tmpp12)*r_uxy0 + 2.0f*(S_15+tmpp11)*r_uxz0 + 2.0f*(S_14+tmpp10)*r_uyz0
                 + (S_11+tmpp1)*r_uxx0 + (S_12+tmpp7)*r_uyy0 + (S_13+tmpp8)*r_uzz0;
-    
+
     // r_uxy (SDV_Poly.c:1127行)
     uxy[idx] = -(S_16+tmpp12)*tmp1 - 2.0f*(S_66+tmpp6)*tmp4 - 2.0f*(S_56+tmpp21)*tmp5
                 - (S_26+tmpp15)*tmp2 - 2.0f*(S_46+tmpp20)*tmp6 - (S_36+tmpp18)*tmp3
@@ -6644,7 +7808,7 @@ __global__ void compute_strain_with_perturbation_kernel(
                 + tmp1*S_16 + tmp2*S_26 + tmp3*S_36 + 2.0f*tmp6*S_46 + 2.0f*tmp5*S_56 + 2.0f*tmp4*S_66
                 + 2.0f*(S_66+tmpp6)*r_uxy0 + 2.0f*(S_56+tmpp21)*r_uxz0 + 2.0f*(S_46+tmpp20)*r_uyz0
                 + (S_16+tmpp12)*r_uxx0 + (S_26+tmpp15)*r_uyy0 + (S_36+tmpp18)*r_uzz0;
-    
+
     // r_uxz (SDV_Poly.c:1128行)
     uxz[idx] = -(S_15+tmpp11)*tmp1 - 2.0f*(S_56+tmpp21)*tmp4 - 2.0f*(S_55+tmpp5)*tmp5
                 - (S_25+tmpp14)*tmp2 - 2.0f*(S_45+tmpp19)*tmp6 - (S_35+tmpp17)*tmp3
@@ -6653,7 +7817,7 @@ __global__ void compute_strain_with_perturbation_kernel(
                 + tmp1*S_15 + tmp2*S_25 + tmp3*S_35 + 2.0f*tmp6*S_45 + 2.0f*tmp5*S_55 + 2.0f*tmp4*S_56
                 + 2.0f*(S_56+tmpp21)*r_uxy0 + 2.0f*(S_55+tmpp5)*r_uxz0 + 2.0f*(S_45+tmpp19)*r_uyz0
                 + (S_15+tmpp11)*r_uxx0 + (S_25+tmpp14)*r_uyy0 + (S_35+tmpp17)*r_uzz0;
-    
+
     // r_uyy (SDV_Poly.c:1129行)
     uyy[idx] = -(S_12+tmpp7)*tmp1 - 2.0f*(S_26+tmpp15)*tmp4 - 2.0f*(S_25+tmpp14)*tmp5
                 - (S_22+tmpp2)*tmp2 - 2.0f*(S_24+tmpp13)*tmp6 - (S_23+tmpp9)*tmp3
@@ -6662,7 +7826,7 @@ __global__ void compute_strain_with_perturbation_kernel(
                 + tmp1*S_12 + tmp2*S_22 + tmp3*S_23 + 2.0f*tmp6*S_24 + 2.0f*tmp5*S_25 + 2.0f*tmp4*S_26
                 + 2.0f*(S_26+tmpp15)*r_uxy0 + 2.0f*(S_25+tmpp14)*r_uxz0 + 2.0f*(S_24+tmpp13)*r_uyz0
                 + (S_12+tmpp7)*r_uxx0 + (S_22+tmpp2)*r_uyy0 + (S_23+tmpp9)*r_uzz0;
-    
+
     // r_uyz (SDV_Poly.c:1130行)
     uyz[idx] = -(S_14+tmpp10)*tmp1 - 2.0f*(S_46+tmpp20)*tmp4 - 2.0f*(S_45+tmpp19)*tmp5
                 - (S_24+tmpp13)*tmp2 - 2.0f*(S_44+tmpp4)*tmp6 - (S_34+tmpp16)*tmp3
@@ -6671,7 +7835,7 @@ __global__ void compute_strain_with_perturbation_kernel(
                 + tmp1*S_14 + tmp2*S_24 + tmp3*S_34 + 2.0f*tmp6*S_44 + 2.0f*tmp5*S_45 + 2.0f*tmp4*S_46
                 + 2.0f*(S_46+tmpp20)*r_uxy0 + 2.0f*(S_45+tmpp19)*r_uxz0 + 2.0f*(S_44+tmpp4)*r_uyz0
                 + (S_14+tmpp10)*r_uxx0 + (S_24+tmpp13)*r_uyy0 + (S_34+tmpp16)*r_uzz0;
-    
+
     // r_uzz (SDV_Poly.c:1131行)
     uzz[idx] = -(S_13+tmpp8)*tmp1 - 2.0f*(S_36+tmpp18)*tmp4 - 2.0f*(S_35+tmpp17)*tmp5
                 - (S_23+tmpp9)*tmp2 - 2.0f*(S_34+tmpp16)*tmp6 - (S_33+tmpp3)*tmp3
@@ -6941,7 +8105,7 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
-    
+
     // 读取总应变（Voigt记号：xx, yy, zz, yz, xz, xy）
     float eps_xx_total = uxx_r[idx];
     float eps_yy_total = uyy_r[idx];
@@ -6949,7 +8113,7 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
     float eps_yz_total = uyz_r[idx];
     float eps_xz_total = uxz_r[idx];
     float eps_xy_total = uxy_r[idx];
-    
+
     // Optimization(4): 现场计算 eigenstrain
     double phi = phi_r[idx];
     double eta = eta_r ? eta_r[idx] : 0.0;
@@ -6966,7 +8130,7 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
         eigenstrain_phi_only_point(phi, eps_xx00, eps_yy00, eps_zz00, eps_yz00, eps_xz00, eps_xy00,
                                     eps_xx0_f, eps_yy0_f, eps_zz0_f, eps_xy0_f, eps_xz0_f, eps_yz0_f);
     }
-    
+
     // 计算弹性应变：eps_elastic = eps_total - eps_eigen
     float eps_xx = eps_xx_total - eps_xx0_f;
     float eps_yy = eps_yy_total - eps_yy0_f;
@@ -6974,7 +8138,7 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
     float eps_yz = eps_yz_total - eps_yz0_f;
     float eps_xz = eps_xz_total - eps_xz0_f;
     float eps_xy = eps_xy_total - eps_xy0_f;
-    
+
     // 计算有效弹性系数：S_eff = S_ij + phi * S_p_ij（用h(phi)控制）
     double h = stiffness_beta_weight_point(phi, eta, gp_mode_enabled, gp_elastic_enabled);
     float S_eff_11 = S_11 + (float)(h * S_p_11);
@@ -6987,7 +8151,7 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
     float S_eff_23 = S_23 + (float)(h * S_p_23);
     float S_eff_24 = S_24 + (float)(h * S_p_24);
     float S_eff_25 = S_25 + (float)(h * S_p_25);
-    float S_eff_26 = S_26 + (float)(h * S_p_26); 
+    float S_eff_26 = S_26 + (float)(h * S_p_26);
     float S_eff_33 = S_33 + (float)(h * S_p_33);
     float S_eff_34 = S_34 + (float)(h * S_p_34);
     float S_eff_35 = S_35 + (float)(h * S_p_35);
@@ -6998,7 +8162,7 @@ __global__ void compute_stress_from_strain_with_effective_stiffness_kernel(
     float S_eff_55 = S_55 + (float)(h * S_p_55);
     float S_eff_56 = S_56 + (float)(h * S_p_56);
     float S_eff_66 = S_66 + (float)(h * S_p_66);
-    
+
     // Hooke定律：sigma = C_eff : epsilon，使用有效弹性系数
     // 在Voigt标记下，张量剪切应变项必须乘以 2.0 转换为工程应变参与乘法
     sigma_xx_r[idx] = S_eff_11*eps_xx + S_eff_12*eps_yy + S_eff_13*eps_zz + 2.0f*S_eff_14*eps_yz + 2.0f*S_eff_15*eps_xz + 2.0f*S_eff_16*eps_xy;
@@ -7080,35 +8244,35 @@ void gpu_reduce_min_max_meff(
         *max_val = 0.0;
         return;
     }
-    
+
     int threads_per_block = 256;
     int blocks = (total_size + threads_per_block - 1) / threads_per_block;
-    
+
     double *d_mins, *d_maxs;
     CUDA_CHECK(cudaMalloc(&d_mins, blocks * sizeof(double)));
     CUDA_CHECK(cudaMalloc(&d_maxs, blocks * sizeof(double)));
-    
+
     size_t shared_mem_size = 2 * threads_per_block * sizeof(double);
     reduce_min_max_meff_kernel<<<blocks, threads_per_block, shared_mem_size>>>(
         phi_r, xB_r, d_mins, d_maxs,
         D_alpha, D_compound, Vm_alpha_0, dVm_alpha_dxB, Vm_compound,
         temperature_K, mu_reference_scale, total_size);
-    
+
     double *h_mins = (double*)malloc(blocks * sizeof(double));
     double *h_maxs = (double*)malloc(blocks * sizeof(double));
     CUDA_CHECK(cudaMemcpy(h_mins, d_mins, blocks * sizeof(double), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_maxs, d_maxs, blocks * sizeof(double), cudaMemcpyDeviceToHost));
-    
+
     double global_min = h_mins[0];
     double global_max = h_maxs[0];
     for (int i = 1; i < blocks; i++) {
         if (h_mins[i] < global_min) global_min = h_mins[i];
         if (h_maxs[i] > global_max) global_max = h_maxs[i];
     }
-    
+
     *min_val = global_min;
     *max_val = global_max;
-    
+
     free(h_mins);
     free(h_maxs);
     CUDA_CHECK(cudaFree(d_mins));

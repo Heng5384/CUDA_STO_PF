@@ -4,6 +4,68 @@
 #include <cufft.h>
 #include <cuComplex.h>
 
+void sync_thermo_runtime_flag_cuda_kernels(int enabled);
+
+enum CtotAuditStatIndex {
+    CTOT_AUDIT_NONFINITE_COUNT = 0,
+    CTOT_AUDIT_BOUND_VIOLATION_COUNT,
+    CTOT_AUDIT_ACTIVE_COUNT,
+    CTOT_AUDIT_INACTIVE_COUNT,
+    CTOT_AUDIT_EXTENSION_CELL_COUNT,
+    CTOT_AUDIT_EXTENSION_C_MASS,
+    CTOT_AUDIT_TOTAL_C_MASS,
+    CTOT_AUDIT_MIN_C_MARGIN,
+    CTOT_AUDIT_MIN_Q_MARGIN,
+    CTOT_AUDIT_MIN_ACTIVE_X,
+    CTOT_AUDIT_MAX_ACTIVE_X,
+    CTOT_AUDIT_MAXABS_ROUNDTRIP,
+    CTOT_AUDIT_STATS_COUNT
+};
+
+enum CtotPhaseStatIndex {
+    CTOT_PHASE_NONFINITE_COUNT = 0,
+    CTOT_PHASE_BOUND_VIOLATION_COUNT,
+    CTOT_PHASE_LOWER_ACTIVE_COUNT,
+    CTOT_PHASE_UPPER_ACTIVE_COUNT,
+    CTOT_PHASE_INTERIOR_COUNT,
+    CTOT_PHASE_MAX_PROJECTION,
+    CTOT_PHASE_MAX_RAW_VIOLATION,
+    CTOT_PHASE_MAX_STORAGE_RESIDUAL,
+    CTOT_PHASE_MAX_PROJECTED_KKT_RESIDUAL,
+    CTOT_PHASE_MIN_C_MARGIN,
+    CTOT_PHASE_MIN_Q_MARGIN,
+    CTOT_PHASE_STATS_COUNT
+};
+
+enum CtotTransportStatIndex {
+    CTOT_TRANSPORT_NONFINITE_COUNT = 0,
+    CTOT_TRANSPORT_Y_CAP_COUNT,
+    CTOT_TRANSPORT_BOUND_VIOLATION_COUNT,
+    CTOT_TRANSPORT_MOBILITY_FAILURE_COUNT,
+    CTOT_TRANSPORT_MIN_C_MARGIN,
+    CTOT_TRANSPORT_MIN_Q_MARGIN,
+    CTOT_TRANSPORT_MIN_X_ACTIVE,
+    CTOT_TRANSPORT_MAX_X_ACTIVE,
+    CTOT_TRANSPORT_MIN_M,
+    CTOT_TRANSPORT_MAX_M,
+    CTOT_TRANSPORT_ZERO_FACE_COUNT,
+    CTOT_TRANSPORT_DISSIPATION_SUM,
+    CTOT_TRANSPORT_MAX_RESIDUAL_ACTIVE,
+    CTOT_TRANSPORT_MAX_RESIDUAL_INACTIVE,
+    CTOT_TRANSPORT_BE_TARGET_LOWER_VIOLATION_COUNT,
+    CTOT_TRANSPORT_BE_TARGET_UPPER_VIOLATION_COUNT,
+    CTOT_TRANSPORT_BE_TARGET_MAX_LOWER_DEFECT,
+    CTOT_TRANSPORT_BE_TARGET_MAX_UPPER_DEFECT,
+    CTOT_TRANSPORT_ANTITRAPPING_WORK_SUM,
+    CTOT_TRANSPORT_ANTITRAPPING_MAX_FACE_FLUX,
+    CTOT_TRANSPORT_LOWER_ACTIVE_COUNT,
+    CTOT_TRANSPORT_UPPER_ACTIVE_COUNT,
+    CTOT_TRANSPORT_INACTIVE_SUPPORT_COUNT,
+    CTOT_TRANSPORT_CONTEXT_ULP_NORMALIZATION_COUNT,
+    CTOT_TRANSPORT_CONTEXT_ULP_MAX_DEFECT,
+    CTOT_TRANSPORT_STATS_COUNT
+};
+
 enum {
     MASS_DIAG_PHI_SUM_XBTOT_RAW = 0,
     MASS_DIAG_PHI_SUM_XBTOT_CLAMPED,
@@ -792,6 +854,126 @@ void launch_constrain_phase_and_reconstruct_conservative_kernel(
     int primary_is_ctot, double beta_support_eps, double xB_eps,
     double Y_clip, double bound_tol, double *stats, int total_size);
 
+void launch_compute_ctot_from_phi_x_kernel(
+    const double *phi_r, const double *xB_r, double *ctot_r,
+    double v_B, int total_size);
+void launch_reconstruct_x_q_Y_from_ctot_kernel(
+    const double *ctot_r, const double *phi_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double x_inactive_context,
+    double v_B, double matrix_support_eps, double xB_eps, double Y_clip,
+    double *stats, int total_size);
+void launch_reconstruct_x_q_Y_from_ctot_bound_aware_kernel(
+    const double *ctot_r, const double *phi_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double x_inactive_context,
+    double v_B, double matrix_support_eps, double xB_context_eps,
+    double Y_safety_cap, double bound_tol, double *stats, int total_size);
+void launch_compute_ctot_from_Y_kernel(
+    const double *phi_r, const double *Y_r, double *ctot_r,
+    double v_B, double xB_eps, double Y_clip, int total_size);
+void launch_audit_ctot_admissibility_kernel(
+    const double *ctot_r, const double *phi_r, const double *xB_context_r,
+    const double *q_alpha_r, const double *active_matrix_mask_r,
+    double v_B, double matrix_support_eps, double bound_tol,
+    double *stats, int total_size);
+void launch_phi_normalize_project_ctot_kernel(
+    double *phi_trial_ifft_r, const double *phi_old_r, const double *ctot_r,
+    double *xB_context_r, double *q_alpha_r, double *Y_r,
+    double *active_matrix_mask_r, double invN, double x_inactive_context,
+    double v_B, double x_min, double x_max, double matrix_support_eps,
+    double xB_eps, double Y_clip, double bound_tol,
+    double *stats, int total_size);
+void launch_ctot_candidate_state_from_Y_kernel(
+    const double *Y_r, const double *phi_r, const double *ctot_old_r,
+    double *ctot_trial_r, double *xB_context_r, double *q_alpha_r,
+    double *active_matrix_mask_r, double x_inactive_context, double v_B,
+    double matrix_support_eps, double Y_safety_cap, double bound_tol,
+    double *stats, int total_size);
+void launch_compute_mu_x_from_xB_candidate_kernel(
+    const double *phi_r, const double *xB_r, double *mu_x_r,
+    double temperature_K, double mu_reference_scale,
+    double v_A, double v_B, double mu0_compound,
+    double Vm_compound, double Vm_alpha_0, double dVm_alpha_dxB,
+    const float *sigma_xx_r, const float *sigma_yy_r,
+    const float *sigma_zz_r, double eps_iso_over_vB,
+    int total_size, int elastic_enabled, double *stats);
+void launch_compute_flux_single_component_ctot_candidate_kernel(
+    const double *grad_mu_alpha_r, const double *phi_r,
+    const double *xB_context_r, double *J_alpha_r, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale, double matrix_support_eps,
+    double *stats, int total_size);
+void launch_compute_ctot_be_residual_kernel(
+    const double *ctot_trial_r, const double *ctot_old_r,
+    const double *divJ_r, double dt, double *residual_r, int total_size);
+// Diagnostic-only fixed-order GPU reduction: [Linf, sum, sumsq, worst_idx].
+void launch_ctot_deterministic_residual_reduction_kernel(
+    const double *residual_r, double *result_r, int total_size);
+void launch_ctot_outer_convex_blend_kernel(
+    const double *previous_r, const double *candidate_r,
+    double *blended_r, double omega, int total_size);
+void launch_ctot_outer_local_phase_feasibility_filter_kernel(
+    const double *previous_r, const double *candidate_r,
+    const double *ctot_old_r, const double *ctot_current_r,
+    const double *divJ_r,
+    double *filtered_r, double dt, double v_B,
+    double *filter_stats, int total_size);
+void launch_apply_ctot_preconditioner_k_kernel(
+    cuDoubleComplex *residual_k, const double *k2,
+    double a_ref, double D_ref, double dt,
+    int Nx, int Ny, int Nz, int NzC, int total_size);
+void launch_ctot_trial_Y_update_kernel(
+    const double *Y_current_r, const double *correction_r,
+    const double *active_matrix_mask_r, double lambda,
+    double *Y_trial_r, double Y_safety_cap,
+    double *stats, int total_size);
+void launch_ctot_trial_feasible_C_update_kernel(
+    const double *C_current_r, const double *residual_r, const double *phi_r,
+    double lambda, double *C_trial_r, double v_B,
+    double matrix_support_eps, double xB_context_eps, double Y_safety_cap,
+    double active_tol, double *stats, int total_size);
+void launch_ctot_build_mass_tangent_direction_kernel(
+    const double *C_current_r, const double *phi_r, double *direction_r,
+    double *free_mask_r, double v_B, double matrix_support_eps,
+    double active_tol, double min_lambda, int initialize_mask,
+    int total_size);
+void launch_ctot_subtract_free_direction_mean_kernel(
+    double *direction_r, const double *free_mask_r, double mean,
+    int total_size);
+void launch_ctot_active_capacity_kernel(
+    const double *Y_r, const double *phi_r,
+    const double *active_matrix_mask_r, double *capacity_r, int total_size);
+void launch_ctot_add_active_Y_shift_kernel(
+    double *Y_r, const double *active_matrix_mask_r, double shift,
+    double Y_safety_cap, double *stats, int total_size);
+void launch_ctot_fv_positive_face_flux_kernel(
+    const double *mu_r, const double *phi_r, const double *xB_context_r,
+    double *face_flux_r, int Nx, int Ny, int Nz, int axis, double spacing,
+    double D_alpha, double Vm_alpha_0, double dVm_alpha_dxB,
+    double Vm_compound, double temperature_K, double mu_reference_scale,
+    double matrix_support_eps, double coarse_interface_mobility_a_M,
+    double *stats, int total_size);
+void launch_ctot_positive_face_flux_from_cell_gradient_kernel(
+    const double *grad_mu_r, const double *mu_r, const double *phi_r,
+    const double *xB_context_r, double *face_flux_r,
+    int Nx, int Ny, int Nz, int axis, double spacing, double D_alpha,
+    double Vm_alpha_0, double dVm_alpha_dxB, double Vm_compound,
+    double temperature_K, double mu_reference_scale,
+    double matrix_support_eps, double coarse_interface_mobility_a_M,
+    double *stats, int total_size);
+void launch_ctot_add_antitrapping_face_flux_kernel(
+    const double *phi_r, const double *phi_old_r,
+    const double *xB_context_r, double *face_flux_r,
+    int Nx, int Ny, int Nz, int axis,
+    double dx, double dy, double dz, double lambda_code,
+    double dt, double v_B, const double *mu_r,
+    double *stats, int total_size);
+void launch_ctot_fv_divergence_kernel(
+    const double *face_x_r, const double *face_y_r, const double *face_z_r,
+    double *divJ_r, int Nx, int Ny, int Nz,
+    double dx, double dy, double dz, int total_size);
+
 void launch_initialize_q_alpha_kernel(const double *phi_r,
                                       const double *xB_r,
                                       double *q_alpha_r,
@@ -882,6 +1064,11 @@ void launch_update_dY_dt_prev_kernel(const double *Y_r, const double *Y_n_saved,
 
 // 归约求和（辅助函数）
 double gpu_reduce_sum(const double *d_array, int n);
+void gpu_reduce_sum_to_device(const double *d_array, int n,
+                              double *d_result);
+void gpu_reduce_workspace_reserve(int max_n);
+void gpu_reduce_workspace_release(void);
+size_t gpu_reduce_workspace_bytes(void);
 
 // 诊断统计：计算N_in和N_if（旧版本，需要中间存储数组）
 void launch_compute_diagnostics_stats_kernel(const double *phi_r,

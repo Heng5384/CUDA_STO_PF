@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Heng5384/CUDA_STO_PF/schemas/interface_onsager_data.schema.json",
+  "title": "Independent planar interface Onsager linear-response record",
+  "description": "Raw independent planar-interface observations for the fixed-Ctot Onsager data gate. TEMPLATE records are not fit data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_status",
+    "temperature_K",
+    "phase_driving",
+    "diffusion_driving",
+    "measured_Vn",
+    "measured_JB",
+    "uncertainty_Vn",
+    "uncertainty_JB",
+    "covariance",
+    "interface_orientation",
+    "coherency_state",
+    "elastic_constraint",
+    "source_type",
+    "source_reference"
+  ],
+  "properties": {
+    "record_status": {
+      "type": "string",
+      "enum": ["DATA", "TEMPLATE"]
+    },
+    "temperature_K": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "unit": "K"
+    },
+    "phase_driving": {
+      "type": ["number", "null"],
+      "description": "X_phase/T-conjugate driving on the accepted total-C equimolar/h-volume surface.",
+      "unit": "J m^-3 K^-1"
+    },
+    "diffusion_driving": {
+      "type": ["number", "null"],
+      "description": "X_diff=(mu_alpha-mu_beta)/T for B-equivalent transfer into beta.",
+      "unit": "J mol_Beq^-1 K^-1"
+    },
+    "measured_Vn": {
+      "type": ["number", "null"],
+      "description": "Positive when beta advances into matrix.",
+      "unit": "m s^-1"
+    },
+    "measured_JB": {
+      "type": ["number", "null"],
+      "description": "Positive B-equivalent transfer from matrix into beta.",
+      "unit": "mol_Beq m^-2 s^-1"
+    },
+    "uncertainty_Vn": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "unit": "m s^-1"
+    },
+    "uncertainty_JB": {
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0,
+      "unit": "mol_Beq m^-2 s^-1"
+    },
+    "covariance": {
+      "type": ["number", "null"],
+      "description": "Cov(measured_Vn, measured_JB); each 2x2 observation covariance must be positive definite.",
+      "unit": "mol_Beq m^-1 s^-2"
+    },
+    "interface_orientation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "coherency_state": {
+      "type": "string",
+      "minLength": 1
+    },
+    "elastic_constraint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "standalone_planar_rsmd",
+        "standalone_md",
+        "standalone_kmc",
+        "planar_thin_film_experiment",
+        "planar_diffusion_couple_experiment",
+        "planar_interface_migration_experiment"
+      ]
+    },
+    "source_reference": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state_id": {
+      "type": "string"
+    },
+    "replicate_id": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"record_status": {"const": "DATA"}}
+      },
+      "then": {
+        "properties": {
+          "temperature_K": {"type": "number", "exclusiveMinimum": 0},
+          "phase_driving": {"type": "number"},
+          "diffusion_driving": {"type": "number"},
+          "measured_Vn": {"type": "number"},
+          "measured_JB": {"type": "number"},
+          "uncertainty_Vn": {"type": "number", "exclusiveMinimum": 0},
+          "uncertainty_JB": {"type": "number", "exclusiveMinimum": 0},
+          "covariance": {"type": "number"}
+        }
+      }
+    }
+  ],
+  "x-project-contract": {
+    "normal_direction": "beta_to_matrix",
+    "positive_Vn": "beta_growth",
+    "positive_JB": "matrix_to_beta",
+    "dividing_surface": "total_C_equimolar_h_volume",
+    "forbidden_fit_sources": [
+      "PF_curved_velocity_matrix",
+      "radius_3_seed_fate",
+      "solver_speed",
+      "desired_growth_direction"
+    ]
+  }
+}

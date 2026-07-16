@@ -1,0 +1,8 @@
+{
+  "schema_version": "next8-full-acquisition-v1",
+  "status": "NOT_RUN_PILOT_GATE",
+  "backend": null,
+  "execution_authorized": false,
+  "cases": [],
+  "reason": "T400 pilot and all preceding hard gates have not passed"
+}
