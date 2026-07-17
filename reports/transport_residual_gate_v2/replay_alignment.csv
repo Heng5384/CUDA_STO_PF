@@ -1,0 +1,9 @@
+case_id,window_index,bitwise_Ctot_phi_xB_match
+V2_G12_dt32_5windows_holdout,1,True
+V2_G12_dt32_5windows_holdout,2,True
+V2_G12_dt32_5windows_holdout,3,True
+V2_G12_dt32_5windows_holdout,4,True
+V2_G9_dt4_5windows_holdout,1,True
+V2_G9_dt4_5windows_holdout,2,True
+V2_G9_dt4_5windows_holdout,3,True
+V2_G9_dt4_5windows_holdout,4,True

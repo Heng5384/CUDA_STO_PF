@@ -1,0 +1,5 @@
+tool,metric,value,status,reason
+Nsight Compute,occupancy,NOT_MEASURED,UNAVAILABLE,ncu executable absent on workstation; no estimate fabricated
+Nsight Compute,register_pressure,NOT_MEASURED,UNAVAILABLE,ncu executable absent on workstation; no estimate fabricated
+Nsight Compute,achieved_memory_bandwidth,NOT_MEASURED,UNAVAILABLE,ncu executable absent on workstation; no estimate fabricated
+Nsight Compute,L2_hit_rate,NOT_MEASURED,UNAVAILABLE,ncu executable absent on workstation; no estimate fabricated

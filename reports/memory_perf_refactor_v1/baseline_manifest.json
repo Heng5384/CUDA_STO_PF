@@ -1,0 +1,28 @@
+{
+  "binary_sha256": "13752facf2b6158511859428dc7588db3fc146b8bf1be6b91a26d3a9911fbb5a",
+  "cluster_used": false,
+  "compiler": "gcc 13.1.0 host + nvcc 12.9, -arch=sm_120",
+  "cuda": "12.9",
+  "dirty_tree": true,
+  "driver": "580.95.05",
+  "dt_code": 0.0001953125,
+  "dt_physical_s": 0.008033122153,
+  "git_head": "f440c0dcd4c02cd45d9079c35d3838ebfa9b37e2",
+  "gpu": "NVIDIA GeForce RTX 5080, 16303 MiB",
+  "input_sha256": "b645b4172d5b9dd02416a864bfcd9bdabe1f291fc860548fdf1e228aa511cb88",
+  "physics_or_numerics_changed": false,
+  "schema": "memory_perf_refactor_v1_baseline_manifest",
+  "solver": "LEGACY_CURRENT / V0 active-manifold IMEX-BDF2",
+  "source_sha256": {
+    "Makefile": "9774c17ac86a291edda6f524ac38631762b6780835779649a13b6ec9410e33e2",
+    "cuda_common.cu": "17e8ae05d8fb80a7445a58736fb93f0492ea9d8aa04aadc32deffbfa63093b43",
+    "cuda_common.h": "384fb4b5da23df8a52a8cbad2b547f1585242c4e310ba4f1060478106db2a6ce",
+    "cuda_kernels.cu": "2bf1666e439a2932b3c0f3049ae388dba8655c86d31d957a6f2a2eef8c31e7c8",
+    "cuda_kernels.h": "8669f70863c9b4c8b3b42e648a29ef32aff5714619fab5d56ccf41efa9c37522",
+    "main_cuda.cu": "2e81113f263e35e54249b2f39a0a3e8bc72021dc4bcbbe6d8e834ca032aab1a6",
+    "pf_params.h": "f5a89070b3df9c00b096cb84f34952919c09d548e3fd7d5f9540029fb592ffbd",
+    "phase_functions.h": "1de58a0c93208688d767bec1a3fa8b70b9bf0ec25f7a8d48ac5de0d3f651ac52",
+    "thermo_utils.h": "7407ced4b2e78987a213b2c581ca04e2f8ad16856ae7dab4b538822c954fe284"
+  },
+  "transport_gate": "strict currently qualified gate"
+}

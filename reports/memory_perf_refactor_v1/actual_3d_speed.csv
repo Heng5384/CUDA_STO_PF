@@ -1,0 +1,8 @@
+case,N,state,feature_mask,warmup_steps,timed_steps,accepted_steps,hard_rejects,fallback_macros,wall_s_per_accepted_step,physical_s_per_GPU_hour,peak_MiB,measurement_status,notes
+N32_B0,32,curved,0,0,5,5,0,0,0.05511593334376812,524.6983584660616,NOT_SAMPLED,ACTUAL,B0 control
+N32_B187,32,curved,187,0,5,5,0,0,0.054054639488458636,535.000141051253,NOT_SAMPLED,ACTUAL,bitwise endpoint
+N64_B0,64,curved,0,0,5,5,0,0,0.2358264279551804,122.62934227327649,NOT_SAMPLED,ACTUAL,B0 control
+N64_B187,64,curved,187,0,5,5,0,0,0.22690922860056162,127.4484952822603,NOT_SAMPLED,ACTUAL,bitwise endpoint
+N128_B0_NSYS,128,curved,0,0,2,2,0,0,1.1825180482119322,24.45564344199934,NOT_SAMPLED,PROFILED_NOT_SPEED_AUTHORITY,CUDA-event and Nsight overhead
+N128_B187_NSYS,128,curved,187,0,2,2,0,0,1.1102118799462914,26.048396953020372,NOT_SAMPLED,PROFILED_NOT_SPEED_AUTHORITY,CUDA-event and Nsight overhead
+PF_ONLY_N400_B187,400,representative curved,187,3,10,13,0,6,76.33214787983646,0.37886055291310844,12788,ACTUAL_3_WARMUP_10_TIMED,large output suppressed; hard gates active; recovered event subcycles included

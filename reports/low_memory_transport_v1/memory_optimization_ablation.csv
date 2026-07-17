@@ -1,0 +1,5 @@
+optimization,implemented,saved_MiB_400cube,status,reason
+M1_POINTER_ROTATION,False,0.00000000000000000e+00,NOT_ENTERED_NO_SOLVER_CANDIDATE,transaction-authoritative pointer rotation requires separate rollback qualification
+M2_UINT8_ACTIVE_MASK,False,4.27246093750000000e+02,ANALYZED_NOT_RETAINED,insufficient alone and active-code ABI touches all transport/PDAS kernels
+M3_SCRATCH_LIFETIME_REUSE,False,0.00000000000000000e+00,NOT_ENTERED_NO_SOLVER_CANDIDATE,requires stream last-use and rollback proof
+M4_FACE_BUFFER_STREAMING,False,9.76562500000000000e+02,ANALYZED_NOT_RETAINED,existing outer shared-face-change audit keeps prior directional faces live

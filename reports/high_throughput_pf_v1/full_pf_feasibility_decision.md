@@ -1,0 +1,7 @@
+# Full-PF feasibility decision
+
+- `FULL_PF_SHORT_TRANSIENT_FEASIBLE`: `false`
+- `FULL_PF_INTERMEDIATE_FEASIBLE`: `false`
+- `FULL_PF_LONG_COARSENING_FEASIBLE`: `false`
+
+Engineering classification: `FULL_PF_LONG_TIME_NOT_PRACTICAL; HYBRID_HANDOFF_REQUIRED`.

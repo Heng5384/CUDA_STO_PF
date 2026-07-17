@@ -13,6 +13,9 @@ class ActiveManifoldBdf2RuntimeContractTests(unittest.TestCase):
         )[1].split("static const char *ctot_time_integrator_name", 1)[0]
         self.assertIn('"ctot_jichen_imex_bdf2_v1"', selectors)
         self.assertIn('"ctot_jichen_imex_bdf2_active_manifold_v1"', selectors)
+        self.assertIn(
+            '"ctot_jichen_variable_bdf2_active_manifold_v1"', selectors
+        )
         self.assertIn("is_ctot_jichen_imex_bdf2_family", selectors)
 
     def test_context_is_versioned_and_checkpointed(self):
@@ -62,13 +65,35 @@ class ActiveManifoldBdf2RuntimeContractTests(unittest.TestCase):
         self.assertIn("FIXED_STEP_IMEX_BDF2_V1", restart)
         self.assertIn("PHI_EXTRAPOLATION_2N_MINUS_NM1_ULP64_V1", restart)
         self.assertIn("is_ctot_jichen_imex_bdf2_active_manifold_v1", restart)
+        self.assertIn("variable_from_fixed_history_migration", restart)
         self.assertIn("authoritative_fields_unchanged=1", MAIN)
         self.assertIn("history_fields_unchanged=1", MAIN)
+
+    def test_variable_restart_contract_migration_is_narrow(self):
+        validation = MAIN.split(
+            "const int fixed_bdf2_to_active_manifold_migration", 1
+        )[1].split("const int current_coarse", 1)[0]
+        self.assertIn("fixed_active_to_variable_step_migration", validation)
+        self.assertIn("ctot_jichen_imex_bdf2_v1", validation)
+        self.assertIn(
+            "ctot_jichen_imex_bdf2_active_manifold_v1", validation
+        )
+        self.assertIn("P->PF_RESEARCH_MODEL", validation)
+        self.assertIn("P->ctot_split_defect_policy", validation)
+        self.assertIn("P->ctot_max_coupling_correctors", validation)
 
     def test_event_subcycling_remains_the_unhandled_safety_net(self):
         self.assertIn("ctot_bdf2_event_subcycle_active = 1", MAIN)
         self.assertIn("restore_ctot_event_macro_start()", MAIN)
         self.assertIn("ctot_bdf2_event_subcycle_depth <= 8", MAIN)
+
+    def test_history_mass_gate_is_ulp_scaled_without_changing_step_mass_gate(self):
+        self.assertIn("ctot_bdf2_history_mass_consistent_v1", MAIN)
+        self.assertIn("ctot_bdf2_reduction_equivalent_v1", MAIN)
+        self.assertIn("identity_tolerance=%.17e", MAIN)
+        self.assertIn("history_mass_tolerance=%.17e", MAIN)
+        self.assertIn("fabs(mass_error) <= 1.0e-10", MAIN)
+        self.assertIn("fabs(sum_divJ) <= 1.0e-10", MAIN)
 
 
 if __name__ == "__main__":

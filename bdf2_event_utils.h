@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cfloat>
 
+#include "variable_bdf2_utils.h"
+
 #ifdef __CUDACC__
 #define BDF2_EVENT_HD __host__ __device__
 #else
@@ -59,10 +61,27 @@ BDF2_EVENT_HD inline bool bdf2_event_isfinite(double value) {
 
 BDF2_EVENT_HD inline Bdf2EventCellV1 bdf2_event_classify_v1(
     double C_n, double C_nm1, double phi_n, double phi_nm1,
-    double v_B, double bound_tol) {
+    double v_B, double bound_tol);
+
+BDF2_EVENT_HD inline Bdf2EventCellV1 bdf2_event_classify_ratio_v1(
+    double C_n, double C_nm1, double phi_n, double phi_nm1,
+    double v_B, double bound_tol, double step_ratio) {
     Bdf2EventCellV1 out{};
-    out.C_anchor = (4.0 * C_n - C_nm1) / 3.0;
-    out.phi_E = 2.0 * phi_n - phi_nm1;
+    const VariableBdf2CoefficientsV1 coefficients =
+        variable_bdf2_coefficients_v1(step_ratio, 1.0);
+    if (!coefficients.valid) {
+        out.reason = BDF2_EVENT_OTHER_VERSIONED_REASON;
+        return out;
+    }
+    if (step_ratio == 1.0) {
+        out.C_anchor = (4.0 * C_n - C_nm1) / 3.0;
+        out.phi_E = 2.0 * phi_n - phi_nm1;
+    } else {
+        out.C_anchor = coefficients.anchor_n * C_n +
+                       coefficients.anchor_nm1 * C_nm1;
+        out.phi_E = coefficients.extrap_n * phi_n +
+                    coefficients.extrap_nm1 * phi_nm1;
+    }
     const double context_tol = 64.0 * DBL_EPSILON;
     const double phi_E_bounded = fmin(fmax(out.phi_E, 0.0), 1.0);
     out.alpha_n = bdf2_event_alpha(phi_n);
@@ -117,6 +136,13 @@ BDF2_EVENT_HD inline Bdf2EventCellV1 bdf2_event_classify_v1(
         out.reason = BDF2_EVENT_ENERGY_CONTEXT_UNDEFINED;
     }
     return out;
+}
+
+BDF2_EVENT_HD inline Bdf2EventCellV1 bdf2_event_classify_v1(
+    double C_n, double C_nm1, double phi_n, double phi_nm1,
+    double v_B, double bound_tol) {
+    return bdf2_event_classify_ratio_v1(
+        C_n, C_nm1, phi_n, phi_nm1, v_B, bound_tol, 1.0);
 }
 
 BDF2_EVENT_HD inline const char *bdf2_event_reason_name_v1(int reason) {

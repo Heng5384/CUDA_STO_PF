@@ -45,6 +45,7 @@ test_memory_ledger
 *.ptx
 *.cubin
 *.fatbin
+*_host_bin
 build/
 cmake-build-*/
 CMakeFiles/
@@ -56,12 +57,21 @@ CMakeCache.txt
 outputs/
 Results/
 Results_scan/
+runs/
 step35_outputs/
 step36_radial_profiles/
+run.log
+exit_code.txt
 *.vtk
 *.raw
 nohup.out
 core.*
+
+# Curated report summaries may be versioned; raw workstation trajectories may not.
+reports/**/workstation_runs/
+reports/**/coarse4_runs/
+reports/**/initial_states/
+reports/**/profile_hold/
 
 # ============================================
 # Job / cluster

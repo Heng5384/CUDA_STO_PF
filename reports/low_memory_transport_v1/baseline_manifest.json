@@ -1,0 +1,74 @@
+{
+  "acceptance_contract": {
+    "clipping_allowed": false,
+    "energy_work_gate_unchanged": true,
+    "phase_kkt_unchanged": true,
+    "physical_projection_allowed": false,
+    "source_free_mass_error_max": 1e-10,
+    "storage_bounds_unchanged": true
+  },
+  "baseline_source_sha256": {
+    "Makefile": "f9aeb0dd333fac491d425873424cc31e3d40431cbb29eea971028ab2a1c84901",
+    "active_manifold_bdf2_utils.h": "e4fcce0513ee44fd462ebf711e247ffbc297cd73cefe3a26cf2f3039439489eb",
+    "bounded_retry_bdf2_utils.h": "bb81c5996ddc232708643f7773258f24c6a78ba9e4b8379141a30f6a6b922e9c",
+    "ctot_transport_bound_utils.h": "ba0cf736165de65610f8e58b7eaa34468dbf81a7be2f955f1148b280c183d237",
+    "cuda_kernels.cu": "5d2d9df0e0bc291fb50af7625699c0b973ef06e9a2ab3f938c2ba804663e1e4d",
+    "cuda_kernels.h": "3eb5cfa9ed35ddb533f43d5847ca270a0ac3a4ddb389770140e7fa7e7c425b53",
+    "main_cuda.cu": "b9978ce5faf36acd2072ff6ec0b7158bad9d28bcb6a06668b0bd4c3cb8f9c556",
+    "pf_params.h": "c62eb521bb10656d4a15dd57e899b7041314456bbf740c6d9a32640672010726",
+    "transport_defect_gate_v2_observer.h": "ed0cc3de528272adfc5b0133532f82b913a61a0572b2c299f58bc16b6b0083ed"
+  },
+  "clean_low_memory_build_status": "PENDING_WORKSTATION_V2_HOLDOUT",
+  "cluster_used": false,
+  "commit_created": false,
+  "finalization": {
+    "formal_gate": "FAIL_V2_MATERIAL_TRANSPORT_DEFECT",
+    "selected_candidate": null,
+    "source_hashes": {
+      "cuda_kernels.cu": "c32cc25c891647617a63f8bba650990f5db7320e82bdd6a40973e4335b21d5c8",
+      "cuda_kernels.h": "d334c67fa69a426fb7bc752a3b2a3ff630b13f15b1db477049f156382d1a869e",
+      "low_memory_transport_v1_utils.h": "a0c6295e9c3fadf7b9d054d4ab7f3553832fa95fce767705f5bf1f3758a8251c",
+      "main_cuda.cu": "c23a3c14673e29dcc4d89f039f5e9b34fa868c8b6f406c4c76717bcd200a5cb1",
+      "pf_params.h": "0266334f5138494f0bd152ad726d66a85d63abd20479a24fc93a39fe00d801fe"
+    }
+  },
+  "physical_parameters": {
+    "D_alpha": 400.00000000000006,
+    "D_compound": 0.0,
+    "L_phi": 0.7011737007292141,
+    "dx_nm": 1.0,
+    "gamma_Jm2": 0.168,
+    "lambda_sm_m": 4e-09,
+    "temperature_C": 400.0,
+    "v_B": 1.0
+  },
+  "physics_model": "pbte_ag2te_gp_coarse4_stoich_rd_v2",
+  "production_baseline": {
+    "dt_code": 0.0001953125,
+    "dt_physical_s": 0.008033122153233353,
+    "fallback_count": 0,
+    "retry_count": 0
+  },
+  "push_performed": false,
+  "review_commit": "f440c0dcd4c02cd45d9079c35d3838ebfa9b37e2",
+  "schema": "LOW_MEMORY_TRANSPORT_V1_BASELINE_MANIFEST",
+  "time_integrator": "ctot_jichen_imex_bdf2_active_manifold_v1",
+  "transport_coordinate": "adaptive_logit_feasible_ctot_v1",
+  "transport_gate": {
+    "development_diagnostic_gate": 1e-10,
+    "development_gate_is_production_qualified": false,
+    "quantitative_production_gate": null,
+    "status": "QUALIFICATION_PENDING_V2_HOLDOUT",
+    "strict_reference_absolute_gate": 1e-12
+  },
+  "workstation_build": {
+    "baseline_binary_sha256": "7d76e43e262a99bc452efc008a1ea0e767745f423e508555eb13aed15fffc16d",
+    "cuda_compiler": "12.9",
+    "driver": "580.95.05",
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "host_compiler": "g++ 13.3.0",
+    "hostname": "fuxin",
+    "vram_mib": 16303
+  },
+  "worktree": "pf-ctot-production-candidate"
+}

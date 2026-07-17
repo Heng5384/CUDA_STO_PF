@@ -1,0 +1,9 @@
+configuration,rank,operation,instances,total_time_ms,avg_time_us,bytes,source
+B0,1,[CUDA memcpy Device-to-Host],1293,35.009825,27.076400000000003,397954000.0,"Nsight Systems 2025.1.3, N128_B0_nsys, full 2-step trace"
+B0,2,[CUDA memcpy Host-to-Device],88,3.583134,40.717400000000005,54418000.0,"Nsight Systems 2025.1.3, N128_B0_nsys, full 2-step trace"
+B0,3,[CUDA memcpy Device-to-Device],1151,3.55804,3.0913000000000004,1979720000.0,"Nsight Systems 2025.1.3, N128_B0_nsys, full 2-step trace"
+B0,4,[CUDA memset],84,0.05664,0.6742999999999999,16792000.0,"Nsight Systems 2025.1.3, N128_B0_nsys, full 2-step trace"
+B187,1,[CUDA memcpy Device-to-Host],1283,23.68061,18.4572,230182000.0,"Nsight Systems 2025.1.3, N128_B187_nsys, full 2-step trace"
+B187,2,[CUDA memcpy Host-to-Device],88,3.442428,39.1185,54418000.0,"Nsight Systems 2025.1.3, N128_B187_nsys, full 2-step trace"
+B187,3,[CUDA memcpy Device-to-Device],1125,2.728338,2.4252,1543512000.0,"Nsight Systems 2025.1.3, N128_B187_nsys, full 2-step trace"
+B187,4,[CUDA memset],84,0.046753,0.5566,16792000.0,"Nsight Systems 2025.1.3, N128_B187_nsys, full 2-step trace"

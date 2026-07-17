@@ -68,13 +68,13 @@ __global__ void kspace_build_kernel(double *k2, double *k4,
         
         double k2v = kx * kx + ky * ky + kz * kz;
         k2[idx] = k2v;
-        k4[idx] = k2v * k2v;
+        if (k4) k4[idx] = k2v * k2v;
     }
 }
 
 // 初始化k空间（在GPU上）
 void kspace_build_cuda(KSpace_CUDA *KS, int Nx, int Ny, int Nz, 
-                       double dx, double dy, double dz) {
+                       double dx, double dy, double dz, int build_k4) {
     KS->Nx = Nx;
     KS->Ny = Ny;
     KS->Nz = Nz;
@@ -92,7 +92,8 @@ void kspace_build_cuda(KSpace_CUDA *KS, int Nx, int Ny, int Nz,
     
     // 分配GPU内存
     CUDA_CHECK(cudaMalloc(&KS->d_k2, size_k));
-    CUDA_CHECK(cudaMalloc(&KS->d_k4, size_k));
+    KS->d_k4 = NULL;
+    if (build_k4) CUDA_CHECK(cudaMalloc(&KS->d_k4, size_k));
     
     // 启动kernel
     int threads_per_block = 256;
@@ -119,4 +120,3 @@ void kspace_free_cuda(KSpace_CUDA *KS) {
         KS->d_k4 = NULL;
     }
 }
-

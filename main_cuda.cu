@@ -35,9 +35,14 @@
 #include "phase_pdas_reduction.h"
 #include "ctot_transport_bound_utils.h"
 #include "ctot_performance_profiler.h"
+#include "bdf2_history_mass_utils.h"
 #include "bdf2_event_utils.h"
 #include "active_manifold_bdf2_utils.h"
 #include "bounded_retry_bdf2_utils.h"
+#include "variable_bdf2_utils.h"
+#include "audit_cadence_utils.h"
+#include "transport_defect_gate_v2_observer.h"
+#include "low_memory_transport_v1_utils.h"
 #define THERMO_UTILS_DEFINE_GLOBALS
 #include "thermo_utils.h"
 #include "cuda_kernels.h"
@@ -1218,12 +1223,26 @@ static int is_ctot_jichen_imex_bdf2_active_manifold_v1(const PFParams *P) {
         "ctot_jichen_imex_bdf2_active_manifold_v1") == 0;
 }
 
+static int is_ctot_jichen_variable_bdf2_active_manifold_v1(
+    const PFParams *P) {
+    return P && strcmp(
+        P->ctot_numerics_contract,
+        "ctot_jichen_variable_bdf2_active_manifold_v1") == 0;
+}
+
+static int is_ctot_jichen_active_manifold_bdf2_family(const PFParams *P) {
+    return is_ctot_jichen_imex_bdf2_active_manifold_v1(P) ||
+           is_ctot_jichen_variable_bdf2_active_manifold_v1(P);
+}
+
 static int is_ctot_jichen_imex_bdf2_family(const PFParams *P) {
     return is_ctot_jichen_imex_bdf2_v1(P) ||
-           is_ctot_jichen_imex_bdf2_active_manifold_v1(P);
+           is_ctot_jichen_active_manifold_bdf2_family(P);
 }
 
 static const char *ctot_time_integrator_name(const PFParams *P) {
+    if (is_ctot_jichen_variable_bdf2_active_manifold_v1(P))
+        return "VARIABLE_STEP_IMEX_BDF2_ACTIVE_MANIFOLD_V1";
     if (is_ctot_jichen_imex_bdf2_active_manifold_v1(P))
         return "FIXED_STEP_IMEX_BDF2_ACTIVE_MANIFOLD_V1";
     if (is_ctot_jichen_imex_bdf2_v1(P))
@@ -1237,20 +1256,27 @@ static const char *ctot_bdf2_history_contract_version(void) {
     return "FIXED_STEP_BDF2_ACCEPTED_HISTORY_V1";
 }
 
+static const char *ctot_bdf2_history_contract_version_for_mode(
+    const PFParams *P) {
+    return is_ctot_jichen_variable_bdf2_active_manifold_v1(P)
+        ? "VARIABLE_STEP_BDF2_ACCEPTED_HISTORY_AND_CONTROLLER_V1"
+        : ctot_bdf2_history_contract_version();
+}
+
 static const char *ctot_bdf2_phase_context_version(const PFParams *P) {
-    return is_ctot_jichen_imex_bdf2_active_manifold_v1(P)
+    return is_ctot_jichen_active_manifold_bdf2_family(P)
         ? "QALPHA_AND_PHI_ENDPOINT_ACTIVE_MANIFOLD_CONTEXT_V1"
         : "PHI_EXTRAPOLATION_2N_MINUS_NM1_ULP64_V1";
 }
 
 static const char *ctot_active_manifold_predictor_version(const PFParams *P) {
-    return is_ctot_jichen_imex_bdf2_active_manifold_v1(P)
+    return is_ctot_jichen_active_manifold_bdf2_family(P)
         ? "QALPHA_EXACT_H_INVERSE_PLUS_PHI_ENDPOINT_TANGENT_CONE_V1"
         : "NOT_APPLICABLE";
 }
 
 static const char *ctot_active_set_tolerance_contract(const PFParams *P) {
-    return is_ctot_jichen_imex_bdf2_active_manifold_v1(P)
+    return is_ctot_jichen_active_manifold_bdf2_family(P)
         ? "STORAGE_ULP64_AND_BOUND_TOL_1E12_V1"
         : "NOT_APPLICABLE";
 }
@@ -2032,7 +2058,9 @@ static int validate_physical_params_ready(const PFParams *P) {
                 const int lie_be_v2 = is_ctot_jichen_lie_be_v2(P);
                 const int imex_bdf2_v1 = is_ctot_jichen_imex_bdf2_v1(P);
                 const int imex_bdf2_active_manifold_v1 =
-                    is_ctot_jichen_imex_bdf2_active_manifold_v1(P);
+                    is_ctot_jichen_active_manifold_bdf2_family(P);
+                const int variable_bdf2_active_manifold_v1 =
+                    is_ctot_jichen_variable_bdf2_active_manifold_v1(P);
                 const int imex_bdf2_family =
                     imex_bdf2_v1 || imex_bdf2_active_manifold_v1;
                 const int outer_acceleration_off =
@@ -2289,6 +2317,25 @@ static int validate_physical_params_ready(const PFParams *P) {
                             "legacy_logit_newton") != 0 &&
                      strcmp(P->ctot_transport_nonlinear_coordinate,
                             "adaptive_logit_feasible_ctot_v1") != 0) ||
+                    (strcmp(P->ctot_transport_efficiency_mode,
+                            "LEGACY_CURRENT") != 0 &&
+                     strcmp(P->ctot_transport_efficiency_mode,
+                            "LOW_MEMORY_GLOBALIZATION_V1") != 0) ||
+                    P->ctot_transport_efficiency_features < 0 ||
+                    (((uint32_t)P->ctot_transport_efficiency_features &
+                      ~CTOT_EFFICIENCY_ALL_FEATURES) != 0u) ||
+                    (((uint32_t)P->ctot_transport_efficiency_features &
+                      ~CTOT_EFFICIENCY_IMPLEMENTED_FEATURES) != 0u) ||
+                    (strcmp(P->ctot_transport_efficiency_mode,
+                            "LEGACY_CURRENT") == 0 &&
+                     P->ctot_transport_efficiency_features != 0) ||
+                    (strcmp(P->ctot_transport_efficiency_mode,
+                            "LOW_MEMORY_GLOBALIZATION_V1") == 0 &&
+                     (!is_ctot_jichen_active_manifold_bdf2_family(P) ||
+                      strcmp(P->ctot_transport_nonlinear_coordinate,
+                             "adaptive_logit_feasible_ctot_v1") != 0)) ||
+                    !(P->ctot_transport_efficiency_restart_migration_allowed == 0 ||
+                      P->ctot_transport_efficiency_restart_migration_allowed == 1) ||
                     !ctot_retry_acceptance_contract_valid(
                         P->ctot_retry_acceptance_contract) ||
                     P->ctot_step_max_retries < 0 ||
@@ -2303,6 +2350,23 @@ static int validate_physical_params_ready(const PFParams *P) {
                       P->bdf2_event_be_subcycling_v1 == 1) ||
                     !(P->ctot_debug_transport_floor_audit == 0 ||
                       P->ctot_debug_transport_floor_audit == 1) ||
+                    !(P->ctot_transport_gate_trajectory_diagnostics == 0 ||
+                      P->ctot_transport_gate_trajectory_diagnostics == 1) ||
+                    !(P->ctot_transport_defect_v2_diagnostics == 0 ||
+                      P->ctot_transport_defect_v2_diagnostics == 1) ||
+                    (P->ctot_transport_defect_v2_diagnostics &&
+                     (!(P->ctot_transport_defect_v2_window_time_code > 0.0) ||
+                      !P->ctot_transport_gate_trajectory_diagnostics)) ||
+                    P->ctot_full_audit_cadence < 1 ||
+                    !(P->ctot_variable_dt_min > 0.0) ||
+                    !(P->ctot_variable_dt_max >= P->ctot_variable_dt_min) ||
+                    !(P->ctot_variable_error_tol_C > 0.0) ||
+                    !(P->ctot_variable_error_tol_phi > 0.0) ||
+                    !(P->ctot_variable_error_tol_hvolume > 0.0) ||
+                    !(P->ctot_variable_controller_safety > 0.0 &&
+                      P->ctot_variable_controller_safety <= 1.0) ||
+                    !(P->ctot_variable_controller_kp > 0.0) ||
+                    !(P->ctot_variable_controller_ki >= 0.0) ||
                     !(P->ctot_elastic_validation_enabled == 0 ||
                       P->ctot_elastic_validation_enabled == 1) ||
                     !(P->ctot_matrix_support_eps > 0.0 &&
@@ -2317,6 +2381,10 @@ static int validate_physical_params_ready(const PFParams *P) {
                       P->ctot_phase_semismooth_pdas_enabled == 1) ||
                     !(P->ctot_performance_profile_enabled == 0 ||
                       P->ctot_performance_profile_enabled == 1) ||
+                    !(P->ctot_benchmark_suppress_field_output == 0 ||
+                      P->ctot_benchmark_suppress_field_output == 1) ||
+                    P->ctot_memory_perf_features < 0 ||
+                    P->ctot_memory_perf_features > 1023 ||
                     !(P->ctot_phase_restart_solver_migration_allowed == 0 ||
                       P->ctot_phase_restart_solver_migration_allowed == 1) ||
                     P->ctot_phase_linear_max_iter < 1 ||
@@ -2358,13 +2426,23 @@ static int validate_physical_params_ready(const PFParams *P) {
                 }
                 if (ctot_bounded_retry_contract_selected(
                         P->ctot_retry_acceptance_contract) &&
-                    (!is_ctot_jichen_imex_bdf2_active_manifold_v1(P) ||
+                    (!is_ctot_jichen_active_manifold_bdf2_family(P) ||
                      !P->bdf2_event_preflight_v1 ||
                      !P->bdf2_event_be_subcycling_v1)) {
                     fprintf(stderr,
                             "[fatal] ACTIVE_MANIFOLD_BDF2_BOUNDED_RETRY_"
                             "PRODUCTION_V1 requires the active-manifold IMEX-BDF2 "
                             "integrator and both versioned event guards.\n");
+                    ok = 0;
+                }
+                if (variable_bdf2_active_manifold_v1 &&
+                    (!P->ctot_automatic_dt_growth ||
+                     P->ctot_variable_dt_min > P->dt ||
+                     P->dt > P->ctot_variable_dt_max)) {
+                    fprintf(stderr,
+                            "[fatal] variable-step active-manifold BDF2 "
+                            "requires automatic dt growth and an initial dt "
+                            "inside [ctot_variable_dt_min,ctot_variable_dt_max].\n");
                     ok = 0;
                 }
                 if (P->bdf2_event_be_subcycling_v1 &&
@@ -3211,7 +3289,8 @@ __global__ void ctot_phase_final_residual_kernel(
     const double *phi_new_r, const double *phi_n_r,
     const double *phi_nm1_r, const double *ctot_r,
     const double *g_explicit_r, const double *lap_phi_r,
-    double dt, int bdf2_active, double L_phi, double kappa_phi, double v_B,
+    double dt, double rate_a0, double rate_a1, double rate_a2,
+    double L_phi, double kappa_phi, double v_B,
     double x_min, double x_max, double bound_tol, int quasi_equilibrium_mode,
     double *raw_residual_r, double *projected_kkt_r, int n)
 {
@@ -3221,9 +3300,9 @@ __global__ void ctot_phase_final_residual_kernel(
     const double C = ctot_r[idx];
     const double energy_gradient =
         g_explicit_r[idx] - kappa_phi * lap_phi_r[idx];
-    const double rate = bdf2_active
-        ? (1.5 * phi - 2.0 * phi_n_r[idx] + 0.5 * phi_nm1_r[idx]) / dt
-        : (phi - phi_n_r[idx]) / dt;
+    const double rate =
+        (rate_a0 * phi + rate_a1 * phi_n_r[idx] +
+         rate_a2 * phi_nm1_r[idx]) / dt;
     const double residual = quasi_equilibrium_mode
         ? energy_gradient : rate + L_phi * energy_gradient;
     const PhaseKktBounds bounds = phase_kkt_bounds_from_ctot(
@@ -3231,7 +3310,7 @@ __global__ void ctot_phase_final_residual_kernel(
     const double phi_min = bounds.phi_lower;
     const double phi_max = bounds.phi_upper;
     const double metric_step = quasi_equilibrium_mode
-        ? 1.0 : dt / (bdf2_active ? 1.5 : 1.0);
+        ? 1.0 : dt / rate_a0;
     const double projected =
         fmin(fmax(phi - metric_step * residual, phi_min), phi_max);
     raw_residual_r[idx] = residual;
@@ -3250,7 +3329,7 @@ __global__ void ctot_phase_final_residual_kernel(
 __global__ void ctot_bdf2_prepare_context_kernel(
     const double *C_n_r, const double *C_nm1_r,
     const double *phi_n_r, const double *phi_nm1_r,
-    double v_B, double bound_tol, double *C_anchor_r,
+    double v_B, double bound_tol, double step_ratio, double *C_anchor_r,
     double *phi_extrapolated_r, double *invalid_r, int n)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -3259,8 +3338,14 @@ __global__ void ctot_bdf2_prepare_context_kernel(
     const double C_nm1 = C_nm1_r[idx];
     const double phi_n = phi_n_r[idx];
     const double phi_nm1 = phi_nm1_r[idx];
-    const double C_anchor = (4.0 * C_n - C_nm1) / 3.0;
-    const double phi_extrapolated = 2.0 * phi_n - phi_nm1;
+    const VariableBdf2CoefficientsV1 coefficients =
+        variable_bdf2_coefficients_v1(step_ratio, 1.0);
+    const double C_anchor = step_ratio == 1.0
+        ? (4.0 * C_n - C_nm1) / 3.0
+        : coefficients.anchor_n * C_n + coefficients.anchor_nm1 * C_nm1;
+    const double phi_extrapolated = step_ratio == 1.0
+        ? 2.0 * phi_n - phi_nm1
+        : coefficients.extrap_n * phi_n + coefficients.extrap_nm1 * phi_nm1;
     // The extrapolated phase is a numerical coefficient context, not a state
     // update. Normalize only roundoff-scale endpoint excursions; a material
     // overshoot makes this step fall back transactionally to BE below.
@@ -3269,7 +3354,8 @@ __global__ void ctot_bdf2_prepare_context_kernel(
     const double h = h_of_phi(phi_context);
     const double lower = h * v_B;
     const double upper = lower + (1.0 - h);
-    const int valid = isfinite(C_anchor) && isfinite(phi_extrapolated) &&
+    const int valid = coefficients.valid && isfinite(C_anchor) &&
+        isfinite(phi_extrapolated) &&
         phi_extrapolated >= -context_tol &&
         phi_extrapolated <= 1.0 + context_tol &&
         C_anchor >= lower - bound_tol && C_anchor <= upper + bound_tol;
@@ -3281,15 +3367,15 @@ __global__ void ctot_bdf2_prepare_context_kernel(
 __global__ void ctot_bdf2_prepare_active_manifold_context_kernel(
     const double *C_n_r, const double *C_nm1_r,
     const double *phi_n_r, const double *phi_nm1_r,
-    double v_B, double bound_tol, double *C_anchor_r,
+    double v_B, double bound_tol, double step_ratio, double *C_anchor_r,
     double *phi_context_r, double *invalid_r, double *branch_r, int n)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
     const ActiveManifoldBdf2ContextV1 context =
-        active_manifold_bdf2_context_v1(
+        active_manifold_bdf2_context_ratio_v1(
             C_n_r[idx], C_nm1_r[idx], phi_n_r[idx], phi_nm1_r[idx],
-            v_B, bound_tol);
+            v_B, bound_tol, step_ratio);
     C_anchor_r[idx] = context.valid ? context.C_anchor : C_n_r[idx];
     phi_context_r[idx] = context.valid ? context.phi_context : phi_n_r[idx];
     invalid_r[idx] = context.valid ? 0.0 : 1.0;
@@ -3299,21 +3385,21 @@ __global__ void ctot_bdf2_prepare_active_manifold_context_kernel(
 __global__ void ctot_bdf2_active_manifold_unhandled_preflight_kernel(
     const double *C_n_r, const double *C_nm1_r,
     const double *phi_n_r, const double *phi_nm1_r,
-    double v_B, double bound_tol, double *reason_r, int n)
+    double v_B, double bound_tol, double step_ratio, double *reason_r, int n)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
     const ActiveManifoldBdf2ContextV1 context =
-        active_manifold_bdf2_context_v1(
+        active_manifold_bdf2_context_ratio_v1(
             C_n_r[idx], C_nm1_r[idx], phi_n_r[idx], phi_nm1_r[idx],
-            v_B, bound_tol);
+            v_B, bound_tol, step_ratio);
     if (context.valid) {
         reason_r[idx] = (double)BDF2_EVENT_NONE;
         return;
     }
-    const Bdf2EventCellV1 event = bdf2_event_classify_v1(
+    const Bdf2EventCellV1 event = bdf2_event_classify_ratio_v1(
         C_n_r[idx], C_nm1_r[idx], phi_n_r[idx], phi_nm1_r[idx],
-        v_B, bound_tol);
+        v_B, bound_tol, step_ratio);
     reason_r[idx] = (double)(event.reason == BDF2_EVENT_NONE
         ? BDF2_EVENT_OTHER_VERSIONED_REASON : event.reason);
 }
@@ -3321,30 +3407,32 @@ __global__ void ctot_bdf2_active_manifold_unhandled_preflight_kernel(
 __global__ void ctot_bdf2_event_preflight_kernel(
     const double *C_n_r, const double *C_nm1_r,
     const double *phi_n_r, const double *phi_nm1_r,
-    double v_B, double bound_tol, double *reason_r, int n)
+    double v_B, double bound_tol, double step_ratio, double *reason_r, int n)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
-    const Bdf2EventCellV1 event = bdf2_event_classify_v1(
+    const Bdf2EventCellV1 event = bdf2_event_classify_ratio_v1(
         C_n_r[idx], C_nm1_r[idx], phi_n_r[idx], phi_nm1_r[idx],
-        v_B, bound_tol);
+        v_B, bound_tol, step_ratio);
     reason_r[idx] = (double)event.reason;
 }
 
 __global__ void ctot_bdf2_phase_increment_kernel(
     const double *phi_np1_r, const double *phi_n_r,
-    const double *phi_nm1_r, double *increment_r, int n)
+    const double *phi_nm1_r, double a0, double a1, double a2,
+    double *increment_r, int n)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
-    increment_r[idx] = 1.5 * phi_np1_r[idx] - 2.0 * phi_n_r[idx] +
-                       0.5 * phi_nm1_r[idx];
+    increment_r[idx] = a0 * phi_np1_r[idx] + a1 * phi_n_r[idx] +
+                       a2 * phi_nm1_r[idx];
 }
 
 __global__ void ctot_bdf2_transport_work_terms_kernel(
     const double *C_np1, const double *C_n, const double *C_nm1,
     const double *mu_np1_explicit_phi, const double *divJ_np1,
-    double dt, double *mu_delta_n, double *mu_delta_nm1,
+    double dt, double a0, double a2,
+    double *mu_delta_n, double *mu_delta_nm1,
     double *residual_work, int total) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total) return;
@@ -3352,7 +3440,7 @@ __global__ void ctot_bdf2_transport_work_terms_kernel(
     const double dc_nm1 = C_n[idx] - C_nm1[idx];
     const double mu = mu_np1_explicit_phi[idx];
     const double equation_defect =
-        1.5 * dc_n - 0.5 * dc_nm1 - dt * divJ_np1[idx];
+        a0 * dc_n - a2 * dc_nm1 - dt * divJ_np1[idx];
     mu_delta_n[idx] = mu * dc_n;
     mu_delta_nm1[idx] = mu * dc_nm1;
     residual_work[idx] = mu * equation_defect;
@@ -3360,20 +3448,52 @@ __global__ void ctot_bdf2_transport_work_terms_kernel(
 
 __global__ void ctot_bdf2_phase_work_terms_kernel(
     const double *phi_np1, const double *phi_n, const double *phi_nm1,
-    const double *phase_raw_residual, double dt, double L_phi,
+    const double *phase_raw_residual, double dt, double a0, double a2,
+    double L_phi,
     double *g_delta_n, double *g_delta_nm1,
     double *phase_dissipation, double *residual_work, int total) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total) return;
     const double dphi_n = phi_np1[idx] - phi_n[idx];
     const double dphi_nm1 = phi_n[idx] - phi_nm1[idx];
-    const double rate = (1.5 * dphi_n - 0.5 * dphi_nm1) / dt;
+    const double rate = (a0 * dphi_n - a2 * dphi_nm1) / dt;
     const double raw = phase_raw_residual[idx];
     const double g = (raw - rate) / L_phi;
     g_delta_n[idx] = g * dphi_n;
     g_delta_nm1[idx] = g * dphi_nm1;
     phase_dissipation[idx] = L_phi * g * g;
     residual_work[idx] = g * dt * raw;
+}
+
+__global__ void ctot_bdf2_mass_identity_kernel(
+    const double *C_np1, const double *C_n, const double *C_nm1,
+    double a0, double a2, double identity_scale,
+    double *identity_r, int total) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total) return;
+    identity_r[idx] = identity_scale *
+        (a0 * (C_np1[idx] - C_n[idx]) -
+         a2 * (C_n[idx] - C_nm1[idx]));
+}
+
+__global__ void ctot_bdf2_history_mass_delta_kernel(
+    const double *C_n, const double *C_nm1, double *delta_r, int total) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < total) delta_r[idx] = C_n[idx] - C_nm1[idx];
+}
+
+__global__ void ctot_variable_bdf2_error_squared_kernel(
+    const double *state_np1, const double *state_n,
+    const double *state_nm1, double step_ratio,
+    double *curvature_sq, double *increment_sq, int total) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total) return;
+    const double extrapolated = (1.0 + step_ratio) * state_n[idx] -
+                                step_ratio * state_nm1[idx];
+    const double curvature = state_np1[idx] - extrapolated;
+    const double increment = state_np1[idx] - state_n[idx];
+    curvature_sq[idx] = curvature * curvature;
+    increment_sq[idx] = increment * increment;
 }
 
 __global__ void ctot_phase_projected_defect_trial_kernel(
@@ -4822,6 +4942,16 @@ static const char *ctot_transport_nonlinear_solver_name(const PFParams *P) {
         : "legacy_logit_newton";
 }
 
+static int ctot_low_memory_globalization_enabled(const PFParams *P) {
+    return P && strcmp(P->ctot_transport_efficiency_mode,
+                       "LOW_MEMORY_GLOBALIZATION_V1") == 0;
+}
+
+static const char *ctot_transport_efficiency_mode_name(const PFParams *P) {
+    return (P && P->ctot_transport_efficiency_mode[0] != '\0')
+        ? P->ctot_transport_efficiency_mode : "LEGACY_CURRENT";
+}
+
 static const char *ctot_finite_interface_mode_name(const PFParams *P) {
     return (P && P->ctot_finite_interface_antitrapping_enabled)
         ? "planar_antitrapping_v1"
@@ -4844,6 +4974,7 @@ typedef struct {
     int is_ctot_checkpoint;
     int has_transport_provenance;
     int has_transport_nonlinear_solver_provenance;
+    int has_transport_efficiency_provenance;
     int has_phase_solver_provenance;
     int Nx, Ny, Nz;
     double dx_nm;
@@ -4861,6 +4992,8 @@ typedef struct {
     char adjoint_identity_mode[64];
     char face_mobility_mode[96];
     char transport_nonlinear_solver_name[96];
+    char transport_efficiency_mode[48];
+    int transport_efficiency_features;
     char phase_solver_name[96];
     char phase_solver_version[32];
     int contract_provenance_fields;
@@ -4877,6 +5010,9 @@ typedef struct {
     int bdf2_accepted_step;
     double bdf2_time_code;
     double bdf2_physical_time_s;
+    int variable_controller_valid;
+    double variable_controller_previous_error;
+    double variable_controller_next_dt;
     char time_integrator[64];
     char history_contract_version[64];
     char phase_context_version[64];
@@ -4996,6 +5132,8 @@ static int load_raw_init_meta(const char *path, RawInitMeta *meta) {
     meta->bdf2_dt_nm1 = NAN;
     meta->bdf2_time_code = NAN;
     meta->bdf2_physical_time_s = NAN;
+    meta->variable_controller_previous_error = NAN;
+    meta->variable_controller_next_dt = NAN;
     snprintf(meta->dtype, sizeof(meta->dtype), "float32");
     snprintf(meta->order, sizeof(meta->order), "C");
     char *json = read_text_file_alloc(path);
@@ -5033,6 +5171,12 @@ static int load_raw_init_meta(const char *path, RawInitMeta *meta) {
     json_get_number_simple(json, "bdf2_time_code", &meta->bdf2_time_code);
     json_get_number_simple(json, "bdf2_physical_time_s",
                            &meta->bdf2_physical_time_s);
+    json_get_int_simple(json, "variable_controller_valid",
+                        &meta->variable_controller_valid);
+    json_get_number_simple(json, "variable_controller_previous_error",
+                           &meta->variable_controller_previous_error);
+    json_get_number_simple(json, "variable_controller_next_dt",
+                           &meta->variable_controller_next_dt);
     json_get_string_simple(json, "time_integrator", meta->time_integrator,
                            sizeof(meta->time_integrator));
     json_get_string_simple(json, "history_contract_version",
@@ -5073,6 +5217,14 @@ static int load_raw_init_meta(const char *path, RawInitMeta *meta) {
         json_get_string_simple(json, "transport_nonlinear_solver_name",
                                meta->transport_nonlinear_solver_name,
                                sizeof(meta->transport_nonlinear_solver_name));
+    const int transport_efficiency_fields =
+        json_get_string_simple(json, "transport_efficiency_mode",
+                               meta->transport_efficiency_mode,
+                               sizeof(meta->transport_efficiency_mode)) +
+        json_get_int_simple(json, "transport_efficiency_features",
+                            &meta->transport_efficiency_features);
+    meta->has_transport_efficiency_provenance =
+        transport_efficiency_fields == 2 ? 1 : 0;
     const int finite_interface_mode_fields =
         json_get_string_simple(json, "finite_interface_mode",
                                meta->finite_interface_mode,
@@ -5308,6 +5460,37 @@ static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFP
                     expected_transport_nonlinear_solver);
             ok = 0;
         }
+        const char *expected_efficiency_mode =
+            ctot_transport_efficiency_mode_name(P);
+        const int expected_efficiency_features =
+            P->ctot_transport_efficiency_features;
+        if (!meta->has_transport_efficiency_provenance) {
+            if (ctot_low_memory_globalization_enabled(P) &&
+                !P->ctot_transport_efficiency_restart_migration_allowed) {
+                fprintf(stderr,
+                        "[fatal] Ctot checkpoint missing transport-efficiency "
+                        "provenance for current mode=%s features=%d.\n",
+                        expected_efficiency_mode, expected_efficiency_features);
+                ok = 0;
+            } else if (ctot_low_memory_globalization_enabled(P)) {
+                printf("CTOT_TRANSPORT_EFFICIENCY_RESTART_MIGRATION "
+                       "stored=LEGACY_CURRENT/0 current=%s/%d "
+                       "diagnostic_only=1\n",
+                       expected_efficiency_mode, expected_efficiency_features);
+            }
+        } else if ((strcmp(meta->transport_efficiency_mode,
+                           expected_efficiency_mode) != 0 ||
+                    meta->transport_efficiency_features !=
+                        expected_efficiency_features) &&
+                   !P->ctot_transport_efficiency_restart_migration_allowed) {
+            fprintf(stderr,
+                    "[fatal] Ctot checkpoint transport-efficiency provenance "
+                    "mismatch: stored=%s/%d current=%s/%d.\n",
+                    meta->transport_efficiency_mode,
+                    meta->transport_efficiency_features,
+                    expected_efficiency_mode, expected_efficiency_features);
+            ok = 0;
+        }
         const char *expected_phase_solver = ctot_phase_solver_name(P);
         const int phase_solver_matches =
             meta->has_phase_solver_provenance &&
@@ -5345,10 +5528,20 @@ static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFP
                     meta->contract_provenance_fields);
             ok = 0;
         } else if (current_versioned_contract) {
-            const int active_manifold_context_only_migration =
-                is_ctot_jichen_imex_bdf2_active_manifold_v1(P) &&
+            const int fixed_bdf2_to_active_manifold_migration =
+                is_ctot_jichen_active_manifold_bdf2_family(P) &&
                 strcmp(meta->ctot_numerics_contract,
                        "ctot_jichen_imex_bdf2_v1") == 0 &&
+                strcmp(meta->PF_RESEARCH_MODEL,
+                       P->PF_RESEARCH_MODEL) == 0 &&
+                strcmp(meta->ctot_split_defect_policy,
+                       P->ctot_split_defect_policy) == 0 &&
+                meta->ctot_max_coupling_correctors ==
+                    P->ctot_max_coupling_correctors;
+            const int fixed_active_to_variable_step_migration =
+                is_ctot_jichen_variable_bdf2_active_manifold_v1(P) &&
+                strcmp(meta->ctot_numerics_contract,
+                       "ctot_jichen_imex_bdf2_active_manifold_v1") == 0 &&
                 strcmp(meta->PF_RESEARCH_MODEL,
                        P->PF_RESEARCH_MODEL) == 0 &&
                 strcmp(meta->ctot_split_defect_policy,
@@ -5359,7 +5552,8 @@ static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFP
                        P->PF_RESEARCH_MODEL) != 0 ||
                 (strcmp(meta->ctot_numerics_contract,
                         P->ctot_numerics_contract) != 0 &&
-                 !active_manifold_context_only_migration) ||
+                 !fixed_bdf2_to_active_manifold_migration &&
+                 !fixed_active_to_variable_step_migration) ||
                 strcmp(meta->ctot_split_defect_policy,
                        P->ctot_split_defect_policy) != 0 ||
                 meta->ctot_max_coupling_correctors !=
@@ -5376,7 +5570,8 @@ static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFP
                         P->ctot_split_defect_policy,
                         P->ctot_max_coupling_correctors);
                 ok = 0;
-            } else if (active_manifold_context_only_migration) {
+            } else if (fixed_bdf2_to_active_manifold_migration ||
+                       fixed_active_to_variable_step_migration) {
                 printf("CTOT_ACTIVE_MANIFOLD_CONTRACT_MIGRATION "
                        "stored=%s current=%s physics_same=1 split_same=1 "
                        "corrector_count_same=1 authoritative_state_changed=0\n",
@@ -18508,6 +18703,11 @@ static void params_default(PFParams *P) {
     snprintf(P->ctot_transport_nonlinear_coordinate,
              sizeof(P->ctot_transport_nonlinear_coordinate),
              "legacy_logit_newton");
+    snprintf(P->ctot_transport_efficiency_mode,
+             sizeof(P->ctot_transport_efficiency_mode),
+             "LEGACY_CURRENT");
+    P->ctot_transport_efficiency_features = 0;
+    P->ctot_transport_efficiency_restart_migration_allowed = 0;
     snprintf(P->ctot_outer_acceleration,
              sizeof(P->ctot_outer_acceleration), "OFF");
     snprintf(P->ctot_retry_acceptance_contract,
@@ -18522,6 +18722,18 @@ static void params_default(PFParams *P) {
     P->bdf2_event_preflight_v1 = 0;
     P->bdf2_event_be_subcycling_v1 = 0;
     P->ctot_debug_transport_floor_audit = 0;
+    P->ctot_transport_gate_trajectory_diagnostics = 0;
+    P->ctot_transport_defect_v2_diagnostics = 0;
+    P->ctot_transport_defect_v2_window_time_code = 1.5625;
+    P->ctot_full_audit_cadence = 1;
+    P->ctot_variable_dt_min = 1.953125e-4;
+    P->ctot_variable_dt_max = 7.8125e-4;
+    P->ctot_variable_error_tol_C = 2.0e-2;
+    P->ctot_variable_error_tol_phi = 2.0e-2;
+    P->ctot_variable_error_tol_hvolume = 2.0e-2;
+    P->ctot_variable_controller_safety = 0.9;
+    P->ctot_variable_controller_kp = 0.35;
+    P->ctot_variable_controller_ki = 0.2;
     P->ctot_elastic_validation_enabled = 0;
     P->ctot_debug_force_elastic_post_phi_reject = 0;
     P->ctot_matrix_support_eps = 1.0e-10;
@@ -18533,8 +18745,10 @@ static void params_default(PFParams *P) {
     P->ctot_phase_fd_rel_step = 1.0e-6;
     P->ctot_diagnostics_enabled = 1;
     P->ctot_performance_profile_enabled = 0;
+    P->ctot_memory_perf_features = 0;
     P->ctot_initialization_dry_run = 0;
     P->ctot_phase_only_dry_run = 0;
+    P->ctot_benchmark_suppress_field_output = 0;
     P->ctot_preconditioner_a_ref = 1.0e-2;
     P->ctot_preconditioner_D_ref_multiplier = 1.0;
     P->ctot_spectral_fv_warm_start_diagnostic = 0;
@@ -24047,6 +24261,10 @@ static __attribute__((optimize("O0"))) int apply_pfparams_override_key(PFParams 
     TRY_SET_DOUBLE("ctot_residual_abs_tol", ctot_residual_abs_tol);
     TRY_SET_DOUBLE("ctot_residual_rel_tol", ctot_residual_rel_tol);
     TRY_SET_DOUBLE("ctot_line_search_min", ctot_line_search_min);
+    TRY_SET_INT("ctot_transport_efficiency_features",
+                ctot_transport_efficiency_features);
+    TRY_SET_INT("ctot_transport_efficiency_restart_migration_allowed",
+                ctot_transport_efficiency_restart_migration_allowed);
     if (strcmp(key, "ctot_retry_acceptance_contract") == 0) {
         snprintf(P->ctot_retry_acceptance_contract,
                  sizeof(P->ctot_retry_acceptance_contract), "%s", value);
@@ -24068,6 +24286,23 @@ static __attribute__((optimize("O0"))) int apply_pfparams_override_key(PFParams 
                 bdf2_event_be_subcycling_v1);
     TRY_SET_INT("ctot_debug_transport_floor_audit",
                 ctot_debug_transport_floor_audit);
+    TRY_SET_INT("ctot_transport_gate_trajectory_diagnostics",
+                ctot_transport_gate_trajectory_diagnostics);
+    TRY_SET_INT("ctot_transport_defect_v2_diagnostics",
+                ctot_transport_defect_v2_diagnostics);
+    TRY_SET_DOUBLE("ctot_transport_defect_v2_window_time_code",
+                   ctot_transport_defect_v2_window_time_code);
+    TRY_SET_INT("ctot_full_audit_cadence", ctot_full_audit_cadence);
+    TRY_SET_DOUBLE("ctot_variable_dt_min", ctot_variable_dt_min);
+    TRY_SET_DOUBLE("ctot_variable_dt_max", ctot_variable_dt_max);
+    TRY_SET_DOUBLE("ctot_variable_error_tol_C", ctot_variable_error_tol_C);
+    TRY_SET_DOUBLE("ctot_variable_error_tol_phi", ctot_variable_error_tol_phi);
+    TRY_SET_DOUBLE("ctot_variable_error_tol_hvolume",
+                   ctot_variable_error_tol_hvolume);
+    TRY_SET_DOUBLE("ctot_variable_controller_safety",
+                   ctot_variable_controller_safety);
+    TRY_SET_DOUBLE("ctot_variable_controller_kp", ctot_variable_controller_kp);
+    TRY_SET_DOUBLE("ctot_variable_controller_ki", ctot_variable_controller_ki);
     TRY_SET_INT("ctot_elastic_validation_enabled",
                 ctot_elastic_validation_enabled);
     TRY_SET_INT("ctot_debug_force_elastic_post_phi_reject",
@@ -24084,8 +24319,11 @@ static __attribute__((optimize("O0"))) int apply_pfparams_override_key(PFParams 
     TRY_SET_INT("ctot_diagnostics_enabled", ctot_diagnostics_enabled);
     TRY_SET_INT("ctot_performance_profile_enabled",
                 ctot_performance_profile_enabled);
+    TRY_SET_INT("ctot_memory_perf_features", ctot_memory_perf_features);
     TRY_SET_INT("ctot_initialization_dry_run", ctot_initialization_dry_run);
     TRY_SET_INT("ctot_phase_only_dry_run", ctot_phase_only_dry_run);
+    TRY_SET_INT("ctot_benchmark_suppress_field_output",
+                ctot_benchmark_suppress_field_output);
     TRY_SET_DOUBLE("ctot_preconditioner_a_ref", ctot_preconditioner_a_ref);
     TRY_SET_DOUBLE("ctot_preconditioner_D_ref_multiplier", ctot_preconditioner_D_ref_multiplier);
     TRY_SET_INT("ctot_spectral_fv_warm_start_diagnostic",
@@ -24534,6 +24772,11 @@ static __attribute__((optimize("O0"))) int apply_pfparams_override_key(PFParams 
     if (strcmp(key, "ctot_transport_nonlinear_coordinate") == 0) {
         snprintf(P->ctot_transport_nonlinear_coordinate,
                  sizeof(P->ctot_transport_nonlinear_coordinate), "%s", value);
+        return 1;
+    }
+    if (strcmp(key, "ctot_transport_efficiency_mode") == 0) {
+        snprintf(P->ctot_transport_efficiency_mode,
+                 sizeof(P->ctot_transport_efficiency_mode), "%s", value);
         return 1;
     }
     if (strcmp(key, "ctot_outer_acceleration") == 0) {
@@ -26285,6 +26528,11 @@ int main(int argc, char **argv) {
             P.csv_out_every = atoi(v);
             continue;
         }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--ctot-full-audit-cadence")) != NULL) {
+            P.ctot_full_audit_cadence = atoi(v);
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--dx-nm")) != NULL ||
             (v = get_flag_value(argc, argv, &i, "--interface-width-nm")) != NULL) {
             // Accepted for command readability. The actual PF discretization still comes
@@ -27382,12 +27630,25 @@ int main(int argc, char **argv) {
             log_kv_text("ctot_line_search_min", "%.8e", P.ctot_line_search_min);
             log_kv_text("ctot_transport_nonlinear_coordinate", "%s",
                         P.ctot_transport_nonlinear_coordinate);
+            log_kv_text("ctot_transport_efficiency_mode", "%s",
+                        ctot_transport_efficiency_mode_name(&P));
+            log_kv_text("ctot_transport_efficiency_features", "%d",
+                        P.ctot_transport_efficiency_features);
+            log_kv_text("ctot_transport_efficiency_restart_migration_allowed",
+                        "%d",
+                        P.ctot_transport_efficiency_restart_migration_allowed);
             log_kv_text("ctot_outer_acceleration", "%s",
                         P.ctot_outer_acceleration);
             log_kv_text("ctot_retry_acceptance_contract", "%s",
                         P.ctot_retry_acceptance_contract);
             log_kv_text("ctot_debug_transport_floor_audit", "%d",
                         P.ctot_debug_transport_floor_audit);
+            log_kv_text("ctot_transport_gate_trajectory_diagnostics", "%d",
+                        P.ctot_transport_gate_trajectory_diagnostics);
+            log_kv_text("ctot_transport_defect_v2_diagnostics", "%d",
+                        P.ctot_transport_defect_v2_diagnostics);
+            log_kv_text("ctot_transport_defect_v2_window_time_code", "%.17e",
+                        P.ctot_transport_defect_v2_window_time_code);
             log_kv_text("ctot_step_max_retries", "%d", P.ctot_step_max_retries);
             log_kv_text("ctot_retry_shrink_factor", "%.17e",
                         P.ctot_retry_shrink_factor);
@@ -27416,12 +27677,34 @@ int main(int argc, char **argv) {
             log_kv_text("ctot_phase_fd_rel_step", "%.17e",
                         P.ctot_phase_fd_rel_step);
             log_kv_text("ctot_diagnostics_enabled", "%d", P.ctot_diagnostics_enabled);
+            log_kv_text("ctot_full_audit_cadence", "%d",
+                        P.ctot_full_audit_cadence);
+            log_kv_text("ctot_variable_dt_min", "%.17e",
+                        P.ctot_variable_dt_min);
+            log_kv_text("ctot_variable_dt_max", "%.17e",
+                        P.ctot_variable_dt_max);
+            log_kv_text("ctot_variable_error_tol_C", "%.17e",
+                        P.ctot_variable_error_tol_C);
+            log_kv_text("ctot_variable_error_tol_phi", "%.17e",
+                        P.ctot_variable_error_tol_phi);
+            log_kv_text("ctot_variable_error_tol_hvolume", "%.17e",
+                        P.ctot_variable_error_tol_hvolume);
+            log_kv_text("ctot_variable_controller_safety", "%.17e",
+                        P.ctot_variable_controller_safety);
+            log_kv_text("ctot_variable_controller_kp", "%.17e",
+                        P.ctot_variable_controller_kp);
+            log_kv_text("ctot_variable_controller_ki", "%.17e",
+                        P.ctot_variable_controller_ki);
             log_kv_text("ctot_performance_profile_enabled", "%d",
                         P.ctot_performance_profile_enabled);
+            log_kv_text("ctot_memory_perf_features", "%d",
+                        P.ctot_memory_perf_features);
             log_kv_text("ctot_initialization_dry_run", "%d",
                         P.ctot_initialization_dry_run);
             log_kv_text("ctot_phase_only_dry_run", "%d",
                         P.ctot_phase_only_dry_run);
+            log_kv_text("ctot_benchmark_suppress_field_output", "%d",
+                        P.ctot_benchmark_suppress_field_output);
             log_kv_text("ctot_preconditioner_a_ref", "%.8e",
                         P.ctot_preconditioner_a_ref);
             log_kv_text("ctot_preconditioner_D_ref_multiplier", "%.8e",
@@ -29463,6 +29746,9 @@ int main(int argc, char **argv) {
     int bdf2_restart_accepted_step = 0;
     double bdf2_restart_time_code = 0.0;
     double bdf2_restart_physical_time_s = 0.0;
+    int variable_restart_controller_valid = 0;
+    double variable_restart_previous_error = 1.0;
+    double variable_restart_next_dt = NAN;
 
     // 优化：不再分配d_diag_stats，使用直接归约函数节省显存
 
@@ -29597,6 +29883,14 @@ int main(int argc, char **argv) {
             return 2;
         }
         if (has_ctot_nm1) {
+            const int variable_from_fixed_history_migration =
+                is_ctot_jichen_variable_bdf2_active_manifold_v1(&P) &&
+                (strcmp(raw_init_meta.time_integrator,
+                        "FIXED_STEP_IMEX_BDF2_ACTIVE_MANIFOLD_V1") == 0 ||
+                 strcmp(raw_init_meta.time_integrator,
+                        "FIXED_STEP_IMEX_BDF2_V1") == 0) &&
+                strcmp(raw_init_meta.history_contract_version,
+                       ctot_bdf2_history_contract_version()) == 0;
             const int energy_audit_restart_compatible =
                 strcmp(raw_init_meta.bdf2_energy_contract_version,
                        ctot_bdf2_energy_contract_version(&P)) == 0 ||
@@ -29618,14 +29912,17 @@ int main(int argc, char **argv) {
                         ctot_time_integrator_name(&P)) != 0 &&
                  !(is_ctot_jichen_imex_bdf2_active_manifold_v1(&P) &&
                    strcmp(raw_init_meta.time_integrator,
-                          "FIXED_STEP_IMEX_BDF2_V1") == 0)) ||
+                          "FIXED_STEP_IMEX_BDF2_V1") == 0) &&
+                 !variable_from_fixed_history_migration) ||
                 strcmp(raw_init_meta.history_contract_version,
-                       ctot_bdf2_history_contract_version()) != 0 ||
+                       ctot_bdf2_history_contract_version_for_mode(&P)) != 0 &&
+                    !variable_from_fixed_history_migration ||
                 (strcmp(raw_init_meta.phase_context_version,
                         ctot_bdf2_phase_context_version(&P)) != 0 &&
                  !(is_ctot_jichen_imex_bdf2_active_manifold_v1(&P) &&
                    strcmp(raw_init_meta.phase_context_version,
-                          "PHI_EXTRAPOLATION_2N_MINUS_NM1_ULP64_V1") == 0)) ||
+                          "PHI_EXTRAPOLATION_2N_MINUS_NM1_ULP64_V1") == 0) &&
+                 !variable_from_fixed_history_migration) ||
                 !energy_audit_restart_compatible) {
                 fprintf(stderr,
                         "[fatal] IMEX-BDF2 history requires a Ctot checkpoint with "
@@ -29643,8 +29940,8 @@ int main(int argc, char **argv) {
                     (size_t)total_r, h_phi_bdf2_nm1.data(), "phi_nm1")) {
                 return 2;
             }
-            double mass_n = 0.0;
-            double mass_nm1 = 0.0;
+            long double mass_n_acc = 0.0L;
+            long double mass_nm1_acc = 0.0L;
             for (int idx = 0; idx < total_r; ++idx) {
                 const double phi_nm1 = h_phi_bdf2_nm1[(size_t)idx];
                 const double C_nm1 = h_ctot_bdf2_nm1[(size_t)idx];
@@ -29660,14 +29957,19 @@ int main(int argc, char **argv) {
                             idx, phi_nm1, C_nm1, lo, hi);
                     return 2;
                 }
-                mass_n += h_xBtot_r[idx];
-                mass_nm1 += C_nm1;
+                mass_n_acc += (long double)h_xBtot_r[idx];
+                mass_nm1_acc += (long double)C_nm1;
             }
-            if (fabs(mass_n - mass_nm1) > 1.0e-10) {
+            const double mass_n = (double)mass_n_acc;
+            const double mass_nm1 = (double)mass_nm1_acc;
+            if (!ctot_bdf2_history_mass_consistent_v1(
+                    mass_n - mass_nm1, mass_n)) {
                 fprintf(stderr,
                         "[fatal] BDF2 source-free history mass mismatch: "
-                        "M_n=%.17e M_nm1=%.17e delta=%.17e.\n",
-                        mass_n, mass_nm1, mass_n - mass_nm1);
+                        "M_n=%.17e M_nm1=%.17e delta=%.17e "
+                        "history_tolerance=%.17e.\n",
+                        mass_n, mass_nm1, mass_n - mass_nm1,
+                        ctot_bdf2_history_mass_tolerance_v1(mass_n));
                 return 2;
             }
             bdf2_restart_history_loaded = 1;
@@ -29677,6 +29979,26 @@ int main(int argc, char **argv) {
             bdf2_restart_time_code = raw_init_meta.bdf2_time_code;
             bdf2_restart_physical_time_s =
                 raw_init_meta.bdf2_physical_time_s;
+            if (is_ctot_jichen_variable_bdf2_active_manifold_v1(&P)) {
+                variable_restart_controller_valid =
+                    raw_init_meta.variable_controller_valid &&
+                    isfinite(raw_init_meta.variable_controller_previous_error) &&
+                    raw_init_meta.variable_controller_previous_error > 0.0 &&
+                    isfinite(raw_init_meta.variable_controller_next_dt) &&
+                    raw_init_meta.variable_controller_next_dt >=
+                        P.ctot_variable_dt_min &&
+                    raw_init_meta.variable_controller_next_dt <=
+                        P.ctot_variable_dt_max;
+                if (variable_restart_controller_valid) {
+                    variable_restart_previous_error =
+                        raw_init_meta.variable_controller_previous_error;
+                    variable_restart_next_dt =
+                        raw_init_meta.variable_controller_next_dt;
+                } else {
+                    variable_restart_previous_error = 1.0;
+                    variable_restart_next_dt = P.dt;
+                }
+            }
             const double expected_restart_physical_time_s =
                 bdf2_restart_time_code * P.t_real_unit;
             const double restart_time_scale = fmax(
@@ -29704,6 +30026,12 @@ int main(int argc, char **argv) {
                    mass_n - mass_nm1,
                    P.bdf2_event_preflight_v1
                        ? raw_init_meta.bdf2_restart_fallback_pending : 1);
+            if (variable_from_fixed_history_migration) {
+                printf("CTOT_VARIABLE_BDF2_HISTORY_MIGRATION status=PASS "
+                       "stored=fixed_active_manifold current=variable_active_manifold "
+                       "authoritative_fields_unchanged=1 history_fields_unchanged=1 "
+                       "controller_initialized=1\n");
+            }
             if (is_ctot_jichen_imex_bdf2_active_manifold_v1(&P) &&
                 strcmp(raw_init_meta.time_integrator,
                        "FIXED_STEP_IMEX_BDF2_V1") == 0) {
@@ -29788,7 +30116,7 @@ int main(int argc, char **argv) {
     double *d_temp;
     CUDA_CHECK(cudaMalloc(&d_temp, size_r));
 
-    if (P.mode == 0) {
+    if (P.mode == 0 && !P.ctot_benchmark_suppress_field_output) {
         const int authoritative_ctot_raw_restart =
             P.init_mode_raw_fields && P.init_ctot_raw_path[0] != '\0' &&
             strcmp(P.composition_evolution_mode, "legacy_lagged_y") != 0;
@@ -29815,13 +30143,15 @@ int main(int argc, char **argv) {
     }
 
     // 初始 phi VTK：dynamic 输出到 output_dir（无 case）；minimize 输出到 case_output_dir（带 case）
-    CUDA_CHECK(cudaMemcpy(d_temp, h_phi_r, size_r, cudaMemcpyHostToDevice));
-    build_case_vtk_path(filename, sizeof(filename), output_dir, case_output_dir, "phi", VTK_NAME_INIT, 0, vtk_case_tag, P.mode);
-    int ret_phi_init = write_vtk_cuda(d_temp, P.Nx, P.Ny, P.Nz, "phi", 0, filename);
-    if (!ret_phi_init) {
-        fprintf(stderr, "ERROR: Failed to write initial phi VTK file: %s\n", filename);
-    } else {
-        printf("写出初始化 vtk: %s\n", filename);
+    if (!P.ctot_benchmark_suppress_field_output) {
+        CUDA_CHECK(cudaMemcpy(d_temp, h_phi_r, size_r, cudaMemcpyHostToDevice));
+        build_case_vtk_path(filename, sizeof(filename), output_dir, case_output_dir, "phi", VTK_NAME_INIT, 0, vtk_case_tag, P.mode);
+        int ret_phi_init = write_vtk_cuda(d_temp, P.Nx, P.Ny, P.Nz, "phi", 0, filename);
+        if (!ret_phi_init) {
+            fprintf(stderr, "ERROR: Failed to write initial phi VTK file: %s\n", filename);
+        } else {
+            printf("写出初始化 vtk: %s\n", filename);
+        }
     }
     if (is_gp_zone_mode(&P)) {
         CUDA_CHECK(cudaMemcpy(d_temp, h_eta_r, size_r, cudaMemcpyHostToDevice));
@@ -29832,7 +30162,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (P.mode == 0) {
+    if (P.mode == 0 && !P.ctot_benchmark_suppress_field_output) {
         CUDA_CHECK(cudaMemcpy(d_temp, h_xB_r, size_r, cudaMemcpyHostToDevice));
         build_case_vtk_path(filename, sizeof(filename), output_dir, case_output_dir, "xB", VTK_NAME_STEP, 0, vtk_case_tag, 0);
         int ret3 = write_vtk_cuda(d_temp, P.Nx, P.Ny, P.Nz, "xB", 0, filename);
@@ -30093,6 +30423,38 @@ int main(int argc, char **argv) {
     FILE *ctot_outer_capacity_diag_fp = NULL;
     FILE *ctot_outer_acceleration_diag_fp = NULL;
     FILE *ctot_split_step_diag_fp = NULL;
+    struct CtotTransportGateTrajectoryRow {
+        int physical_step;
+        int attempt_id;
+        double dt_try;
+        double initial_residual;
+        double effective_gate;
+        double scalar_cold_linf;
+        double residual_l1;
+        double residual_l2_sq;
+        double residual_linf;
+        double residual_signed_sum;
+        double increment_l1;
+    };
+    FILE *ctot_transport_gate_trajectory_diag_fp = NULL;
+    std::vector<double> ctot_transport_gate_pending_residual;
+    std::vector<double> ctot_transport_gate_cumulative_defect;
+    std::vector<double> ctot_transport_gate_old_C;
+    std::vector<double> ctot_transport_gate_new_C;
+    std::vector<double> ctot_transport_gate_final_phi;
+    TransportDefectGateV2Observer ctot_transport_defect_v2_observer;
+    int ctot_transport_gate_pending_valid = 0;
+    double ctot_transport_gate_pending_initial_res = NAN;
+    double ctot_transport_gate_pending_effective_gate = NAN;
+    double ctot_transport_gate_pending_scalar_linf = NAN;
+    long long ctot_transport_gate_accepted_rows = 0;
+    double ctot_transport_gate_observed_time_code = 0.0;
+    double ctot_transport_gate_ER_L1 = 0.0;
+    double ctot_transport_gate_ER_L2_sq = 0.0;
+    double ctot_transport_gate_increment_L1 = 0.0;
+    std::vector<CtotTransportGateTrajectoryRow>
+        ctot_transport_gate_event_rows;
+    std::vector<double> ctot_transport_gate_event_defect;
     // 优化：移除d_xBtot_r，仅在需要输出VTK时临时计算
 
     // 工作空间（Y方程相关）
@@ -30111,7 +30473,7 @@ int main(int argc, char **argv) {
     // Optimization: d_phi_rhs_k 在步骤1完成后可复用为 d_mu_x_k，然后复用为 d_Y_rhs_k
     cufftDoubleComplex *d_mu_x_k, *d_Y_rhs_k;
     // Optimization: 仅保留 divJ_k 常驻，grad/J 的 y/z 分量改为串行累加使用 scratch
-    cufftDoubleComplex *d_divJ_k;
+    cufftDoubleComplex *d_divJ_k = NULL;
 
     // Optimization: 统一 scratch 池，用于 divJ 串行累加及 VTK 输出等
     void *d_scratch_k_double = NULL;
@@ -30127,6 +30489,11 @@ int main(int argc, char **argv) {
         ctot_candidate_runtime &&
         strcmp(P.ctot_transport_nonlinear_coordinate,
                "adaptive_logit_feasible_ctot_v1") == 0;
+    const int ctot_low_memory_globalization_runtime =
+        ctot_candidate_runtime && ctot_low_memory_globalization_enabled(&P);
+    const uint32_t ctot_efficiency_features =
+        ctot_low_memory_globalization_runtime
+            ? (uint32_t)P.ctot_transport_efficiency_features : 0u;
     const int ctot_quasi_equilibrium_phase =
         ctot_candidate_runtime && is_quasi_equilibrium_phase_mode(&P);
     const int ctot_capacity_aware_outer_contract =
@@ -30141,13 +30508,74 @@ int main(int argc, char **argv) {
         ctot_candidate_runtime && is_ctot_jichen_imex_bdf2_family(&P);
     const int ctot_imex_bdf2_active_manifold_v1_runtime =
         ctot_candidate_runtime &&
-        is_ctot_jichen_imex_bdf2_active_manifold_v1(&P);
+        is_ctot_jichen_active_manifold_bdf2_family(&P);
+    const int ctot_variable_bdf2_active_manifold_v1_runtime =
+        ctot_candidate_runtime &&
+        is_ctot_jichen_variable_bdf2_active_manifold_v1(&P);
     const int ctot_bounded_retry_contract_runtime =
         ctot_imex_bdf2_active_manifold_v1_runtime &&
         ctot_bounded_retry_contract_selected(
             P.ctot_retry_acceptance_contract);
     const int ctot_method_consistent_split_runtime =
         ctot_lie_be_v2_runtime || ctot_imex_bdf2_v1_runtime;
+    enum CtotMemoryPerfFeature : unsigned int {
+        CTOT_MEMORY_M1_LAZY_EVENT_SNAPSHOT = 1u << 0,
+        CTOT_MEMORY_M2_SINGLE_OUTER_HISTORY = 1u << 1,
+        CTOT_MEMORY_M3_COMPACT_MASKS = 1u << 2,
+        CTOT_MEMORY_M4_SCRATCH_ALIASING = 1u << 3,
+        CTOT_MEMORY_M5_UNUSED_DERIVED = 1u << 4,
+        CTOT_MEMORY_M6_FACE_STREAMING = 1u << 5,
+        CTOT_MEMORY_M7_FFT_WORKSPACE = 1u << 6,
+        CTOT_MEMORY_M8_COPY_SYNC = 1u << 7,
+        CTOT_MEMORY_M9_KERNEL_FUSION = 1u << 8,
+        CTOT_MEMORY_M10_CUDA_GRAPH = 1u << 9
+    };
+    const unsigned int ctot_memory_perf_features =
+        ctot_candidate_runtime
+            ? (unsigned int)P.ctot_memory_perf_features : 0u;
+    const int ctot_lazy_event_snapshot_runtime =
+        (ctot_memory_perf_features &
+         CTOT_MEMORY_M1_LAZY_EVENT_SNAPSHOT) != 0u;
+    const int ctot_single_outer_history_elision_runtime =
+        ctot_method_consistent_split_runtime &&
+        strcmp(P.ctot_outer_acceleration, "OFF") == 0 &&
+        (ctot_memory_perf_features &
+         CTOT_MEMORY_M2_SINGLE_OUTER_HISTORY) != 0u;
+    const int ctot_unused_derived_elision_runtime =
+        (ctot_memory_perf_features &
+         CTOT_MEMORY_M5_UNUSED_DERIVED) != 0u;
+    const int ctot_derived_Y_snapshot_elision_runtime =
+        ctot_method_consistent_split_runtime &&
+        ctot_unused_derived_elision_runtime;
+    const int ctot_phase_spectrum_alias_runtime =
+        ctot_method_consistent_split_runtime &&
+        (ctot_memory_perf_features &
+         CTOT_MEMORY_M4_SCRATCH_ALIASING) != 0u;
+    const int ctot_face_streaming_runtime =
+        ctot_single_outer_history_elision_runtime &&
+        !P.ctot_debug_transport_floor_audit &&
+        strcmp(P.composition_evolution_mode, "ctot_spectral_be") != 0 &&
+        (ctot_memory_perf_features &
+         CTOT_MEMORY_M6_FACE_STREAMING) != 0u;
+    const int ctot_copy_sync_optimization_runtime =
+        (ctot_memory_perf_features & CTOT_MEMORY_M8_COPY_SYNC) != 0u;
+    const int ctot_shared_fft_workspace_runtime =
+        (ctot_memory_perf_features & CTOT_MEMORY_M7_FFT_WORKSPACE) != 0u;
+    printf("CTOT_MEMORY_PERF_CONTRACT features=%u "
+           "lazy_event_snapshot=%d single_outer_history_elision=%d "
+           "unused_derived_elision=%d derived_Y_snapshot_elision=%d "
+           "phase_spectrum_alias=%d face_streaming=%d shared_fft_workspace=%d "
+           "copy_sync=%d "
+           "changes_physics=0 "
+           "changes_numerics=0 changes_gates=0\n",
+           ctot_memory_perf_features, ctot_lazy_event_snapshot_runtime,
+           ctot_single_outer_history_elision_runtime,
+           ctot_unused_derived_elision_runtime,
+           ctot_derived_Y_snapshot_elision_runtime,
+           ctot_phase_spectrum_alias_runtime,
+           ctot_face_streaming_runtime,
+           ctot_shared_fft_workspace_runtime,
+           ctot_copy_sync_optimization_runtime);
     if (ctot_imex_bdf2_active_manifold_v1_runtime) {
         printf("CTOT_ACTIVE_MANIFOLD_CONTRACT "
                "context_contract_version=%s "
@@ -30165,12 +30593,20 @@ int main(int argc, char **argv) {
            "changes_numerical_method=0 changes_physics=0 changes_tolerances=0\n",
            P.ctot_retry_acceptance_contract,
            ctot_bounded_retry_contract_runtime);
+    printf("CTOT_TRANSPORT_EFFICIENCY_CONTRACT mode=%s features=%u "
+           "changes_residual=0 changes_physics=0 changes_tolerances=0 "
+           "persistent_full_grid_fields_added=0\n",
+           ctot_transport_efficiency_mode_name(&P),
+           (unsigned int)ctot_efficiency_features);
     int ctot_bdf2_history_valid = 0;
     double ctot_bdf2_dt_n = NAN;
     double ctot_bdf2_dt_nm1 = NAN;
     int ctot_bdf2_fallback_pending = 0;
     int ctot_bdf2_accepted_step = 0;
     double ctot_bdf2_accepted_time_code = 0.0;
+    int ctot_variable_controller_valid = 0;
+    double ctot_variable_controller_previous_error = 1.0;
+    double ctot_variable_controller_next_dt = P.dt;
     char ctot_bdf2_last_fallback_reason[96] = "startup_history_unavailable";
     const int ctot_block_aitken_runtime =
         ctot_candidate_runtime &&
@@ -30209,7 +30645,8 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaMalloc(&d_xB_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_phi_rhs_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_phi_n_saved, size_r));
-    CUDA_CHECK(cudaMalloc(&d_Y_n_saved, size_r));
+    if (!ctot_derived_Y_snapshot_elision_runtime)
+        CUDA_CHECK(cudaMalloc(&d_Y_n_saved, size_r));
     if (!ctot_candidate_runtime) {
         CUDA_CHECK(cudaMalloc(&d_dY_dt_prev_r, size_r));
         CUDA_CHECK(cudaMalloc(&d_dY_dt_picard_r, size_r));
@@ -30225,10 +30662,12 @@ int main(int argc, char **argv) {
             CUDA_CHECK(cudaMalloc(&d_phi_history_nm1_r, size_r));
             CUDA_CHECK(cudaMalloc(&d_ctot_transport_anchor_r, size_r));
             CUDA_CHECK(cudaMalloc(&d_phi_transport_context_r, size_r));
-            if (P.bdf2_event_be_subcycling_v1) {
+            if (P.bdf2_event_be_subcycling_v1 &&
+                !ctot_lazy_event_snapshot_runtime) {
                 CUDA_CHECK(cudaMalloc(&d_ctot_event_macro_start_r, size_r));
                 CUDA_CHECK(cudaMalloc(&d_phi_event_macro_start_r, size_r));
-                CUDA_CHECK(cudaMalloc(&d_Y_event_macro_start_r, size_r));
+                if (!ctot_derived_Y_snapshot_elision_runtime)
+                    CUDA_CHECK(cudaMalloc(&d_Y_event_macro_start_r, size_r));
             }
         }
         CUDA_CHECK(cudaMalloc(&d_ctot_residual_r, size_r));
@@ -30237,10 +30676,12 @@ int main(int argc, char **argv) {
         }
         CUDA_CHECK(cudaMalloc(&d_ctot_q_alpha_r, size_r));
         CUDA_CHECK(cudaMalloc(&d_ctot_active_mask_r, size_r));
-        CUDA_CHECK(cudaMalloc(&d_ctot_outer_C_prev_r, size_r));
-        CUDA_CHECK(cudaMalloc(&d_ctot_outer_phi_prev_r, size_r));
-        CUDA_CHECK(cudaMalloc(&d_ctot_outer_C_prev2_r, size_r));
-        CUDA_CHECK(cudaMalloc(&d_ctot_outer_phi_prev2_r, size_r));
+        if (!ctot_single_outer_history_elision_runtime) {
+            CUDA_CHECK(cudaMalloc(&d_ctot_outer_C_prev_r, size_r));
+            CUDA_CHECK(cudaMalloc(&d_ctot_outer_phi_prev_r, size_r));
+            CUDA_CHECK(cudaMalloc(&d_ctot_outer_C_prev2_r, size_r));
+            CUDA_CHECK(cudaMalloc(&d_ctot_outer_phi_prev2_r, size_r));
+        }
         if (ctot_outer_acceleration_buffers_runtime) {
             CUDA_CHECK(cudaMalloc(&d_ctot_outer_C_increment_prev_r, size_r));
             CUDA_CHECK(cudaMalloc(&d_ctot_outer_C_increment_current_r, size_r));
@@ -30288,9 +30729,12 @@ int main(int argc, char **argv) {
             strcmp(P.composition_evolution_mode, "ctot_fv_be") == 0 ||
             strcmp(P.composition_evolution_mode, "ctot_spectral_be") == 0) {
             CUDA_CHECK(cudaMalloc(&d_ctot_fv_face_x, size_r));
-            CUDA_CHECK(cudaMalloc(&d_ctot_fv_face_y, size_r));
-            CUDA_CHECK(cudaMalloc(&d_ctot_fv_face_z, size_r));
-            if (ctot_capacity_aware_outer_contract) {
+            if (!ctot_face_streaming_runtime) {
+                CUDA_CHECK(cudaMalloc(&d_ctot_fv_face_y, size_r));
+                CUDA_CHECK(cudaMalloc(&d_ctot_fv_face_z, size_r));
+            }
+            if (ctot_capacity_aware_outer_contract &&
+                !ctot_single_outer_history_elision_runtime) {
                 CUDA_CHECK(cudaMalloc(&d_ctot_outer_face_prev_x, size_r));
                 CUDA_CHECK(cudaMalloc(&d_ctot_outer_face_prev_y, size_r));
                 CUDA_CHECK(cudaMalloc(&d_ctot_outer_face_prev_z, size_r));
@@ -30471,7 +30915,109 @@ int main(int argc, char **argv) {
                 fflush(ctot_split_step_diag_fp);
             }
         }
+        if (P.ctot_transport_gate_trajectory_diagnostics) {
+            if (!P.ctot_diagnostics_enabled || !case_output_dir ||
+                case_output_dir[0] == '\0') {
+                fprintf(stderr,
+                        "[fatal] transport-gate trajectory diagnostics require "
+                        "ctot_diagnostics_enabled and a case output directory.\n");
+                return 2;
+            }
+            if (total_r > (1 << 20)) {
+                fprintf(stderr,
+                        "[fatal] transport-gate trajectory diagnostics are "
+                        "restricted to at most 2^20 cells (got %d).\n",
+                        total_r);
+                return 2;
+            }
+            char path[4096];
+            snprintf(path, sizeof(path),
+                     "%s/ctot_transport_gate_accepted_residuals.csv",
+                     case_output_dir);
+            ctot_transport_gate_trajectory_diag_fp = fopen(path, "w");
+            if (!ctot_transport_gate_trajectory_diag_fp) {
+                fprintf(stderr,
+                        "[fatal] cannot write transport-gate trajectory "
+                        "diagnostics: %s\n", path);
+                return 2;
+            }
+            fprintf(ctot_transport_gate_trajectory_diag_fp,
+                    "accepted_row,physical_step,attempt_id,dt_try,"
+                    "observed_time_code,absolute_gate,relative_gate,"
+                    "initial_residual,effective_gate,scalar_cold_Linf,"
+                    "array_cold_L1,array_cold_L2,array_cold_Linf,"
+                    "signed_residual_sum,C_increment_L1,"
+                    "cumulative_ER_L1,cumulative_ER_L2,"
+                    "cumulative_C_increment_L1\n");
+            fflush(ctot_transport_gate_trajectory_diag_fp);
+            ctot_transport_gate_pending_residual.assign((size_t)total_r, 0.0);
+            ctot_transport_gate_cumulative_defect.assign((size_t)total_r, 0.0);
+            ctot_transport_gate_event_defect.assign((size_t)total_r, 0.0);
+            ctot_transport_gate_old_C.assign((size_t)total_r, 0.0);
+            ctot_transport_gate_new_C.assign((size_t)total_r, 0.0);
+            ctot_transport_gate_final_phi.assign((size_t)total_r, 0.0);
+            if (P.ctot_transport_defect_v2_diagnostics &&
+                !ctot_transport_defect_v2_observer.open(
+                    case_output_dir, total_r,
+                    P.ctot_transport_defect_v2_window_time_code)) {
+                fprintf(stderr,
+                        "[fatal] cannot initialize transport defect V2 "
+                        "observer: %s\n",
+                        ctot_transport_defect_v2_observer.error().c_str());
+                return 2;
+            }
+            log_kv_text("ctot_transport_gate_trajectory_schema",
+                        "%s", "CTOT_TRANSPORT_GATE_TRAJECTORY_V2_TRANSACTIONAL");
+            log_kv_text("ctot_transport_gate_trajectory_csv", "%s", path);
+        }
     }
+    auto ctot_transport_gate_write_committed_row =
+        [&](const CtotTransportGateTrajectoryRow &row) {
+            ++ctot_transport_gate_accepted_rows;
+            ctot_transport_gate_observed_time_code += row.dt_try;
+            ctot_transport_gate_ER_L1 += row.dt_try * row.residual_l1;
+            ctot_transport_gate_ER_L2_sq +=
+                row.dt_try * row.residual_l2_sq;
+            ctot_transport_gate_increment_L1 += row.increment_l1;
+            fprintf(ctot_transport_gate_trajectory_diag_fp,
+                    "%lld,%d,%d,%.17e,%.17e,%.17e,%.17e,%.17e,"
+                    "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,"
+                    "%.17e,%.17e,%.17e\n",
+                    ctot_transport_gate_accepted_rows, row.physical_step,
+                    row.attempt_id, row.dt_try,
+                    ctot_transport_gate_observed_time_code,
+                    P.ctot_residual_abs_tol, P.ctot_residual_rel_tol,
+                    row.initial_residual, row.effective_gate,
+                    row.scalar_cold_linf, row.residual_l1,
+                    sqrt(row.residual_l2_sq), row.residual_linf,
+                    row.residual_signed_sum, row.increment_l1,
+                    ctot_transport_gate_ER_L1,
+                    sqrt(ctot_transport_gate_ER_L2_sq),
+                    ctot_transport_gate_increment_L1);
+        };
+    auto ctot_transport_gate_reset_event_transaction = [&]() {
+        ctot_transport_gate_event_rows.clear();
+        std::fill(ctot_transport_gate_event_defect.begin(),
+                  ctot_transport_gate_event_defect.end(), 0.0);
+        ctot_transport_defect_v2_observer.reset_event_transaction();
+    };
+    auto ctot_transport_gate_commit_event_transaction = [&]() -> bool {
+        for (int idx = 0; idx < total_r; ++idx) {
+            ctot_transport_gate_cumulative_defect[(size_t)idx] +=
+                ctot_transport_gate_event_defect[(size_t)idx];
+        }
+        for (const auto &row : ctot_transport_gate_event_rows) {
+            ctot_transport_gate_write_committed_row(row);
+        }
+        fflush(ctot_transport_gate_trajectory_diag_fp);
+        if (!ctot_transport_defect_v2_observer.commit_event_transaction()) {
+            return false;
+        }
+        ctot_transport_gate_event_rows.clear();
+        std::fill(ctot_transport_gate_event_defect.begin(),
+                  ctot_transport_gate_event_defect.end(), 0.0);
+        return true;
+    };
     const int pf_mode_q_transport_runtime =
         (!gp_storage_coupling_enabled(&P) &&
          strcmp(P.pf_y_update_mode, "q_transport_projection_split") == 0);
@@ -30554,13 +31100,21 @@ int main(int argc, char **argv) {
 
     CUDA_CHECK(cudaMalloc(&d_phi_k, size_k));
     CUDA_CHECK(cudaMalloc(&d_phi_rhs_k, size_k));
-    CUDA_CHECK(cudaMalloc(&d_Y_k, size_k));
+    if (ctot_phase_spectrum_alias_runtime) {
+        // Candidate phase update is pointwise in k-space, so its old-phi
+        // spectrum may become the output spectrum in place. No candidate
+        // lifecycle stage reads d_Y_k and d_phi_k concurrently afterward.
+        d_Y_k = d_phi_k;
+    } else {
+        CUDA_CHECK(cudaMalloc(&d_Y_k, size_k));
+    }
     // 优化：d_phi_rhs_k 在步骤1完成后可复用为 d_mu_x_k，然后复用为 d_Y_rhs_k
     // 节省2GB显存（k空间）
     d_mu_x_k = d_phi_rhs_k;
     d_Y_rhs_k = d_phi_rhs_k;
     // Optimization: 仅常驻 divJ_k，grad/J 用 scratch 串行累加
-    CUDA_CHECK(cudaMalloc(&d_divJ_k, size_k));
+    if (!ctot_candidate_runtime || !ctot_unused_derived_elision_runtime)
+        CUDA_CHECK(cudaMalloc(&d_divJ_k, size_k));
     CUDA_CHECK(cudaMalloc(&d_scratch_k_double, scratch_k_double_bytes));
     CUDA_CHECK(cudaMalloc(&d_scratch_r_double, scratch_r_double_bytes));
     if (gp_buffers_enabled) {
@@ -30776,6 +31330,14 @@ int main(int argc, char **argv) {
                 ctot_bdf2_dt_nm1 = bdf2_restart_dt_nm1;
                 ctot_bdf2_accepted_step = bdf2_restart_accepted_step;
                 ctot_bdf2_accepted_time_code = bdf2_restart_time_code;
+                if (ctot_variable_bdf2_active_manifold_v1_runtime) {
+                    ctot_variable_controller_valid =
+                        variable_restart_controller_valid;
+                    ctot_variable_controller_previous_error =
+                        variable_restart_previous_error;
+                    ctot_variable_controller_next_dt =
+                        variable_restart_next_dt;
+                }
                 // Event-safe restart has the complete accepted n/n-1 pair and
                 // performs its own preflight before any BDF2 solve. Preserve
                 // the checkpoint's pending bit so a pre-event replay can be
@@ -30960,9 +31522,37 @@ int main(int argc, char **argv) {
 
     // 复用计划：只创建2个计划（R2C和C2R），所有FFT操作共享
     cufftHandle plan_r2c_base, plan_c2r_base;
-
-    CUFFT_CHECK(cufftPlan3d(&plan_r2c_base, P.Nx, P.Ny, P.Nz, CUFFT_D2Z));
-    CUFFT_CHECK(cufftPlan3d(&plan_c2r_base, P.Nx, P.Ny, P.Nz, CUFFT_Z2D));
+    void *d_cufft_base_shared_work_area = NULL;
+    size_t cufft_r2c_work_bytes = 0;
+    size_t cufft_c2r_work_bytes = 0;
+    size_t cufft_base_shared_work_bytes = 0;
+    if (ctot_shared_fft_workspace_runtime) {
+        CUFFT_CHECK(cufftCreate(&plan_r2c_base));
+        CUFFT_CHECK(cufftCreate(&plan_c2r_base));
+        CUFFT_CHECK(cufftSetAutoAllocation(plan_r2c_base, 0));
+        CUFFT_CHECK(cufftSetAutoAllocation(plan_c2r_base, 0));
+        CUFFT_CHECK(cufftMakePlan3d(plan_r2c_base, P.Nx, P.Ny, P.Nz,
+                                    CUFFT_D2Z, &cufft_r2c_work_bytes));
+        CUFFT_CHECK(cufftMakePlan3d(plan_c2r_base, P.Nx, P.Ny, P.Nz,
+                                    CUFFT_Z2D, &cufft_c2r_work_bytes));
+        cufft_base_shared_work_bytes =
+            std::max(cufft_r2c_work_bytes, cufft_c2r_work_bytes);
+        if (cufft_base_shared_work_bytes > 0) {
+            CUDA_CHECK(cudaMalloc(&d_cufft_base_shared_work_area,
+                                  cufft_base_shared_work_bytes));
+            CUFFT_CHECK(cufftSetWorkArea(plan_r2c_base,
+                                        d_cufft_base_shared_work_area));
+            CUFFT_CHECK(cufftSetWorkArea(plan_c2r_base,
+                                        d_cufft_base_shared_work_area));
+        }
+        printf("CTOT_SHARED_FFT_WORKSPACE r2c_bytes=%zu c2r_bytes=%zu "
+               "shared_bytes=%zu concurrent_execution=0\n",
+               cufft_r2c_work_bytes, cufft_c2r_work_bytes,
+               cufft_base_shared_work_bytes);
+    } else {
+        CUFFT_CHECK(cufftPlan3d(&plan_r2c_base, P.Nx, P.Ny, P.Nz, CUFFT_D2Z));
+        CUFFT_CHECK(cufftPlan3d(&plan_c2r_base, P.Nx, P.Ny, P.Nz, CUFFT_Z2D));
+    }
 
     // 弹性计算的float FFT计划（如果启用弹性计算）
     cufftHandle plan_r2c_elastic = 0;
@@ -30978,7 +31568,8 @@ int main(int argc, char **argv) {
     // 构建k空间
     printf("构建k空间...\n");
     KSpace_CUDA KS;
-    kspace_build_cuda(&KS, P.Nx, P.Ny, P.Nz, P.dx, P.dy, P.dz);
+    kspace_build_cuda(&KS, P.Nx, P.Ny, P.Nz, P.dx, P.dy, P.dz,
+                      !ctot_unused_derived_elision_runtime);
     print_gpu_meminfo("before minimize work buffers");
 
     // minimize mode: reusable energy work buffers
@@ -31198,6 +31789,15 @@ int main(int argc, char **argv) {
     double ctot_accepted_time_code =
         ctot_imex_bdf2_v1_runtime && bdf2_restart_history_loaded
             ? ctot_bdf2_accepted_time_code : 0.0;
+    if (ctot_variable_bdf2_active_manifold_v1_runtime &&
+        bdf2_restart_history_loaded && ctot_variable_controller_valid) {
+        P.dt = ctot_variable_controller_next_dt;
+        dt_phi = P.dt;
+        printf("CTOT_VARIABLE_BDF2_CONTROLLER_RESTART valid=1 "
+               "previous_error=%.17e next_dt=%.17e\n",
+               ctot_variable_controller_previous_error,
+               ctot_variable_controller_next_dt);
+    }
     const double ctot_initial_requested_dt = P.dt;
     double ctot_physical_step_requested_dt = P.dt;
     int ctot_retry_count = 0;
@@ -31229,11 +31829,14 @@ int main(int argc, char **argv) {
     unsigned long long ctot_event_anchor_C_history_hash = 0;
     unsigned long long ctot_event_anchor_phi_history_hash = 0;
     int ctot_event_anchor_hash_valid = 0;
+    int ctot_event_macro_snapshot_valid = 0;
+    int ctot_event_snapshot_aliases_transport_context = 0;
     double ctot_bdf2_event_macro_dt = NAN;
     int ctot_debug_forced_reject_consumed = 0;
     int ctot_debug_forced_bdf2_reject_consumed = 0;
     int ctot_debug_elastic_reject_consumed = 0;
     int ctot_mechanical_snapshot_initialized = 0;
+    CtotFullAuditDecision ctot_full_audit = {1, CTOT_FULL_AUDIT_FIRST_STEP};
     auto hash_device_double_field = [&](const double *device_field) {
         std::vector<unsigned char> bytes(size_r);
         CUDA_CHECK(cudaMemcpy(bytes.data(), device_field, size_r,
@@ -31244,6 +31847,69 @@ int main(int argc, char **argv) {
             hash *= 1099511628211ULL;
         }
         return hash;
+    };
+    auto capture_ctot_event_macro_start = [&]() -> int {
+        if (!P.bdf2_event_be_subcycling_v1) return 1;
+        if (ctot_event_macro_snapshot_valid) return 1;
+        if (!d_ctot_event_macro_start_r || !d_phi_event_macro_start_r) {
+            if (ctot_lazy_event_snapshot_runtime &&
+                ctot_method_consistent_split_runtime) {
+                // An event switches this macro step to BE subcycling. The BDF2
+                // extrapolated transport anchor/context are then dead until the
+                // next physical step, so they can own the macro rollback image.
+                d_ctot_event_macro_start_r = d_ctot_transport_anchor_r;
+                d_phi_event_macro_start_r = d_phi_transport_context_r;
+                ctot_event_snapshot_aliases_transport_context = 1;
+            } else {
+                if (!d_ctot_event_macro_start_r)
+                    CUDA_CHECK(cudaMalloc(&d_ctot_event_macro_start_r, size_r));
+                if (!d_phi_event_macro_start_r)
+                    CUDA_CHECK(cudaMalloc(&d_phi_event_macro_start_r, size_r));
+            }
+        }
+        if (!ctot_derived_Y_snapshot_elision_runtime &&
+            !d_Y_event_macro_start_r)
+            CUDA_CHECK(cudaMalloc(&d_Y_event_macro_start_r, size_r));
+        CUDA_CHECK(cudaMemcpy(d_ctot_event_macro_start_r, d_ctot_saved_r,
+                              size_r, cudaMemcpyDeviceToDevice));
+        CUDA_CHECK(cudaMemcpy(d_phi_event_macro_start_r, d_phi_n_saved,
+                              size_r, cudaMemcpyDeviceToDevice));
+        if (!ctot_derived_Y_snapshot_elision_runtime) {
+            CUDA_CHECK(cudaMemcpy(d_Y_event_macro_start_r, d_Y_n_saved,
+                                  size_r, cudaMemcpyDeviceToDevice));
+        } else {
+            // Y is derived from the authoritative conserved and phase states.
+            // An event may be discovered after a rejected trial has already
+            // changed d_Y_r, so rebuild the accepted macro-start context before
+            // recording the rollback anchor.
+            reconstruct_ctot_thermodynamic_context(
+                d_ctot_event_macro_start_r, d_phi_event_macro_start_r);
+            CUDA_CHECK(cudaDeviceSynchronize());
+        }
+        ctot_event_macro_snapshot_valid = 1;
+        ctot_event_anchor_hash_valid = 0;
+        if (ctot_bounded_retry_contract_runtime) {
+            ctot_event_anchor_C_hash =
+                hash_device_double_field(d_ctot_event_macro_start_r);
+            ctot_event_anchor_phi_hash =
+                hash_device_double_field(d_phi_event_macro_start_r);
+            ctot_event_anchor_Y_hash = hash_device_double_field(
+                ctot_derived_Y_snapshot_elision_runtime
+                    ? d_Y_r : d_Y_event_macro_start_r);
+            ctot_event_anchor_C_history_hash =
+                hash_device_double_field(d_ctot_history_nm1_r);
+            ctot_event_anchor_phi_history_hash =
+                hash_device_double_field(d_phi_history_nm1_r);
+            ctot_event_anchor_hash_valid = 1;
+        }
+        printf("CTOT_EVENT_MACRO_SNAPSHOT_CAPTURE lazy=%d "
+               "aliases_transport_context=%d incremental_bytes=%zu "
+               "reason=event_safety_transaction\n",
+               ctot_lazy_event_snapshot_runtime,
+               ctot_event_snapshot_aliases_transport_context,
+               (ctot_event_snapshot_aliases_transport_context ? 0 : 2) * size_r +
+                   (ctot_derived_Y_snapshot_elision_runtime ? 0 : size_r));
+        return 1;
     };
     cufftComplex *ctot_mech_u_trial[3] = {d_ux_k, d_uy_k, d_uz_k};
     float *ctot_mech_strain_trial[6] = {
@@ -31296,16 +31962,24 @@ int main(int argc, char **argv) {
                               cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_ctot_work_r, d_ctot_saved_r, size_r,
                               cudaMemcpyDeviceToDevice));
-        CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
-                              cudaMemcpyDeviceToDevice));
+        if (!ctot_derived_Y_snapshot_elision_runtime)
+            CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
+                                  cudaMemcpyDeviceToDevice));
         reconstruct_ctot_thermodynamic_context(d_ctot_accepted_r, d_phi_r);
         CUDA_CHECK(cudaDeviceSynchronize());
         restore_ctot_mechanical_accepted();
     };
-    auto restore_ctot_event_macro_start = [&]() {
+    auto restore_ctot_event_macro_start = [&]() -> int {
         if (!P.bdf2_event_be_subcycling_v1 ||
             !d_ctot_event_macro_start_r || !d_phi_event_macro_start_r ||
-            !d_Y_event_macro_start_r) return;
+            (!ctot_derived_Y_snapshot_elision_runtime &&
+             !d_Y_event_macro_start_r) ||
+            !ctot_event_macro_snapshot_valid) {
+            fprintf(stderr,
+                    "[fatal] event macro restore requested without a valid "
+                    "snapshot.\n");
+            return 0;
+        }
         CUDA_CHECK(cudaMemcpy(d_ctot_saved_r, d_ctot_event_macro_start_r,
                               size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_ctot_accepted_r, d_ctot_event_macro_start_r,
@@ -31316,13 +31990,16 @@ int main(int argc, char **argv) {
                               size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_phi_r, d_phi_event_macro_start_r,
                               size_r, cudaMemcpyDeviceToDevice));
-        CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_event_macro_start_r,
-                              size_r, cudaMemcpyDeviceToDevice));
-        CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_event_macro_start_r,
-                              size_r, cudaMemcpyDeviceToDevice));
+        if (!ctot_derived_Y_snapshot_elision_runtime) {
+            CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_event_macro_start_r,
+                                  size_r, cudaMemcpyDeviceToDevice));
+            CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_event_macro_start_r,
+                                  size_r, cudaMemcpyDeviceToDevice));
+        }
         reconstruct_ctot_thermodynamic_context(d_ctot_accepted_r, d_phi_r);
         CUDA_CHECK(cudaDeviceSynchronize());
         restore_ctot_mechanical_accepted();
+        return 1;
     };
     auto verify_ctot_event_macro_rollback =
         [&](int physical_step_id, int attempt_id) -> int {
@@ -31348,7 +32025,9 @@ int main(int argc, char **argv) {
             const unsigned long long Y_actual =
                 hash_device_double_field(d_Y_r);
             const unsigned long long Y_saved_actual =
-                hash_device_double_field(d_Y_n_saved);
+                ctot_derived_Y_snapshot_elision_runtime
+                    ? ctot_event_anchor_Y_hash
+                    : hash_device_double_field(d_Y_n_saved);
             const unsigned long long C_history_actual =
                 hash_device_double_field(d_ctot_history_nm1_r);
             const unsigned long long phi_history_actual =
@@ -31411,7 +32090,14 @@ int main(int argc, char **argv) {
         if (ctot_bounded_retry_contract_runtime) {
             expected_C_hash = hash_device_double_field(d_ctot_saved_r);
             expected_phi_hash = hash_device_double_field(d_phi_n_saved);
-            expected_Y_hash = hash_device_double_field(d_Y_n_saved);
+            if (ctot_derived_Y_snapshot_elision_runtime) {
+                reconstruct_ctot_thermodynamic_context(
+                    d_ctot_saved_r, d_phi_n_saved);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                expected_Y_hash = hash_device_double_field(d_Y_r);
+            } else {
+                expected_Y_hash = hash_device_double_field(d_Y_n_saved);
+            }
             if (ctot_imex_bdf2_v1_runtime) {
                 expected_C_history_hash =
                     hash_device_double_field(d_ctot_history_nm1_r);
@@ -31523,6 +32209,10 @@ int main(int argc, char **argv) {
         ctot_bdf2_event_last_accepted_depth = 0;
         if (ctot_candidate_runtime) dt_phi = P.dt;
         const int ctot_attempt_id = ctot_retry_count + 1;
+        ctot_full_audit = ctot_full_audit_decision_v1(
+            step, nsteps_run, P.ctot_full_audit_cadence,
+            ctot_retry_count, ctot_bdf2_history_valid, P.dt,
+            ctot_bdf2_dt_n);
         double pf_q_step_stats[PF_Q_STATS_COUNT] = {0.0};
         pf_q_step_stats[PF_Q_MIN_ALPHA] = 1.0;
         double pf_cons_mass_before_transport = NAN;
@@ -31580,7 +32270,9 @@ int main(int argc, char **argv) {
         // 保存上一时间步
         CUDA_CHECK(cudaMemcpy(d_phi_n_saved, d_phi_r, size_r, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaMemcpy(d_eta_prev_r, d_eta_r, size_r, cudaMemcpyDeviceToDevice));
-        CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_r, size_r, cudaMemcpyDeviceToDevice));
+        if (!ctot_derived_Y_snapshot_elision_runtime)
+            CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_r, size_r,
+                                  cudaMemcpyDeviceToDevice));
         if (ctot_candidate_runtime) {
             CUDA_CHECK(cudaMemcpy(d_ctot_saved_r, d_ctot_accepted_r, size_r,
                                   cudaMemcpyDeviceToDevice));
@@ -31592,28 +32284,10 @@ int main(int argc, char **argv) {
                 ctot_bdf2_event_subcycle_index = 0;
                 ctot_bdf2_event_reason = BDF2_EVENT_NONE;
                 ctot_bdf2_event_macro_dt = P.dt;
-                CUDA_CHECK(cudaMemcpy(d_ctot_event_macro_start_r,
-                                      d_ctot_saved_r, size_r,
-                                      cudaMemcpyDeviceToDevice));
-                CUDA_CHECK(cudaMemcpy(d_phi_event_macro_start_r,
-                                      d_phi_n_saved, size_r,
-                                      cudaMemcpyDeviceToDevice));
-                CUDA_CHECK(cudaMemcpy(d_Y_event_macro_start_r,
-                                      d_Y_n_saved, size_r,
-                                      cudaMemcpyDeviceToDevice));
-                if (ctot_bounded_retry_contract_runtime) {
-                    ctot_event_anchor_C_hash =
-                        hash_device_double_field(d_ctot_event_macro_start_r);
-                    ctot_event_anchor_phi_hash =
-                        hash_device_double_field(d_phi_event_macro_start_r);
-                    ctot_event_anchor_Y_hash =
-                        hash_device_double_field(d_Y_event_macro_start_r);
-                    ctot_event_anchor_C_history_hash =
-                        hash_device_double_field(d_ctot_history_nm1_r);
-                    ctot_event_anchor_phi_history_hash =
-                        hash_device_double_field(d_phi_history_nm1_r);
-                    ctot_event_anchor_hash_valid = 1;
-                }
+                ctot_event_macro_snapshot_valid = 0;
+                ctot_event_anchor_hash_valid = 0;
+                if (!ctot_lazy_event_snapshot_runtime &&
+                    !capture_ctot_event_macro_start()) return 2;
             }
         }
         if (pf_conservative_runtime) {
@@ -32801,8 +33475,9 @@ int main(int argc, char **argv) {
                                   cudaMemcpyDeviceToDevice));
             CUDA_CHECK(cudaMemcpy(d_ctot_work_r, d_ctot_saved_r, size_r,
                                   cudaMemcpyDeviceToDevice));
-            CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
-                                  cudaMemcpyDeviceToDevice));
+            if (!ctot_derived_Y_snapshot_elision_runtime)
+                CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
+                                      cudaMemcpyDeviceToDevice));
             reconstruct_ctot_thermodynamic_context(d_ctot_work_r, d_phi_r);
             CUDA_CHECK(cudaDeviceSynchronize());
         } else if (P.mode == 1) {
@@ -32993,8 +33668,9 @@ int main(int argc, char **argv) {
                                           cudaMemcpyDeviceToDevice));
                     CUDA_CHECK(cudaMemcpy(d_ctot_work_r, d_ctot_saved_r, size_r,
                                           cudaMemcpyDeviceToDevice));
-                    CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
-                                          cudaMemcpyDeviceToDevice));
+                    if (!ctot_derived_Y_snapshot_elision_runtime)
+                        CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
+                                              cudaMemcpyDeviceToDevice));
                     reconstruct_ctot_thermodynamic_context(
                         d_ctot_accepted_r, d_phi_r);
                     CUDA_CHECK(cudaDeviceSynchronize());
@@ -33338,8 +34014,9 @@ int main(int argc, char **argv) {
                                           cudaMemcpyDeviceToDevice));
                     CUDA_CHECK(cudaMemcpy(d_ctot_work_r, d_ctot_saved_r, size_r,
                                           cudaMemcpyDeviceToDevice));
-                    CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
-                                          cudaMemcpyDeviceToDevice));
+                    if (!ctot_derived_Y_snapshot_elision_runtime)
+                        CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
+                                              cudaMemcpyDeviceToDevice));
                     reconstruct_ctot_thermodynamic_context(
                         d_ctot_accepted_r, d_phi_r);
                     CUDA_CHECK(cudaDeviceSynchronize());
@@ -33531,26 +34208,50 @@ ctot_bdf2_event_substep_begin:
             double dt_transport = P.dt;
             double phase_rate_dt = P.dt;
             const double *phase_history_r = d_phi_n_saved;
+            double bdf2_step_ratio = 1.0;
+            double phase_rate_a0 = 1.0;
+            double phase_rate_a1 = -1.0;
+            double phase_rate_a2 = 0.0;
+            double variable_error_C = NAN;
+            double variable_error_phi = NAN;
+            double variable_error_h_volume = NAN;
+            double variable_error_combined = NAN;
+            VariableBdf2ControllerDecisionV1 variable_controller_trial{};
+            int variable_error_estimator_valid = 0;
+            int variable_error_reject = 0;
             if (ctot_imex_bdf2_v1_runtime) {
                 const double dt_scale = fmax(
                     fmax(fabs(P.dt), fabs(ctot_bdf2_dt_n)),
                     fmax(fabs(ctot_bdf2_dt_nm1), 1.0));
                 const double dt_match_tol = 64.0 * DBL_EPSILON * dt_scale;
-                const int dt_history_matches = ctot_bdf2_history_valid &&
+                const int finite_dt_history = ctot_bdf2_history_valid &&
                     isfinite(ctot_bdf2_dt_n) &&
-                    isfinite(ctot_bdf2_dt_nm1) &&
-                    fabs(ctot_bdf2_dt_n - ctot_bdf2_dt_nm1) <= dt_match_tol;
+                    ctot_bdf2_dt_n > 0.0 &&
+                    isfinite(ctot_bdf2_dt_nm1) && ctot_bdf2_dt_nm1 > 0.0;
+                const int dt_history_matches = finite_dt_history &&
+                    (ctot_variable_bdf2_active_manifold_v1_runtime ||
+                     fabs(ctot_bdf2_dt_n - ctot_bdf2_dt_nm1) <= dt_match_tol);
+                const VariableBdf2CoefficientsV1 variable_coefficients =
+                    variable_bdf2_coefficients_v1(P.dt, ctot_bdf2_dt_n);
                 const int dt_current_matches = dt_history_matches &&
-                    fabs(P.dt - ctot_bdf2_dt_n) <= dt_match_tol;
+                    (ctot_variable_bdf2_active_manifold_v1_runtime
+                         ? variable_coefficients.valid
+                         : fabs(P.dt - ctot_bdf2_dt_n) <= dt_match_tol);
                 double invalid_context_count = 0.0;
                 double history_mass_delta = NAN;
+                double history_mass_scale = NAN;
+                double history_mass_tolerance = NAN;
                 if (dt_current_matches && !ctot_bdf2_fallback_pending) {
+                    bdf2_step_ratio =
+                        ctot_variable_bdf2_active_manifold_v1_runtime
+                            ? variable_coefficients.ratio : 1.0;
                     if (ctot_imex_bdf2_active_manifold_v1_runtime) {
                         ctot_bdf2_prepare_active_manifold_context_kernel<<<
                             (total_r + 255) / 256, 256>>>(
                             d_ctot_saved_r, d_ctot_history_nm1_r,
                             d_phi_n_saved, d_phi_history_nm1_r,
-                            P.v_B, 1.0e-12, d_ctot_transport_anchor_r,
+                            P.v_B, 1.0e-12, bdf2_step_ratio,
+                            d_ctot_transport_anchor_r,
                             d_phi_transport_context_r, ctot_scratch_r,
                             ctot_correction_r, total_r);
                     } else {
@@ -33558,7 +34259,8 @@ ctot_bdf2_event_substep_begin:
                             (total_r + 255) / 256, 256>>>(
                             d_ctot_saved_r, d_ctot_history_nm1_r,
                             d_phi_n_saved, d_phi_history_nm1_r,
-                            P.v_B, 1.0e-12, d_ctot_transport_anchor_r,
+                            P.v_B, 1.0e-12, bdf2_step_ratio,
+                            d_ctot_transport_anchor_r,
                             d_phi_transport_context_r, ctot_scratch_r, total_r);
                     }
                     CUDA_CHECK(cudaDeviceSynchronize());
@@ -33607,9 +34309,17 @@ ctot_bdf2_event_substep_begin:
                                    active_manifold_first_cell);
                         }
                     }
+                    ctot_bdf2_history_mass_delta_kernel<<<
+                        (total_r + 255) / 256, 256>>>(
+                        d_ctot_saved_r, d_ctot_history_nm1_r,
+                        ctot_scratch_r, total_r);
                     history_mass_delta =
-                        gpu_reduce_sum(d_ctot_saved_r, total_r) -
-                        gpu_reduce_sum(d_ctot_history_nm1_r, total_r);
+                        gpu_reduce_sum(ctot_scratch_r, total_r);
+                    history_mass_scale =
+                        gpu_reduce_sum(d_ctot_saved_r, total_r);
+                    history_mass_tolerance =
+                        ctot_bdf2_history_mass_tolerance_v1(
+                            history_mass_scale);
                     int event_cell_count = 0;
                     int event_first_cell = -1;
                     int event_reason = BDF2_EVENT_NONE;
@@ -33619,13 +34329,15 @@ ctot_bdf2_event_substep_begin:
                                 (total_r + 255) / 256, 256>>>(
                                 d_ctot_saved_r, d_ctot_history_nm1_r,
                                 d_phi_n_saved, d_phi_history_nm1_r,
-                                P.v_B, 1.0e-12, ctot_correction_r, total_r);
+                                P.v_B, 1.0e-12, bdf2_step_ratio,
+                                ctot_correction_r, total_r);
                         } else {
                             ctot_bdf2_event_preflight_kernel<<<
                                 (total_r + 255) / 256, 256>>>(
                                 d_ctot_saved_r, d_ctot_history_nm1_r,
                                 d_phi_n_saved, d_phi_history_nm1_r,
-                                P.v_B, 1.0e-12, ctot_correction_r, total_r);
+                                P.v_B, 1.0e-12, bdf2_step_ratio,
+                                ctot_correction_r, total_r);
                         }
                         CUDA_CHECK(cudaDeviceSynchronize());
                         if (gpu_reduce_sum(ctot_correction_r, total_r) > 0.5) {
@@ -33652,6 +34364,8 @@ ctot_bdf2_event_substep_begin:
                         }
                     }
                     if (event_cell_count > 0) {
+                        ctot_force_full_audit_v1(
+                            &ctot_full_audit, CTOT_FULL_AUDIT_EVENT);
                         ctot_bdf2_event_reason = event_reason;
                         printf("CTOT_BDF2_EVENT_PREFLIGHT step=%d attempt_id=%d "
                                "event_cells=%d first_cell=%d reason=%s "
@@ -33678,10 +34392,10 @@ ctot_bdf2_event_substep_begin:
                                 d_phi_history_nm1_r + event_first_cell,
                                 sizeof(double), cudaMemcpyDeviceToHost));
                             const Bdf2EventCellV1 event =
-                                bdf2_event_classify_v1(
+                                bdf2_event_classify_ratio_v1(
                                     C_n_cell, C_nm1_cell,
                                     phi_n_cell, phi_nm1_cell,
-                                    P.v_B, 1.0e-12);
+                                    P.v_B, 1.0e-12, bdf2_step_ratio);
                             printf("CTOT_BDF2_EVENT_CELL step=%d idx=%d "
                                    "C_n=%.17e C_nm1=%.17e C_anchor=%.17e "
                                    "phi_n=%.17e phi_nm1=%.17e phi_E=%.17e "
@@ -33696,6 +34410,7 @@ ctot_bdf2_event_substep_begin:
                                    event.upper_margin_E);
                         }
                         if (P.bdf2_event_be_subcycling_v1) {
+                            if (!capture_ctot_event_macro_start()) return 2;
                             ctot_bdf2_event_subcycle_active = 1;
                             ctot_bdf2_event_subcycle_depth = 2;
                             ctot_bdf2_event_subcycle_index = 0;
@@ -33711,12 +34426,25 @@ ctot_bdf2_event_substep_begin:
                         }
                     }
                     if (event_cell_count == 0 && invalid_context_count <= 0.5 &&
-                        fabs(history_mass_delta) <= 1.0e-10) {
+                        ctot_bdf2_history_mass_consistent_v1(
+                            history_mass_delta, history_mass_scale)) {
                         ctot_bdf2_active_this_attempt = 1;
                         ctot_transport_old_r = d_ctot_transport_anchor_r;
                         ctot_transport_phi_r = d_phi_transport_context_r;
-                        dt_transport = (2.0 / 3.0) * P.dt;
-                        phase_rate_dt = (2.0 / 3.0) * P.dt;
+                        if (ctot_variable_bdf2_active_manifold_v1_runtime) {
+                            phase_rate_a0 = variable_coefficients.a0;
+                            phase_rate_a1 = variable_coefficients.a1;
+                            phase_rate_a2 = variable_coefficients.a2;
+                            dt_transport =
+                                variable_coefficients.effective_dt_factor * P.dt;
+                            phase_rate_dt = dt_transport;
+                        } else {
+                            phase_rate_a0 = 1.5;
+                            phase_rate_a1 = -2.0;
+                            phase_rate_a2 = 0.5;
+                            dt_transport = (2.0 / 3.0) * P.dt;
+                            phase_rate_dt = (2.0 / 3.0) * P.dt;
+                        }
                         phase_history_r = d_phi_history_nm1_r;
                     } else if (event_cell_count > 0) {
                         invalid_context_count = fmax(invalid_context_count, 1.0);
@@ -33742,15 +34470,26 @@ ctot_bdf2_event_substep_begin:
                 printf("CTOT_IMEX_BDF2_STEP_CONTEXT step=%d attempt_id=%d "
                        "integrator=%s history_valid=%d dt_n=%.17e dt_nm1=%.17e "
                        "dt=%.17e dt_transport=%.17e invalid_context_cells=%.0f "
-                       "history_mass_delta=%.17e fallback_pending=%d "
+                       "history_mass_delta=%.17e history_mass_scale=%.17e "
+                       "history_mass_tolerance=%.17e fallback_pending=%d "
                        "fallback_reason=%s\n",
                        step, ctot_attempt_id,
                        ctot_bdf2_active_this_attempt ? "BDF2" : "BE_FALLBACK",
                        ctot_bdf2_history_valid, ctot_bdf2_dt_n,
                        ctot_bdf2_dt_nm1, P.dt,
                        dt_transport, invalid_context_count,
-                       history_mass_delta, ctot_bdf2_fallback_pending,
+                       history_mass_delta, history_mass_scale,
+                       history_mass_tolerance, ctot_bdf2_fallback_pending,
                        ctot_bdf2_fallback_reason_this_attempt);
+                if (ctot_bdf2_active_this_attempt) {
+                    printf("CTOT_VARIABLE_BDF2_COEFFICIENTS step=%d "
+                           "active=%d ratio=%.17e a0=%.17e a1=%.17e "
+                           "a2=%.17e dt_effective=%.17e\n",
+                           step,
+                           ctot_variable_bdf2_active_manifold_v1_runtime,
+                           bdf2_step_ratio, phase_rate_a0, phase_rate_a1,
+                           phase_rate_a2, dt_transport);
+                }
             }
             snprintf(ctot_retry_diag_integrator_mode,
                      sizeof(ctot_retry_diag_integrator_mode), "%s",
@@ -33994,7 +34733,9 @@ ctot_bdf2_event_substep_begin:
             CUDA_CHECK(cudaMemcpy(d_ctot_transport_stats, energy_stats_init,
                                   sizeof(energy_stats_init), cudaMemcpyHostToDevice));
             launch_ctot_candidate_state_from_Y_kernel(
-                d_Y_n_saved, d_phi_n_saved, d_ctot_saved_r, d_ctot_trial_r,
+                ctot_derived_Y_snapshot_elision_runtime
+                    ? d_Y_r : d_Y_n_saved,
+                d_phi_n_saved, d_ctot_saved_r, d_ctot_trial_r,
                 ctot_correction_r, d_ctot_residual_r,
                 d_ctot_active_mask_r,
                 xB_eq_from_temperature(temperature_K), P.v_B,
@@ -34108,14 +34849,17 @@ ctot_bdf2_event_substep_begin:
                             CUFFT_CHECK(cufftExecZ2D(plan_c2r_xB, ctot_scratch_k,
                                                     ctot_scratch_r));
                             launch_normalize_only_kernel(ctot_scratch_r, invN, total_r);
-                            double *face = axis == 0 ? d_ctot_fv_face_x :
-                                (axis == 1 ? d_ctot_fv_face_y :
-                                             d_ctot_fv_face_z);
+                            double *face = ctot_face_streaming_runtime
+                                ? d_ctot_fv_face_x
+                                : (axis == 0 ? d_ctot_fv_face_x :
+                                   (axis == 1 ? d_ctot_fv_face_y :
+                                                d_ctot_fv_face_z));
+                            const double axis_spacing =
+                                axis == 0 ? P.dx : (axis == 1 ? P.dy : P.dz);
                             launch_ctot_positive_face_flux_from_cell_gradient_kernel(
                                 ctot_scratch_r, d_mu_x_r, phi_eval_r,
                                 d_xB_r, face, P.Nx, P.Ny, P.Nz, axis,
-                                axis == 0 ? P.dx :
-                                    (axis == 1 ? P.dy : P.dz),
+                                axis_spacing,
                                 P.D_alpha, P.Vm_alpha_0,
                                 P.dVm_alpha_dxB, P.Vm_compound,
                                 temperature_K, P.mu_reference_scale,
@@ -34131,64 +34875,104 @@ ctot_bdf2_event_substep_begin:
                                     dt_eval, P.v_B, d_mu_x_r,
                                     d_ctot_transport_stats, total_r);
                             }
+                            if (ctot_face_streaming_runtime) {
+                                launch_ctot_fv_accumulate_axis_divergence_kernel(
+                                    face, d_divJ_r, P.Nx, P.Ny, P.Nz,
+                                    axis, axis_spacing, total_r);
+                            }
                         }
-                        launch_ctot_fv_divergence_kernel(
-                            d_ctot_fv_face_x, d_ctot_fv_face_y,
-                            d_ctot_fv_face_z, d_divJ_r,
-                            P.Nx, P.Ny, P.Nz,
-                            P.dx, P.dy, P.dz, total_r);
+                        if (!ctot_face_streaming_runtime) {
+                            launch_ctot_fv_divergence_kernel(
+                                d_ctot_fv_face_x, d_ctot_fv_face_y,
+                                d_ctot_fv_face_z, d_divJ_r,
+                                P.Nx, P.Ny, P.Nz,
+                                P.dx, P.dy, P.dz, total_r);
+                        }
                     } else {
-                        launch_ctot_fv_positive_face_flux_kernel(
-                            d_mu_x_r, phi_eval_r, d_xB_r, d_ctot_fv_face_x,
-                            P.Nx, P.Ny, P.Nz, 0, P.dx, P.D_alpha,
-                            P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
-                            temperature_K, P.mu_reference_scale,
-                            P.ctot_matrix_support_eps,
-                            P.coarse_interface_mobility_a_M,
-                            d_ctot_transport_stats, total_r);
-                        launch_ctot_fv_positive_face_flux_kernel(
-                            d_mu_x_r, phi_eval_r, d_xB_r, d_ctot_fv_face_y,
-                            P.Nx, P.Ny, P.Nz, 1, P.dy, P.D_alpha,
-                            P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
-                            temperature_K, P.mu_reference_scale,
-                            P.ctot_matrix_support_eps,
-                            P.coarse_interface_mobility_a_M,
-                            d_ctot_transport_stats, total_r);
-                        launch_ctot_fv_positive_face_flux_kernel(
-                            d_mu_x_r, phi_eval_r, d_xB_r, d_ctot_fv_face_z,
-                            P.Nx, P.Ny, P.Nz, 2, P.dz, P.D_alpha,
-                            P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
-                            temperature_K, P.mu_reference_scale,
-                            P.ctot_matrix_support_eps,
-                            P.coarse_interface_mobility_a_M,
-                            d_ctot_transport_stats, total_r);
-                        if (P.ctot_finite_interface_antitrapping_enabled) {
-                            launch_ctot_add_antitrapping_face_flux_kernel(
-                                phi_eval_r, d_phi_n_saved, d_xB_r,
-                                d_ctot_fv_face_x, P.Nx, P.Ny, P.Nz, 0,
-                                P.dx, P.dy, P.dz,
-                                2.0 * P.ic_phi_iface_w * P.dx,
-                                dt_eval, P.v_B, d_mu_x_r,
+                        if (ctot_face_streaming_runtime) {
+                            for (int axis = 0; axis < 3; ++axis) {
+                                const double axis_spacing =
+                                    axis == 0 ? P.dx :
+                                    (axis == 1 ? P.dy : P.dz);
+                                launch_ctot_fv_positive_face_flux_kernel(
+                                    d_mu_x_r, phi_eval_r, d_xB_r,
+                                    d_ctot_fv_face_x,
+                                    P.Nx, P.Ny, P.Nz, axis, axis_spacing,
+                                    P.D_alpha, P.Vm_alpha_0,
+                                    P.dVm_alpha_dxB, P.Vm_compound,
+                                    temperature_K, P.mu_reference_scale,
+                                    P.ctot_matrix_support_eps,
+                                    P.coarse_interface_mobility_a_M,
+                                    d_ctot_transport_stats, total_r);
+                                if (P.ctot_finite_interface_antitrapping_enabled) {
+                                    launch_ctot_add_antitrapping_face_flux_kernel(
+                                        phi_eval_r, d_phi_n_saved, d_xB_r,
+                                        d_ctot_fv_face_x,
+                                        P.Nx, P.Ny, P.Nz, axis,
+                                        P.dx, P.dy, P.dz,
+                                        2.0 * P.ic_phi_iface_w * P.dx,
+                                        dt_eval, P.v_B, d_mu_x_r,
+                                        d_ctot_transport_stats, total_r);
+                                }
+                                launch_ctot_fv_accumulate_axis_divergence_kernel(
+                                    d_ctot_fv_face_x, d_divJ_r,
+                                    P.Nx, P.Ny, P.Nz, axis,
+                                    axis_spacing, total_r);
+                            }
+                        } else {
+                            launch_ctot_fv_positive_face_flux_kernel(
+                                d_mu_x_r, phi_eval_r, d_xB_r, d_ctot_fv_face_x,
+                                P.Nx, P.Ny, P.Nz, 0, P.dx, P.D_alpha,
+                                P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
+                                temperature_K, P.mu_reference_scale,
+                                P.ctot_matrix_support_eps,
+                                P.coarse_interface_mobility_a_M,
                                 d_ctot_transport_stats, total_r);
-                            launch_ctot_add_antitrapping_face_flux_kernel(
-                                phi_eval_r, d_phi_n_saved, d_xB_r,
-                                d_ctot_fv_face_y, P.Nx, P.Ny, P.Nz, 1,
-                                P.dx, P.dy, P.dz,
-                                2.0 * P.ic_phi_iface_w * P.dx,
-                                dt_eval, P.v_B, d_mu_x_r,
+                            launch_ctot_fv_positive_face_flux_kernel(
+                                d_mu_x_r, phi_eval_r, d_xB_r, d_ctot_fv_face_y,
+                                P.Nx, P.Ny, P.Nz, 1, P.dy, P.D_alpha,
+                                P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
+                                temperature_K, P.mu_reference_scale,
+                                P.ctot_matrix_support_eps,
+                                P.coarse_interface_mobility_a_M,
                                 d_ctot_transport_stats, total_r);
-                            launch_ctot_add_antitrapping_face_flux_kernel(
-                                phi_eval_r, d_phi_n_saved, d_xB_r,
-                                d_ctot_fv_face_z, P.Nx, P.Ny, P.Nz, 2,
-                                P.dx, P.dy, P.dz,
-                                2.0 * P.ic_phi_iface_w * P.dx,
-                                dt_eval, P.v_B, d_mu_x_r,
+                            launch_ctot_fv_positive_face_flux_kernel(
+                                d_mu_x_r, phi_eval_r, d_xB_r, d_ctot_fv_face_z,
+                                P.Nx, P.Ny, P.Nz, 2, P.dz, P.D_alpha,
+                                P.Vm_alpha_0, P.dVm_alpha_dxB, P.Vm_compound,
+                                temperature_K, P.mu_reference_scale,
+                                P.ctot_matrix_support_eps,
+                                P.coarse_interface_mobility_a_M,
                                 d_ctot_transport_stats, total_r);
+                            if (P.ctot_finite_interface_antitrapping_enabled) {
+                                launch_ctot_add_antitrapping_face_flux_kernel(
+                                    phi_eval_r, d_phi_n_saved, d_xB_r,
+                                    d_ctot_fv_face_x, P.Nx, P.Ny, P.Nz, 0,
+                                    P.dx, P.dy, P.dz,
+                                    2.0 * P.ic_phi_iface_w * P.dx,
+                                    dt_eval, P.v_B, d_mu_x_r,
+                                    d_ctot_transport_stats, total_r);
+                                launch_ctot_add_antitrapping_face_flux_kernel(
+                                    phi_eval_r, d_phi_n_saved, d_xB_r,
+                                    d_ctot_fv_face_y, P.Nx, P.Ny, P.Nz, 1,
+                                    P.dx, P.dy, P.dz,
+                                    2.0 * P.ic_phi_iface_w * P.dx,
+                                    dt_eval, P.v_B, d_mu_x_r,
+                                    d_ctot_transport_stats, total_r);
+                                launch_ctot_add_antitrapping_face_flux_kernel(
+                                    phi_eval_r, d_phi_n_saved, d_xB_r,
+                                    d_ctot_fv_face_z, P.Nx, P.Ny, P.Nz, 2,
+                                    P.dx, P.dy, P.dz,
+                                    2.0 * P.ic_phi_iface_w * P.dx,
+                                    dt_eval, P.v_B, d_mu_x_r,
+                                    d_ctot_transport_stats, total_r);
+                            }
+                            launch_ctot_fv_divergence_kernel(
+                                d_ctot_fv_face_x, d_ctot_fv_face_y,
+                                d_ctot_fv_face_z, d_divJ_r,
+                                P.Nx, P.Ny, P.Nz,
+                                P.dx, P.dy, P.dz, total_r);
                         }
-                        launch_ctot_fv_divergence_kernel(
-                            d_ctot_fv_face_x, d_ctot_fv_face_y,
-                            d_ctot_fv_face_z, d_divJ_r,
-                            P.Nx, P.Ny, P.Nz, P.dx, P.dy, P.dz, total_r);
                     }
                     ctot_perf.end(perf_flux);
                     const int perf_residual = ctot_perf.begin(
@@ -34270,8 +35054,10 @@ ctot_bdf2_event_substep_begin:
             // before the unchanged O(1e-12) equation-residual gate is reached.
             // Keep that gate unchanged and activate only at the exact/ULP bound.
             const double ctot_storage_active_tol = 0.0;
+            int ctot_internal_homotopy_active = 0;
+            double ctot_internal_homotopy_theta_runtime = 1.0;
             auto solve_ctot_transport_operator =
-                [&](int use_spectral_operator) -> int {
+                [&](int use_spectral_operator, double operator_dt) -> int {
             res_inf = 0.0;
             res_l2_rel = 0.0;
             mass_error = 0.0;
@@ -34282,6 +35068,18 @@ ctot_bdf2_event_substep_begin:
             accepted_lambda = 0.0;
             transport_failure_code = CTOT_TRANSPORT_FAILURE_NONE;
             transport_failure_source_line = 0;
+            CtotTransportPlateauWindowV1 plateau_window;
+            plateau_window.reset();
+            int plateau_trigger_count = 0;
+            int line_search_trial_count = 0;
+            int hybrid_l2_accept_linf_reject_count = 0;
+            int fraction_to_boundary_count = 0;
+            double minimum_fraction_to_boundary = 1.0;
+            int adaptive_scalar_active = 0;
+            double effective_preconditioner_a_ref =
+                P.ctot_preconditioner_a_ref;
+            double effective_preconditioner_D_ref =
+                P.D_alpha * P.ctot_preconditioner_D_ref_multiplier;
             int feasible_iterate_snapshot_valid = 0;
             auto snapshot_feasible_iterate = [&]() {
                 CUDA_CHECK(cudaMemcpy(ctot_correction_r, d_ctot_work_r,
@@ -34298,7 +35096,7 @@ ctot_bdf2_event_substep_begin:
                 double restored_sum_divJ = 0.0;
                 double restored_stats[CTOT_TRANSPORT_STATS_COUNT] = {0.0};
                 const int restored_ok = evaluate_ctot_transport_residual(
-                    d_Y_r, 0, use_spectral_operator, dt_transport,
+                    d_Y_r, 0, use_spectral_operator, operator_dt,
                     &restored_res_inf, &restored_res_l2,
                     &restored_mass_error, &restored_sum_divJ,
                     restored_stats);
@@ -34325,7 +35123,7 @@ ctot_bdf2_event_substep_begin:
             }
             if (transport_feasible_coordinate_active) {
                 transport_ok = evaluate_ctot_transport_residual(
-                    d_Y_r, 0, use_spectral_operator, dt_transport,
+                    d_Y_r, 0, use_spectral_operator, operator_dt,
                     &res_inf, &res_l2_rel,
                     &mass_error, &sum_divJ, transport_stats);
                 if (transport_ok) {
@@ -34333,7 +35131,7 @@ ctot_bdf2_event_substep_begin:
                 }
             } else {
                 transport_ok = evaluate_ctot_transport_residual(
-                    d_Y_r, 1, use_spectral_operator, dt_transport,
+                    d_Y_r, 1, use_spectral_operator, operator_dt,
                     &res_inf, &res_l2_rel,
                     &mass_error, &sum_divJ, transport_stats);
             }
@@ -34344,7 +35142,7 @@ ctot_bdf2_event_substep_begin:
                                       d_ctot_line_base_residual_r, size_r,
                                       cudaMemcpyDeviceToDevice));
                 transport_ok = evaluate_ctot_transport_residual(
-                    d_Y_r, 0, use_spectral_operator, dt_transport,
+                    d_Y_r, 0, use_spectral_operator, operator_dt,
                     &res_inf, &res_l2_rel,
                     &mass_error, &sum_divJ, transport_stats);
                 if (transport_ok) {
@@ -34360,6 +35158,7 @@ ctot_bdf2_event_substep_begin:
                                       __LINE__);
             }
             initial_res_inf = res_inf;
+            plateau_window.push(res_inf);
             for (int iter = 0; transport_ok && iter < P.ctot_nonlinear_max_iter;
                  ++iter) {
                 nonlinear_iters = iter;
@@ -34368,6 +35167,46 @@ ctot_bdf2_event_substep_begin:
                 if (res_inf <= residual_target && fabs(mass_error) <= 1.0e-10 &&
                     fabs(sum_divJ) <= 1.0e-10) {
                     converged = 1;
+                    break;
+                }
+                if (ctot_lmt_feature_enabled(
+                        ctot_efficiency_features,
+                        CTOT_EFFICIENCY_PLATEAU_ESCALATION) &&
+                    plateau_window.plateau(residual_target)) {
+                    ++plateau_trigger_count;
+                    const double plateau_ratio = plateau_window.ratio();
+                    if (ctot_lmt_feature_enabled(
+                            ctot_efficiency_features,
+                            CTOT_EFFICIENCY_ADAPTIVE_SPECTRAL_SCALAR) &&
+                        !adaptive_scalar_active) {
+                        const CtotAdaptiveSpectralScalarV1 adaptive =
+                            ctot_lmt_adaptive_spectral_scalar(
+                                P.ctot_preconditioner_a_ref,
+                                P.D_alpha *
+                                    P.ctot_preconditioner_D_ref_multiplier,
+                                transport_stats[CTOT_TRANSPORT_MAX_M]);
+                        effective_preconditioner_a_ref = adaptive.a_ref;
+                        effective_preconditioner_D_ref = adaptive.D_ref;
+                        adaptive_scalar_active = adaptive.used_fallback ? 0 : 1;
+                        plateau_window.reset();
+                        plateau_window.push(res_inf);
+                        printf("CTOT_TRANSPORT_PLATEAU_ESCALATION step=%d "
+                               "attempt_id=%d nonlinear_iter=%d ratio=%.17e "
+                               "strategy=ADAPTIVE_SPECTRAL_SCALAR_V1 "
+                               "a_ref=%.17e D_ref=%.17e fallback=%d\n",
+                               step, ctot_attempt_id, iter + 1, plateau_ratio,
+                               effective_preconditioner_a_ref,
+                               effective_preconditioner_D_ref,
+                               adaptive.used_fallback ? 1 : 0);
+                        if (!adaptive.used_fallback) continue;
+                    }
+                    printf("CTOT_TRANSPORT_PLATEAU_ESCALATION step=%d "
+                           "attempt_id=%d nonlinear_iter=%d ratio=%.17e "
+                           "strategy=EXHAUSTED action=FAIL_CLOSED\n",
+                           step, ctot_attempt_id, iter + 1, plateau_ratio);
+                    set_transport_failure(
+                        CTOT_TRANSPORT_LINE_SEARCH_STAGNATION, __LINE__);
+                    transport_ok = 0;
                     break;
                 }
                 if (!transport_feasible_coordinate_active) {
@@ -34391,10 +35230,9 @@ ctot_bdf2_event_substep_begin:
                                             ctot_scratch_k));
                     launch_apply_ctot_preconditioner_k_kernel(
                         ctot_scratch_k, KS.d_k2,
-                        P.ctot_preconditioner_a_ref,
-                        P.D_alpha *
-                            P.ctot_preconditioner_D_ref_multiplier,
-                        dt_transport, P.Nx, P.Ny, P.Nz, NzC, total_k);
+                        effective_preconditioner_a_ref,
+                        effective_preconditioner_D_ref,
+                        operator_dt, P.Nx, P.Ny, P.Nz, NzC, total_k);
                     CUDA_CHECK(cudaMemset(ctot_scratch_k, 0,
                                           sizeof(cuDoubleComplex)));
                     CUFFT_CHECK(cufftExecZ2D(plan_c2r_xB,
@@ -34481,8 +35319,39 @@ ctot_bdf2_event_substep_begin:
                                step, ctot_attempt_id, iter + 1,
                                tangent_passes_used);
                     }
+                    if (transport_ok && ctot_lmt_feature_enabled(
+                            ctot_efficiency_features,
+                            CTOT_EFFICIENCY_EXACT_FRACTION_TO_BOUNDARY)) {
+                        launch_ctot_fraction_to_boundary_kernel(
+                            ctot_correction_r,
+                            d_ctot_line_base_residual_r,
+                            ctot_transport_phi_r, ctot_scratch_r,
+                            P.v_B, P.ctot_matrix_support_eps, total_r);
+                        double lambda_feasible = 0.0;
+                        double lambda_feasible_max = 0.0;
+                        gpu_reduce_min_max(ctot_scratch_r, total_r,
+                                           &lambda_feasible,
+                                           &lambda_feasible_max);
+                        lambda = ctot_lmt_fraction_to_boundary_initial_lambda(
+                            lambda_feasible);
+                        ++fraction_to_boundary_count;
+                        minimum_fraction_to_boundary = fmin(
+                            minimum_fraction_to_boundary, lambda_feasible);
+                        if (!(lambda > 0.0) || !isfinite(lambda)) {
+                            printf("CTOT_EXACT_FRACTION_TO_BOUNDARY_FAIL "
+                                   "step=%d attempt_id=%d nonlinear_iter=%d "
+                                   "lambda_feasible=%.17e\n",
+                                   step, ctot_attempt_id, iter + 1,
+                                   lambda_feasible);
+                            set_transport_failure(
+                                CTOT_TRANSPORT_TANGENT_ACTIVE_SET_UNRESOLVED,
+                                __LINE__);
+                            transport_ok = 0;
+                        }
+                    }
                 }
                 while (transport_ok && lambda >= P.ctot_line_search_min) {
+                    ++line_search_trial_count;
                     CUDA_CHECK(cudaMemset(d_ctot_transport_stats, 0,
                                           CTOT_TRANSPORT_STATS_COUNT * sizeof(double)));
                     double cumulative_k0_shift = 0.0;
@@ -34544,7 +35413,7 @@ ctot_bdf2_event_substep_begin:
                     const int trial_ok = k0_ok && evaluate_ctot_transport_residual(
                         d_ctot_trial_r,
                         transport_feasible_coordinate_active ? 0 : 1,
-                        use_spectral_operator, dt_transport,
+                        use_spectral_operator, operator_dt,
                         &trial_res_inf, &trial_res_l2,
                         &trial_mass_error, &trial_sum_divJ, trial_stats);
                     // The bound-aware C-coordinate uses the global residual L2
@@ -34552,14 +35421,29 @@ ctot_bdf2_event_substep_begin:
                     // maximizer can move between neighboring cells even while
                     // the nonlinear residual norm decreases. The final solve
                     // gate remains the unchanged raw Linf tolerance below.
-                    const int decreases = trial_ok &&
+                    const int legacy_decreases = trial_ok &&
                         ((transport_feasible_coordinate_active
                               ? trial_res_l2 <
                                     res_l2_rel * (1.0 - 1.0e-4 * lambda)
                               : trial_res_inf <
                                     res_inf * (1.0 - 1.0e-4 * lambda)) ||
                          trial_res_inf <= P.ctot_residual_abs_tol);
-                    if (ctot_nonlinear_diag_fp) {
+                    const int hybrid_merit_active =
+                        transport_feasible_coordinate_active &&
+                        ctot_lmt_feature_enabled(
+                            ctot_efficiency_features,
+                            CTOT_EFFICIENCY_HYBRID_L2_LINF_MERIT);
+                    const int decreases = trial_ok &&
+                        (hybrid_merit_active
+                             ? ctot_lmt_hybrid_merit_accept(
+                                   res_l2_rel, res_inf, trial_res_l2,
+                                   trial_res_inf, lambda, residual_target)
+                             : legacy_decreases);
+                    if (hybrid_merit_active && legacy_decreases && !decreases)
+                        ++hybrid_l2_accept_linf_reject_count;
+                    if (ctot_nonlinear_diag_fp && ctot_full_audit.due &&
+                        (!ctot_internal_homotopy_active ||
+                         ctot_internal_homotopy_theta_runtime >= 1.0)) {
                         fprintf(ctot_nonlinear_diag_fp,
                                 "%d,%d,%.17e,%.17e,%.17e,%.17e,%.17e,"
                                 "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,"
@@ -34605,6 +35489,7 @@ ctot_bdf2_event_substep_begin:
                         memcpy(transport_stats, trial_stats,
                                sizeof(transport_stats));
                         accepted_lambda = lambda;
+                        plateau_window.push(res_inf);
                         line_accepted = 1;
                         break;
                     }
@@ -34626,7 +35511,7 @@ ctot_bdf2_event_substep_begin:
                             // mass-conservative, and only then freezes C.
                             transport_feasible_coordinate_active = 1;
                             transport_ok = evaluate_ctot_transport_residual(
-                                d_Y_r, 1, use_spectral_operator, dt_transport,
+                                d_Y_r, 1, use_spectral_operator, operator_dt,
                                 &res_inf, &res_l2_rel,
                                 &mass_error, &sum_divJ, transport_stats);
                             if (transport_ok) {
@@ -34677,13 +35562,37 @@ ctot_bdf2_event_substep_begin:
                 transport_ok = 0;
                 converged = 0;
             }
+            if (ctot_low_memory_globalization_runtime) {
+                printf("CTOT_LOW_MEMORY_TRANSPORT_SUMMARY step=%d "
+                       "attempt_id=%d features=%u converged=%d "
+                       "operator_dt=%.17e homotopy_theta=%.17e "
+                       "nonlinear_iters=%d line_search_trials=%d "
+                       "plateau_triggers=%d fraction_to_boundary_calls=%d "
+                       "minimum_fraction_to_boundary=%.17e "
+                       "hybrid_l2_accept_linf_reject=%d "
+                       "adaptive_scalar_active=%d a_ref=%.17e D_ref=%.17e "
+                       "final_residual=%.17e\n",
+                       step, ctot_attempt_id,
+                       (unsigned int)ctot_efficiency_features,
+                       transport_ok && converged ? 1 : 0,
+                       operator_dt,
+                       ctot_internal_homotopy_theta_runtime,
+                       nonlinear_iters + 1, line_search_trial_count,
+                       plateau_trigger_count, fraction_to_boundary_count,
+                       minimum_fraction_to_boundary,
+                       hybrid_l2_accept_linf_reject_count,
+                       adaptive_scalar_active,
+                       effective_preconditioner_a_ref,
+                       effective_preconditioner_D_ref, res_inf);
+            }
             return transport_ok && converged;
             };
             auto solve_ctot_transport_from_accepted = [&]() -> int {
                 ++ctot_transport_solves_this_attempt;
                 if (ctot_use_spectral &&
                     P.ctot_spectral_fv_warm_start_diagnostic) {
-                    const int fv_warm_ok = solve_ctot_transport_operator(0);
+                    const int fv_warm_ok = solve_ctot_transport_operator(
+                        0, dt_transport);
                     printf("CTOT_SPECTRAL_FV_WARM_START attempt_id=%d "
                            "status=%s fv_residual_Linf=%.17e\n",
                            ctot_attempt_id, fv_warm_ok ? "PASS" : "FAIL",
@@ -34705,7 +35614,42 @@ ctot_bdf2_event_substep_begin:
                            spectral_cross_inf, spectral_cross_l2,
                            spectral_cross_mass);
                 }
-                return solve_ctot_transport_operator(ctot_use_spectral ? 1 : 0);
+                const int operator_kind = ctot_use_spectral ? 1 : 0;
+                const int direct_ok = solve_ctot_transport_operator(
+                    operator_kind, dt_transport);
+                if (direct_ok || !ctot_lmt_feature_enabled(
+                        ctot_efficiency_features,
+                        CTOT_EFFICIENCY_INTERNAL_HOMOTOPY)) {
+                    return direct_ok;
+                }
+                printf("CTOT_INTERNAL_ALGEBRAIC_HOMOTOPY_TRIGGER step=%d "
+                       "attempt_id=%d levels=0.25,0.5,1.0 "
+                       "physical_time_advanced=0 history_committed=0\n",
+                       step, ctot_attempt_id);
+                ctot_internal_homotopy_active = 1;
+                for (int level = 0; level < CTOT_LMT_HOMOTOPY_LEVELS;
+                     ++level) {
+                    ctot_internal_homotopy_theta_runtime =
+                        ctot_lmt_homotopy_theta(level);
+                    const int level_ok = solve_ctot_transport_operator(
+                        operator_kind,
+                        ctot_internal_homotopy_theta_runtime * dt_transport);
+                    printf("CTOT_INTERNAL_ALGEBRAIC_HOMOTOPY_LEVEL step=%d "
+                           "attempt_id=%d theta=%.17e status=%s "
+                           "residual_Linf=%.17e physical_time_advanced=0 "
+                           "history_committed=0\n",
+                           step, ctot_attempt_id,
+                           ctot_internal_homotopy_theta_runtime,
+                           level_ok ? "PASS" : "FAIL", res_inf);
+                    if (!level_ok) {
+                        ctot_internal_homotopy_active = 0;
+                        ctot_internal_homotopy_theta_runtime = 1.0;
+                        return 0;
+                    }
+                }
+                ctot_internal_homotopy_active = 0;
+                ctot_internal_homotopy_theta_runtime = 1.0;
+                return 1;
             };
             double phase_stats_outer[CTOT_PHASE_STATS_COUNT] = {0.0};
             auto compute_ctot_phase_local_driving =
@@ -34805,7 +35749,8 @@ ctot_bdf2_event_substep_begin:
                         (total_r + 255) / 256, 256>>>(
                         d_phi_r, d_phi_n_saved, phase_history_r,
                         d_ctot_work_r, d_phi_rhs_r, ctot_scratch_r,
-                        P.dt, ctot_bdf2_active_this_attempt, P.L_phi,
+                        P.dt, phase_rate_a0, phase_rate_a1, phase_rate_a2,
+                        P.L_phi,
                         P.kappa_phi, P.v_B, P.xB_eps, 1.0 - P.xB_eps,
                         1.0e-12, ctot_quasi_equilibrium_phase,
                         d_ctot_residual_r, ctot_correction_r, total_r);
@@ -34847,7 +35792,8 @@ ctot_bdf2_event_substep_begin:
                         (total_r + 255) / 256, 256>>>(
                         phi_state_r, d_phi_n_saved, phase_history_r,
                         d_ctot_work_r, d_phi_rhs_r, lap_work_r,
-                        P.dt, ctot_bdf2_active_this_attempt, P.L_phi,
+                        P.dt, phase_rate_a0, phase_rate_a1, phase_rate_a2,
+                        P.L_phi,
                         P.kappa_phi, P.v_B, P.xB_eps, 1.0 - P.xB_eps,
                         1.0e-12, ctot_quasi_equilibrium_phase,
                         raw_residual_out_r, kkt_out_r, total_r);
@@ -35063,6 +36009,11 @@ ctot_bdf2_event_substep_begin:
                         const int active_stable =
                             !previous_active_valid ||
                             pdas_stats[PHASE_PDAS_ACTIVE_SET_CHANGES] < 0.5;
+                        if (previous_active_valid && !active_stable) {
+                            ctot_force_full_audit_v1(
+                                &ctot_full_audit,
+                                CTOT_FULL_AUDIT_ACTIVE_MANIFOLD);
+                        }
                         // A previously accepted backtracked active step can leave
                         // phi strictly between its base and bound even though the
                         // active code is already stable.  Keep every active
@@ -35079,7 +36030,7 @@ ctot_bdf2_event_substep_begin:
                                     d_ctot_active_mask_r, size_r,
                                     cudaMemcpyDeviceToDevice));
                             }
-                            if (ctot_phase_kkt_diag_fp) {
+                            if (ctot_phase_kkt_diag_fp && ctot_full_audit.due) {
                                 fprintf(ctot_phase_kkt_diag_fp,
                                         "%d,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,"
                                         "%.17e,%.17e,0,0,0,%.17e,%.17e,1,"
@@ -35530,7 +36481,7 @@ ctot_bdf2_event_substep_begin:
                                 (trial_kkt_linf <= nonlinear_tol ||
                                  merit_after <= merit_before *
                                      (1.0 - 1.0e-4 * lambda));
-                            if (ctot_phase_kkt_diag_fp) {
+                            if (ctot_phase_kkt_diag_fp && ctot_full_audit.due) {
                                 fprintf(ctot_phase_kkt_diag_fp,
                                         "%d,%d,%d,%d,%.0f,%.0f,%.0f,%.0f,"
                                         "%.17e,%.17e,%d,%.17e,%.17e,%.17e,"
@@ -35692,14 +36643,22 @@ ctot_bdf2_event_substep_begin:
             std::vector<double> outer_prev_face_z_host;
             int outer_flux_history_valid = 0;
             int outer_capacity_flux_history_valid = 0;
+            const double *outer_C_previous_for_metrics =
+                ctot_single_outer_history_elision_runtime
+                    ? d_ctot_saved_r : d_ctot_outer_C_prev_r;
+            const double *outer_phi_previous_for_metrics =
+                ctot_single_outer_history_elision_runtime
+                    ? d_phi_n_saved : d_ctot_outer_phi_prev_r;
             if (coupled_outer_required) {
                 restore_ctot_accepted_state();
                 C_anchor_hash = hash_device_double_field(d_ctot_saved_r);
                 phi_anchor_hash = hash_device_double_field(d_phi_n_saved);
-                CUDA_CHECK(cudaMemcpy(d_ctot_outer_C_prev2_r, d_ctot_work_r,
-                                      size_r, cudaMemcpyDeviceToDevice));
-                CUDA_CHECK(cudaMemcpy(d_ctot_outer_phi_prev2_r, d_phi_r,
-                                      size_r, cudaMemcpyDeviceToDevice));
+                if (!ctot_single_outer_history_elision_runtime) {
+                    CUDA_CHECK(cudaMemcpy(d_ctot_outer_C_prev2_r, d_ctot_work_r,
+                                          size_r, cudaMemcpyDeviceToDevice));
+                    CUDA_CHECK(cudaMemcpy(d_ctot_outer_phi_prev2_r, d_phi_r,
+                                          size_r, cudaMemcpyDeviceToDevice));
+                }
             }
             const int outer_limit = ctot_staggered_v1_runtime
                 ? 1 : (ctot_method_consistent_split_runtime
@@ -35709,7 +36668,8 @@ ctot_bdf2_event_substep_begin:
                 CTOT_PERF_SCOPE(&ctot_perf, "outer.iteration", step,
                                 ctot_attempt_id, outer_iter);
                 outer_iterations_used = outer_iter + 1;
-                if (coupled_outer_required) {
+                if (coupled_outer_required &&
+                    !ctot_single_outer_history_elision_runtime) {
                     CUDA_CHECK(cudaMemcpy(d_ctot_outer_C_prev_r, d_ctot_work_r,
                                           size_r, cudaMemcpyDeviceToDevice));
                     CUDA_CHECK(cudaMemcpy(d_ctot_outer_phi_prev_r, d_phi_r,
@@ -35921,6 +36881,20 @@ ctot_bdf2_event_substep_begin:
                             dt_transport, &method_transport_res_inf,
                             &method_transport_res_l2, &method_mass_error,
                             &method_sum_divJ, method_transport_stats);
+                    if (method_transport_evaluable &&
+                        P.ctot_transport_gate_trajectory_diagnostics) {
+                        CUDA_CHECK(cudaMemcpy(
+                            ctot_transport_gate_pending_residual.data(),
+                            d_ctot_residual_r, size_r,
+                            cudaMemcpyDeviceToHost));
+                        ctot_transport_gate_pending_initial_res = initial_res_inf;
+                        ctot_transport_gate_pending_effective_gate =
+                            P.ctot_residual_abs_tol +
+                            P.ctot_residual_rel_tol * initial_res_inf;
+                        ctot_transport_gate_pending_scalar_linf =
+                            method_transport_res_inf;
+                        ctot_transport_gate_pending_valid = 1;
+                    }
                     if (!method_transport_evaluable) {
                         printf("CTOT_METHOD_TRANSPORT_COLD_AUDIT "
                                "step=%d attempt_id=%d status=FAIL "
@@ -35969,23 +36943,41 @@ ctot_bdf2_event_substep_begin:
                             gpu_reduce_sum(d_ctot_saved_r, total_r);
                         const double M_nm1 =
                             gpu_reduce_sum(d_ctot_history_nm1_r, total_r);
+                        const double identity_scale =
+                            ctot_variable_bdf2_active_manifold_v1_runtime
+                                ? 1.0 : 2.0;
+                        ctot_bdf2_mass_identity_kernel<<<
+                            (total_r + 255) / 256, 256>>>(
+                            d_ctot_work_r, d_ctot_saved_r,
+                            d_ctot_history_nm1_r, phase_rate_a0,
+                            phase_rate_a2, identity_scale,
+                            ctot_scratch_r, total_r);
                         ctot_bdf2_mass_identity =
-                            3.0 * M_np1 - 4.0 * M_n + M_nm1;
+                            gpu_reduce_sum(ctot_scratch_r, total_r);
                         const double mass_scale = fmax(
-                            fmax(fabs(3.0 * M_np1), fabs(4.0 * M_n)),
-                            fmax(fabs(M_nm1), 1.0));
+                            fmax(fabs(identity_scale * phase_rate_a0 * M_np1),
+                                 fabs(identity_scale *
+                                      (phase_rate_a0 + phase_rate_a2) * M_n)),
+                            fmax(fabs(identity_scale * phase_rate_a2 * M_nm1),
+                                 1.0));
                         ctot_bdf2_mass_identity_rel =
                             fabs(ctot_bdf2_mass_identity) / mass_scale;
+                        const double identity_tolerance =
+                            ctot_bdf2_reduction_equivalence_tolerance_v1(
+                                mass_scale);
                         ctot_bdf2_mass_identity_pass =
                             isfinite(ctot_bdf2_mass_identity_rel) &&
-                            fabs(ctot_bdf2_mass_identity) <= 1.0e-10;
+                            ctot_bdf2_reduction_equivalent_v1(
+                                ctot_bdf2_mass_identity, mass_scale);
                         printf("CTOT_IMEX_BDF2_MASS_IDENTITY step=%d "
                                "attempt_id=%d M_np1=%.17e M_n=%.17e "
                                "M_nm1=%.17e identity=%.17e relative=%.17e "
-                               "pass=%d\n",
+                               "identity_tolerance=%.17e "
+                               "evaluation=POINTWISE_THEN_REDUCE pass=%d\n",
                                step, ctot_attempt_id, M_np1, M_n, M_nm1,
                                ctot_bdf2_mass_identity,
                                ctot_bdf2_mass_identity_rel,
+                               identity_tolerance,
                                ctot_bdf2_mass_identity_pass);
                     }
                     printf("CTOT_METHOD_TRANSPORT_COLD_AUDIT "
@@ -36619,7 +37611,7 @@ ctot_bdf2_event_substep_begin:
                            acceleration_accepted,
                            acceleration_history_reset,
                            acceleration_reason);
-                    if (ctot_outer_acceleration_diag_fp) {
+                    if (ctot_outer_acceleration_diag_fp && ctot_full_audit.due) {
                         fprintf(ctot_outer_acceleration_diag_fp,
                                 "%d,%d,%d,BLOCK_AITKEN_V1,%d,%d,%d,"
                                 "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,"
@@ -37262,7 +38254,7 @@ ctot_bdf2_event_substep_begin:
                            acceleration_accepted,
                            acceleration_history_reset,
                            acceleration_reason);
-                    if (ctot_outer_acceleration_diag_fp) {
+                    if (ctot_outer_acceleration_diag_fp && ctot_full_audit.due) {
                         fprintf(ctot_outer_acceleration_diag_fp,
                                 "%d,%d,%d,%s,%d,%d,%d,"
                                 "%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,"
@@ -37408,10 +38400,12 @@ ctot_bdf2_event_substep_begin:
                     memcpy(transport_stats, final_transport_stats,
                            sizeof(transport_stats));
                 }
-                normalized_double_norm(d_ctot_work_r, d_ctot_outer_C_prev_r,
+                normalized_double_norm(d_ctot_work_r,
+                                       outer_C_previous_for_metrics,
                                        P.ctot_outer_C_scale,
                                        &outer_C_l2, &outer_C_linf);
-                normalized_double_norm(d_phi_r, d_ctot_outer_phi_prev_r,
+                normalized_double_norm(d_phi_r,
+                                       outer_phi_previous_for_metrics,
                                        P.ctot_outer_phi_scale,
                                        &outer_phi_l2, &outer_phi_linf);
                 if (ctot_capacity_aware_outer_contract) {
@@ -37420,7 +38414,8 @@ ctot_bdf2_event_substep_begin:
                     ctot_normalized_q_increment_kernel<<<
                         (total_r + 255) / 256, 256>>>(
                         d_ctot_work_r, d_phi_r,
-                        d_ctot_outer_C_prev_r, d_ctot_outer_phi_prev_r,
+                        outer_C_previous_for_metrics,
+                        outer_phi_previous_for_metrics,
                         P.v_B, P.ctot_outer_C_scale,
                         outer_metric_scratch, total_r);
                     reduce_normalized_diff(
@@ -37457,16 +38452,18 @@ ctot_bdf2_event_substep_begin:
                         outer_face_flux_l2 = NAN;
                         outer_face_flux_linf = NAN;
                     }
-                    CUDA_CHECK(cudaMemcpy(
-                        d_ctot_outer_face_prev_x, d_ctot_fv_face_x,
-                        size_r, cudaMemcpyDeviceToDevice));
-                    CUDA_CHECK(cudaMemcpy(
-                        d_ctot_outer_face_prev_y, d_ctot_fv_face_y,
-                        size_r, cudaMemcpyDeviceToDevice));
-                    CUDA_CHECK(cudaMemcpy(
-                        d_ctot_outer_face_prev_z, d_ctot_fv_face_z,
-                        size_r, cudaMemcpyDeviceToDevice));
-                    outer_capacity_flux_history_valid = 1;
+                    if (!ctot_single_outer_history_elision_runtime) {
+                        CUDA_CHECK(cudaMemcpy(
+                            d_ctot_outer_face_prev_x, d_ctot_fv_face_x,
+                            size_r, cudaMemcpyDeviceToDevice));
+                        CUDA_CHECK(cudaMemcpy(
+                            d_ctot_outer_face_prev_y, d_ctot_fv_face_y,
+                            size_r, cudaMemcpyDeviceToDevice));
+                        CUDA_CHECK(cudaMemcpy(
+                            d_ctot_outer_face_prev_z, d_ctot_fv_face_z,
+                            size_r, cudaMemcpyDeviceToDevice));
+                        outer_capacity_flux_history_valid = 1;
+                    }
                 } else {
                     outer_q_l2 = outer_q_linf = 0.0;
                     outer_face_flux_l2 = outer_face_flux_linf = 0.0;
@@ -37574,7 +38571,11 @@ ctot_bdf2_event_substep_begin:
                                        lie_phase_energy_scale,
                            lie_substep_energy_pass);
                 }
-                if (ctot_outer_capacity_diag_fp) {
+                const int write_detailed_outer_capacity_diag =
+                    ctot_outer_capacity_diag_fp && ctot_full_audit.due &&
+                    (!ctot_copy_sync_optimization_runtime ||
+                     step % P.csv_out_every == 0 || step == nsteps_run);
+                if (write_detailed_outer_capacity_diag) {
                     std::vector<double> C_now((size_t)total_r);
                     std::vector<double> phi_now((size_t)total_r);
                     std::vector<double> q_now((size_t)total_r);
@@ -37595,10 +38596,11 @@ ctot_bdf2_event_substep_begin:
                                           cudaMemcpyDeviceToHost));
                     CUDA_CHECK(cudaMemcpy(residual_now.data(), d_ctot_residual_r,
                                           size_r, cudaMemcpyDeviceToHost));
-                    CUDA_CHECK(cudaMemcpy(C_prev.data(), d_ctot_outer_C_prev_r,
+                    CUDA_CHECK(cudaMemcpy(C_prev.data(),
+                                          outer_C_previous_for_metrics,
                                           size_r, cudaMemcpyDeviceToHost));
                     CUDA_CHECK(cudaMemcpy(phi_prev.data(),
-                                          d_ctot_outer_phi_prev_r, size_r,
+                                          outer_phi_previous_for_metrics, size_r,
                                           cudaMemcpyDeviceToHost));
 
                     long double dC_sq = 0.0L, dphi_sq = 0.0L;
@@ -37694,40 +38696,48 @@ ctot_bdf2_event_substep_begin:
                         sqrt((double)weighted_dx_sq * inv_count);
                     const double dY_l2 = sqrt((double)dY_sq * inv_count);
 
-                    std::vector<double> face_x((size_t)total_r);
-                    std::vector<double> face_y((size_t)total_r);
-                    std::vector<double> face_z((size_t)total_r);
-                    CUDA_CHECK(cudaMemcpy(face_x.data(), d_ctot_fv_face_x,
-                                          size_r, cudaMemcpyDeviceToHost));
-                    CUDA_CHECK(cudaMemcpy(face_y.data(), d_ctot_fv_face_y,
-                                          size_r, cudaMemcpyDeviceToHost));
-                    CUDA_CHECK(cudaMemcpy(face_z.data(), d_ctot_fv_face_z,
-                                          size_r, cudaMemcpyDeviceToHost));
                     double flux_delta_l2 = NAN, flux_delta_linf = NAN;
-                    if (outer_flux_history_valid) {
-                        long double flux_sq = 0.0L;
-                        flux_delta_linf = 0.0;
-                        for (int idx = 0; idx < total_r; ++idx) {
-                            const double deltas[3] = {
-                                face_x[(size_t)idx] -
-                                    outer_prev_face_x_host[(size_t)idx],
-                                face_y[(size_t)idx] -
-                                    outer_prev_face_y_host[(size_t)idx],
-                                face_z[(size_t)idx] -
-                                    outer_prev_face_z_host[(size_t)idx]};
-                            for (double delta : deltas) {
-                                flux_sq += (long double)delta * delta;
-                                flux_delta_linf =
-                                    fmax(flux_delta_linf, fabs(delta));
+                    if (!ctot_face_streaming_runtime) {
+                        std::vector<double> face_x((size_t)total_r);
+                        std::vector<double> face_y((size_t)total_r);
+                        std::vector<double> face_z((size_t)total_r);
+                        CUDA_CHECK(cudaMemcpy(face_x.data(), d_ctot_fv_face_x,
+                                              size_r, cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaMemcpy(face_y.data(), d_ctot_fv_face_y,
+                                              size_r, cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaMemcpy(face_z.data(), d_ctot_fv_face_z,
+                                              size_r, cudaMemcpyDeviceToHost));
+                        if (outer_flux_history_valid) {
+                            long double flux_sq = 0.0L;
+                            flux_delta_linf = 0.0;
+                            for (int idx = 0; idx < total_r; ++idx) {
+                                const double deltas[3] = {
+                                    face_x[(size_t)idx] -
+                                        outer_prev_face_x_host[(size_t)idx],
+                                    face_y[(size_t)idx] -
+                                        outer_prev_face_y_host[(size_t)idx],
+                                    face_z[(size_t)idx] -
+                                        outer_prev_face_z_host[(size_t)idx]};
+                                for (double delta : deltas) {
+                                    flux_sq += (long double)delta * delta;
+                                    flux_delta_linf =
+                                        fmax(flux_delta_linf, fabs(delta));
+                                }
                             }
+                            flux_delta_l2 = sqrt(
+                                (double)flux_sq / (3.0 * (double)total_r));
                         }
-                        flux_delta_l2 = sqrt(
-                            (double)flux_sq / (3.0 * (double)total_r));
+                        outer_prev_face_x_host.swap(face_x);
+                        outer_prev_face_y_host.swap(face_y);
+                        outer_prev_face_z_host.swap(face_z);
+                        outer_flux_history_valid = 1;
+                    } else {
+                        // M2 guarantees a single method-consistent outer pass, so
+                        // face-history deltas are non-authoritative diagnostics.
+                        // Do not materialize three host/device face fields merely
+                        // to report a quantity that has no previous outer iterate.
+                        outer_flux_history_valid = 0;
                     }
-                    outer_prev_face_x_host.swap(face_x);
-                    outer_prev_face_y_host.swap(face_y);
-                    outer_prev_face_z_host.swap(face_z);
-                    outer_flux_history_valid = 1;
                     const int diagnostic_normalized_mechanics =
                         is_coarse4_research_model(&P) &&
                         strcmp(P.mechanics_acceptance_mode,
@@ -37904,7 +38914,7 @@ ctot_bdf2_event_substep_begin:
                        final_fixed_phi_polish_skipped,
                        transport_contract_pass,
                        elastic_outer_converged);
-                if (ctot_outer_diag_fp) {
+                if (ctot_outer_diag_fp && ctot_full_audit.due) {
                     fprintf(ctot_outer_diag_fp,
                             "%d,%d,%.17e,%d,%.17e,%.17e,%.17e,%.17e,"
                             "%.17e,%.17e,%.17e,%.17e,%d,%d,"
@@ -37946,12 +38956,14 @@ ctot_bdf2_event_substep_begin:
                     }
                     break;
                 }
-                CUDA_CHECK(cudaMemcpy(d_ctot_outer_C_prev2_r,
-                                      d_ctot_outer_C_prev_r, size_r,
-                                      cudaMemcpyDeviceToDevice));
-                CUDA_CHECK(cudaMemcpy(d_ctot_outer_phi_prev2_r,
-                                      d_ctot_outer_phi_prev_r, size_r,
-                                      cudaMemcpyDeviceToDevice));
+                if (!ctot_single_outer_history_elision_runtime) {
+                    CUDA_CHECK(cudaMemcpy(d_ctot_outer_C_prev2_r,
+                                          d_ctot_outer_C_prev_r, size_r,
+                                          cudaMemcpyDeviceToDevice));
+                    CUDA_CHECK(cudaMemcpy(d_ctot_outer_phi_prev2_r,
+                                          d_ctot_outer_phi_prev_r, size_r,
+                                          cudaMemcpyDeviceToDevice));
+                }
             }
             const int force_outer_elastic_reject =
                 outer_mechanics_required &&
@@ -38065,7 +39077,8 @@ ctot_bdf2_event_substep_begin:
                     ctot_bdf2_phase_work_terms_kernel<<<
                         (total_r + 255) / 256, 256>>>(
                         d_phi_r, d_phi_n_saved, d_phi_history_nm1_r,
-                        d_ctot_residual_r, P.dt, P.L_phi,
+                        d_ctot_residual_r, P.dt, phase_rate_a0,
+                        phase_rate_a2, P.L_phi,
                         ctot_scratch_r, ctot_correction_r,
                         d_ctot_trial_r, d_ctot_q_alpha_r, total_r);
                     CUDA_CHECK(cudaDeviceSynchronize());
@@ -38118,7 +39131,8 @@ ctot_bdf2_event_substep_begin:
                             (total_r + 255) / 256, 256>>>(
                             d_ctot_work_r, d_ctot_saved_r,
                             d_ctot_history_nm1_r, d_mu_x_r, d_divJ_r,
-                            P.dt, ctot_scratch_r, ctot_correction_r,
+                            P.dt, phase_rate_a0, phase_rate_a2,
+                            ctot_scratch_r, ctot_correction_r,
                             d_ctot_residual_r, total_r);
                         CUDA_CHECK(cudaDeviceSynchronize());
                         const double mu_delta_C_n =
@@ -38169,7 +39183,8 @@ ctot_bdf2_event_substep_begin:
                                     (total_r + 255) / 256, 256>>>(
                                     d_ctot_work_r, d_ctot_saved_r,
                                     d_ctot_history_nm1_r, d_mu_x_r, d_divJ_r,
-                                    P.dt, ctot_scratch_r, ctot_correction_r,
+                                    P.dt, phase_rate_a0, phase_rate_a2,
+                                    ctot_scratch_r, ctot_correction_r,
                                     d_ctot_residual_r, total_r);
                                 CUDA_CHECK(cudaDeviceSynchronize());
                                 mu_physical_delta_C_n =
@@ -38193,17 +39208,23 @@ ctot_bdf2_event_substep_begin:
                         }
                         bdf2_mechanics_work =
                             F_final_elastic - F_before_elastic;
+                        const double bdf2_history_factor =
+                            ctot_variable_bdf2_active_manifold_v1_runtime
+                                ? phase_rate_a2 / phase_rate_a0 : 1.0 / 3.0;
+                        const double bdf2_endpoint_factor =
+                            ctot_variable_bdf2_active_manifold_v1_runtime
+                                ? 1.0 / phase_rate_a0 : 2.0 / 3.0;
                         bdf2_transport_history_work =
-                            mu_delta_C_nm1 / 3.0;
+                            bdf2_history_factor * mu_delta_C_nm1;
                         bdf2_phase_history_work =
-                            g_delta_phi_nm1 / 3.0;
+                            bdf2_history_factor * g_delta_phi_nm1;
                         bdf2_history_work =
                             bdf2_transport_history_work +
                             bdf2_phase_history_work;
-                        const double scaled_residual_work = (2.0 / 3.0) *
+                        const double scaled_residual_work = bdf2_endpoint_factor *
                             (bdf2_transport_residual_work +
                              bdf2_phase_residual_work);
-                        bdf2_dissipation_term = (2.0 / 3.0) * P.dt *
+                        bdf2_dissipation_term = bdf2_endpoint_factor * P.dt *
                             (D_transport + D_phase);
                         energy_delta =
                             (F_np1_phi_np1 - F_n_phi_n) +
@@ -38269,6 +39290,92 @@ ctot_bdf2_event_substep_begin:
             if (!elastic_outer_converged) {
                 energy_audit_pass = 0;
             }
+            if (ctot_variable_bdf2_active_manifold_v1_runtime &&
+                ctot_bdf2_active_this_attempt && transport_ok && converged &&
+                energy_audit_pass) {
+                ctot_variable_bdf2_error_squared_kernel<<<
+                    (total_r + 255) / 256, 256>>>(
+                    d_ctot_work_r, d_ctot_saved_r, d_ctot_history_nm1_r,
+                    bdf2_step_ratio, ctot_scratch_r, ctot_correction_r,
+                    total_r);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                const double C_curvature_rms = sqrt(fmax(
+                    gpu_reduce_sum(ctot_scratch_r, total_r) /
+                        (double)total_r,
+                    0.0));
+                const double C_increment_rms = sqrt(fmax(
+                    gpu_reduce_sum(ctot_correction_r, total_r) /
+                        (double)total_r,
+                    0.0));
+                ctot_variable_bdf2_error_squared_kernel<<<
+                    (total_r + 255) / 256, 256>>>(
+                    d_phi_r, d_phi_n_saved, d_phi_history_nm1_r,
+                    bdf2_step_ratio, ctot_scratch_r, ctot_correction_r,
+                    total_r);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                const double phi_curvature_rms = sqrt(fmax(
+                    gpu_reduce_sum(ctot_scratch_r, total_r) /
+                        (double)total_r,
+                    0.0));
+                const double phi_increment_rms = sqrt(fmax(
+                    gpu_reduce_sum(ctot_correction_r, total_r) /
+                        (double)total_r,
+                    0.0));
+                const double h_np1 = gpu_compute_vf_from_h(d_phi_r, total_r);
+                const double h_n =
+                    gpu_compute_vf_from_h(d_phi_n_saved, total_r);
+                const double h_nm1 =
+                    gpu_compute_vf_from_h(d_phi_history_nm1_r, total_r);
+                const double h_curvature = fabs(
+                    h_np1 - (1.0 + bdf2_step_ratio) * h_n +
+                    bdf2_step_ratio * h_nm1);
+                const double h_increment = fabs(h_np1 - h_n);
+                variable_error_C =
+                    C_curvature_rms /
+                    fmax(C_increment_rms, 1.0e-14) /
+                    P.ctot_variable_error_tol_C;
+                variable_error_phi =
+                    phi_curvature_rms /
+                    fmax(phi_increment_rms, 1.0e-14) /
+                    P.ctot_variable_error_tol_phi;
+                variable_error_h_volume =
+                    h_curvature /
+                    fmax(h_increment, 1.0e-14) /
+                    P.ctot_variable_error_tol_hvolume;
+                variable_error_combined = fmax(
+                    variable_error_C,
+                    fmax(variable_error_phi, variable_error_h_volume));
+                variable_controller_trial = variable_bdf2_pi_decision_v1(
+                    P.dt, variable_error_combined,
+                    ctot_variable_controller_previous_error,
+                    P.ctot_variable_dt_min, P.ctot_variable_dt_max,
+                    P.ctot_variable_controller_safety,
+                    P.ctot_variable_controller_kp,
+                    P.ctot_variable_controller_ki);
+                variable_error_estimator_valid =
+                    variable_controller_trial.valid &&
+                    isfinite(variable_error_C) &&
+                    isfinite(variable_error_phi) &&
+                    isfinite(variable_error_h_volume);
+                variable_error_reject =
+                    !variable_error_estimator_valid ||
+                    !variable_controller_trial.accept;
+                printf("CTOT_VARIABLE_BDF2_ERROR step=%d attempt_id=%d "
+                       "ratio=%.17e error_C=%.17e error_phi=%.17e "
+                       "error_h_volume=%.17e combined=%.17e valid=%d "
+                       "accept=%d factor=%.17e next_dt=%.17e\n",
+                       step, ctot_attempt_id, bdf2_step_ratio,
+                       variable_error_C, variable_error_phi,
+                       variable_error_h_volume, variable_error_combined,
+                       variable_error_estimator_valid,
+                       variable_error_reject ? 0 : 1,
+                       variable_controller_trial.limited_factor,
+                       variable_controller_trial.next_dt);
+                if (variable_error_reject) {
+                    transport_ok = 0;
+                    converged = 0;
+                }
+            }
             const int forced_first_attempt_reject =
                 P.ctot_debug_force_first_attempt_reject &&
                 !ctot_debug_forced_reject_consumed &&
@@ -38279,11 +39386,15 @@ ctot_bdf2_event_substep_begin:
                 !ctot_debug_forced_bdf2_reject_consumed &&
                 ctot_retry_count == 0;
             if (forced_first_attempt_reject) {
+                ctot_force_full_audit_v1(
+                    &ctot_full_audit, CTOT_FULL_AUDIT_RETRY);
                 ctot_debug_forced_reject_consumed = 1;
                 transport_ok = 0;
                 converged = 0;
             }
             if (forced_first_bdf2_attempt_reject) {
+                ctot_force_full_audit_v1(
+                    &ctot_full_audit, CTOT_FULL_AUDIT_RETRY);
                 ctot_debug_forced_bdf2_reject_consumed = 1;
                 transport_ok = 0;
                 converged = 0;
@@ -38305,7 +39416,7 @@ ctot_bdf2_event_substep_begin:
                     ctot_bounded_internal_reject_wall_s +=
                         ctot_retry_diag_trial_wall_s;
                 }
-                if (ctot_split_step_diag_fp) {
+                if (ctot_split_step_diag_fp && ctot_full_audit.due) {
                     fprintf(ctot_split_step_diag_fp,
                             "%d,%d,%.17e,%s,%s,%.17e,%.17e,%.17e,"
                             "%d,%d,%d,%d,%d,%.17e,%.17e,%.17e,%.17e,%d,0,"
@@ -38803,7 +39914,7 @@ ctot_bdf2_event_substep_begin:
                     memcpy(transport_stats, saved_transport_stats,
                            sizeof(transport_stats));
                 }
-                if (ctot_energy_diag_fp) {
+                if (ctot_energy_diag_fp && ctot_full_audit.due) {
                     const double F_after_transport_diag =
                         ctot_lie_be_v2_runtime
                             ? F_after_method_transport : F_final;
@@ -38848,12 +39959,60 @@ ctot_bdf2_event_substep_begin:
                     CUDA_CHECK(cudaMemcpy(failed_residual.data(),
                                           d_ctot_residual_r, size_r,
                                           cudaMemcpyDeviceToHost));
-                    CUDA_CHECK(cudaMemcpy(failed_face_x.data(), d_ctot_fv_face_x,
-                                          size_r, cudaMemcpyDeviceToHost));
-                    CUDA_CHECK(cudaMemcpy(failed_face_y.data(), d_ctot_fv_face_y,
-                                          size_r, cudaMemcpyDeviceToHost));
-                    CUDA_CHECK(cudaMemcpy(failed_face_z.data(), d_ctot_fv_face_z,
-                                          size_r, cudaMemcpyDeviceToHost));
+                    if (ctot_face_streaming_runtime) {
+                        // Recreate the three diagnostic face fields only after an
+                        // actual rejected trial. They are never live in the normal
+                        // accepted-step peak and are released before rollback.
+                        double *d_failed_face_y = NULL;
+                        double *d_failed_face_z = NULL;
+                        CUDA_CHECK(cudaMalloc(&d_failed_face_y, size_r));
+                        CUDA_CHECK(cudaMalloc(&d_failed_face_z, size_r));
+                        double *failed_faces[3] = {
+                            d_ctot_fv_face_x, d_failed_face_y, d_failed_face_z};
+                        const double spacings[3] = {P.dx, P.dy, P.dz};
+                        for (int axis = 0; axis < 3; ++axis) {
+                            launch_ctot_fv_positive_face_flux_kernel(
+                                d_mu_x_r, ctot_transport_phi_r, d_xB_r,
+                                failed_faces[axis], P.Nx, P.Ny, P.Nz,
+                                axis, spacings[axis], P.D_alpha,
+                                P.Vm_alpha_0, P.dVm_alpha_dxB,
+                                P.Vm_compound, temperature_K,
+                                P.mu_reference_scale,
+                                P.ctot_matrix_support_eps,
+                                P.coarse_interface_mobility_a_M,
+                                d_ctot_transport_stats, total_r);
+                            if (P.ctot_finite_interface_antitrapping_enabled) {
+                                launch_ctot_add_antitrapping_face_flux_kernel(
+                                    ctot_transport_phi_r, d_phi_n_saved, d_xB_r,
+                                    failed_faces[axis], P.Nx, P.Ny, P.Nz, axis,
+                                    P.dx, P.dy, P.dz,
+                                    2.0 * P.ic_phi_iface_w * P.dx,
+                                    dt_transport, P.v_B, d_mu_x_r,
+                                    d_ctot_transport_stats, total_r);
+                            }
+                        }
+                        CUDA_CHECK(cudaMemcpy(failed_face_x.data(),
+                                              failed_faces[0], size_r,
+                                              cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaMemcpy(failed_face_y.data(),
+                                              failed_faces[1], size_r,
+                                              cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaMemcpy(failed_face_z.data(),
+                                              failed_faces[2], size_r,
+                                              cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaFree(d_failed_face_y));
+                        CUDA_CHECK(cudaFree(d_failed_face_z));
+                    } else {
+                        CUDA_CHECK(cudaMemcpy(failed_face_x.data(),
+                                              d_ctot_fv_face_x, size_r,
+                                              cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaMemcpy(failed_face_y.data(),
+                                              d_ctot_fv_face_y, size_r,
+                                              cudaMemcpyDeviceToHost));
+                        CUDA_CHECK(cudaMemcpy(failed_face_z.data(),
+                                              d_ctot_fv_face_z, size_r,
+                                              cudaMemcpyDeviceToHost));
+                    }
                     for (int i = 0; i < P.Nx; ++i) {
                         const int im = (i - 1 + P.Nx) % P.Nx;
                         for (int j = 0; j < P.Ny; ++j) {
@@ -38902,8 +40061,9 @@ ctot_bdf2_event_substep_begin:
                                       cudaMemcpyDeviceToDevice));
                 CUDA_CHECK(cudaMemcpy(d_ctot_work_r, d_ctot_saved_r, size_r,
                                       cudaMemcpyDeviceToDevice));
-                CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
-                                      cudaMemcpyDeviceToDevice));
+                if (!ctot_derived_Y_snapshot_elision_runtime)
+                    CUDA_CHECK(cudaMemcpy(d_Y_r, d_Y_n_saved, size_r,
+                                          cudaMemcpyDeviceToDevice));
                 reconstruct_ctot_thermodynamic_context(
                     d_ctot_accepted_r, d_phi_r);
                 CUDA_CHECK(cudaDeviceSynchronize());
@@ -38946,7 +40106,11 @@ ctot_bdf2_event_substep_begin:
                         transport_stats[
                             CTOT_TRANSPORT_ANTITRAPPING_MAX_FACE_FLUX]);
                 const char *failure_reason = "energy_work_predicate_failed";
-                if (forced_first_bdf2_attempt_reject) {
+                if (variable_error_reject) {
+                    failure_reason = variable_error_estimator_valid
+                        ? "variable_bdf2_error_estimate_exceeded"
+                        : "variable_bdf2_error_estimator_invalid";
+                } else if (forced_first_bdf2_attempt_reject) {
                     failure_reason = "debug_forced_first_bdf2_attempt_reject";
                 } else if (forced_first_attempt_reject) {
                     failure_reason = "debug_forced_first_attempt_reject";
@@ -38967,18 +40131,22 @@ ctot_bdf2_event_substep_begin:
                         : "coupled_outer_max_iter_not_converged";
                 }
                 const char *failure_stage =
-                    force_outer_elastic_reject
+                    variable_error_reject
+                        ? "variable_step_accuracy"
+                    : force_outer_elastic_reject
                         ? "final_elasticity"
                         : ((!elastic_outer_converged && coupled_outer_required)
                                ? (P.elastic_enabled
                                       ? "elastic_outer_coupling"
                                       : "coupled_outer_coupling")
                                : "transport_nonlinear");
-                if (P.bdf2_event_be_subcycling_v1 &&
+                if (!variable_error_reject &&
+                    P.bdf2_event_be_subcycling_v1 &&
                     (ctot_bdf2_event_subcycle_active ||
                      ctot_bdf2_active_this_attempt ||
                      ctot_bdf2_event_history_rebuild_pending)) {
                     if (!ctot_bdf2_event_subcycle_active) {
+                        if (!capture_ctot_event_macro_start()) return 2;
                         ctot_bdf2_event_subcycle_active = 1;
                         ctot_bdf2_event_subcycle_depth = 2;
                         ctot_bdf2_event_subcycle_index = 0;
@@ -38990,7 +40158,10 @@ ctot_bdf2_event_substep_begin:
                         ctot_bdf2_event_subcycle_index = 0;
                     }
                     if (ctot_bdf2_event_subcycle_depth <= 8) {
-                        restore_ctot_event_macro_start();
+                        if (ctot_transport_gate_trajectory_diag_fp) {
+                            ctot_transport_gate_reset_event_transaction();
+                        }
+                        if (!restore_ctot_event_macro_start()) return 2;
                         if (!verify_ctot_event_macro_rollback(
                                 step, ctot_attempt_id)) {
                             ++ctot_bounded_macro_hard_reject_count;
@@ -39017,7 +40188,10 @@ ctot_bdf2_event_substep_begin:
                                ctot_bdf2_event_subcycle_depth, P.dt);
                         goto ctot_bdf2_event_substep_begin;
                     }
-                    restore_ctot_event_macro_start();
+                    if (!restore_ctot_event_macro_start()) return 2;
+                    if (ctot_transport_gate_trajectory_diag_fp) {
+                        ctot_transport_gate_reset_event_transaction();
+                    }
                     verify_ctot_event_macro_rollback(step, ctot_attempt_id);
                     record_ctot_attempt(
                         step, ctot_attempt_id, failure_stage,
@@ -39040,7 +40214,77 @@ ctot_bdf2_event_substep_begin:
                 }
                 return 2;
             }
-            if (ctot_split_step_diag_fp) {
+            if (ctot_transport_gate_trajectory_diag_fp) {
+                if (!ctot_transport_gate_pending_valid) {
+                    fprintf(stderr,
+                            "[fatal] accepted transport-gate trajectory row "
+                            "has no method-consistent cold residual.\n");
+                    return 2;
+                }
+                CUDA_CHECK(cudaMemcpy(ctot_transport_gate_old_C.data(),
+                                      d_ctot_saved_r, size_r,
+                                      cudaMemcpyDeviceToHost));
+                CUDA_CHECK(cudaMemcpy(ctot_transport_gate_new_C.data(),
+                                      d_ctot_work_r, size_r,
+                                      cudaMemcpyDeviceToHost));
+                if (ctot_transport_defect_v2_observer.enabled()) {
+                    CUDA_CHECK(cudaMemcpy(
+                        ctot_transport_gate_final_phi.data(), d_phi_r, size_r,
+                        cudaMemcpyDeviceToHost));
+                }
+                CtotTransportGateTrajectoryRow trajectory_row = {
+                    step,
+                    ctot_attempt_id,
+                    P.dt,
+                    ctot_transport_gate_pending_initial_res,
+                    ctot_transport_gate_pending_effective_gate,
+                    ctot_transport_gate_pending_scalar_linf,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                };
+                for (int idx = 0; idx < total_r; ++idx) {
+                    const double residual =
+                        ctot_transport_gate_pending_residual[(size_t)idx];
+                    trajectory_row.residual_l1 += fabs(residual);
+                    trajectory_row.residual_l2_sq += residual * residual;
+                    trajectory_row.residual_linf =
+                        fmax(trajectory_row.residual_linf, fabs(residual));
+                    trajectory_row.residual_signed_sum += residual;
+                    trajectory_row.increment_l1 += fabs(
+                        ctot_transport_gate_new_C[(size_t)idx] -
+                        ctot_transport_gate_old_C[(size_t)idx]);
+                    if (ctot_bdf2_event_subcycle_active) {
+                        ctot_transport_gate_event_defect[(size_t)idx] +=
+                            P.dt * residual;
+                    } else {
+                        ctot_transport_gate_cumulative_defect[(size_t)idx] +=
+                            P.dt * residual;
+                    }
+                }
+                if (!ctot_transport_defect_v2_observer.accumulate_accepted(
+                        P.dt, ctot_transport_gate_pending_residual,
+                        ctot_transport_gate_old_C,
+                        ctot_transport_gate_new_C,
+                        ctot_transport_gate_final_phi,
+                        ctot_bdf2_event_subcycle_active != 0)) {
+                    fprintf(stderr,
+                            "[fatal] transport defect V2 observer rejected an "
+                            "accepted diagnostic row: %s\n",
+                            ctot_transport_defect_v2_observer.error().c_str());
+                    return 2;
+                }
+                if (ctot_bdf2_event_subcycle_active) {
+                    ctot_transport_gate_event_rows.push_back(trajectory_row);
+                } else {
+                    ctot_transport_gate_write_committed_row(trajectory_row);
+                    fflush(ctot_transport_gate_trajectory_diag_fp);
+                }
+                ctot_transport_gate_pending_valid = 0;
+            }
+            if (ctot_split_step_diag_fp && ctot_full_audit.due) {
                 fprintf(ctot_split_step_diag_fp,
                         "%d,%d,%.17e,%s,%s,%.17e,%.17e,%.17e,"
                         "%d,%d,%d,%d,%d,%.17e,%.17e,%.17e,%.17e,%d,1,"
@@ -39067,7 +40311,7 @@ ctot_bdf2_event_substep_begin:
                         splitting_work_residual);
                 fflush(ctot_split_step_diag_fp);
             }
-            if (ctot_energy_diag_fp) {
+            if (ctot_energy_diag_fp && ctot_full_audit.due) {
                 const double F_after_transport_diag =
                     ctot_method_consistent_split_runtime
                         ? F_after_method_transport : F_final;
@@ -39114,8 +40358,9 @@ ctot_bdf2_event_substep_begin:
                                           size_r, cudaMemcpyDeviceToDevice));
                     CUDA_CHECK(cudaMemcpy(d_phi_n_saved, d_phi_r, size_r,
                                           cudaMemcpyDeviceToDevice));
-                    CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_r, size_r,
-                                          cudaMemcpyDeviceToDevice));
+                    if (!ctot_derived_Y_snapshot_elision_runtime)
+                        CUDA_CHECK(cudaMemcpy(d_Y_n_saved, d_Y_r, size_r,
+                                              cudaMemcpyDeviceToDevice));
                     ++ctot_bdf2_event_subcycle_index;
                     printf("CTOT_BDF2_EVENT_SUBSTEP_ACCEPT step=%d "
                            "substep=%d/%d substep_dt=%.17e "
@@ -39132,6 +40377,17 @@ ctot_bdf2_event_substep_begin:
                        "substep_dt=%.17e macro_dt=%.17e all_substeps_pass=1\n",
                        step, ctot_bdf2_event_subcycle_depth, P.dt,
                        ctot_bdf2_event_macro_dt);
+                if (ctot_transport_gate_trajectory_diag_fp) {
+                    const bool transport_gate_event_commit_ok =
+                        ctot_transport_gate_commit_event_transaction();
+                    if (!transport_gate_event_commit_ok) {
+                        fprintf(stderr,
+                                "[fatal] transport defect V2 event transaction "
+                                "commit failed: %s\n",
+                                ctot_transport_defect_v2_observer.error().c_str());
+                        return 2;
+                    }
+                }
                 P.dt = ctot_bdf2_event_macro_dt;
                 dt_phi = P.dt;
             }
@@ -39223,6 +40479,31 @@ ctot_bdf2_event_substep_begin:
                        ctot_bdf2_dt_nm1, ctot_bdf2_accepted_time_code,
                        ctot_bdf2_last_fallback_reason);
             }
+            if (ctot_variable_bdf2_active_manifold_v1_runtime) {
+                if (ctot_bdf2_active_this_attempt &&
+                    variable_error_estimator_valid &&
+                    !variable_error_reject) {
+                    ctot_variable_controller_previous_error =
+                        fmax(variable_error_combined, 1.0e-12);
+                    ctot_variable_controller_next_dt =
+                        variable_controller_trial.next_dt;
+                } else {
+                    // BE startup/event rebuilds do not have a BDF2 embedded
+                    // estimate. Keep the accepted macro dt until a valid
+                    // two-step estimate is available again.
+                    ctot_variable_controller_previous_error = 1.0;
+                    ctot_variable_controller_next_dt = fmin(
+                        fmax(P.dt, P.ctot_variable_dt_min),
+                        P.ctot_variable_dt_max);
+                }
+                ctot_variable_controller_valid = 1;
+                printf("CTOT_VARIABLE_BDF2_CONTROLLER_COMMIT step=%d "
+                       "previous_error=%.17e accepted_dt=%.17e "
+                       "next_dt=%.17e history_valid=%d\n",
+                       step, ctot_variable_controller_previous_error, P.dt,
+                       ctot_variable_controller_next_dt,
+                       ctot_bdf2_history_valid);
+            }
             CUDA_CHECK(cudaMemcpy(d_ctot_accepted_r, d_ctot_work_r, size_r,
                                   cudaMemcpyDeviceToDevice));
             CUDA_CHECK(cudaMemcpy(d_ctot_trial_r, d_ctot_work_r, size_r,
@@ -39233,6 +40514,11 @@ ctot_bdf2_event_substep_begin:
             reconstruct_ctot_thermodynamic_context(
                 d_ctot_accepted_r, d_phi_r);
             CUDA_CHECK(cudaDeviceSynchronize());
+            printf("CTOT_FULL_AUDIT_RESULT step=%d attempt_id=%d cadence=%d "
+                   "executed=%d reason_mask=%u hard_gates_executed=1 "
+                   "authoritative_state_changed=0\n",
+                   step, ctot_attempt_id, P.ctot_full_audit_cadence,
+                   ctot_full_audit.due, ctot_full_audit.reasons);
             printf("%s_ACCEPT step=%d nonlinear_iters=%d "
                    "res_inf=%.17e res_l2_rel=%.17e mass_error=%.17e "
                    "sum_divJ=%.17e lambda=%.17e zero_face_count=%.0f "
@@ -39353,6 +40639,9 @@ ctot_bdf2_event_substep_begin:
                         "  \"bdf2_accepted_step\": %d,\n"
                         "  \"bdf2_time_code\": %.17e,\n"
                         "  \"bdf2_physical_time_s\": %.17e,\n"
+                        "  \"variable_controller_valid\": %d,\n"
+                        "  \"variable_controller_previous_error\": %.17e,\n"
+                        "  \"variable_controller_next_dt\": %.17e,\n"
                         "  \"bdf2_last_fallback_reason\": \"%s\",\n"
                         "  \"BDF2_EVENT_PREFLIGHT_V1\": %d,\n"
                         "  \"BDF2_EVENT_BE_SUBCYCLING_V1\": %d,\n"
@@ -39368,6 +40657,9 @@ ctot_bdf2_event_substep_begin:
                         "  \"adjoint_identity_mode\": \"%s\",\n"
                         "  \"face_mobility_mode\": \"%s\",\n"
                         "  \"transport_nonlinear_solver_name\": \"%s\",\n"
+                        "  \"transport_efficiency_mode\": \"%s\",\n"
+                        "  \"transport_efficiency_features\": %d,\n"
+                        "  \"memory_perf_features\": %d,\n"
                         "  \"phase_solver_name\": \"%s\",\n"
                         "  \"phase_solver_version\": \"1\",\n"
                         "  \"finite_interface_correction_enabled\": %d,\n"
@@ -39382,7 +40674,7 @@ ctot_bdf2_event_substep_begin:
                         P.ctot_split_defect_policy,
                         P.ctot_max_coupling_correctors,
                         ctot_time_integrator_name(&P),
-                        ctot_bdf2_history_contract_version(),
+                        ctot_bdf2_history_contract_version_for_mode(&P),
                         ctot_bdf2_phase_context_version(&P),
                         ctot_active_manifold_predictor_version(&P),
                         ctot_active_set_tolerance_contract(&P),
@@ -39402,6 +40694,12 @@ ctot_bdf2_event_substep_begin:
                         (ctot_imex_bdf2_v1_runtime
                              ? ctot_bdf2_accepted_time_code
                              : ctot_accepted_time_code) * P.t_real_unit,
+                        ctot_variable_bdf2_active_manifold_v1_runtime
+                            ? ctot_variable_controller_valid : 0,
+                        ctot_variable_bdf2_active_manifold_v1_runtime
+                            ? ctot_variable_controller_previous_error : NAN,
+                        ctot_variable_bdf2_active_manifold_v1_runtime
+                            ? ctot_variable_controller_next_dt : NAN,
                         ctot_imex_bdf2_v1_runtime
                             ? ctot_bdf2_last_fallback_reason : "not_applicable",
                         P.bdf2_event_preflight_v1,
@@ -39419,6 +40717,9 @@ ctot_bdf2_event_substep_begin:
                         ctot_adjoint_identity_mode(&P),
                         ctot_face_mobility_mode(&P),
                         ctot_transport_nonlinear_solver_name(&P),
+                        ctot_transport_efficiency_mode_name(&P),
+                        P.ctot_transport_efficiency_features,
+                        P.ctot_memory_perf_features,
                         ctot_phase_solver_name(&P),
                         P.ctot_finite_interface_antitrapping_enabled,
                         ctot_finite_interface_mode_name(&P),
@@ -39464,7 +40765,10 @@ ctot_bdf2_event_substep_begin:
             }
             if (step_wall_s) step_wall_s[step - 1] =
                 wall_time_sec_monotonic() - step_wall_t0;
-            if (P.ctot_automatic_dt_growth) {
+            if (ctot_variable_bdf2_active_manifold_v1_runtime) {
+                P.dt = ctot_variable_controller_next_dt;
+                dt_phi = P.dt;
+            } else if (P.ctot_automatic_dt_growth) {
                 P.dt = fmin(ctot_initial_requested_dt,
                             P.dt / P.ctot_retry_shrink_factor);
             }
@@ -41880,7 +43184,8 @@ gp_post_birth_skip_to_finalize:
         }
 
         // ===== 输出VTK文件（如果满足VTK输出间隔；minimize 模式不输出任何VTK） =====
-        if (P.mode == 0 && (step % P.out_every == 0)) {
+        if (P.mode == 0 && !P.ctot_benchmark_suppress_field_output &&
+            (step % P.out_every == 0)) {
             // 统一使用真实步数作为文件编号，避免同一步重复输出多个 phi_* 文件
             int output_step = step;
 
@@ -42599,6 +43904,116 @@ gp_post_birth_skip_to_finalize:
         }
     }
     const double step_loop_wall_elapsed = wall_time_sec_monotonic() - step_loop_wall_t0;
+    if (ctot_transport_gate_trajectory_diag_fp) {
+        if (!ctot_transport_gate_event_rows.empty()) {
+            fprintf(stderr,
+                    "[fatal] uncommitted transport-gate event rows remain "
+                    "after the accepted step loop.\n");
+            return 2;
+        }
+        if (!ctot_transport_defect_v2_observer.finalize()) {
+            fprintf(stderr,
+                    "[fatal] transport defect V2 observer finalization "
+                    "failed: %s\n",
+                    ctot_transport_defect_v2_observer.error().c_str());
+            return 2;
+        }
+        CUDA_CHECK(cudaMemcpy(ctot_transport_gate_old_C.data(), d_phi_r,
+                              size_r, cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(ctot_transport_gate_new_C.data(),
+                              d_ctot_accepted_r, size_r,
+                              cudaMemcpyDeviceToHost));
+        auto write_transport_gate_raw = [](const char *path,
+                                           const std::vector<double> &values) {
+            std::ofstream stream(path, std::ios::out | std::ios::binary |
+                                       std::ios::trunc);
+            if (!stream) return 0;
+            stream.write(reinterpret_cast<const char *>(values.data()),
+                         (std::streamsize)(values.size() * sizeof(double)));
+            return stream.good() ? 1 : 0;
+        };
+        char defect_path[4096], phi_path[4096], C_path[4096], meta_path[4096];
+        snprintf(defect_path, sizeof(defect_path),
+                 "%s/ctot_transport_gate_cumulative_defect.raw",
+                 case_output_dir);
+        snprintf(phi_path, sizeof(phi_path),
+                 "%s/ctot_transport_gate_final_phi.raw", case_output_dir);
+        snprintf(C_path, sizeof(C_path),
+                 "%s/ctot_transport_gate_final_Ctot.raw", case_output_dir);
+        snprintf(meta_path, sizeof(meta_path),
+                 "%s/ctot_transport_gate_trajectory_meta.json",
+                 case_output_dir);
+        if (!write_transport_gate_raw(
+                defect_path, ctot_transport_gate_cumulative_defect) ||
+            !write_transport_gate_raw(phi_path, ctot_transport_gate_old_C) ||
+            !write_transport_gate_raw(C_path, ctot_transport_gate_new_C)) {
+            fprintf(stderr,
+                    "[fatal] failed to write transport-gate trajectory raw fields.\n");
+            return 2;
+        }
+        double cumulative_defect_linf = 0.0;
+        double cumulative_defect_signed_sum = 0.0;
+        for (double value : ctot_transport_gate_cumulative_defect) {
+            cumulative_defect_linf =
+                fmax(cumulative_defect_linf, fabs(value));
+            cumulative_defect_signed_sum += value;
+        }
+        FILE *meta_fp = fopen(meta_path, "w");
+        if (!meta_fp) {
+            fprintf(stderr,
+                    "[fatal] cannot write transport-gate trajectory metadata.\n");
+            return 2;
+        }
+        fprintf(meta_fp,
+                "{\n"
+                "  \"schema\": \"CTOT_TRANSPORT_GATE_TRAJECTORY_V2_TRANSACTIONAL\",\n"
+                "  \"Nx\": %d, \"Ny\": %d, \"Nz\": %d,\n"
+                "  \"dx_nm\": %.17e,\n"
+                "  \"dtype\": \"float64\", \"order\": \"C\",\n"
+                "  \"accepted_rows\": %lld,\n"
+                "  \"observed_time_code\": %.17e,\n"
+                "  \"absolute_gate\": %.17e,\n"
+                "  \"relative_gate\": %.17e,\n"
+                "  \"cumulative_ER_L1\": %.17e,\n"
+                "  \"cumulative_ER_L2\": %.17e,\n"
+                "  \"cumulative_C_increment_L1\": %.17e,\n"
+                "  \"eta_R\": %.17e,\n"
+                "  \"maximum_abs_local_cumulative_defect\": %.17e,\n"
+                "  \"signed_local_cumulative_defect_sum\": %.17e,\n"
+                "  \"defect_convention\": \"D_i=sum_macro_committed_dt_try_times_method_cold_R_i\",\n"
+                "  \"residual_convention\": \"R_C=Delta_C-dt_transport_divJ_at_method_phase_context\",\n"
+                "  \"cumulative_defect_raw\": \"ctot_transport_gate_cumulative_defect.raw\",\n"
+                "  \"final_phi_raw\": \"ctot_transport_gate_final_phi.raw\",\n"
+                "  \"final_Ctot_raw\": \"ctot_transport_gate_final_Ctot.raw\"\n"
+                "}\n",
+                P.Nx, P.Ny, P.Nz, P.dx,
+                ctot_transport_gate_accepted_rows,
+                ctot_transport_gate_observed_time_code,
+                P.ctot_residual_abs_tol, P.ctot_residual_rel_tol,
+                ctot_transport_gate_ER_L1,
+                sqrt(ctot_transport_gate_ER_L2_sq),
+                ctot_transport_gate_increment_L1,
+                ctot_transport_gate_increment_L1 > 0.0
+                    ? ctot_transport_gate_ER_L1 /
+                          ctot_transport_gate_increment_L1
+                    : NAN,
+                cumulative_defect_linf,
+                cumulative_defect_signed_sum);
+        fclose(meta_fp);
+        printf("CTOT_TRANSPORT_GATE_TRAJECTORY_SUMMARY accepted_rows=%lld "
+               "time_code=%.17e ER_L1=%.17e ER_L2=%.17e eta_R=%.17e "
+               "max_abs_local_defect=%.17e signed_defect_sum=%.17e\n",
+               ctot_transport_gate_accepted_rows,
+               ctot_transport_gate_observed_time_code,
+               ctot_transport_gate_ER_L1,
+               sqrt(ctot_transport_gate_ER_L2_sq),
+               ctot_transport_gate_increment_L1 > 0.0
+                   ? ctot_transport_gate_ER_L1 /
+                         ctot_transport_gate_increment_L1
+                   : NAN,
+               cumulative_defect_linf,
+               cumulative_defect_signed_sum);
+    }
     if (ctot_bounded_retry_contract_runtime) {
         double accepted_iteration_p99 = NAN;
         if (!ctot_bounded_accepted_nonlinear_iters.empty()) {
@@ -42693,7 +44108,8 @@ gp_post_birth_skip_to_finalize:
     }
 
     // 循环结束后，检查最后一步是否需要输出VTK（仅 dynamics 模式保留 final output）
-    if (P.mode == 0 && (P.nsteps % P.out_every != 0)) {
+    if (P.mode == 0 && !P.ctot_benchmark_suppress_field_output &&
+        (P.nsteps % P.out_every != 0)) {
         int final_step = P.nsteps;
         int output_step = (final_step / P.out_every) + 1;
         int ret1 = 1, ret3 = 1;
@@ -43180,6 +44596,8 @@ gp_post_birth_skip_to_finalize:
     // 清理（只销毁实际创建的计划）
     CUFFT_CHECK(cufftDestroy(plan_r2c_base));
     CUFFT_CHECK(cufftDestroy(plan_c2r_base));
+    if (d_cufft_base_shared_work_area)
+        CUDA_CHECK(cudaFree(d_cufft_base_shared_work_area));
 
     if (P.elastic_enabled) {
         CUFFT_CHECK(cufftDestroy(plan_r2c_elastic));
@@ -43241,7 +44659,7 @@ gp_post_birth_skip_to_finalize:
     if (gp_buffers_enabled && d_eta_rhs_r) CUDA_CHECK(cudaFree(d_eta_rhs_r));
     // 优化：d_phi_rhs_r被d_lapY_r复用，只需要释放一次
     CUDA_CHECK(cudaFree(d_phi_n_saved));
-    CUDA_CHECK(cudaFree(d_Y_n_saved));
+    if (d_Y_n_saved) CUDA_CHECK(cudaFree(d_Y_n_saved));
     if (d_Y_projection_base_r) CUDA_CHECK(cudaFree(d_Y_projection_base_r));
     if (pf_q_transport_diag_fp) fclose(pf_q_transport_diag_fp);
     if (d_q_alpha_r) CUDA_CHECK(cudaFree(d_q_alpha_r));
@@ -43265,9 +44683,11 @@ gp_post_birth_skip_to_finalize:
         CUDA_CHECK(cudaFree(d_ctot_transport_anchor_r));
     if (d_phi_transport_context_r)
         CUDA_CHECK(cudaFree(d_phi_transport_context_r));
-    if (d_ctot_event_macro_start_r)
+    if (d_ctot_event_macro_start_r &&
+        !ctot_event_snapshot_aliases_transport_context)
         CUDA_CHECK(cudaFree(d_ctot_event_macro_start_r));
-    if (d_phi_event_macro_start_r)
+    if (d_phi_event_macro_start_r &&
+        !ctot_event_snapshot_aliases_transport_context)
         CUDA_CHECK(cudaFree(d_phi_event_macro_start_r));
     if (d_Y_event_macro_start_r)
         CUDA_CHECK(cudaFree(d_Y_event_macro_start_r));
@@ -43343,6 +44763,8 @@ gp_post_birth_skip_to_finalize:
     if (ctot_outer_acceleration_diag_fp)
         fclose(ctot_outer_acceleration_diag_fp);
     if (ctot_split_step_diag_fp) fclose(ctot_split_step_diag_fp);
+    if (ctot_transport_gate_trajectory_diag_fp)
+        fclose(ctot_transport_gate_trajectory_diag_fp);
     // 优化：不再需要释放d_xBtot_r
     CUDA_CHECK(cudaFree(d_mu_x_r));
     // Optimization: d_Y_rhs_r 复用 d_mu_x_r，不需要单独释放
@@ -43355,8 +44777,8 @@ gp_post_birth_skip_to_finalize:
     if (gp_buffers_enabled && d_eta_k) CUDA_CHECK(cudaFree(d_eta_k));
     if (gp_buffers_enabled && d_eta_rhs_k) CUDA_CHECK(cudaFree(d_eta_rhs_k));
     CUDA_CHECK(cudaFree(d_phi_rhs_k));
-    CUDA_CHECK(cudaFree(d_Y_k));
-    CUDA_CHECK(cudaFree(d_divJ_k));
+    if (d_Y_k != d_phi_k) CUDA_CHECK(cudaFree(d_Y_k));
+    if (d_divJ_k) CUDA_CHECK(cudaFree(d_divJ_k));
     if (d_mass_diag_phi_stats) CUDA_CHECK(cudaFree(d_mass_diag_phi_stats));
     if (d_mass_diag_Y_stats) CUDA_CHECK(cudaFree(d_mass_diag_Y_stats));
     if (d_mass_diag_Y_rhs_stats) CUDA_CHECK(cudaFree(d_mass_diag_Y_rhs_stats));

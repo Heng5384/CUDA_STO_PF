@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "phase_kkt_utils.h"
+#include "variable_bdf2_utils.h"
 
 #ifdef __CUDACC__
 #define ACTIVE_MANIFOLD_HD __host__ __device__
@@ -50,12 +51,26 @@ ACTIVE_MANIFOLD_HD inline double active_manifold_ulp64_scale(
 // at its exact monotone h-inverse. The upper-feasible inverse is used so
 // representable roundoff stays on the admissible side of q_alpha=0.
 ACTIVE_MANIFOLD_HD inline ActiveManifoldBdf2ContextV1
-active_manifold_bdf2_context_v1(
+active_manifold_bdf2_context_ratio_v1(
     double C_n, double C_nm1, double phi_n, double phi_nm1,
-    double v_B, double bound_tol) {
+    double v_B, double bound_tol, double step_ratio) {
     ActiveManifoldBdf2ContextV1 out{};
-    out.C_anchor = (4.0 * C_n - C_nm1) / 3.0;
-    out.phi_raw = 2.0 * phi_n - phi_nm1;
+    const VariableBdf2CoefficientsV1 coefficients =
+        variable_bdf2_coefficients_v1(step_ratio, 1.0);
+    if (!coefficients.valid) {
+        out.branch = ACTIVE_MANIFOLD_BDF2_INVALID;
+        out.valid = 0;
+        return out;
+    }
+    if (step_ratio == 1.0) {
+        out.C_anchor = (4.0 * C_n - C_nm1) / 3.0;
+        out.phi_raw = 2.0 * phi_n - phi_nm1;
+    } else {
+        out.C_anchor = coefficients.anchor_n * C_n +
+                       coefficients.anchor_nm1 * C_nm1;
+        out.phi_raw = coefficients.extrap_n * phi_n +
+                      coefficients.extrap_nm1 * phi_nm1;
+    }
     out.phi_context = out.phi_raw;
     out.branch = ACTIVE_MANIFOLD_BDF2_INVALID;
     out.valid = 0;
@@ -158,6 +173,14 @@ active_manifold_bdf2_context_v1(
             : ACTIVE_MANIFOLD_BDF2_FREE;
     out.valid = 1;
     return out;
+}
+
+ACTIVE_MANIFOLD_HD inline ActiveManifoldBdf2ContextV1
+active_manifold_bdf2_context_v1(
+    double C_n, double C_nm1, double phi_n, double phi_nm1,
+    double v_B, double bound_tol) {
+    return active_manifold_bdf2_context_ratio_v1(
+        C_n, C_nm1, phi_n, phi_nm1, v_B, bound_tol, 1.0);
 }
 
 ACTIVE_MANIFOLD_HD inline const char *active_manifold_bdf2_branch_name_v1(

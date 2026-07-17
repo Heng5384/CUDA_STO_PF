@@ -1,0 +1,107 @@
+{
+  "baseline_preserved": true,
+  "commit_blob_sha256": {
+    "active_manifold_bdf2_utils.h": "e4fcce0513ee44fd462ebf711e247ffbc297cd73cefe3a26cf2f3039439489eb",
+    "bounded_retry_bdf2_utils.h": "bb81c5996ddc232708643f7773258f24c6a78ba9e4b8379141a30f6a6b922e9c",
+    "cuda_kernels.cu": "5d2d9df0e0bc291fb50af7625699c0b973ef06e9a2ab3f938c2ba804663e1e4d",
+    "cuda_kernels.h": "3eb5cfa9ed35ddb533f43d5847ca270a0ac3a4ddb389770140e7fa7e7c425b53",
+    "main_cuda.cu": "db3dac3646c4beb3eb7cb989630a244942bc7de45ece81ffcb6b501343cd4e56",
+    "pf_params.h": "a12f748a571d9a4074f2debb365c95063edf21254544d0a81bcddf317631d253"
+  },
+  "common_input_sha256": {
+    "Ctot_init.raw": "c05457ef585dc40ae91aded43a8531cfd72213d8da7b82243105d63cd1c60524",
+    "init_meta.json": "bc8a7f5befb740612ae8579099f9393fa4781e44e880b27683194029fd1ce4a2",
+    "phi_init.raw": "3a69447f232dfefce4e0a2ef67c172654bcc1520de4e703c9fca4ecf25721acb",
+    "runtime.base.params": "5259ac5eb44876c381e84caf4bd68291ff415a94b33c9a56da45e6517530210f",
+    "xB_init.raw": "210314a5ff59199df91fc4c9bc9556795e520f41906ec62d10509252f5347b84"
+  },
+  "created_utc": "2026-07-16T17:43:13.695066+00:00",
+  "diagnostics_off_bitwise_regression": {
+    "all_raw_fields_bitwise_equal": true,
+    "fields": [
+      "Ctot",
+      "phi",
+      "xB_alpha",
+      "Ctot_nm1",
+      "phi_nm1"
+    ],
+    "steps": 64
+  },
+  "equal_time_code": 1.5625,
+  "equal_time_physical_s": 64.26497722586683,
+  "frozen_remote_binary_sha256": "3692e11ab8b05371b893a6ea4358880b10d774de433229ab51cec3c08efbf01a",
+  "frozen_remote_source_sha256": {
+    "active_manifold_bdf2_utils.h": "e4fcce0513ee44fd462ebf711e247ffbc297cd73cefe3a26cf2f3039439489eb",
+    "bounded_retry_bdf2_utils.h": "bb81c5996ddc232708643f7773258f24c6a78ba9e4b8379141a30f6a6b922e9c",
+    "cuda_kernels.cu": "a4d269067ab2de6059af1d48c333eda80aec43268c3f61036eab1a66e760b81a",
+    "cuda_kernels.h": "3eb5cfa9ed35ddb533f43d5847ca270a0ac3a4ddb389770140e7fa7e7c425b53",
+    "main_cuda.cu": "db3dac3646c4beb3eb7cb989630a244942bc7de45ece81ffcb6b501343cd4e56",
+    "pf_params.h": "414792a90107526c8721245f71e66e9523ef382a13c58c68ae9cd7b1a1a3a1f2"
+  },
+  "grid": {
+    "Nx": 512,
+    "Ny": 1,
+    "Nz": 1,
+    "dx_nm": 1.0,
+    "lambda_nm": 4.0
+  },
+  "historical_report_tree": {
+    "file_count": 1964,
+    "roots": [
+      "reports/bdf2_v1",
+      "reports/bdf2_event_v1",
+      "reports/active_manifold_bdf2_v1",
+      "reports/bounded_retry_bdf2_v1"
+    ],
+    "sha256": "d80f2f86c08495c9ebe98550b996090eb950d9c12aa7fbc6b86e75b3a4721166"
+  },
+  "instrumented_remote_binary_sha256": "3986440d157f29c5ab53387345f67bbedf7c264b1a5136b04461cec32a954b0b",
+  "instrumented_working_source_sha256": {
+    "active_manifold_bdf2_utils.h": "e4fcce0513ee44fd462ebf711e247ffbc297cd73cefe3a26cf2f3039439489eb",
+    "bounded_retry_bdf2_utils.h": "bb81c5996ddc232708643f7773258f24c6a78ba9e4b8379141a30f6a6b922e9c",
+    "cuda_kernels.cu": "5d2d9df0e0bc291fb50af7625699c0b973ef06e9a2ab3f938c2ba804663e1e4d",
+    "cuda_kernels.h": "3eb5cfa9ed35ddb533f43d5847ca270a0ac3a4ddb389770140e7fa7e7c425b53",
+    "main_cuda.cu": "196486c6d75aa81ad3f064d64b1b501c8950f928877bea40a5ec3701e742f2d3",
+    "pf_params.h": "9c755139551d74b4bdee0c48136d4044cf15744618bb84049e4b6c3fe7c94564"
+  },
+  "integrator": "ctot_jichen_imex_bdf2_active_manifold_v1",
+  "physics": "pbte_ag2te_gp_coarse4_stoich_rd_v2",
+  "remote_source_byte_identity_note": "Frozen executable source differs from f440c0d in cuda_kernels.cu and pf_params.h only by whitespace; whitespace-stripped content was audited identical. The exact frozen executable hash remains authoritative.",
+  "repository_commit": "f440c0dcd4c02cd45d9079c35d3838ebfa9b37e2",
+  "retry_contract": "ACTIVE_MANIFOLD_BDF2_BOUNDED_RETRY_PRODUCTION_V1",
+  "schema": "CTOT_TRANSPORT_RESIDUAL_GATE_BASELINE_V1",
+  "source_GP_elasticity": {
+    "GP": "OFF",
+    "elasticity": "OFF",
+    "source": "OFF"
+  },
+  "strict_dt16": {
+    "dt_code": 0.0001953125,
+    "fallbacks": 0,
+    "rejects": 0,
+    "steps": 8000,
+    "throughput_physical_s_per_GPU_hour": 909.15
+  },
+  "strict_reference": {
+    "dt_code": 9.765625e-05,
+    "gate": 1e-12,
+    "steps": 16000
+  },
+  "temperature_C": 400.0,
+  "transactional_observer_regression": {
+    "accepted_substep_rows": 364,
+    "case": "G10_dt1_360_steps",
+    "diagnostics_on_off_raw_fields_bitwise_equal": true,
+    "expected_time_code": 1.125,
+    "fields": [
+      "Ctot",
+      "phi",
+      "xB_alpha",
+      "Ctot_nm1",
+      "phi_nm1"
+    ],
+    "observed_time_code": 1.125000000000007,
+    "schema": "CTOT_TRANSPORT_GATE_TRAJECTORY_V2_TRANSACTIONAL",
+    "time_closure_error": 7.105427357601002e-15
+  }
+}

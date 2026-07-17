@@ -1,0 +1,9 @@
+buffer_or_role,alias_or_reconstruction_target,lifetime_proof,decision,validation
+event Ctot macro snapshot,BDF2 transport anchor,event BE subcycle starts after BDF2 context dies,ALIAS_RETAINED_M1,forced rollback bitwise
+event phi macro snapshot,BDF2 phi transport context,event BE subcycle starts after BDF2 context dies,ALIAS_RETAINED_M1,forced rollback bitwise
+phase Y spectrum,phase phi spectrum,method split does not require simultaneous spectra,ALIAS_RETAINED_M4,100-step endpoint bitwise
+face y,face x,axis face consumed into divergence before next axis,ALIAS_RETAINED_M6,100-step endpoint bitwise
+face z,face x,axis face consumed into divergence before next axis,ALIAS_RETAINED_M6,100-step endpoint bitwise
+Y accepted snapshot,authoritative Ctot+phi,Y is exact deterministic derived context,RECOMPUTE_RETAINED_M5,forced rollback bitwise
+Ctot accepted/work/saved,pointer rotation,multiple call sites still bind fixed pointer names,DEFERRED_HIGH_RISK,not changed
+active mask float64,uint8 mask,kernel ABI and reductions require coordinated conversion,M3_NOT_RETAINED,no measured necessity after target met

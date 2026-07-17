@@ -16,6 +16,7 @@
 #include "phase_kkt_utils.h"
 #include "thermo_utils.h"
 #include "ctot_transport_bound_utils.h"
+#include "low_memory_transport_v1_utils.h"
 #include <cufft.h>
 #include <cuComplex.h>
 
@@ -3661,6 +3662,20 @@ __global__ void ctot_trial_feasible_C_update_kernel(
     }
 }
 
+__global__ void ctot_fraction_to_boundary_kernel(
+    const double *C_current_r, const double *direction_r,
+    const double *phi_r, double *lambda_limit_r, double v_B,
+    double matrix_support_eps, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = phase_kkt_h_stable(phi_r[idx]);
+    const double alpha = phase_kkt_alpha(phi_r[idx]);
+    lambda_limit_r[idx] = ctot_lmt_fraction_to_boundary_local(
+        C_current_r[idx], h, alpha, direction_r[idx], v_B,
+        matrix_support_eps);
+}
+
 __global__ void ctot_build_mass_tangent_direction_kernel(
     const double *C_current_r, const double *phi_r, double *direction_r,
     double *free_mask_r, double v_B, double matrix_support_eps,
@@ -3940,6 +3955,33 @@ __global__ void ctot_fv_divergence_kernel(
     divJ_r[idx] = (face_x_r[idx] - face_x_r[idx_im]) / dx +
                   (face_y_r[idx] - face_y_r[idx_jm]) / dy +
                   (face_z_r[idx] - face_z_r[idx_km]) / dz;
+}
+
+__global__ void ctot_fv_accumulate_axis_divergence_kernel(
+    const double *face_r, double *divJ_r,
+    int Nx, int Ny, int Nz, int axis, double spacing, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int k = idx % Nz;
+    const int tmp = idx / Nz;
+    const int j = tmp % Ny;
+    const int i = tmp / Ny;
+    int previous = idx;
+    if (axis == 0) {
+        const int im = (i - 1 + Nx) % Nx;
+        previous = (im * Ny + j) * Nz + k;
+    } else if (axis == 1) {
+        const int jm = (j - 1 + Ny) % Ny;
+        previous = (i * Ny + jm) * Nz + k;
+    } else {
+        const int km = (k - 1 + Nz) % Nz;
+        previous = (i * Ny + j) * Nz + km;
+    }
+    const double contribution =
+        (face_r[idx] - face_r[previous]) / spacing;
+    if (axis == 0) divJ_r[idx] = contribution;
+    else divJ_r[idx] += contribution;
 }
 
 
@@ -6127,6 +6169,18 @@ void launch_ctot_trial_feasible_C_update_kernel(
         stats, total_size);
 }
 
+void launch_ctot_fraction_to_boundary_kernel(
+    const double *C_current_r, const double *direction_r,
+    const double *phi_r, double *lambda_limit_r, double v_B,
+    double matrix_support_eps, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_fraction_to_boundary_kernel<<<blocks, threads>>>(
+        C_current_r, direction_r, phi_r, lambda_limit_r, v_B,
+        matrix_support_eps, total_size);
+}
+
 void launch_ctot_build_mass_tangent_direction_kernel(
     const double *C_current_r, const double *phi_r, double *direction_r,
     double *free_mask_r, double v_B, double matrix_support_eps,
@@ -6232,6 +6286,16 @@ void launch_ctot_fv_divergence_kernel(
     ctot_fv_divergence_kernel<<<blocks, threads>>>(
         face_x_r, face_y_r, face_z_r, divJ_r, Nx, Ny, Nz,
         dx, dy, dz, total_size);
+}
+
+void launch_ctot_fv_accumulate_axis_divergence_kernel(
+    const double *face_r, double *divJ_r,
+    int Nx, int Ny, int Nz, int axis, double spacing, int total_size)
+{
+    const int threads = 256;
+    const int blocks = (total_size + threads - 1) / threads;
+    ctot_fv_accumulate_axis_divergence_kernel<<<blocks, threads>>>(
+        face_r, divJ_r, Nx, Ny, Nz, axis, spacing, total_size);
 }
 
 void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,

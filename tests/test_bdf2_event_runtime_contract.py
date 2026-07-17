@@ -37,10 +37,7 @@ class Bdf2EventRuntimeContractTests(unittest.TestCase):
         )
 
     def test_event_retry_is_atomic_and_covers_history_rebuild(self):
-        start = MAIN.index(
-            "const char *failure_stage =\n"
-            "                    force_outer_elastic_reject"
-        )
+        start = MAIN.index("const char *failure_stage =")
         end = MAIN.index("if (prepare_ctot_retry", start)
         rejection = MAIN[start:end]
         self.assertIn("ctot_bdf2_event_history_rebuild_pending", rejection)
@@ -48,6 +45,7 @@ class Bdf2EventRuntimeContractTests(unittest.TestCase):
         self.assertIn("ctot_bdf2_event_subcycle_depth *= 2", rejection)
         self.assertIn("ctot_bdf2_event_subcycle_depth <= 8", rejection)
         self.assertIn("goto ctot_bdf2_event_substep_begin", rejection)
+        self.assertIn("if (!variable_error_reject &&", rejection)
 
     def test_intermediate_substeps_do_not_commit_history(self):
         accept = MAIN.split(

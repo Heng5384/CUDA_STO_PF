@@ -27,15 +27,16 @@ BIN_PF_P2_ACTIVE_REDUCTION = pf_ctot_p2_active_reduction_bin
 BIN_COARSE4_MOBILITY_HOST = coarse4_mobility_host_bin
 BIN_CTOT_FEASIBLE_STORAGE_HOST = ctot_feasible_storage_host_bin
 BIN_BOUNDED_RETRY_BDF2_HOST = bounded_retry_bdf2_host_bin
+BIN_BDF2_HISTORY_MASS_HOST = bdf2_history_mass_host_bin
 
 # 源文件
 SRC_MAIN = main_cuda.cu cuda_kernels.cu cuda_common.cu
 SRC_TEST = test_memory_ledger.cu
 
 # 头文件
-HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h phase_kkt_utils.h phase_pdas_reduction.h ctot_transport_bound_utils.h bounded_retry_bdf2_utils.h
+HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h phase_kkt_utils.h phase_pdas_reduction.h ctot_transport_bound_utils.h bounded_retry_bdf2_utils.h bdf2_history_mass_utils.h bdf2_event_utils.h active_manifold_bdf2_utils.h variable_bdf2_utils.h audit_cadence_utils.h transport_defect_gate_v2_observer.h low_memory_transport_v1_utils.h
 
-.PHONY: all clean test test_circle test_pf_ctot_hard_gate_host test_pf_ctot_hard_gate_cuda test_pf_ctot_state_host test_pf_ctot_adjoint_cuda test_pf_ctot_phase_kkt_host test_pf_ctot_p2_active_reduction test_coarse4_mobility_host test_ctot_feasible_storage_host test_bounded_retry_bdf2_host help
+.PHONY: all clean test test_circle test_pf_ctot_hard_gate_host test_pf_ctot_hard_gate_cuda test_pf_ctot_state_host test_pf_ctot_adjoint_cuda test_pf_ctot_phase_kkt_host test_pf_ctot_p2_active_reduction test_coarse4_mobility_host test_ctot_feasible_storage_host test_bounded_retry_bdf2_host test_bdf2_history_mass_host help
 
 all: $(BIN_MAIN)
 
@@ -53,6 +54,7 @@ help:
 	@echo "  make test_coarse4_mobility_host # coarse4 mobility/SPD/default-off contract"
 	@echo "  make test_ctot_feasible_storage_host # Ctot feasible storage-map oracle"
 	@echo "  make test_bounded_retry_bdf2_host # bounded-retry acceptance oracle"
+	@echo "  make test_bdf2_history_mass_host # ULP-aware accepted-history mass gate"
 	@echo ""
 	@echo "Variables:"
 	@echo "  CUDA_ROOT=/usr/local/cuda-12.9 # CUDA toolkit path (must contain include/ and lib64/)"
@@ -109,6 +111,12 @@ $(BIN_BOUNDED_RETRY_BDF2_HOST): tests/test_bounded_retry_bdf2_utils.cpp bounded_
 test_bounded_retry_bdf2_host: $(BIN_BOUNDED_RETRY_BDF2_HOST)
 	./$(BIN_BOUNDED_RETRY_BDF2_HOST)
 
+$(BIN_BDF2_HISTORY_MASS_HOST): tests/test_bdf2_history_mass_utils.cpp bdf2_history_mass_utils.h
+	$(CXX) -O2 -std=c++14 -I. -o $@ tests/test_bdf2_history_mass_utils.cpp
+
+test_bdf2_history_mass_host: $(BIN_BDF2_HISTORY_MASS_HOST)
+	./$(BIN_BDF2_HISTORY_MASS_HOST)
+
 $(BIN_PF_CTOT_ADJOINT_CUDA): tests/pf_ctot_adjoint_cuda.cu cuda_kernels.cu cuda_kernels.h phase_functions.h thermo_utils.h
 	$(NVCC) $(NVCCFLAGS) $(INCLUDES) -I. -o $@ tests/pf_ctot_adjoint_cuda.cu cuda_kernels.cu $(LDFLAGS) $(LDLIBS)
 
@@ -146,6 +154,6 @@ test_ctot_feasible_storage_host: $(BIN_CTOT_FEASIBLE_STORAGE_HOST)
 		reports/pf_ctot_production_candidate/ctot_feasible_storage_host_test.csv
 
 clean:
-	rm -f $(BIN_MAIN) $(BIN_TEST) $(BIN_PF_GATE_HOST) $(BIN_PF_GATE_CUDA) $(BIN_PF_CTOT_STATE_HOST) $(BIN_PF_CTOT_ADJOINT_CUDA) $(BIN_PF_PHASE_KKT_HOST) $(BIN_PF_P2_ACTIVE_REDUCTION) $(BIN_COARSE4_MOBILITY_HOST) $(BIN_CTOT_FEASIBLE_STORAGE_HOST) *.o
+	rm -f $(BIN_MAIN) $(BIN_TEST) $(BIN_PF_GATE_HOST) $(BIN_PF_GATE_CUDA) $(BIN_PF_CTOT_STATE_HOST) $(BIN_PF_CTOT_ADJOINT_CUDA) $(BIN_PF_PHASE_KKT_HOST) $(BIN_PF_P2_ACTIVE_REDUCTION) $(BIN_COARSE4_MOBILITY_HOST) $(BIN_CTOT_FEASIBLE_STORAGE_HOST) $(BIN_BDF2_HISTORY_MASS_HOST) *.o
 	rm -f circle_void_*.dat circle_void_*.vtk
 	rm -f kirsch_comparison_*.png kirsch_comparison_placeholder.png kirsch_comparison_memory_ledger.txt

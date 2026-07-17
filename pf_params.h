@@ -402,6 +402,12 @@ typedef struct {
     // from that coordinate and switches to authoritative Ctot only when the
     // logit line search fails; it never clips physical mass.
     char ctot_transport_nonlinear_coordinate[48];
+    // Versioned, default-off transport globalization. LEGACY_CURRENT preserves
+    // the historical path bitwise; LOW_MEMORY_GLOBALIZATION_V1 enables only
+    // feature-mask-selected algebraic solver strategies.
+    char ctot_transport_efficiency_mode[48];
+    int ctot_transport_efficiency_features;
+    int ctot_transport_efficiency_restart_migration_allowed;
     // Default-off outer fixed-point acceleration. Raw x/Y are never mixed.
     char ctot_outer_acceleration[32];
     // Acceptance/reporting policy only.  The default preserves the historical
@@ -424,6 +430,28 @@ typedef struct {
     // Default-off tiny-grid residual-floor archaeology. This diagnostic may
     // replay fixed-phi transport solves but never changes the accepted state.
     int ctot_debug_transport_floor_audit;
+    // Default-off accepted-trajectory observer for transport-gate sweeps. It
+    // copies the method-consistent cold residual only after a trial is accepted
+    // and accumulates no state used by the solver or transaction machinery.
+    int ctot_transport_gate_trajectory_diagnostics;
+    // Independent, default-off physically normalized defect observer. It
+    // accumulates accepted D_i, A_i, and interface occupancy in equal physical
+    // time windows; it is diagnostic-only and requires the trajectory observer.
+    int ctot_transport_defect_v2_diagnostics;
+    double ctot_transport_defect_v2_window_time_code;
+    // Default-off production audit cadence. Authoritative gates remain every
+    // step; only diagnostic-only full-field audits use this interval.
+    int ctot_full_audit_cadence;
+    // Variable-step active-manifold BDF2 controller. These fields are ignored
+    // by every legacy and fixed-step contract.
+    double ctot_variable_dt_min;
+    double ctot_variable_dt_max;
+    double ctot_variable_error_tol_C;
+    double ctot_variable_error_tol_phi;
+    double ctot_variable_error_tol_hvolume;
+    double ctot_variable_controller_safety;
+    double ctot_variable_controller_kp;
+    double ctot_variable_controller_ki;
     int ctot_elastic_validation_enabled;
     int ctot_debug_force_elastic_post_phi_reject;
     double ctot_matrix_support_eps;
@@ -437,8 +465,12 @@ typedef struct {
     // Engineering-only P0/P1 profiler. Default-off and excluded from the
     // accepted-state/checkpoint numerical contract.
     int ctot_performance_profile_enabled;
+    // Engineering-only memory/layout optimizations. Each bit is independently
+    // ablated; zero preserves the frozen allocation and copy path.
+    int ctot_memory_perf_features;
     int ctot_initialization_dry_run;
     int ctot_phase_only_dry_run;
+    int ctot_benchmark_suppress_field_output;
     double ctot_preconditioner_a_ref;
     double ctot_preconditioner_D_ref_multiplier;
     int ctot_spectral_fv_warm_start_diagnostic;

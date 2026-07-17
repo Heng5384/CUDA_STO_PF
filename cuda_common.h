@@ -59,7 +59,7 @@ typedef struct {
 
 // 初始化k空间（在GPU上）
 void kspace_build_cuda(KSpace_CUDA *KS, int Nx, int Ny, int Nz, 
-                       double dx, double dy, double dz);
+                       double dx, double dy, double dz, int build_k4 = 1);
 
 // 释放k空间资源
 void kspace_free_cuda(KSpace_CUDA *KS);
@@ -82,4 +82,3 @@ __device__ __host__ static inline double kz_wrap(int k, int Nz, double dz) {
 }
 
 #endif // CUDA_COMMON_H
-

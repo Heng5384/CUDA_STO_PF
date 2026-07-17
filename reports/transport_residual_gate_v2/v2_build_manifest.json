@@ -1,0 +1,30 @@
+{
+  "binary_sha256": "7d76e43e262a99bc452efc008a1ea0e767745f423e508555eb13aed15fffc16d",
+  "build_stderr_tail": "main_cuda.cu(41261): warning #177-D: label \"gp_post_birth_skip_to_finalize\" was declared but never referenced\n  gp_post_birth_skip_to_finalize:\n  ^\n\nRemark: The warnings can be suppressed with \"-diag-suppress <warning-number>\"\n\nmain_cuda.cu(12693): warning #177-D: function \"profile_family_max_abs_d_nm\" was declared but never referenced\n  static double profile_family_max_abs_d_nm(const ScheduledNucProfileSet *profile) {\n                ^\n\n",
+  "build_stdout_tail": "/usr/local/cuda-12.9/bin/nvcc -arch=sm_120 -O3 -std=c++14 --expt-relaxed-constexpr -Xcompiler -Wno-format-truncation -I/usr/local/cuda-12.9/include -o main_cuda main_cuda.cu cuda_kernels.cu cuda_common.cu -L/usr/local/cuda-12.9/lib64 -lcufft -lcudart -lm\n",
+  "physical_model_changed": false,
+  "remote_repo": "/home/zhiheng/PF/CUDA_STO_PF_transport_defect_v2",
+  "source_sha256": {
+    "Makefile": "f9aeb0dd333fac491d425873424cc31e3d40431cbb29eea971028ab2a1c84901",
+    "active_manifold_bdf2_utils.h": "e4fcce0513ee44fd462ebf711e247ffbc297cd73cefe3a26cf2f3039439489eb",
+    "bdf2_event_utils.h": "9b7712f96d62fc1e3f388c44cc9bd8e38bd3ded76868ea7e15c49615b9429115",
+    "bounded_retry_bdf2_utils.h": "bb81c5996ddc232708643f7773258f24c6a78ba9e4b8379141a30f6a6b922e9c",
+    "ctot_performance_profiler.h": "9a7ce615b278b834920e5442c73a838908201250795b28b877be580a54ba8988",
+    "ctot_transport_bound_utils.h": "ba0cf736165de65610f8e58b7eaa34468dbf81a7be2f955f1148b280c183d237",
+    "cuda_common.cu": "1d10b910b8557f997bf2ac2db4f02931372f8f6f4c3b42b788a5f3901e7e2d3d",
+    "cuda_common.h": "3389906bb60751ddea735ca686f5ec171a3d9617a50a8c67c601b06847b99608",
+    "cuda_kernels.cu": "5d2d9df0e0bc291fb50af7625699c0b973ef06e9a2ab3f938c2ba804663e1e4d",
+    "cuda_kernels.h": "3eb5cfa9ed35ddb533f43d5847ca270a0ac3a4ddb389770140e7fa7e7c425b53",
+    "io_vtk_cuda.h": "b73cd1588266846e8867caa8a7eb1df69675d553807a3f29f69ba2f1969df872",
+    "main_cuda.cu": "b9978ce5faf36acd2072ff6ec0b7158bad9d28bcb6a06668b0bd4c3cb8f9c556",
+    "pf_params.h": "c62eb521bb10656d4a15dd57e899b7041314456bbf740c6d9a32640672010726",
+    "phase_functions.h": "1de58a0c93208688d767bec1a3fa8b70b9bf0ec25f7a8d48ac5de0d3f651ac52",
+    "phase_kkt_utils.h": "76603069f6c7045e5634212335b8dd24658ec8cfa430299f2591139d20460d19",
+    "phase_pdas_reduction.h": "675e19f20d43d1a8bf4ec725784388c390c7ffce7b278366c0bfff4a9679443b",
+    "test_memory_ledger.cu": "5353ce47db5a833066315523dc1da2c3c92e0009596772af6362c998ac4d1691",
+    "thermo_utils.h": "7407ced4b2e78987a213b2c581ca04e2f8ad16856ae7dab4b538822c954fe284",
+    "transport_defect_gate_v2_observer.h": "ed0cc3de528272adfc5b0133532f82b913a61a0572b2c299f58bc16b6b0083ed"
+  },
+  "transport_gate_changed": false,
+  "transport_solver_changed": false
+}

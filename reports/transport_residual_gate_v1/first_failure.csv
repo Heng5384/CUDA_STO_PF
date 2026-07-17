@@ -1,0 +1,8 @@
+case_id,first_failed_gate,detail
+G12_dt8,retry_efficiency_gate_pass,NONE
+G12_dt4,retry_efficiency_gate_pass,NONE
+G12_dt2,retry_efficiency_gate_pass,NONE
+G12_dt1,RUNTIME_COMPLETION,"[reject] CTOT_MIMETIC_BE_REJECT step=352 attempt_id=1 iters=248 first_failure=transport_line_search_stagnation failure_source_line=34707 res_inf=1.86664563901260823e-11 mass_error=7.10542735760100186e-15 sum_divJ=-2.77555756156289135e-17; nonfinite=0 Y_cap=0 bounds=0 mobility_fail=0 x=[1.19420978788283776e-05,4.99999999971100229e-02] M=[0.00000000000000000e+00,1.38473425405255199e+02] residual_active=1.86664563901260823e-11 residual_inactive=0.00000000000000000e+00; BE_target_lower_violations=2 max_lower_defect=5.39845945723982368e-12 BE_target_upper_violations=0 max_upper_defect=0.00000000000000000e+00; W_finite_interface_sum=0.00000000000000000e+00 max_finite_interface_face_flux=0.00000000000000000e+00; whole accepted state restored."
+G10_dt1,retry_efficiency_gate_pass,NONE
+G9_dt1,retry_efficiency_gate_pass,NONE
+G8_dt1,retry_efficiency_gate_pass,NONE

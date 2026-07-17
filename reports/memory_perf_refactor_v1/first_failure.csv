@@ -1,0 +1,7 @@
+case,grid,stage,first_failure,hard_reject,recovered,effect_on_admission
+PF_ONLY_N400_benchmark13,400^3,step_2,coupled_outer_max_iter_not_converged -> depth-2 event subcycle,False,True,none; accepted after bitwise rollback and BE subcycling
+PF_ONLY_N400_benchmark13,400^3,step_4,coupled_outer_max_iter_not_converged -> depth-2 event subcycle,False,True,none; accepted after bitwise rollback and BE subcycling
+PF_ONLY_N400_benchmark13,400^3,step_6,coupled_outer_max_iter_not_converged -> depth-2 event subcycle,False,True,none; accepted after bitwise rollback and BE subcycling
+PF_ONLY_N400_benchmark13,400^3,step_8,coupled_outer_max_iter_not_converged -> depth-2 event subcycle,False,True,none; accepted after bitwise rollback and BE subcycling
+PF_ONLY_N400_benchmark13,400^3,step_10,coupled_outer_max_iter_not_converged -> depth-2 event subcycle,False,True,none; accepted after bitwise rollback and BE subcycling
+PF_ONLY_N400_benchmark13,400^3,step_12,coupled_outer_max_iter_not_converged -> depth-2 event subcycle,False,True,none; accepted after bitwise rollback and BE subcycling

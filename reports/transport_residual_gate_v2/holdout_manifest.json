@@ -1,0 +1,62 @@
+{
+  "existing_long_window_queue_preserved": true,
+  "extra_holdout_simulations": 2,
+  "pairs": [
+    [
+      "G12",
+      "dt32"
+    ],
+    [
+      "G9",
+      "dt4"
+    ]
+  ],
+  "schema": "TRANSPORT_DEFECT_GATE_V2_HOLDOUT_MANIFEST_V1",
+  "selection_contract": "BEST_NON_PEAK_HARD_GATE_THROUGHPUT_PLUS_RUNNER_WITHIN_10_PERCENT",
+  "statuses": [
+    {
+      "case_id": "V2_G12_dt32_5windows_holdout",
+      "client_wall_seconds": 2535.746442125,
+      "complete_windows": 5,
+      "dt_code": 9.765625e-05,
+      "dt_id": "dt32",
+      "gate_id": "G12",
+      "holdout_window_index": 5,
+      "new_holdout_windows": 1,
+      "physical_time_code": 7.8125,
+      "physical_time_s": 321.3248861293341,
+      "remote_binary_sha256": "7d76e43e262a99bc452efc008a1ea0e767745f423e508555eb13aed15fffc16d",
+      "remote_wall_seconds": 2535.233140707016,
+      "replay_windows": 4,
+      "requested_transport_gate": 1e-12,
+      "returncode": 0,
+      "runtime_params_sha256": "29997f5dd6bbab329d53562aabfd0b934d6c463183b0c26827e128525acfc534",
+      "solver_state_modified_by_observer": false,
+      "steps": 80000,
+      "steps_per_window": 16000,
+      "window_count": 5
+    },
+    {
+      "case_id": "V2_G9_dt4_5windows_holdout",
+      "client_wall_seconds": 376.20949258300016,
+      "complete_windows": 5,
+      "dt_code": 0.00078125,
+      "dt_id": "dt4",
+      "gate_id": "G9",
+      "holdout_window_index": 5,
+      "new_holdout_windows": 1,
+      "physical_time_code": 7.8125,
+      "physical_time_s": 321.3248861293341,
+      "remote_binary_sha256": "7d76e43e262a99bc452efc008a1ea0e767745f423e508555eb13aed15fffc16d",
+      "remote_wall_seconds": 375.7519762516022,
+      "replay_windows": 4,
+      "requested_transport_gate": 1e-09,
+      "returncode": 0,
+      "runtime_params_sha256": "fb28a212f096c3e8acd3fe1a3eaa39c1215b6116b4d657b45afbf479fb87681c",
+      "solver_state_modified_by_observer": false,
+      "steps": 10000,
+      "steps_per_window": 2000,
+      "window_count": 5
+    }
+  ]
+}

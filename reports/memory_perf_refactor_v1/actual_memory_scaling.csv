@@ -1,0 +1,9 @@
+configuration,N,source_GiB,process_peak_MiB,program_used_GiB,device_total_MiB,device_fraction_percent,first_step_attempted,first_step_accepted,status,measurement_note
+PF_ONLY,128,0.39978108555078506,440,1.09,16303,7.050452781371281,False,False,PASS_85PCT_ADMISSION,allocation dry-run; mask 251 had measured zero-byte M7 workspace and identical footprint
+PF_ONLY,192,1.3482984974980354,1652,2.03,16303,13.130659767141006,False,False,PASS_85PCT_ADMISSION,allocation dry-run; mask 251 had measured zero-byte M7 workspace and identical footprint
+PF_ONLY,256,3.1948266997933388,3544,3.88,16303,25.097024579560152,False,False,PASS_85PCT_ADMISSION,allocation dry-run; mask 251 had measured zero-byte M7 workspace and identical footprint
+PF_ONLY,320,6.238560207188129,6660,6.92,16303,44.76067270375162,False,False,PASS_85PCT_ADMISSION,allocation dry-run; mask 251 had measured zero-byte M7 workspace and identical footprint
+PF_ONLY,384,10.778693534433842,11310,11.46,16303,74.1267787839586,False,False,PASS_85PCT_ADMISSION,allocation dry-run; mask 251 had measured zero-byte M7 workspace and identical footprint
+PF_ONLY,400,12.182601198554039,12788,12.9,16303,83.4411384217335,True,True,PASS_85PCT_ADMISSION,feature mask 187 actual accepted step
+PF_ELASTIC,400,26.747592195868492,NOT_STARTED,NOT_STARTED,16303,NOT_MEASURED,False,False,BLOCKED_STATIC_SOURCE_EXCEEDS_DEVICE,elastic source ledger alone exceeds device; accepted baseline is elastic OFF
+PF_ELASTIC_GP_ALLOCATED,400,26.747592195868492,NOT_STARTED,NOT_STARTED,16303,NOT_MEASURED,False,False,BLOCKED_STATIC_SOURCE_AND_GP_GATE,static GP reservoir is host-side; GP/S3 gate remained closed

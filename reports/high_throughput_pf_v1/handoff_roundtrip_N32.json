@@ -1,0 +1,107 @@
+{
+  "schema": "PF_PARTICLE_HANDOFF_LEDGER_V1",
+  "authoritative_pf_state": "Ctot",
+  "diffuse_interface_policy": "partition_integral_h_phi_vB_once",
+  "grid_shape": [
+    32,
+    32,
+    32
+  ],
+  "dx_nm": 1.0,
+  "cell_volume_nm3": 1.0,
+  "v_B": 1.0,
+  "particle_threshold": 0.5,
+  "particle_count": 1,
+  "particles": [
+    {
+      "particle_id": 1,
+      "center_nm": [
+        16.0,
+        16.0,
+        16.0
+      ],
+      "h_volume_nm3": 2224.7953241501864,
+      "beta_inventory": 2224.7953241501864,
+      "equivalent_radius_nm": 8.098423509729006,
+      "threshold_volume_nm3": 2109.0,
+      "surface_area_nm2": 1182.0,
+      "shape_tensor_nm2": [
+        [
+          13.90127943661385,
+          -3.8977146520210156e-17,
+          -7.610163123895227e-18
+        ],
+        [
+          -3.762969579278179e-17,
+          13.901279436613825,
+          -2.66484554418115e-17
+        ],
+        [
+          -1.1072166029702254e-17,
+          8.432388208644246e-18,
+          13.90127943661381
+        ]
+      ],
+      "principal_variances_nm2": [
+        13.901279436613809,
+        13.90127943661382,
+        13.90127943661385
+      ],
+      "orientation_columns": [
+        [
+          0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          -0.09128974124115928,
+          0.99582437364433,
+          0.0
+        ],
+        [
+          -0.9958243736443301,
+          -0.09128974124115932,
+          0.0
+        ]
+      ],
+      "local_matrix_xB": 0.02532072183421465,
+      "local_chemical_potential": null,
+      "elastic_environment_tag": "not_supplied",
+      "nearby_GP_inventory": 0.0,
+      "nearest_neighbor_distance_nm": null
+    }
+  ],
+  "ledger": {
+    "matrix_inventory_qalpha": 905.8410791092895,
+    "beta_inventory_hvB": 2224.795324151071,
+    "partitioned_particle_beta_inventory": 2224.7953241501864,
+    "GP_inventory": 0.0,
+    "PF_field_inventory_Ctot": 3130.636403260361,
+    "total_inventory_with_GP": 3130.636403260361,
+    "roundtrip_inventory": 3130.6364032594756,
+    "roundtrip_error_abs": -8.853930921759456e-10,
+    "roundtrip_error_rel": 2.828156892489541e-13,
+    "particle_partition_error_rel": 3.9755728892124975e-13
+  },
+  "threshold_stability": {
+    "phi_ge_0.4": {
+      "particle_count": 1,
+      "radii_nm": [
+        8.438492500289069
+      ]
+    },
+    "phi_ge_0.5": {
+      "particle_count": 1,
+      "radii_nm": [
+        7.955411646920489
+      ]
+    },
+    "phi_ge_0.6": {
+      "particle_count": 1,
+      "radii_nm": [
+        7.600305334679925
+      ]
+    }
+  },
+  "physics_claim": "mass-conserving state mapping only; no calibrated KWN claim"
+}

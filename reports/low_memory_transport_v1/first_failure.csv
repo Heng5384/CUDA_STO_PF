@@ -1,0 +1,11 @@
+case_id,status,completed_steps,requested_steps,returncode,first_reject_type,first_reject_step,first_failure,first_failure_residual,internal_trial_rejects,fallback_macros,homotopy_level_failures,rollback_bitwise_pass,teardown_or_runtime_signal
+V0_dt2_1000steps,COMPLETE,1000,1000,0,CTOT_MIMETIC_BE_REJECT,690,transport_line_search_stagnation,5.97399764885119023e-08,3,3,0,True,none
+V0_dt8_4000steps,FAILED,1005,4000,139,NA,NA,NA,NA,0,0,0,True,SIGSEGV_RC139
+V1_dt4_2000steps,FAILED,1324,2000,2,CTOT_MIMETIC_BE_REJECT,1325,transport_line_search_stagnation,6.36801564500386729e-06,0,0,0,True,none
+V2_dt4_2000steps,FAILED,1324,2000,2,CTOT_MIMETIC_BE_REJECT,1325,transport_line_search_stagnation,1.30639410255987128e-10,0,0,0,True,none
+V3_dt4_2000steps,FAILED,1379,2000,2,CTOT_MIMETIC_BE_REJECT,1358,transport_line_search_stagnation,6.75255440519261872e-06,0,0,0,True,none
+V4_dt4_2000steps,COMPLETE,2000,2000,0,CTOT_MIMETIC_BE_REJECT,1588,transport_line_search_stagnation,4.32395574367077286e-10,15,10,0,True,none
+V5_dt16_8000steps,COMPUTE_COMPLETE_RUNTIME_FAILED,8000,8000,139,CTOT_MIMETIC_BE_REJECT,5689,transport_line_search_stagnation,1.32329015991173877e-10,84,82,84,True,SIGSEGV_RC139
+V5_dt2_1000steps,FAILED,830,1000,2,CTOT_MIMETIC_BE_REJECT,671,transport_line_search_stagnation,5.80726271791114025e-05,0,0,18,True,none
+V5_dt4_2000steps,COMPLETE,2000,2000,0,CTOT_MIMETIC_BE_REJECT,1605,transport_line_search_stagnation,5.00065985636859907e-05,2,2,2,True,none
+V5_dt8_4000steps,FAILED,3464,4000,2,CTOT_MIMETIC_BE_REJECT,2817,transport_line_search_stagnation,1.19209776490338057e-10,0,0,20,True,none

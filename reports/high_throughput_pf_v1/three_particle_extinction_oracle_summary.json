@@ -1,0 +1,37 @@
+{
+  "schema": "PARTICLE_COARSENING_TREND_ORACLE_V1",
+  "status": "UNCALIBRATED_TREND_ORACLE_ONLY",
+  "initial_particle_count": 3,
+  "final_particle_count": 3,
+  "initial_radii_nm": [
+    2.342758309684246,
+    6.129714773820105,
+    10.077663962920804
+  ],
+  "final_particle_ids": [
+    1,
+    2,
+    3
+  ],
+  "final_radii_nm": [
+    2.0915798151300287,
+    6.176764805951144,
+    10.118150999795008
+  ],
+  "extinction_order": [],
+  "final_matrix_xB": 0.01177401962454449,
+  "final_matrix_inventory": 3023.3271535801878,
+  "final_beta_inventory": 5364.476099966275,
+  "GP_inventory": 0.0,
+  "max_mass_error_rel": 0.0,
+  "end_time_s": 9.639746583880024,
+  "parameters": {
+    "c_eq_inf": 0.005896193199132673,
+    "capillary_length_nm": 2.461911411573627,
+    "kinetic_nm2_per_s": 9.725359394485801,
+    "dt_max_s": 0.05,
+    "relative_radius_step_limit": 0.005,
+    "extinction_radius_nm": 0.05
+  },
+  "physical_claim_allowed": false
+}

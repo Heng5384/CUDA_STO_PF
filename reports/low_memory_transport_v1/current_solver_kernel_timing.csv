@@ -1,0 +1,12 @@
+provenance,state,stage,count,total_gpu_ms,median_gpu_ms,max_gpu_ms,status
+reports/pf_ctot_production_candidate/perf_p1_raw/p1_final_stage_timing.csv,P1_nonelastic_profile_step,transport.residual_evaluation,11,31.7361281,2.83977604,3.19369602,MEASURED_EXISTING_BINARY
+reports/pf_ctot_production_candidate/perf_p1_raw/p1_final_stage_timing.csv,P1_nonelastic_profile_step,transport.context_reconstruction,11,0.919328001,0.0913600028,0.126816005,MEASURED_EXISTING_BINARY
+reports/pf_ctot_production_candidate/perf_p1_raw/p1_final_stage_timing.csv,P1_nonelastic_profile_step,transport.thermodynamics_mobility,11,10.600384,0.960959971,0.984319985,MEASURED_EXISTING_BINARY
+reports/pf_ctot_production_candidate/perf_p1_raw/p1_final_stage_timing.csv,P1_nonelastic_profile_step,transport.face_flux_divergence,11,17.703872,1.58585596,1.81625605,MEASURED_EXISTING_BINARY
+reports/pf_ctot_production_candidate/perf_p1_raw/p1_final_stage_timing.csv,P1_nonelastic_profile_step,transport.nonlinear_residual,11,1.27417599,0.0959040001,0.192159995,MEASURED_EXISTING_BINARY
+reports/pf_ctot_production_candidate/perf_p1_raw/p1_final_stage_timing.csv,P1_nonelastic_profile_step,transport.nonlinear_reductions,11,1.198752,0.0980800018,0.208287999,MEASURED_EXISTING_BINARY
+pending,dt16_easy,all,0,,,,PENDING_FRESH_LOW_MEMORY_BUILD
+pending,dt8_typical,all,0,,,,PENDING_FRESH_LOW_MEMORY_BUILD
+pending,dt8_frozen_difficult,all,0,,,,PENDING_FRESH_LOW_MEMORY_BUILD
+pending,dt4_frozen_difficult,all,0,,,,PENDING_FRESH_LOW_MEMORY_BUILD
+pending,iteration500_failure,all,0,,,,PENDING_FRESH_LOW_MEMORY_BUILD

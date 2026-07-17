@@ -933,6 +933,10 @@ void launch_ctot_trial_feasible_C_update_kernel(
     double lambda, double *C_trial_r, double v_B,
     double matrix_support_eps, double xB_context_eps, double Y_safety_cap,
     double active_tol, double *stats, int total_size);
+void launch_ctot_fraction_to_boundary_kernel(
+    const double *C_current_r, const double *direction_r,
+    const double *phi_r, double *lambda_limit_r, double v_B,
+    double matrix_support_eps, int total_size);
 void launch_ctot_build_mass_tangent_direction_kernel(
     const double *C_current_r, const double *phi_r, double *direction_r,
     double *free_mask_r, double v_B, double matrix_support_eps,
@@ -973,6 +977,9 @@ void launch_ctot_fv_divergence_kernel(
     const double *face_x_r, const double *face_y_r, const double *face_z_r,
     double *divJ_r, int Nx, int Ny, int Nz,
     double dx, double dy, double dz, int total_size);
+void launch_ctot_fv_accumulate_axis_divergence_kernel(
+    const double *face_r, double *divJ_r,
+    int Nx, int Ny, int Nz, int axis, double spacing, int total_size);
 
 void launch_initialize_q_alpha_kernel(const double *phi_r,
                                       const double *xB_r,
