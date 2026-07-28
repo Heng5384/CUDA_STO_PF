@@ -2198,6 +2198,99 @@ __global__ void compute_Y_rhs_kernel(
     }
 }
 
+__global__ void compute_Y_rhs_sm_tangent_n_kernel(
+    const double *divJ_r,
+    const double *phi_n_r,
+    const double *phi_np1_r,
+    const double *lapY_r,
+    const double *Y_r,
+    const double *dY_dt_prev,
+    double *rhs_r,
+    double dt,
+    double v_B,
+    double mean_DY,
+    int total_size,
+    double *diag_stats)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+
+    const double phi_n = phi_n_r[idx];
+    const double phi_np1 = phi_np1_r[idx];
+    const double h_n = h_of_phi(phi_n);
+    const double h_np1 = h_of_phi(phi_np1);
+    const double hp_n = h_prime_of_phi(phi_n);
+    const double dphi_dt = (phi_np1 - phi_n) / dt;
+
+    const double Y_val = Y_r[idx];
+    double xB;
+    if (Y_val >= 0.0) {
+        const double e_negY = exp(-Y_val);
+        xB = 1.0 / (1.0 + e_negY);
+    } else {
+        const double e_Y = exp(Y_val);
+        xB = e_Y / (1.0 + e_Y);
+    }
+    if (xB < 1.0e-12) xB = 1.0e-12;
+    if (xB > 1.0 - 1.0e-12) xB = 1.0 - 1.0e-12;
+
+    const double logistic_deriv = xB * (1.0 - xB);
+    const double term_h = hp_n * dphi_dt * (v_B - xB);
+    const double gamma_local =
+        ((1.0 - h_n) * logistic_deriv - 1.0);
+    const double lagged_dYdt =
+        dY_dt_prev ? dY_dt_prev[idx] : 0.0;
+    const double term_gamma = gamma_local * lagged_dYdt;
+    const double lapY = lapY_r[idx];
+    const double term_lap = mean_DY * lapY;
+    const double fY =
+        divJ_r[idx] - term_h - term_lap - term_gamma;
+    rhs_r[idx] = fY;
+
+    if (diag_stats) {
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_OLD], h_n);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_H_NEW], h_np1);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_GAMMA_LOCAL],
+                  gamma_local);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_H], term_h);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_LAP], term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TERM_GAMMA],
+                  term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_DIVJ], divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_LAPY], lapY);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUM_TOTAL], fY);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_DIVJ],
+                  fabs(divJ_r[idx]));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_H],
+                  fabs(term_h));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_LAP],
+                  fabs(term_lap));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TERM_GAMMA],
+                  fabs(term_gamma));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMABS_TOTAL], fabs(fY));
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_DIVJ],
+                  divJ_r[idx] * divJ_r[idx]);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_H],
+                  term_h * term_h);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_LAP],
+                  term_lap * term_lap);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TERM_GAMMA],
+                  term_gamma * term_gamma);
+        atomicAdd(&diag_stats[MASS_DIAG_Y_RHS_SUMSQ_TOTAL], fY * fY);
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_DIVJ],
+                           fabs(divJ_r[idx]));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_H],
+                           fabs(term_h));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_LAP],
+                           fabs(term_lap));
+        atomicMaxAbsDouble(
+            &diag_stats[MASS_DIAG_Y_RHS_MAXABS_TERM_GAMMA],
+            fabs(term_gamma));
+        atomicMaxAbsDouble(&diag_stats[MASS_DIAG_Y_RHS_MAXABS_TOTAL],
+                           fabs(fY));
+    }
+}
+
 __global__ void compute_Y_rhs_gp_kernel(
     const double *divJ_r,
     const double *phi_r,
@@ -3228,6 +3321,60 @@ __global__ void apply_Y_shift_recompute_xB_kernel(
     xB_r[idx] = sigmoid_from_logit(Y_shifted, Y_clip, xB_eps);
 }
 
+__device__ static inline double pf_zero_mode_sigmoid(double y)
+{
+    if (y >= 0.0) {
+        const double e = exp(-y);
+        return 1.0 / (1.0 + e);
+    }
+    const double e = exp(y);
+    return e / (1.0 + e);
+}
+
+__global__ void copy_scaled_pf_Y_kernel(const double *raw_Y_r, double invN,
+                                        double *Y_star_r, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    Y_star_r[idx] = raw_Y_r[idx] * invN;
+}
+
+__global__ void compute_pf_Y_zero_mode_terms_kernel(
+    const double *Y_star_r, const double *phi_r, double lambda, double v_B,
+    double *mass_terms_r, double *derivative_terms_r, int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double h = h_of_phi(phi_r[idx]);
+    const double alpha = 1.0 - h;
+    const double x = pf_zero_mode_sigmoid(Y_star_r[idx] + lambda);
+    mass_terms_r[idx] = alpha * x + h * v_B;
+    derivative_terms_r[idx] = alpha * x * (1.0 - x);
+}
+
+__global__ void validate_pf_Y_zero_mode_bounds_kernel(
+    const double *Y_star_r, double lambda, double Y_lower, double Y_upper,
+    int total_size, int *invalid)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double y = Y_star_r[idx] + lambda;
+    if (!isfinite(y) || y < Y_lower || y > Y_upper) {
+        atomicExch(invalid, 1);
+    }
+}
+
+__global__ void apply_pf_Y_zero_mode_shift_kernel(
+    const double *Y_star_r, double lambda, double *Y_r, double *xB_r,
+    int total_size)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double y = Y_star_r[idx] + lambda;
+    Y_r[idx] = y;
+    xB_r[idx] = pf_zero_mode_sigmoid(y);
+}
+
 __global__ void gp_storage_diagnostics_kernel(
     const double *phi_old_r,
     const double *eta_old_r,
@@ -3430,6 +3577,59 @@ __global__ void reduce_sum_kernel(
     // 写入结果
     if (tid == 0) {
         output[blockIdx.x] = sdata[0];
+    }
+}
+
+__global__ void reduce_sum_pair_kernel(
+    const double *first, const double *second,
+    double *output_pairs, int n)
+{
+    extern __shared__ double pair_sdata[];
+    double *first_sdata = pair_sdata;
+    double *second_sdata = pair_sdata + blockDim.x;
+    const unsigned int tid = threadIdx.x;
+    const unsigned int i = blockIdx.x * blockDim.x + tid;
+    first_sdata[tid] = (i < n) ? first[i] : 0.0;
+    second_sdata[tid] = (i < n) ? second[i] : 0.0;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            first_sdata[tid] += first_sdata[tid + s];
+            second_sdata[tid] += second_sdata[tid + s];
+        }
+        __syncthreads();
+    }
+    if (tid == 0) {
+        output_pairs[2 * blockIdx.x] = first_sdata[0];
+        output_pairs[2 * blockIdx.x + 1] = second_sdata[0];
+    }
+}
+
+__global__ void reduce_interleaved_pair_kernel(
+    const double *input_pairs, double *output_pairs, int pair_count)
+{
+    extern __shared__ double pair_sdata[];
+    double *first_sdata = pair_sdata;
+    double *second_sdata = pair_sdata + blockDim.x;
+    const unsigned int tid = threadIdx.x;
+    const unsigned int i = blockIdx.x * blockDim.x + tid;
+    first_sdata[tid] =
+        (i < pair_count) ? input_pairs[2 * i] : 0.0;
+    second_sdata[tid] =
+        (i < pair_count) ? input_pairs[2 * i + 1] : 0.0;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            first_sdata[tid] += first_sdata[tid + s];
+            second_sdata[tid] += second_sdata[tid + s];
+        }
+        __syncthreads();
+    }
+    if (tid == 0) {
+        output_pairs[2 * blockIdx.x] = first_sdata[0];
+        output_pairs[2 * blockIdx.x + 1] = second_sdata[0];
     }
 }
 
@@ -4779,6 +4979,20 @@ void launch_compute_Y_rhs_kernel(const double *divJ_r, const double *phi_r,
                                                diag_stats);
 }
 
+void launch_compute_Y_rhs_sm_tangent_n_kernel(
+    const double *divJ_r, const double *phi_n_r,
+    const double *phi_np1_r, const double *lapY_r,
+    const double *Y_r, const double *dY_dt_prev,
+    double *rhs_r, double dt, double v_B,
+    double mean_DY, int total_size, double *diag_stats)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_Y_rhs_sm_tangent_n_kernel<<<blocks, threads>>>(
+        divJ_r, phi_n_r, phi_np1_r, lapY_r, Y_r, dY_dt_prev,
+        rhs_r, dt, v_B, mean_DY, total_size, diag_stats);
+}
+
 void launch_compute_Y_rhs_gp_kernel(const double *divJ_r, const double *phi_r,
                                      const double *phi_prev, const double *eta_r,
                                      const double *eta_prev_r, const double *lapY_r,
@@ -5117,6 +5331,58 @@ void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,
         Y_base_r, Y_r, xB_r, lambda_shift, Y_clip, Y_upper_cap, xB_eps, total_size);
 }
 
+void launch_copy_scaled_pf_Y_kernel(const double *raw_Y_r, double invN,
+                                    double *Y_star_r, int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    copy_scaled_pf_Y_kernel<<<blocks, threads>>>(
+        raw_Y_r, invN, Y_star_r, total_size);
+}
+
+void launch_compute_pf_Y_zero_mode_terms_kernel(
+    const double *Y_star_r, const double *phi_r, double lambda, double v_B,
+    double *mass_terms_r, double *derivative_terms_r, int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    compute_pf_Y_zero_mode_terms_kernel<<<blocks, threads>>>(
+        Y_star_r, phi_r, lambda, v_B, mass_terms_r, derivative_terms_r,
+        total_size);
+}
+
+bool launch_validate_pf_Y_zero_mode_bounds_kernel(
+    const double *Y_star_r, double lambda, double Y_lower, double Y_upper,
+    int total_size, int *d_invalid)
+{
+    if (!Y_star_r || !d_invalid || total_size <= 0 || !isfinite(lambda) ||
+        !isfinite(Y_lower) || !isfinite(Y_upper) || Y_lower > Y_upper) {
+        return false;
+    }
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    CUDA_CHECK(cudaMemset(d_invalid, 0, sizeof(int)));
+    validate_pf_Y_zero_mode_bounds_kernel<<<blocks, threads>>>(
+        Y_star_r, lambda, Y_lower, Y_upper, total_size, d_invalid);
+    if (cudaGetLastError() != cudaSuccess) return false;
+    int invalid = 0;
+    if (cudaMemcpy(&invalid, d_invalid, sizeof(int),
+                   cudaMemcpyDeviceToHost) != cudaSuccess) {
+        return false;
+    }
+    return invalid == 0;
+}
+
+void launch_apply_pf_Y_zero_mode_shift_kernel(
+    const double *Y_star_r, double lambda, double *Y_r, double *xB_r,
+    int total_size)
+{
+    int threads = 256;
+    int blocks = (total_size + threads - 1) / threads;
+    apply_pf_Y_zero_mode_shift_kernel<<<blocks, threads>>>(
+        Y_star_r, lambda, Y_r, xB_r, total_size);
+}
+
 void launch_gp_picard_storage_Y_update_kernel(const double *divJ_r,
                                               const double *phi_new_r,
                                               const double *phi_old_r,
@@ -5300,6 +5566,53 @@ double gpu_reduce_sum(const double *d_array, int n) {
     CUDA_CHECK(cudaFree(d_block_sums));
     
     return result;
+}
+
+bool gpu_reduce_sum_pair_reuse(
+    const double *d_first, const double *d_second, int n,
+    double *d_work, int work_capacity_doubles,
+    double *first_sum, double *second_sum)
+{
+    if (!d_first || !d_second || !d_work || !first_sum || !second_sum ||
+        n <= 0) {
+        return false;
+    }
+    constexpr int threads_per_block = 256;
+    const int max_blocks =
+        (n + threads_per_block - 1) / threads_per_block;
+    if (max_blocks <= 0 ||
+        work_capacity_doubles < 4 * max_blocks) {
+        return false;
+    }
+    double *ping = d_work;
+    double *pong = d_work + 2 * max_blocks;
+    const size_t shared_bytes =
+        2 * threads_per_block * sizeof(double);
+    reduce_sum_pair_kernel<<<max_blocks, threads_per_block, shared_bytes>>>(
+        d_first, d_second, ping, n);
+    if (cudaGetLastError() != cudaSuccess) return false;
+
+    int remaining = max_blocks;
+    double *input = ping;
+    while (remaining > 1) {
+        const int next_blocks =
+            (remaining + threads_per_block - 1) / threads_per_block;
+        double *output = (input == ping) ? pong : ping;
+        reduce_interleaved_pair_kernel<<<next_blocks, threads_per_block,
+                                         shared_bytes>>>(
+            input, output, remaining);
+        if (cudaGetLastError() != cudaSuccess) return false;
+        input = output;
+        remaining = next_blocks;
+    }
+    double host_pair[2] = {0.0, 0.0};
+    if (cudaMemcpy(host_pair, input, sizeof(host_pair),
+                   cudaMemcpyDeviceToHost) != cudaSuccess) {
+        return false;
+    }
+    *first_sum = host_pair[0];
+    *second_sum = host_pair[1];
+    return true;
 }
 
 // ============================================================================

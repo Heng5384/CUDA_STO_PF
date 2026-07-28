@@ -8,6 +8,19 @@
 #include <errno.h>
 
 /**
+ * Benchmark/qualification-only output gate.
+ *
+ * The default remains unchanged.  Setting CUDA_STO_SUPPRESS_VTK_OUTPUT=1
+ * prevents full-field device-to-host copies and ASCII VTK writes while leaving
+ * solver diagnostics, checkpoints, and timing logs untouched.
+ */
+static inline int cuda_sto_vtk_output_suppressed(void)
+{
+    const char *value = getenv("CUDA_STO_SUPPRESS_VTK_OUTPUT");
+    return value != NULL && strcmp(value, "1") == 0;
+}
+
+/**
  * CUDA版本的VTK输出函数
  * 从GPU内存复制数据，重新排列为VTK格式，并写入文件
  * 
@@ -23,6 +36,14 @@ static inline int write_vtk_cuda(const double *d_field,
                                   int step,
                                   const char *fname)
 {
+    if (cuda_sto_vtk_output_suppressed()) {
+        fprintf(stdout,
+                "VTK_OUTPUT_SUPPRESSED field=%s step=%d path=%s\n",
+                field_name ? field_name : "unknown", step,
+                fname ? fname : "unknown");
+        return 1;
+    }
+
     // 分配CPU内存
     size_t data_size = Nx * Ny * Nz * sizeof(double);
     double *h_field = (double*)malloc(data_size);

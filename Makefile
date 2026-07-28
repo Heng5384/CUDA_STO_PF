@@ -17,13 +17,15 @@ BIN_MAIN = main_cuda
 BIN_TEST = test_memory_ledger
 
 # 源文件
-SRC_MAIN = main_cuda.cu cuda_kernels.cu cuda_common.cu
+SRC_MAIN = main_cuda.cu cuda_kernels.cu cuda_common.cu pf_zero_mode_checkpoint.cpp
 SRC_TEST = test_memory_ledger.cu
 
 # 头文件
-HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h
+HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h pf_zero_mode_checkpoint.h
 
-.PHONY: all clean test test_circle help
+BIN_ZERO_MODE_CHECKPOINT_TEST = test_pf_zero_mode_checkpoint_bin
+
+.PHONY: all clean test test_circle test_pf_zero_mode_checkpoint help
 
 all: $(BIN_MAIN)
 
@@ -32,6 +34,7 @@ help:
 	@echo "  make main_cuda            # build main program"
 	@echo "  make test                 # build+run smoke test (memory ledger)"
 	@echo "  make test_circle          # smoke test + summary plot helper"
+	@echo "  make test_pf_zero_mode_checkpoint # host-only restart provenance test"
 	@echo ""
 	@echo "Variables:"
 	@echo "  CUDA_ROOT=/usr/local/cuda-12.9 # CUDA toolkit path (must contain include/ and lib64/)"
@@ -50,11 +53,17 @@ test: $(BIN_TEST)
 	@echo "运行 smoke test（memory ledger）..."
 	./$(BIN_TEST)
 
+test_pf_zero_mode_checkpoint: $(BIN_ZERO_MODE_CHECKPOINT_TEST)
+	./$(BIN_ZERO_MODE_CHECKPOINT_TEST)
+
+$(BIN_ZERO_MODE_CHECKPOINT_TEST): tests/test_pf_zero_mode_checkpoint.cpp pf_zero_mode_checkpoint.cpp pf_zero_mode_checkpoint.h
+	$(CXX) -O2 -std=c++14 -Wall -Wextra -pedantic -o $@ tests/test_pf_zero_mode_checkpoint.cpp pf_zero_mode_checkpoint.cpp
+
 test_circle: test
 	@echo "生成测试摘要图..."
 	@python3 tools/analysis/plot_kirsch_comparison.py
 
 clean:
-	rm -f $(BIN_MAIN) $(BIN_TEST) *.o
+	rm -f $(BIN_MAIN) $(BIN_TEST) $(BIN_ZERO_MODE_CHECKPOINT_TEST) *.o
 	rm -f circle_void_*.dat circle_void_*.vtk
 	rm -f kirsch_comparison_*.png kirsch_comparison_placeholder.png kirsch_comparison_memory_ledger.txt

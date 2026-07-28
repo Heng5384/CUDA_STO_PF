@@ -26,6 +26,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <cfloat>
 
 #include "cuda_common.h"
 #include "pf_params.h"
@@ -34,6 +35,7 @@
 #include "thermo_utils.h"
 #include "cuda_kernels.h"
 #include "io_vtk_cuda.h"
+#include "pf_zero_mode_checkpoint.h"
 
 __global__ void diagnostic_rsmd_gather_double_kernel(const double *src,
                                                      const int *indices,
@@ -4048,6 +4050,194 @@ static int run_y_update_mass_projection(const PFParams *P,
     if (min_xB_after_out) *min_xB_after_out = min_xB_after;
     if (max_xB_after_out) *max_xB_after_out = max_xB_after;
     if (converged_out) *converged_out = converged;
+    return 1;
+}
+
+struct PfZeroModeSolveResult {
+    double lambda = 0.0;
+    double residual_code = 0.0;
+    double derivative_code = 0.0;
+    double Y_star_min = 0.0;
+    double Y_star_max = 0.0;
+    double lambda_lower = 0.0;
+    double lambda_upper = 0.0;
+    int iterations = 0;
+    int newton_steps = 0;
+    int bisection_steps = 0;
+    int converged = 0;
+};
+
+static std::uint64_t pf_zero_mode_parameter_fingerprint(const PFParams *P) {
+    if (!P) return 0U;
+    std::uint64_t hash = 1469598103934665603ULL;
+    auto add = [&](const void *data, size_t size) {
+        hash = pf_zero_mode::fnv1a64(data, size, hash);
+    };
+    add(&P->Nx, sizeof(P->Nx));
+    add(&P->Ny, sizeof(P->Ny));
+    add(&P->Nz, sizeof(P->Nz));
+    add(&P->dt, sizeof(P->dt));
+    add(&P->temperature_C, sizeof(P->temperature_C));
+    add(&P->dx, sizeof(P->dx));
+    add(&P->dy, sizeof(P->dy));
+    add(&P->dz, sizeof(P->dz));
+    add(&P->v_A, sizeof(P->v_A));
+    add(&P->v_B, sizeof(P->v_B));
+    add(&P->D_alpha, sizeof(P->D_alpha));
+    add(&P->D_compound, sizeof(P->D_compound));
+    add(&P->L_phi, sizeof(P->L_phi));
+    add(&P->kappa_phi, sizeof(P->kappa_phi));
+    add(&P->W, sizeof(P->W));
+    add(&P->Y_clip, sizeof(P->Y_clip));
+    add(&P->xB_eps, sizeof(P->xB_eps));
+    add(&P->enable_Y_rhs_previous_time_level,
+        sizeof(P->enable_Y_rhs_previous_time_level));
+    add(&P->disable_Y_rhs_gamma_term,
+        sizeof(P->disable_Y_rhs_gamma_term));
+    add(P->pf_composition_mode, strlen(P->pf_composition_mode) + 1U);
+    add(P->pf_y_update_mode, strlen(P->pf_y_update_mode) + 1U);
+    add(pf_zero_mode::kExplicitContextNV1,
+        strlen(pf_zero_mode::kExplicitContextNV1) + 1U);
+    add(pf_zero_mode::kReactionTangentNV1,
+        strlen(pf_zero_mode::kReactionTangentNV1) + 1U);
+    return hash == 0U ? 1U : hash;
+}
+
+static int run_pf_conserved_y_zero_mode_host(
+    const PFParams *P,
+    const double *d_Y_star_r,
+    const double *d_phi_r,
+    double *d_mass_terms_r,
+    double *d_derivative_terms_r,
+    double *d_pair_reduction_work,
+    int pair_reduction_work_capacity,
+    double target_mass_code,
+    double Y_upper_cap,
+    double tolerance_relative,
+    int max_iterations,
+    int total_r,
+    int *d_invalid,
+    double *d_Y_r,
+    double *d_xB_r,
+    PfZeroModeSolveResult *result)
+{
+    if (!P || !d_Y_star_r || !d_phi_r || !d_mass_terms_r ||
+        !d_derivative_terms_r || !d_pair_reduction_work ||
+        pair_reduction_work_capacity <= 0 ||
+        !d_invalid || !d_Y_r || !d_xB_r ||
+        !result || total_r <= 0 || !(tolerance_relative > 0.0) ||
+        max_iterations <= 0 || !std::isfinite(target_mass_code) ||
+        !std::isfinite(Y_upper_cap)) {
+        return 0;
+    }
+    PfZeroModeSolveResult status;
+    gpu_reduce_min_max(d_Y_star_r, total_r,
+                       &status.Y_star_min, &status.Y_star_max);
+    if (!std::isfinite(status.Y_star_min) ||
+        !std::isfinite(status.Y_star_max)) {
+        *result = status;
+        return 0;
+    }
+    status.lambda_lower = -P->Y_clip - status.Y_star_min;
+    status.lambda_upper = Y_upper_cap - status.Y_star_max;
+    const double interval_roundoff =
+        128.0 * DBL_EPSILON *
+        fmax(fmax(fabs(status.lambda_lower),
+                  fabs(status.lambda_upper)), 1.0);
+    if (!std::isfinite(status.lambda_lower) ||
+        !std::isfinite(status.lambda_upper) ||
+        status.lambda_lower > status.lambda_upper + interval_roundoff) {
+        *result = status;
+        return 0;
+    }
+
+    const double tolerance =
+        tolerance_relative * fmax(fabs(target_mass_code), 1.0);
+    auto evaluate = [&](double lambda, double *mass,
+                        double *derivative) -> int {
+        launch_compute_pf_Y_zero_mode_terms_kernel(
+            d_Y_star_r, d_phi_r, lambda, P->v_B,
+            d_mass_terms_r, d_derivative_terms_r, total_r);
+        CUDA_CHECK(cudaGetLastError());
+        if (!gpu_reduce_sum_pair_reuse(
+                d_mass_terms_r, d_derivative_terms_r, total_r,
+                d_pair_reduction_work, pair_reduction_work_capacity,
+                mass, derivative)) {
+            return 0;
+        }
+        return std::isfinite(*mass) && std::isfinite(*derivative);
+    };
+
+    double lower_mass = 0.0, lower_derivative = 0.0;
+    double upper_mass = 0.0, upper_derivative = 0.0;
+    if (!evaluate(status.lambda_lower, &lower_mass, &lower_derivative) ||
+        !evaluate(status.lambda_upper, &upper_mass, &upper_derivative)) {
+        *result = status;
+        return 0;
+    }
+    double F_lower = lower_mass - target_mass_code;
+    double F_upper = upper_mass - target_mass_code;
+    if (F_lower > tolerance || F_upper < -tolerance) {
+        *result = status;
+        return 0;
+    }
+
+    status.lambda = fmin(fmax(0.0, status.lambda_lower),
+                         status.lambda_upper);
+    double mass = 0.0;
+    if (!evaluate(status.lambda, &mass, &status.derivative_code)) {
+        *result = status;
+        return 0;
+    }
+    status.residual_code = mass - target_mass_code;
+    for (int iteration = 0;
+         iteration < max_iterations &&
+         fabs(status.residual_code) > tolerance;
+         ++iteration) {
+        if (status.residual_code < 0.0) {
+            status.lambda_lower = status.lambda;
+            F_lower = status.residual_code;
+        } else {
+            status.lambda_upper = status.lambda;
+            F_upper = status.residual_code;
+        }
+        double candidate = NAN;
+        if (status.derivative_code > 0.0 &&
+            std::isfinite(status.derivative_code)) {
+            candidate =
+                status.lambda -
+                status.residual_code / status.derivative_code;
+        }
+        if (std::isfinite(candidate) &&
+            candidate > status.lambda_lower &&
+            candidate < status.lambda_upper) {
+            ++status.newton_steps;
+        } else {
+            candidate =
+                0.5 * (status.lambda_lower + status.lambda_upper);
+            ++status.bisection_steps;
+        }
+        status.lambda = candidate;
+        if (!evaluate(status.lambda, &mass, &status.derivative_code)) {
+            *result = status;
+            return 0;
+        }
+        status.residual_code = mass - target_mass_code;
+        status.iterations = iteration + 1;
+    }
+    status.converged =
+        fabs(status.residual_code) <= tolerance ? 1 : 0;
+    if (!status.converged ||
+        !launch_validate_pf_Y_zero_mode_bounds_kernel(
+            d_Y_star_r, status.lambda, -P->Y_clip, Y_upper_cap,
+            total_r, d_invalid)) {
+        *result = status;
+        return 0;
+    }
+    launch_apply_pf_Y_zero_mode_shift_kernel(
+        d_Y_star_r, status.lambda, d_Y_r, d_xB_r, total_r);
+    CUDA_CHECK(cudaGetLastError());
+    *result = status;
     return 1;
 }
 
@@ -22089,6 +22279,17 @@ int main(int argc, char **argv) {
     char continue_phi_vtk_pre_scan[4096] = {0};
     char effective_pf_param_file[4096] = {0};
     char continue_case_pf_param_file[4096] = {0};
+    char pf_zero_mode_selector[64] = {0};
+    char pf_zero_mode_backend[64] = {0};
+    char pf_checkpoint_path[4096] = {0};
+    char pf_restart_from[4096] = {0};
+    double pf_zero_mode_tolerance_relative = 1.0e-12;
+    int pf_zero_mode_max_iterations = 24;
+    int pf_checkpoint_every = 0;
+    snprintf(pf_zero_mode_selector, sizeof(pf_zero_mode_selector),
+             "%s", pf_zero_mode::kModeOff);
+    snprintf(pf_zero_mode_backend, sizeof(pf_zero_mode_backend),
+             "%s", pf_zero_mode::kHostBackendV1);
 
     // Optional: interpret radius in physical nm and convert to internal length units later,
     // after we can infer (dx_phys_m_run, unit_to_m_run) from PF inputs.
@@ -22222,6 +22423,14 @@ int main(int argc, char **argv) {
             printf("  --y-update-mass-projection-max-iter <n>\n");
             printf("  --y-update-mass-projection-tol <val>\n");
             printf("  --y-update-mass-projection-target-mode pre_Y_update|post_conversion_baseline\n");
+            printf("\nPure-PF conserved Y zero mode and restart (GP/source paths must be OFF):\n");
+            printf("  --pf-zero-mode OFF|PF_CONSERVED_Y_ZERO_MODE_V1\n");
+            printf("  --pf-zero-mode-backend HOST_NEWTON_BISECTION_V1\n");
+            printf("  --pf-zero-mode-tol-rel <value>       default 1e-12\n");
+            printf("  --pf-zero-mode-max-iter <n>          default 24\n");
+            printf("  --pf-checkpoint-every <n>            0 disables periodic checkpoints\n");
+            printf("  --pf-checkpoint-path <path>          atomic full-state checkpoint\n");
+            printf("  --pf-restart-from <path>             provenance-strict restart\n");
             printf("  --init-test-id <int>    preset index for batch tests (0..7, <0 to disable)\n");
             printf("  --continue-phi-vtk <path>  continuation: load phi from ASCII VTK and continue minimize\n");
             printf("  --continue-xB-vtk <path>   continuation(full-model): optional xB ASCII VTK; if missing, rebuild xB/Y from phi via init logic\n");
@@ -22263,6 +22472,41 @@ int main(int argc, char **argv) {
             return 0;
         }
         const char *v = NULL;
+        if ((v = get_flag_value(argc, argv, &i, "--pf-zero-mode")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_zero_mode")) != NULL) {
+            snprintf(pf_zero_mode_selector, sizeof(pf_zero_mode_selector), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-zero-mode-backend")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_zero_mode_backend")) != NULL) {
+            snprintf(pf_zero_mode_backend, sizeof(pf_zero_mode_backend), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-zero-mode-tol-rel")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_zero_mode_tol_rel")) != NULL) {
+            pf_zero_mode_tolerance_relative = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-zero-mode-max-iter")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_zero_mode_max_iter")) != NULL) {
+            pf_zero_mode_max_iterations = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-checkpoint-every")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_checkpoint_every")) != NULL) {
+            pf_checkpoint_every = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-checkpoint-path")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_checkpoint_path")) != NULL) {
+            snprintf(pf_checkpoint_path, sizeof(pf_checkpoint_path), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--pf-restart-from")) != NULL ||
+            (v = get_flag_value(argc, argv, &i, "--pf_restart_from")) != NULL) {
+            snprintf(pf_restart_from, sizeof(pf_restart_from), "%s", v);
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--mode")) != NULL) {
             if (strcmp(v, "minimize") == 0) P.mode = 1;
             else if (strcmp(v, "minimize-continue") == 0) {
@@ -23886,6 +24130,104 @@ int main(int argc, char **argv) {
         P.nsteps = P.minimize_max_iter;
         P.dt = P.minimize_dt;
     }
+    const int pf_zero_mode_enabled =
+        strcmp(pf_zero_mode_selector, pf_zero_mode::kModeV1) == 0;
+    if (!pf_zero_mode_enabled &&
+        strcmp(pf_zero_mode_selector, pf_zero_mode::kModeOff) != 0) {
+        fprintf(stderr,
+                "[fatal] invalid --pf-zero-mode '%s' (expected OFF or %s)\n",
+                pf_zero_mode_selector, pf_zero_mode::kModeV1);
+        return 2;
+    }
+    if (pf_zero_mode_enabled &&
+        strcmp(pf_zero_mode_backend, pf_zero_mode::kHostBackendV1) != 0) {
+        fprintf(stderr,
+                "[fatal] unsupported PF zero-mode backend '%s' (expected %s)\n",
+                pf_zero_mode_backend, pf_zero_mode::kHostBackendV1);
+        return 2;
+    }
+    if (pf_zero_mode_enabled &&
+        (!(pf_zero_mode_tolerance_relative > 0.0) ||
+         !isfinite(pf_zero_mode_tolerance_relative) ||
+         pf_zero_mode_max_iterations <= 0)) {
+        fprintf(stderr,
+                "[fatal] PF zero-mode tolerance/iteration contract is invalid\n");
+        return 2;
+    }
+    if (pf_checkpoint_every < 0) {
+        fprintf(stderr, "[fatal] --pf-checkpoint-every must be >= 0\n");
+        return 2;
+    }
+    if ((pf_checkpoint_every > 0 || pf_restart_from[0] != '\0') &&
+        !pf_zero_mode_enabled) {
+        fprintf(stderr,
+                "[fatal] PF checkpoint/restart provenance is available only with %s\n",
+                pf_zero_mode::kModeV1);
+        return 2;
+    }
+    if (pf_checkpoint_every > 0 && pf_checkpoint_path[0] == '\0') {
+        fprintf(stderr,
+                "[fatal] --pf-checkpoint-path is required when periodic checkpointing is enabled\n");
+        return 2;
+    }
+    if (pf_zero_mode_enabled) {
+        const int prohibited_gp_or_source_path =
+            is_gp_zone_mode(&P) ||
+            P.enable_legacy_gp_storage_coupling ||
+            P.enable_gp_assisted_beta_nucleation ||
+            P.enable_gp_runtime_library_nucleation ||
+            P.gp_nuc_enabled ||
+            P.gp_to_beta_enabled ||
+            P.gp_initial_population_enabled ||
+            P.gp_growth_enabled ||
+            P.gp_radius_evolution_enabled ||
+            P.gp_inventory_growth_enabled ||
+            P.gp_literature_model_enabled ||
+            P.scheduled_nuc_enabled ||
+            P.diagnostic_rsmd_enabled ||
+            P.enable_dynamic_continue_bridge;
+        if (P.mode != 0 || prohibited_gp_or_source_path) {
+            fprintf(stderr,
+                    "[fatal] %s is a dynamics-only PF mode and requires every GP, RSMD, scheduled-source, and bridge path OFF\n",
+                    pf_zero_mode::kModeV1);
+            return 2;
+        }
+        if (strcmp(P.pf_composition_mode, "legacy") != 0 ||
+            strcmp(P.pf_y_update_mode, "lagged_rhs") != 0 ||
+            P.enable_Y_rhs_picard ||
+            P.enable_Y_rhs_previous_time_level ||
+            P.disable_Y_rhs_gamma_term ||
+            P.Y_rhs_term_h_scale != 1.0 ||
+            P.y_update_mass_projection_enabled ||
+            strcmp(P.pf_baseline_control_mode, "full") != 0) {
+            fprintf(stderr,
+                    "[fatal] %s owns %s + %s and requires composition_mode=legacy, y_update_mode=lagged_rhs, legacy Y modifiers/Picard=OFF, mass projection=OFF, and baseline_control_mode=full\n",
+                    pf_zero_mode::kModeV1,
+                    pf_zero_mode::kExplicitContextNV1,
+                    pf_zero_mode::kReactionTangentNV1);
+            return 2;
+        }
+        if (P.minimize_continue_from_vtk || P.init_mode_raw_fields) {
+            fprintf(stderr,
+                    "[fatal] zero-mode restart cannot be mixed with VTK/raw-field continuation; use --pf-restart-from for exact state restoration\n");
+            return 2;
+        }
+    }
+    pf_zero_mode::Provenance pf_zero_mode_provenance;
+    pf_zero_mode_provenance.zero_mode = pf_zero_mode_selector;
+    pf_zero_mode_provenance.backend = pf_zero_mode_backend;
+    pf_zero_mode_provenance.composition_mode = P.pf_composition_mode;
+    pf_zero_mode_provenance.y_update_mode = P.pf_y_update_mode;
+    pf_zero_mode_provenance.explicit_context =
+        pf_zero_mode::kExplicitContextNV1;
+    pf_zero_mode_provenance.reaction_discretization =
+        pf_zero_mode::kReactionTangentNV1;
+    pf_zero_mode_provenance.parameter_fingerprint =
+        pf_zero_mode_parameter_fingerprint(&P);
+    pf_zero_mode::RuntimeState pf_zero_mode_runtime;
+    pf_zero_mode::Checkpoint pf_restart_checkpoint;
+    int pf_restart_loaded = 0;
+    int pf_restart_step = 0;
     if (P.minimize_continue_from_vtk) {
         if (P.mode != 0 && P.mode != 1) {
             fprintf(stderr, "[fatal] continuation 仅支持 dynamics/minimize 模式。请使用 --mode=dynamics-continue、--mode=minimize-continue 或 --mode=minimize。\n");
@@ -24587,6 +24929,27 @@ int main(int argc, char **argv) {
     }
     log_kv_text("init_case_tag", "%s", P.init_case_tag);
     log_kv_text("case_output_dir", "%s", case_output_dir);
+    if (pf_zero_mode_enabled) {
+        log_kv_text("pf_zero_mode", "%s", pf_zero_mode_selector);
+        log_kv_text("pf_zero_mode_backend", "%s", pf_zero_mode_backend);
+        log_kv_text("pf_sm_explicit_context", "%s",
+                    pf_zero_mode_provenance.explicit_context.c_str());
+        log_kv_text("pf_reaction_discretization", "%s",
+                    pf_zero_mode_provenance.reaction_discretization.c_str());
+        log_kv_text("pf_zero_mode_tolerance_relative", "%.17e",
+                    pf_zero_mode_tolerance_relative);
+        log_kv_text("pf_zero_mode_max_iterations", "%d",
+                    pf_zero_mode_max_iterations);
+        log_kv_text("pf_zero_mode_parameter_fingerprint", "%016llx",
+                    static_cast<unsigned long long>(
+                        pf_zero_mode_provenance.parameter_fingerprint));
+        log_kv_text("pf_checkpoint_every", "%d", pf_checkpoint_every);
+        if (pf_checkpoint_path[0] != '\0')
+            log_kv_text("pf_checkpoint_path", "%s", pf_checkpoint_path);
+        if (pf_restart_from[0] != '\0')
+            log_kv_text("pf_restart_from", "%s", pf_restart_from);
+        log_kv_text("gp_paths_enabled", "%s", "false");
+    }
     if (effective_pf_param_file[0] != '\0') {
         log_kv_text("case_pf_input", "%s", case_pf_input_file);
     }
@@ -24636,6 +24999,7 @@ int main(int argc, char **argv) {
     FILE *phi_eta_rhs_attribution_fp = NULL;
     FILE *eta_bulk_max_location_fp = NULL;
     FILE *energy_fp = NULL; // minimize mode energy log
+    FILE *pf_zero_mode_trace_fp = NULL;
     int csv_step_offset = 0;
     double csv_time_offset = 0.0;
     double csv_real_time_offset = 0.0;
@@ -24684,6 +25048,27 @@ int main(int argc, char **argv) {
     int total_k = P.Nx * P.Ny * NzC;
     size_t size_r = total_r * sizeof(double);
     size_t size_k = total_k * sizeof(cufftDoubleComplex);
+    if (pf_zero_mode_enabled) {
+        char zero_mode_trace_path[4096];
+        snprintf(zero_mode_trace_path, sizeof(zero_mode_trace_path),
+                 "%s/pf_zero_mode_trace.csv", case_output_dir);
+        pf_zero_mode_trace_fp = fopen(
+            zero_mode_trace_path, pf_restart_from[0] != '\0' ? "a" : "w");
+        if (!pf_zero_mode_trace_fp) {
+            fprintf(stderr,
+                    "[fatal] cannot open PF zero-mode trace: %s\n",
+                    zero_mode_trace_path);
+            return 2;
+        }
+        if (pf_restart_from[0] == '\0') {
+            fprintf(pf_zero_mode_trace_fp,
+                    "step,target_mass_code,lambda,residual_code,derivative_code,"
+                    "iterations,newton_steps,bisection_steps,Y_star_min,Y_star_max,"
+                    "lambda_lower,lambda_upper,accepted_zero_mode_steps\n");
+            fflush(pf_zero_mode_trace_fp);
+        }
+        log_kv_text("pf_zero_mode_trace", "%s", zero_mode_trace_path);
+    }
     if (P.mode == 0 && P.dynamics_mass_diag_enabled) {
         char mass_diag_csv_path[4096];
         snprintf(mass_diag_csv_path, sizeof(mass_diag_csv_path), "%s/dynamics_mass_diagnostics.csv", case_output_dir);
@@ -26290,6 +26675,59 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (pf_restart_from[0] != '\0') {
+        std::string checkpoint_error;
+        if (!pf_zero_mode::read_checkpoint(
+                pf_restart_from, pf_zero_mode_provenance,
+                &pf_restart_checkpoint, &checkpoint_error)) {
+            fprintf(stderr,
+                    "[fatal] PF zero-mode restart rejected: %s\n",
+                    checkpoint_error.c_str());
+            return 2;
+        }
+        const double temperature_K = P.temperature_C + 273.15;
+        if (pf_restart_checkpoint.nx != P.Nx ||
+            pf_restart_checkpoint.ny != P.Ny ||
+            pf_restart_checkpoint.nz != P.Nz ||
+            pf_restart_checkpoint.dt_code != P.dt ||
+            pf_restart_checkpoint.temperature_K != temperature_K) {
+            fprintf(stderr,
+                    "[fatal] PF zero-mode restart grid/dt/temperature mismatch\n");
+            return 2;
+        }
+        if (pf_restart_checkpoint.accepted_step >=
+            static_cast<std::uint64_t>(P.nsteps)) {
+            fprintf(stderr,
+                    "[fatal] restart accepted_step=%llu must be less than requested final nsteps=%d\n",
+                    static_cast<unsigned long long>(
+                        pf_restart_checkpoint.accepted_step),
+                    P.nsteps);
+            return 2;
+        }
+        memcpy(h_phi_r, pf_restart_checkpoint.phi.data(), size_r);
+        memcpy(h_Y_r, pf_restart_checkpoint.Y.data(), size_r);
+        memcpy(h_xB_r, pf_restart_checkpoint.xB.data(), size_r);
+        memset(h_eta_r, 0, size_r);
+        recompute_host_xBtot_field(
+            h_phi_r, h_eta_r, h_xB_r, h_xBtot_r, &P, total_r);
+        pf_zero_mode_runtime = pf_restart_checkpoint.zero_mode;
+        pf_restart_step =
+            static_cast<int>(pf_restart_checkpoint.accepted_step);
+        pf_restart_loaded = 1;
+        log_section_header("PF Zero-Mode Restart");
+        log_kv_text("checkpoint", "%s", pf_restart_from);
+        log_kv_text("accepted_step", "%d", pf_restart_step);
+        log_kv_text("zero_mode", "%s",
+                    pf_zero_mode_provenance.zero_mode.c_str());
+        log_kv_text("backend", "%s",
+                    pf_zero_mode_provenance.backend.c_str());
+        log_kv_text("parameter_fingerprint", "%016llx",
+                    static_cast<unsigned long long>(
+                        pf_zero_mode_provenance.parameter_fingerprint));
+        log_kv_text("target_mass_code", "%.17e",
+                    pf_zero_mode_runtime.target_mass_code);
+    }
+
     // 选择 bulk chemical baseline 组成 xB_ref，并计算 g_bulk0_hat
     if (P.mode == 1 && P.minimize_full_model == 1) {
         if (P.ic_23d_xB_out > 0.0) {
@@ -26610,6 +27048,7 @@ int main(int argc, char **argv) {
     FILE *pf_q_transport_diag_fp = NULL;
     double *d_dY_dt_picard_r, *d_dY_dt_picard_old_r;
     double *d_Y_projection_base_r = NULL;
+    int *d_pf_zero_mode_invalid = NULL;
     // 优化：移除d_xBtot_r，仅在需要输出VTK时临时计算
 
     // 工作空间（Y方程相关）
@@ -26707,9 +27146,13 @@ int main(int argc, char **argv) {
             ? 1
             : 0;
     if (P.y_update_mass_projection_enabled || P.y_update_k0_audit_enabled ||
+        pf_zero_mode_enabled ||
         pf_mode_q_transport_runtime ||
         staged_active_post_y_projection_possible_for_buffers) {
         CUDA_CHECK(cudaMalloc(&d_Y_projection_base_r, size_r));
+    }
+    if (pf_zero_mode_enabled) {
+        CUDA_CHECK(cudaMalloc(&d_pf_zero_mode_invalid, sizeof(int)));
     }
     // 优化：不再分配d_xBtot_r，节省1GB显存
     // 优化：d_phi_rhs_r 在步骤1完成后可复用为 d_lapY_r（节省1GB）
@@ -26881,11 +27324,52 @@ int main(int argc, char **argv) {
 
     // minimize mode: phi-only, no xB rebuild
     // 初始化工作数组
-    CUDA_CHECK(cudaMemset(d_dY_dt_prev_r, 0, size_r));
+    if (pf_restart_loaded) {
+        CUDA_CHECK(cudaMemcpy(
+            d_dY_dt_prev_r, pf_restart_checkpoint.dY_dt_prev.data(),
+            size_r, cudaMemcpyHostToDevice));
+    } else {
+        CUDA_CHECK(cudaMemset(d_dY_dt_prev_r, 0, size_r));
+    }
     CUDA_CHECK(cudaMemset(d_dY_dt_picard_r, 0, size_r));
     CUDA_CHECK(cudaMemset(d_dY_dt_picard_old_r, 0, size_r));
     if (d_xB_old_diag_r) {
         CUDA_CHECK(cudaMemset(d_xB_old_diag_r, 0, size_r));
+    }
+    if (pf_zero_mode_enabled) {
+        const double current_mass_code =
+            gpu_reduce_sum_xBtot(d_phi_r, d_xB_r, P.v_B, total_r);
+        if (!pf_restart_loaded) {
+            pf_zero_mode_runtime.target_mass_code = current_mass_code;
+            pf_zero_mode_runtime.last_lambda = 0.0;
+            pf_zero_mode_runtime.last_residual_code = 0.0;
+            pf_zero_mode_runtime.last_derivative_code = 0.0;
+            pf_zero_mode_runtime.last_iterations = 0U;
+            pf_zero_mode_runtime.accepted_zero_mode_steps = 0U;
+        } else {
+            const double restart_mass_error =
+                current_mass_code - pf_zero_mode_runtime.target_mass_code;
+            const double restart_mass_tolerance =
+                1.0e-12 *
+                fmax(fabs(pf_zero_mode_runtime.target_mass_code), 1.0);
+            if (!isfinite(current_mass_code) ||
+                fabs(restart_mass_error) > restart_mass_tolerance) {
+                fprintf(stderr,
+                        "[fatal] checkpoint field ledger does not match frozen zero-mode target: current=%.17e target=%.17e residual=%.17e\n",
+                        current_mass_code,
+                        pf_zero_mode_runtime.target_mass_code,
+                        restart_mass_error);
+                return 2;
+            }
+        }
+        printf("PF_ZERO_MODE_INITIALIZED mode=%s backend=%s "
+               "restart_loaded=%d accepted_step=%d target_mass_code=%.17e "
+               "parameter_fingerprint=%016llx gp_paths_enabled=false\n",
+               pf_zero_mode_selector, pf_zero_mode_backend,
+               pf_restart_loaded, pf_restart_step,
+               pf_zero_mode_runtime.target_mass_code,
+               static_cast<unsigned long long>(
+                   pf_zero_mode_provenance.parameter_fingerprint));
     }
 
     // 创建cuFFT计划（优化：复用计划以减少内存使用）
@@ -27085,7 +27569,18 @@ int main(int argc, char **argv) {
     int steps_completed = 0;
     int stop_after_conversion_audit_done = 0;
     const double step_loop_wall_t0 = wall_time_sec_monotonic();
-    double *step_wall_s = (nsteps_run > 0) ? (double *)calloc((size_t)nsteps_run, sizeof(double)) : NULL;
+    const int first_step = pf_restart_loaded ? (pf_restart_step + 1) : 1;
+    const int steps_requested =
+        (nsteps_run >= first_step) ? (nsteps_run - first_step + 1) : 0;
+    double pf_zero_mode_wall_s = 0.0;
+    double pf_checkpoint_wall_s = 0.0;
+    double pf_zero_mode_final_mass_code = NAN;
+    double pf_zero_mode_final_mean_mass_error = NAN;
+    int pf_zero_mode_final_status = 1;
+    double *step_wall_s = (steps_requested > 0)
+                              ? (double *)calloc((size_t)steps_requested,
+                                                sizeof(double))
+                              : NULL;
     const int phi_eta_step_delta_diag_enabled_runtime =
         (P.mode == 0 && P.phi_eta_step_delta_diag_enabled && phi_eta_step_delta_fp);
     const int phi_eta_rhs_attribution_diag_enabled_runtime =
@@ -27129,7 +27624,7 @@ int main(int argc, char **argv) {
         eta_rhs_elastic_host.resize((size_t)total_r);
     }
 
-    for (int step = 1; step <= nsteps_run; step++) {
+    for (int step = first_step; step <= nsteps_run; step++) {
         double pf_q_step_stats[PF_Q_STATS_COUNT] = {0.0};
         pf_q_step_stats[PF_Q_MIN_ALPHA] = 1.0;
         double pf_cons_mass_before_transport = NAN;
@@ -27139,7 +27634,7 @@ int main(int argc, char **argv) {
         const int pf_q_resolved_handoff_count_before_step =
             gp_assisted_runtime.resolved_handoff_inserted_count;
         const double step_wall_t0 = wall_time_sec_monotonic();
-        steps_completed = step;
+        ++steps_completed;
         if (P.mode == 0 && P.enable_gp_assisted_beta_nucleation &&
             P.diagnostic_rsmd_enabled &&
             (strcmp(P.diagnostic_rsmd_operator_split, "pre_pf_lie") == 0 ||
@@ -28689,10 +29184,12 @@ int main(int argc, char **argv) {
         if (!pf_conservative_runtime &&
             (P.mode == 0 || (P.mode == 1 && P.minimize_full_model == 1))) {
 
-        const double *phi_for_Y_explicit = pf_mode_q_transport_runtime
+        const double *phi_for_Y_explicit = pf_zero_mode_enabled
+                                                ? d_phi_n_saved
+                                                : (pf_mode_q_transport_runtime
                                                 ? d_phi_r
                                                 : (P.enable_Y_rhs_previous_time_level
-                                                       ? d_phi_n_saved : d_phi_r);
+                                                       ? d_phi_n_saved : d_phi_r));
         const double *eta_for_Y_explicit = P.enable_Y_rhs_previous_time_level ? d_eta_prev_r : d_eta_r;
 
         // 2.1 计算mu_x（full-model minimize 与 dynamics 共用）
@@ -29156,14 +29653,25 @@ int main(int argc, char **argv) {
                                                        do_mass_diag ? d_mass_diag_Y_rhs_stats : NULL);
                     }
                 } else {
-                    launch_compute_Y_rhs_kernel(d_divJ_r, d_phi_r, d_phi_n_saved,
-                                                d_lapY_r, Y_for_Y_rhs,
-                                                use_Y_rhs_picard ? d_dY_dt_picard_r : d_dY_dt_lagged_for_rhs,
-                                                d_Y_rhs_r, P.dt, P.v_B, mean_DY, total_r,
-                                                P.enable_Y_rhs_previous_time_level ? 1 : 0,
-                                                P.disable_Y_rhs_gamma_term ? 1 : 0,
-                                                P.Y_rhs_term_h_scale,
-                                                do_mass_diag ? d_mass_diag_Y_rhs_stats : NULL);
+                    if (pf_zero_mode_enabled) {
+                        launch_compute_Y_rhs_sm_tangent_n_kernel(
+                            d_divJ_r, d_phi_n_saved, d_phi_r,
+                            d_lapY_r, Y_for_Y_rhs,
+                            d_dY_dt_lagged_for_rhs, d_Y_rhs_r,
+                            P.dt, P.v_B, mean_DY, total_r,
+                            do_mass_diag ? d_mass_diag_Y_rhs_stats : NULL);
+                    } else {
+                        launch_compute_Y_rhs_kernel(
+                            d_divJ_r, d_phi_r, d_phi_n_saved,
+                            d_lapY_r, Y_for_Y_rhs,
+                            use_Y_rhs_picard ? d_dY_dt_picard_r
+                                             : d_dY_dt_lagged_for_rhs,
+                            d_Y_rhs_r, P.dt, P.v_B, mean_DY, total_r,
+                            P.enable_Y_rhs_previous_time_level ? 1 : 0,
+                            P.disable_Y_rhs_gamma_term ? 1 : 0,
+                            P.Y_rhs_term_h_scale,
+                            do_mass_diag ? d_mass_diag_Y_rhs_stats : NULL);
+                    }
                 }
 
                 CUFFT_CHECK(cufftExecD2Z(plan_r2c_Y, d_Y_rhs_r, d_Y_rhs_k));
@@ -29176,8 +29684,14 @@ int main(int argc, char **argv) {
                                      P.dx, P.dy, P.dz, total_k);
 
                 CUFFT_CHECK(cufftExecZ2D(plan_c2r_Y, d_Y_k, d_Y_r));
-                launch_Y_normalize_and_clamp_kernel(d_Y_r, d_xB_r, invN,
-                                                   P.Y_clip, Y_upper_cap, P.xB_eps, total_r);
+                if (pf_zero_mode_enabled) {
+                    launch_copy_scaled_pf_Y_kernel(
+                        d_Y_r, invN, d_Y_projection_base_r, total_r);
+                } else {
+                    launch_Y_normalize_and_clamp_kernel(
+                        d_Y_r, d_xB_r, invN,
+                        P.Y_clip, Y_upper_cap, P.xB_eps, total_r);
+                }
 
                 if (use_Y_rhs_picard) {
                     launch_update_dY_dt_prev_kernel(d_Y_r, d_Y_n_saved, d_dY_dt_picard_r, P.dt, total_r);
@@ -29204,6 +29718,84 @@ int main(int argc, char **argv) {
                     }
                 }
             } // end Picard / single-pass Y solve loop
+            if (pf_zero_mode_enabled) {
+                const double zero_mode_t0 = wall_time_sec_monotonic();
+                PfZeroModeSolveResult zero_mode_result;
+                double *d_zero_mode_mass_terms =
+                    static_cast<double *>(d_scratch_r_double);
+                double *d_zero_mode_derivative_terms =
+                    d_zero_mode_mass_terms + total_r;
+                if (!run_pf_conserved_y_zero_mode_host(
+                        &P, d_Y_projection_base_r, d_phi_r,
+                        d_zero_mode_mass_terms,
+                        d_zero_mode_derivative_terms,
+                        static_cast<double *>(d_scratch_k_double),
+                        static_cast<int>(
+                            scratch_k_double_bytes / sizeof(double)),
+                        pf_zero_mode_runtime.target_mass_code,
+                        Y_upper_cap,
+                        pf_zero_mode_tolerance_relative,
+                        pf_zero_mode_max_iterations,
+                        total_r, d_pf_zero_mode_invalid,
+                        d_Y_r, d_xB_r, &zero_mode_result)) {
+                    CUDA_CHECK(cudaMemcpy(
+                        d_phi_r, d_phi_n_saved, size_r,
+                        cudaMemcpyDeviceToDevice));
+                    CUDA_CHECK(cudaMemcpy(
+                        d_Y_r, d_Y_n_saved, size_r,
+                        cudaMemcpyDeviceToDevice));
+                    launch_apply_pf_Y_zero_mode_shift_kernel(
+                        d_Y_n_saved, 0.0, d_Y_r, d_xB_r, total_r);
+                    CUDA_CHECK(cudaDeviceSynchronize());
+                    fprintf(stderr,
+                            "[fatal] PF zero-mode rejected step=%d "
+                            "target=%.17e residual=%.17e derivative=%.17e "
+                            "lambda=%.17e interval=[%.17e,%.17e] iterations=%d\n",
+                            step, pf_zero_mode_runtime.target_mass_code,
+                            zero_mode_result.residual_code,
+                            zero_mode_result.derivative_code,
+                            zero_mode_result.lambda,
+                            zero_mode_result.lambda_lower,
+                            zero_mode_result.lambda_upper,
+                            zero_mode_result.iterations);
+                    return 2;
+                }
+                CUDA_CHECK(cudaDeviceSynchronize());
+                pf_zero_mode_wall_s +=
+                    wall_time_sec_monotonic() - zero_mode_t0;
+                pf_zero_mode_runtime.last_lambda =
+                    zero_mode_result.lambda;
+                pf_zero_mode_runtime.last_residual_code =
+                    zero_mode_result.residual_code;
+                pf_zero_mode_runtime.last_derivative_code =
+                    zero_mode_result.derivative_code;
+                pf_zero_mode_runtime.last_iterations =
+                    static_cast<std::uint64_t>(
+                        zero_mode_result.iterations);
+                ++pf_zero_mode_runtime.accepted_zero_mode_steps;
+                if (pf_zero_mode_trace_fp) {
+                    fprintf(
+                        pf_zero_mode_trace_fp,
+                        "%d,%.17e,%.17e,%.17e,%.17e,%d,%d,%d,"
+                        "%.17e,%.17e,%.17e,%.17e,%llu\n",
+                        step,
+                        pf_zero_mode_runtime.target_mass_code,
+                        zero_mode_result.lambda,
+                        zero_mode_result.residual_code,
+                        zero_mode_result.derivative_code,
+                        zero_mode_result.iterations,
+                        zero_mode_result.newton_steps,
+                        zero_mode_result.bisection_steps,
+                        zero_mode_result.Y_star_min,
+                        zero_mode_result.Y_star_max,
+                        zero_mode_result.lambda_lower,
+                        zero_mode_result.lambda_upper,
+                        static_cast<unsigned long long>(
+                            pf_zero_mode_runtime
+                                .accepted_zero_mode_steps));
+                    fflush(pf_zero_mode_trace_fp);
+                }
+            }
         } else {
             if (do_mass_diag) {
                 double gp_storage_stats_init[MASS_DIAG_GP_STORAGE_STATS_COUNT];
@@ -30640,7 +31232,10 @@ gp_post_birth_skip_to_finalize:
         // 优化：不再计算和存储xBtot，仅在需要输出时临时计算
 
         // 性能计时（精确计时每个时间步）
-        if (step == 1) {
+        if (step == first_step) {
+            // A restart segment begins at accepted_step+1, not global step 1.
+            // Record a fresh timing origin for this process so CUDA event
+            // provenance never references an unrecorded handle.
             CUDA_CHECK(cudaDeviceSynchronize());  // 确保初始化完成
             CUDA_CHECK(cudaEventRecord(start_event));
         }
@@ -30652,7 +31247,7 @@ gp_post_birth_skip_to_finalize:
 
             float elapsed_ms = 0;
             CUDA_CHECK(cudaEventElapsedTime(&elapsed_ms, start_event, stop_event));
-            const int timed_step_begin = 1;
+            const int timed_step_begin = first_step;
             const int timed_step_end = P.nsteps;
             const int timed_steps = (timed_step_end >= timed_step_begin)
                 ? (timed_step_end - timed_step_begin + 1)
@@ -31504,9 +32099,63 @@ gp_post_birth_skip_to_finalize:
                        geometry_summary_runtime.calls);
             }
         }
+        if (pf_zero_mode_enabled && pf_checkpoint_every > 0 &&
+            ((step % pf_checkpoint_every) == 0 ||
+             step == nsteps_run)) {
+            const double checkpoint_t0 = wall_time_sec_monotonic();
+            pf_zero_mode::Checkpoint checkpoint;
+            checkpoint.accepted_step =
+                static_cast<std::uint64_t>(step);
+            checkpoint.nx = P.Nx;
+            checkpoint.ny = P.Ny;
+            checkpoint.nz = P.Nz;
+            checkpoint.dt_code = P.dt;
+            checkpoint.temperature_K = P.temperature_C + 273.15;
+            checkpoint.provenance = pf_zero_mode_provenance;
+            checkpoint.zero_mode = pf_zero_mode_runtime;
+            checkpoint.phi.resize((size_t)total_r);
+            checkpoint.Y.resize((size_t)total_r);
+            checkpoint.xB.resize((size_t)total_r);
+            checkpoint.dY_dt_prev.resize((size_t)total_r);
+            CUDA_CHECK(cudaMemcpy(
+                checkpoint.phi.data(), d_phi_r, size_r,
+                cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(
+                checkpoint.Y.data(), d_Y_r, size_r,
+                cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(
+                checkpoint.xB.data(), d_xB_r, size_r,
+                cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpy(
+                checkpoint.dY_dt_prev.data(), d_dY_dt_prev_r, size_r,
+                cudaMemcpyDeviceToHost));
+            std::string checkpoint_error;
+            if (!pf_zero_mode::write_checkpoint(
+                    pf_checkpoint_path, checkpoint,
+                    &checkpoint_error)) {
+                fprintf(stderr,
+                        "[fatal] PF zero-mode checkpoint write failed "
+                        "at step %d: %s\n",
+                        step, checkpoint_error.c_str());
+                return 2;
+            }
+            pf_checkpoint_wall_s +=
+                wall_time_sec_monotonic() - checkpoint_t0;
+            printf("PF_ZERO_MODE_CHECKPOINT_WRITTEN "
+                   "step=%d path=%s target_mass_code=%.17e "
+                   "lambda=%.17e residual=%.17e "
+                   "accepted_zero_mode_steps=%llu\n",
+                   step, pf_checkpoint_path,
+                   pf_zero_mode_runtime.target_mass_code,
+                   pf_zero_mode_runtime.last_lambda,
+                   pf_zero_mode_runtime.last_residual_code,
+                   static_cast<unsigned long long>(
+                       pf_zero_mode_runtime.accepted_zero_mode_steps));
+        }
         CUDA_CHECK(cudaDeviceSynchronize());
         if (step_wall_s) {
-            step_wall_s[step - 1] = wall_time_sec_monotonic() - step_wall_t0;
+            step_wall_s[steps_completed - 1] =
+                wall_time_sec_monotonic() - step_wall_t0;
         }
         if (P.gp_birth_debug_stop_after_step > 0 && step >= P.gp_birth_debug_stop_after_step) {
             P.nsteps = step;
@@ -32056,6 +32705,30 @@ gp_post_birth_skip_to_finalize:
         snprintf(perf_json_path, sizeof(perf_json_path), "%s/performance_summary.json", case_output_dir);
         write_performance_summary_json(perf_json_path, &perf);
     }
+    if (pf_zero_mode_enabled) {
+        pf_zero_mode_final_mass_code =
+            gpu_reduce_sum_xBtot(d_phi_r, d_xB_r, P.v_B, total_r);
+        pf_zero_mode_final_mean_mass_error =
+            (pf_zero_mode_final_mass_code -
+             pf_zero_mode_runtime.target_mass_code) /
+            static_cast<double>(total_r);
+        pf_zero_mode_final_status =
+            isfinite(pf_zero_mode_final_mass_code) &&
+            fabs(pf_zero_mode_final_mean_mass_error) <= 1.0e-10;
+        printf("PF_ZERO_MODE_FINAL_AUDIT "
+               "status=%s final_step=%d target_mass_code=%.17e "
+               "final_mass_code=%.17e mean_mass_error=%.17e "
+               "last_lambda=%.17e zero_mode_wall_s=%.9f "
+               "checkpoint_wall_s=%.9f gp_paths_enabled=false\n",
+               pf_zero_mode_final_status ? "PASS" : "FAIL",
+               nsteps_run,
+               pf_zero_mode_runtime.target_mass_code,
+               pf_zero_mode_final_mass_code,
+               pf_zero_mode_final_mean_mass_error,
+               pf_zero_mode_runtime.last_lambda,
+               pf_zero_mode_wall_s,
+               pf_checkpoint_wall_s);
+    }
 
     // 清理（只销毁实际创建的计划）
     CUFFT_CHECK(cufftDestroy(plan_r2c_base));
@@ -32108,6 +32781,8 @@ gp_post_birth_skip_to_finalize:
     CUDA_CHECK(cudaFree(d_phi_n_saved));
     CUDA_CHECK(cudaFree(d_Y_n_saved));
     if (d_Y_projection_base_r) CUDA_CHECK(cudaFree(d_Y_projection_base_r));
+    if (d_pf_zero_mode_invalid)
+        CUDA_CHECK(cudaFree(d_pf_zero_mode_invalid));
     if (pf_q_transport_diag_fp) fclose(pf_q_transport_diag_fp);
     if (d_q_alpha_r) CUDA_CHECK(cudaFree(d_q_alpha_r));
     if (d_pf_q_stats) CUDA_CHECK(cudaFree(d_pf_q_stats));
@@ -32181,6 +32856,9 @@ gp_post_birth_skip_to_finalize:
     }
     if (energy_fp) {
         fclose(energy_fp);
+    }
+    if (pf_zero_mode_trace_fp) {
+        fclose(pf_zero_mode_trace_fp);
     }
     if (scheduled_runtime.events_csv) {
         fclose(scheduled_runtime.events_csv);
@@ -32373,6 +33051,34 @@ gp_post_birth_skip_to_finalize:
     log_kv_text("steps_completed", "%d", steps_completed);
     log_kv_text("wall_time_s", "%.3f", wall_elapsed);
     log_kv_text("wall_time_hms", "%02d:%02d:%02d", hh, mm, ss);
+    if (pf_zero_mode_enabled) {
+        log_kv_text("pf_zero_mode_status", "%s",
+                    pf_zero_mode_final_status ? "PASS" : "FAIL");
+        log_kv_text("pf_zero_mode_final_absolute_step", "%d",
+                    nsteps_run);
+        log_kv_text("pf_zero_mode_target_mass_code", "%.17e",
+                    pf_zero_mode_runtime.target_mass_code);
+        log_kv_text("pf_zero_mode_final_mass_code", "%.17e",
+                    pf_zero_mode_final_mass_code);
+        log_kv_text("pf_zero_mode_final_mean_mass_error", "%.17e",
+                    pf_zero_mode_final_mean_mass_error);
+        log_kv_text("pf_zero_mode_wall_s", "%.9f",
+                    pf_zero_mode_wall_s);
+        log_kv_text("pf_checkpoint_wall_s", "%.9f",
+                    pf_checkpoint_wall_s);
+        printf("pf_zero_mode_status=%s\n",
+               pf_zero_mode_final_status
+                   ? "PASS_PF_CONSERVED_Y_ZERO_MODE_V1"
+                   : "FAIL_PF_CONSERVED_Y_ZERO_MODE_V1");
+        printf("checkpoint_restart_provenance=%s\n",
+               pf_restart_loaded ? "RESTORED_AND_VALIDATED"
+                                 : "FRESH_HASH_PINNED");
+        printf("pf_sm_explicit_context=%s\n",
+               pf_zero_mode_provenance.explicit_context.c_str());
+        printf("pf_reaction_discretization=%s\n",
+               pf_zero_mode_provenance.reaction_discretization.c_str());
+        printf("gp_enabled=false\n");
+    }
     if (P.enable_gp_assisted_beta_nucleation) {
         const int mass_ok = (gp_assisted_runtime.max_abs_rel_drift <= 1.0e-8) ? 1 : 0;
         const int reservoir_ok =
@@ -32409,5 +33115,5 @@ gp_post_birth_skip_to_finalize:
                    (mass_ok && reservoir_ok) ? "true" : "false");
         }
     }
-    return 0;
+    return pf_zero_mode_final_status ? 0 : 2;
 }

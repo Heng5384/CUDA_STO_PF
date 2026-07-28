@@ -624,6 +624,16 @@ void launch_compute_Y_rhs_kernel(const double *divJ_r, const double *phi_r,
                                   int disable_gamma_term,
                                   double term_h_scale,
                                   double *diag_stats);
+// Selected pure-PF Ji--Chen operator.  All explicit SM coefficients use
+// phi_n, while phi_np1 is used only to form dphi/dt.  This is deliberately
+// separate from the legacy kernel so its default instruction path is
+// unchanged when PF_CONSERVED_Y_ZERO_MODE_V1 is OFF.
+void launch_compute_Y_rhs_sm_tangent_n_kernel(
+    const double *divJ_r, const double *phi_n_r,
+    const double *phi_np1_r, const double *lapY_r,
+    const double *Y_r, const double *dY_dt_prev,
+    double *rhs_r, double dt, double v_B,
+    double mean_DY, int total_size, double *diag_stats);
 void launch_compute_Y_rhs_gp_kernel(const double *divJ_r, const double *phi_r,
                                      const double *phi_prev, const double *eta_r,
                                      const double *eta_prev_r, const double *lapY_r,
@@ -827,6 +837,22 @@ void launch_apply_Y_shift_recompute_xB_kernel(const double *Y_base_r,
                                               double Y_upper_cap,
                                               double xB_eps,
                                               int total_size);
+
+// PF_CONSERVED_Y_ZERO_MODE_V1 helpers.  These kernels are intentionally
+// independent of every GP/runtime object.  The provisional inverse FFT is
+// normalized into Y_star, a scalar lambda is solved on the host reference
+// path, and the accepted field is written without clipping.
+void launch_copy_scaled_pf_Y_kernel(const double *raw_Y_r, double invN,
+                                    double *Y_star_r, int total_size);
+void launch_compute_pf_Y_zero_mode_terms_kernel(
+    const double *Y_star_r, const double *phi_r, double lambda, double v_B,
+    double *mass_terms_r, double *derivative_terms_r, int total_size);
+bool launch_validate_pf_Y_zero_mode_bounds_kernel(
+    const double *Y_star_r, double lambda, double Y_lower, double Y_upper,
+    int total_size, int *d_invalid);
+void launch_apply_pf_Y_zero_mode_shift_kernel(
+    const double *Y_star_r, double lambda, double *Y_r, double *xB_r,
+    int total_size);
 void launch_gp_picard_storage_Y_update_kernel(const double *divJ_r,
                                               const double *phi_new_r,
                                               const double *phi_old_r,
@@ -882,6 +908,14 @@ void launch_update_dY_dt_prev_kernel(const double *Y_r, const double *Y_n_saved,
 
 // 归约求和（辅助函数）
 double gpu_reduce_sum(const double *d_array, int n);
+// Same FP64 tree as two independent gpu_reduce_sum calls, but both fields
+// share launches, one final D2H copy, and caller-owned persistent scratch.
+// work_capacity_doubles must be at least
+// 4*ceil(n/256); input arrays are not modified.
+bool gpu_reduce_sum_pair_reuse(
+    const double *d_first, const double *d_second, int n,
+    double *d_work, int work_capacity_doubles,
+    double *first_sum, double *second_sum);
 
 // 诊断统计：计算N_in和N_if（旧版本，需要中间存储数组）
 void launch_compute_diagnostics_stats_kernel(const double *phi_r,
