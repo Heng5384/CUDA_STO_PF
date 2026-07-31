@@ -39,7 +39,7 @@ BASE_PARAM="${RUN_ROOT}/provenance/fixed_iteration.params"
 ACCEL_PARAM="${RUN_ROOT}/provenance/warm_start_residual.params"
 cp "${PARAM_FILE}" "${BASE_PARAM}"
 cp "${PARAM_FILE}" "${ACCEL_PARAM}"
-printf '\nelastic_warm_start_enabled = 0\nelastic_residual_control_enabled = 0\n' \
+printf '\nelastic_warm_start_enabled = 0\nelastic_residual_control_enabled = 0\nelastic_iter_max = 20\n' \
   >>"${BASE_PARAM}"
 printf '%s\n' \
   '' \

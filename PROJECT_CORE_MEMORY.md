@@ -952,6 +952,74 @@ reports/pf_elastic_warm_start_residual_v1/
 该PASS只资格化未来生产可选的数值求解器，不会追溯改变已启动的cluster
 A/B/C生产二进制或其冻结参数。GP及所有成核/释放路径继续在主研究中关闭。
 
+### 13.15 下一任务源码身份固定（2026-07-31）
+
+用户指定下一项新任务必须使用以下Git身份：
+
+```text
+branch=codex/pf-dynamic-microstructure-audit-v1
+commit=1548895473524add77bd5ee3df967b84f7af8a12
+commit_subject=feat(pf): qualify warm-start elastic runtime
+```
+
+远端分支头已经核验为该完整提交。下一任务在编译、预检和提交前必须重新
+核对`HEAD`及源码树；生产manifest必须记录该提交、源码树、参数、二进制、
+fixture和分析器哈希。现有已启动A/B/C任务保持原冻结身份，不得在运行中
+替换源码或重新解释其provenance。
+
+该源码固定规则随后用于重新启动workstation B。先前B副本在step 3235
+附近无stderr退出，且尚未到step 3633首个checkpoint，因此不能安全续跑；
+旧输出根保持不覆盖、不得作为完整生产证据。新B身份为：
+
+```text
+source_commit=1548895473524add77bd5ee3df967b84f7af8a12
+source_root=/home/zhiheng/tmp/codex_pf_246cube_6h48h_commit1548895_v1_20260731
+runtime_binary_sha256=7efa1c075a5476dcac394814a2700d6ba8898da57cb888009d4d0b739c706149
+fixture_B_sha256=b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c
+parameter_sha256=ecbdd0ac070bdf5e5d214322b5248a08f5ca5dd4e0670427513f5ef977ea977a
+run_root=/home/zhiheng/tmp/pf_246cube_6h48h_B_workstation_commit1548895_v2_20260731
+driver_pid=167973
+initial_performance=approximately 1.259 s/step
+```
+
+新B从原始6 h fixture重新开始，不继承旧未检查点化状态；启动预检PASS、
+stderr为空、RTX 5080利用率100%、显存约4680 MiB。
+
+### 13.16 弹性warm-start默认合同（2026-07-31）
+
+用户授权将已验收的`ELASTIC_WARM_START_RESIDUAL_V1`设为所有有弹性运行的
+源码和参数转换器默认值：
+
+```text
+elastic_warm_start_enabled=1
+elastic_residual_control_enabled=1
+elastic_iter_min=2
+elastic_iter_max=32
+elastic_residual_tolerance=1e-6
+elastic_residual_absolute_floor=1e-30
+elastic_fail_on_nonconvergence=1
+```
+
+默认范围包括Ji-Chen零模dynamics、旧非零模dynamics和minimize。三类路径
+共享同一GPU fixed-point warm state与Hermitian加权残差停止实现。区别是：
+
+- Ji-Chen零模checkpoint/restart继续保存并严格验证V4完整warm state；
+- 非零模dynamics和minimize只使用当前进程内warm state，不宣称跨重启V4；
+- `elastic_enabled=0`时该求解器不分配也不运行；
+- 显式同时设置两个开关为0可回退历史fixed-iteration路径，回归基线固定
+  `elastic_iter_max=20`。
+
+本次没有修改热力学、动力学、弹性常数、eigenstrain、网格、dt或fixture。
+本地默认值/参数物化/脚本合同测试、host checkpoint V3/V4测试及workstation
+`sm_120` CUDA编译通过。当前已经运行中的A/B/C及workstation B进程不会被
+源码默认值追溯修改；只有用新提交重新编译并新启动的任务采用本合同。
+
+用户随后明确取消该workstation B。driver `167973`、`main_cuda 168016`
+及其GPU监控进程已定向终止；最后输出约为step 605，未到首个step 3633
+checkpoint。输出根完整保留，driver因SIGTERM记录`exit_code=143`。这是
+`USER_CANCELLED_BEFORE_FIRST_CHECKPOINT`，不是数值失败，也不得用于生产
+统计或替代仍在cluster排队的B。
+
 ## 十四、所有后续工作的强制规则
 
 1. 任何代理开始工作前先读取本文件。

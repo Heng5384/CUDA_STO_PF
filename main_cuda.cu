@@ -16266,9 +16266,13 @@ static void params_default(PFParams *P) {
     // 弹性参数默认值
     // ============================================================
     P->elastic_enabled = 1;      // 默认启用弹性计算（0/1）
-    P->elastic_iter_max = 20;
-    P->elastic_warm_start_enabled = 0;
-    P->elastic_residual_control_enabled = 0;
+    // The qualified warm-start/residual solver is the default for every
+    // elastic solve (dynamics, legacy non-zero-mode dynamics, and minimize).
+    // Both switches may still be set to zero explicitly to recover the
+    // historical fixed-iteration path for controlled comparisons.
+    P->elastic_iter_max = 32;
+    P->elastic_warm_start_enabled = 1;
+    P->elastic_residual_control_enabled = 1;
     P->elastic_iter_min = 2;
     P->elastic_residual_tolerance = 1.0e-6;
     P->elastic_residual_absolute_floor = 1.0e-30;
@@ -22612,7 +22616,7 @@ int main(int argc, char **argv) {
             printf("  --minimize-resample-elastic-every N   true residual diagnostic interval; N<=0 disables\n");
             printf("  --elastic 0|1           override elastic (0=off, 1=on)\n");
             printf("  elastic_warm_start_enabled=1 and elastic_residual_control_enabled=1\n");
-            printf("                             dynamics-only accelerated elastic fixed-point solver\n");
+            printf("                             default accelerated elastic fixed-point solver for dynamics/minimize\n");
             printf("  elastic_iter_min=N       minimum fixed-point updates before residual stopping\n");
             printf("  elastic_iter_max=N       hard fixed-point update cap\n");
             printf("  elastic_residual_tolerance=v  relative k-space displacement residual\n");
@@ -24441,8 +24445,9 @@ int main(int argc, char **argv) {
         (P.mode == 1 && P.minimize_full_model == 1 &&
          P.minimize_component_volume_constraint_enabled != 0);
     const int elastic_accelerated_solver_enabled =
-        P.elastic_warm_start_enabled != 0 ||
-        P.elastic_residual_control_enabled != 0;
+        P.elastic_enabled &&
+        (P.elastic_warm_start_enabled != 0 ||
+         P.elastic_residual_control_enabled != 0);
     enum { MINIMIZE_COMPONENT_CONSTRAINT_MAX = 64 };
     std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX>
         minimize_component_target_h_sums_host = {};
@@ -24485,11 +24490,10 @@ int main(int argc, char **argv) {
         return 2;
     }
     if (elastic_accelerated_solver_enabled) {
-        if (!P.elastic_enabled || P.mode != 0 ||
-            !P.elastic_warm_start_enabled ||
+        if (!P.elastic_warm_start_enabled ||
             !P.elastic_residual_control_enabled) {
             fprintf(stderr,
-                    "[fatal] accelerated elastic solver requires dynamics, "
+                    "[fatal] accelerated elastic solver requires "
                     "elastic_enabled=1, elastic_warm_start_enabled=1 and "
                     "elastic_residual_control_enabled=1\n");
             return 2;
@@ -24505,14 +24509,6 @@ int main(int argc, char **argv) {
             fprintf(stderr,
                     "[fatal] accelerated elastic iteration/residual contract "
                     "is invalid\n");
-            return 2;
-        }
-        if (!pf_zero_mode_enabled) {
-            fprintf(stderr,
-                    "[fatal] accelerated elastic warm-start requires %s so "
-                    "the elastic runtime state can be checkpointed with "
-                    "strict provenance\n",
-                    pf_zero_mode::kModeV1);
             return 2;
         }
     }
@@ -34331,7 +34327,7 @@ gp_post_birth_skip_to_finalize:
                "total_iterations=%llu mean_iterations=%.9f "
                "last_iterations=%llu last_residual=%.17e "
                "nonconverged_steps=%llu solver_wall_s=%.9f "
-               "source_field_step=%llu checkpoint_state=V4\n",
+               "source_field_step=%llu checkpoint_state=%s\n",
                elastic_solver_nonconverged_steps == 0U ? "PASS" : "FAIL",
                pf_zero_mode::kElasticWarmStartResidualV1,
                steps_completed,
@@ -34351,7 +34347,8 @@ gp_post_birth_skip_to_finalize:
                    elastic_solver_nonconverged_steps),
                elastic_solver_wall_s_total,
                static_cast<unsigned long long>(
-                   elastic_warm_source_field_step));
+                   elastic_warm_source_field_step),
+               pf_zero_mode_enabled ? "V4" : "NOT_APPLICABLE");
     }
 
     // 清理（只销毁实际创建的计划）

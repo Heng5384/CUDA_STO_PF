@@ -523,8 +523,8 @@ typedef struct {
     // 弹性计算控制
     int elastic_enabled;     // 是否启用弹性计算（0/1）
     int elastic_iter_max;    // 弹性弛豫最大迭代次数（类似SDV_Poly.c的total）
-    // Optional dynamics-only accelerated solver.  The legacy fixed-iteration
-    // path remains the default unless both switches are explicitly enabled.
+    // Qualified accelerated solver, enabled by default for dynamics and
+    // minimize. Set both switches to zero for the legacy fixed-iteration path.
     int elastic_warm_start_enabled;
     int elastic_residual_control_enabled;
     int elastic_iter_min;

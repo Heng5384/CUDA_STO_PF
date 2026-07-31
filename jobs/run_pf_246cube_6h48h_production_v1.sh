@@ -271,6 +271,14 @@ out = {
     "external_source_enabled": False,
     "new_beta_nucleation_enabled": False,
     "concentration_gate_stops_path": False,
+    "elastic_solver_mode": "ELASTIC_WARM_START_RESIDUAL_V1",
+    "elastic_warm_start_enabled": True,
+    "elastic_residual_control_enabled": True,
+    "elastic_iter_min": 2,
+    "elastic_iter_max": 32,
+    "elastic_residual_tolerance": 1.0e-6,
+    "elastic_fail_on_nonconvergence": True,
+    "elastic_checkpoint_contract": "V4_WHEN_ZERO_MODE_CHECKPOINTED",
 }
 pathlib.Path(sys.argv[2]).write_text(
     json.dumps(out, indent=2, sort_keys=True) + "\n",

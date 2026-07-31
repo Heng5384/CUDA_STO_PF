@@ -30,6 +30,20 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 PF_PARAMS_SCHEMA_VERSION = 1
 
+# Numerical elastic-solver defaults qualified by
+# reports/pf_elastic_warm_start_residual_v1. These are numerical controls,
+# not physical fitting parameters, and are emitted explicitly so every run
+# records the active solver contract in its parameter provenance.
+ELASTIC_SOLVER_DEFAULTS = {
+    "elastic_warm_start_enabled": 1,
+    "elastic_residual_control_enabled": 1,
+    "elastic_iter_min": 2,
+    "elastic_iter_max": 32,
+    "elastic_residual_tolerance": 1.0e-6,
+    "elastic_residual_absolute_floor": 1.0e-30,
+    "elastic_fail_on_nonconvergence": 1,
+}
+
 # =========================================================
 # 数值工具
 # =========================================================
@@ -788,6 +802,7 @@ def build_main_cuda_overrides(inputs: PhysicalInputs, pfset: PFParamSet) -> Dict
         "E0_xz": inputs.E0_xz,
         "E0_xy": inputs.E0_xy,
     }
+    overrides.update(ELASTIC_SOLVER_DEFAULTS)
     if inputs.gp_M_eta_ratio_to_crit is not None:
         overrides["gp_M_eta_ratio_to_crit"] = inputs.gp_M_eta_ratio_to_crit
     if inputs.gp_M_eta_phys is not None:
