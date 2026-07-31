@@ -1,0 +1,2 @@
+route,elastic_enabled,boundary,xB_alpha,xAg_alpha,status,note
+periodic_spectral_fixed_cell,1,periodic; k=0 displacement zero; E0=0,NOT_RESOLVED,NOT_RESOLVED,BLOCKED_NUMERICAL_SLAB_INTERFACE,finite-particle fixed-cell short runs pass; slab initializer unsupported; no homogeneous strain relaxation in source kernel

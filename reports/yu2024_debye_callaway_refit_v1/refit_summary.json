@@ -1,0 +1,88 @@
+{
+  "PF_data_used": false,
+  "Sheskin_data_used": false,
+  "fit_statistics": {
+    "algorithm": "bounded nonlinear least squares in log-parameter space",
+    "chi_square": 3.237496838582469,
+    "degrees_of_freedom": 12,
+    "formal_interval_warning": "Intervals are local least-squares intervals. Digitized curve points are correlated, so they are not physical confidence bounds.",
+    "function_evaluations": 7,
+    "jacobian_condition_number": 12.54559872879139,
+    "observations": 14,
+    "optimality": 1.6163227241980845e-05,
+    "parameters": 2,
+    "reduced_chi_square": 0.2697914032152057,
+    "residual": "(calculated - digitized Yu model) / digitization uncertainty"
+  },
+  "fitted_parameters": {
+    "A_N": {
+      "fitted": 1.5107116046433722,
+      "formal_95pct_interval": [
+        1.5032239151062992,
+        1.5182365910156275
+      ],
+      "published": 1.5
+    },
+    "Annealed_dislocation_rate_scale": {
+      "applies_to": "both SI S11 and S13 through their common linear N_D dependence",
+      "fitted": 0.11727677592127755,
+      "formal_95pct_interval": [
+        0.11300614371324638,
+        0.12170880023470215
+      ],
+      "published_reference": 1.0
+    },
+    "Annealed_effective_dislocation_density_cm-2": {
+      "fitted": 41046871572.44714,
+      "published": 350000000000.0
+    },
+    "Annealed_effective_dislocation_density_m-2": {
+      "fitted": 410468715724471.44,
+      "published": 3500000000000000.0
+    }
+  },
+  "metrics": {
+    "AQ": {
+      "published_vs_yu_model": {
+        "MAE_W_mK": 0.007813482632880302,
+        "MAPE_fraction": 0.005452338855347364,
+        "RMSE_W_mK": 0.009097895188328197,
+        "max_relative_error_fraction": 0.01011323316711223
+      },
+      "refitted_vs_experiment": {
+        "MAE_W_mK": 0.020920732075756288,
+        "MAPE_fraction": 0.015602908514928201,
+        "RMSE_W_mK": 0.023982569412554847,
+        "max_relative_error_fraction": 0.0350384537750071
+      },
+      "refitted_vs_yu_model": {
+        "MAE_W_mK": 0.0032677783522068815,
+        "MAPE_fraction": 0.002328453420210006,
+        "RMSE_W_mK": 0.004205179568357918,
+        "max_relative_error_fraction": 0.005491267567585689
+      }
+    },
+    "Annealed": {
+      "published_vs_yu_model": {
+        "MAE_W_mK": 0.698326755282695,
+        "MAPE_fraction": 0.4334836087226794,
+        "RMSE_W_mK": 0.7215757165238541,
+        "max_relative_error_fraction": 0.48640441545371743
+      },
+      "refitted_vs_experiment": {
+        "MAE_W_mK": 0.043054243425033646,
+        "MAPE_fraction": 0.03125189671226148,
+        "RMSE_W_mK": 0.04813609912649061,
+        "max_relative_error_fraction": 0.07006620836150738
+      },
+      "refitted_vs_yu_model": {
+        "MAE_W_mK": 0.006075897140961224,
+        "MAPE_fraction": 0.004033007682007526,
+        "RMSE_W_mK": 0.006405850114678624,
+        "max_relative_error_fraction": 0.006294465723954371
+      }
+    }
+  },
+  "original_reproduction_overwritten": false,
+  "status": "REFIT_COMPLETED"
+}

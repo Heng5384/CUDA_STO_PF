@@ -60,8 +60,17 @@ step35_outputs/
 step36_radial_profiles/
 *.vtk
 *.raw
+*.f64
+*.chk
+*.tar
+*.tar.gz
+*.part
+artifacts/
 nohup.out
 core.*
+
+# Host-only unit-test executable
+test_pf_zero_mode_checkpoint_bin
 
 # ============================================
 # Job / cluster

@@ -1,0 +1,64 @@
+{
+  "schema_version": "yu2024-debye-callaway-v1",
+  "state": "48h",
+  "state_label_in_source": "annealed",
+  "source_doi": "10.1002/aenm.202304442",
+  "source_contract": {
+    "main_equation": "main text Eq. (3)",
+    "rate_equations": "SI Eqs. (S1)-(S16)",
+    "parameter_table": "SI Table S2",
+    "single_relaxation_time_integral": true,
+    "normal_and_umklapp_separable": false,
+    "callaway_second_term_present": false,
+    "parameter_refit_authorized": false
+  },
+  "physical_constants": {
+    "k_B_J_K": 1.380649e-23,
+    "hbar_J_s": 1.054571817e-34
+  },
+  "shared_parameters": {
+    "A_N": 1.5,
+    "gruneisen_gamma": 1.96,
+    "average_atomic_mass_kg": 2.784e-25,
+    "average_sound_velocity_m_s": 1770.0,
+    "debye_temperature_K": 136.0,
+    "pbte_lattice_constant_angstrom": 6.46,
+    "point_defect_epsilon": 65.0,
+    "published_delta_M_i_g_mol": 107.87,
+    "matrix_atom_mass_g_mol": 207.2,
+    "matrix_atomic_radius_pm": 180.0,
+    "impurity_atomic_radius_pm": 160.0,
+    "matrix_density_kg_m3": 8383.0,
+    "density_difference_kg_m3": 63.0,
+    "burgers_vector_m": 4.56e-10,
+    "dislocation_prefactor_C": 0.96,
+    "poisson_ratio": 0.218,
+    "longitudinal_sound_velocity_m_s": 3590.0,
+    "transverse_sound_velocity_m_s": 1610.0,
+    "matrix_atomic_volume_m3": 3.03e-29,
+    "impurity_atomic_volume_m3": 1.71e-29,
+    "impurity_fraction_near_dislocations": 0.04,
+    "bulk_modulus_Pa": 4.1e10,
+    "annealing_temperature_K_for_gamma_prime": 655.0,
+    "impurity_atom_mass_g_mol": 107.87,
+    "published_gamma_prime": 2.62
+  },
+  "state_parameters": {
+    "solid_solution_lattice_constant_angstrom": 6.445,
+    "grain_size_m": 1.21e-5,
+    "interstitial_Ag_fraction": 0.0034,
+    "small_precipitate_radius_m": 2.0e-9,
+    "small_precipitate_number_density_m3": 2.5e19,
+    "big_precipitate_radius_m": 5.0e-8,
+    "big_precipitate_number_density_m3": 9.2e18,
+    "dislocation_density_m2": 3.5e15
+  },
+  "numerics": {
+    "gauss_legendre_order": 256,
+    "gauss_legendre_refined_order": 512,
+    "quad_epsabs": 1.0e-11,
+    "quad_epsrel": 1.0e-10,
+    "quad_limit": 300,
+    "spectral_grid_points": 801
+  }
+}

@@ -1,0 +1,198 @@
+{
+  "continuous_checkpoint_sha256": "9a4afd3ec10f3f4098b512e0d607df919db56ce165078cde9f63bd04d630f622",
+  "continuous_dt_code": 0.02,
+  "continuous_geometry": {
+    "axis_ratio": 1.4091861992334078,
+    "centroid_nm": [
+      48.00000012027885,
+      48.000000173067626,
+      48.0000006348483
+    ],
+    "equivalent_radius_nm": 9.379564935457338,
+    "h_volume_nm3": 3456.5010449035326,
+    "principal_axes_rows": [
+      [
+        0.05049981604919859,
+        -0.010374589548314495,
+        0.9986701840300934
+      ],
+      [
+        0.0005355601788582919,
+        0.9999461824300424,
+        0.010360763431271236
+      ],
+      [
+        0.998723926695607,
+        -1.1631334971132223e-05,
+        -0.05050265448884962
+      ]
+    ],
+    "semi_axes_nm": [
+      11.169278376257747,
+      10.04065522089322,
+      7.9260486529983005
+    ],
+    "shape_eigenvalues_nm2": [
+      24.950555889267775,
+      20.162951452970052,
+      12.564449449939234
+    ]
+  },
+  "continuous_step": 64,
+  "dt_axis_relative_max": 0.0008305207768968894,
+  "dt_phi_l1_normalized": 0.0027302979478585564,
+  "dt_xB_mean_absolute": 4.141927323149554e-05,
+  "dt_xB_preferred_status": "NOT_MET",
+  "gates": {
+    "dt_phi": true,
+    "dt_shape": true,
+    "dt_xB_hard": true,
+    "initial_axis_ratio": true,
+    "initial_centroid": true,
+    "initial_normalized_shape": true,
+    "mass": true,
+    "prohibited_paths_absent": true,
+    "restart_array_exact": true,
+    "restart_bytewise": true,
+    "zero_mode": true
+  },
+  "initial_axis_ratio_relative": 0.0005971138526871975,
+  "initial_geometry": {
+    "axis_ratio": 1.4106370730678135,
+    "centroid_nm": [
+      48.00000011975449,
+      48.0000001713298,
+      48.0000006249348
+    ],
+    "equivalent_radius_nm": 9.500000000528162,
+    "h_volume_nm3": 3591.3640024277292,
+    "principal_axes_rows": [
+      [
+        0.05042430418909498,
+        -0.010371510164117526,
+        0.9986740315658362
+      ],
+      [
+        0.000540892600132668,
+        0.9999462142816198,
+        0.010357411793087579
+      ],
+      [
+        0.9987277391673071,
+        -1.791011075227139e-05,
+        -0.05042720195477032
+      ]
+    ],
+    "semi_axes_nm": [
+      11.315605047289354,
+      10.173591354524708,
+      8.021627435808487
+    ],
+    "shape_eigenvalues_nm2": [
+      25.608583517248064,
+      20.700392209771977,
+      12.86930134378309
+    ]
+  },
+  "initial_normalized_axis_relative_max": 0.0005966337801544748,
+  "initial_probe_centroid_shift_nm": 3.824283112408011e-10,
+  "initial_probe_checkpoint_sha256": "d3e9e8305fe854f2ae7b14a3c990dad3d0d20439db410f0e23917287b3321f79",
+  "initial_probe_dt_code": 0.02,
+  "initial_probe_geometry": {
+    "axis_ratio": 1.4114793840052564,
+    "centroid_nm": [
+      48.00000012013692,
+      48.000000171424986,
+      48.000000624587535
+    ],
+    "equivalent_radius_nm": 9.462190789230283,
+    "h_volume_nm3": 3548.6544431243988,
+    "principal_axes_rows": [
+      [
+        0.05046792923548738,
+        -0.010370347767430732,
+        0.9986718399984374
+      ],
+      [
+        0.0005386344152709441,
+        0.9999462263814342,
+        0.010356361257535696
+      ],
+      [
+        0.9987255368676865,
+        -1.5254915502659061e-05,
+        -0.05047080121851672
+      ]
+    ],
+    "semi_axes_nm": [
+      11.277294281350802,
+      10.136852191990222,
+      7.989698191233946
+    ],
+    "shape_eigenvalues_nm2": [
+      25.435473261637497,
+      20.551154472451394,
+      12.767055437401396
+    ]
+  },
+  "initial_probe_phi_l1_normalized": 0.010188430959953549,
+  "initial_probe_step": 1,
+  "initial_probe_volume_relative": 0.011892294758888046,
+  "initial_probe_xB_mean_absolute": 4.829801544367785e-05,
+  "mass_relative": 8.733428479181864e-15,
+  "profile_manifest": "/home/zhiheng/tmp/pf_elastic_target_profile_library_workstation_v3_20260730/profiles/R9p5/profile_manifest.json",
+  "profile_manifest_sha256": "4c5716ce6370a95d27ba9cd5c9e49169bf241e3d123c9dd3c0644d0a147de566",
+  "refined_checkpoint_sha256": "77e77202898446bfc917c8e4f7ffeb2ccc8386be211da8918e306a35169bd26a",
+  "refined_dt_code": 0.01,
+  "refined_geometry": {
+    "axis_ratio": 1.409085821559983,
+    "centroid_nm": [
+      48.00000012063076,
+      48.000000174256655,
+      48.00000063440163
+    ],
+    "equivalent_radius_nm": 9.38733443406509,
+    "h_volume_nm3": 3465.0976690874672,
+    "principal_axes_rows": [
+      [
+        0.05050883339816243,
+        -0.01037530028911915,
+        0.9986697206247256
+      ],
+      [
+        0.0005362321936788052,
+        0.9999461750492827,
+        0.010361440987803228
+      ],
+      [
+        0.9987234703379064,
+        -1.2174558433344917e-05,
+        -0.05051167833272809
+      ]
+    ],
+    "semi_axes_nm": [
+      11.177758434927997,
+      10.048733982062856,
+      7.932631401083311
+    ],
+    "shape_eigenvalues_nm2": [
+      24.9884567259208,
+      20.195410928452965,
+      12.585328189090596
+    ]
+  },
+  "refined_step": 128,
+  "restart_checkpoint_sha256": "9a4afd3ec10f3f4098b512e0d607df919db56ce165078cde9f63bd04d630f622",
+  "schema": "PF_ELASTIC_TARGET_PROFILE_DYNAMIC_QUALIFICATION_V1",
+  "status": "PASS_ELASTIC_TARGET_PROFILE_DYNAMIC_RESTART_AND_DT_V1",
+  "thresholds": {
+    "dt_axis_relative_max": 0.02,
+    "dt_phi_l1_max": 0.02,
+    "dt_xB_mean_absolute_hard": 5e-05,
+    "dt_xB_mean_absolute_preferred": 2e-05,
+    "initial_axis_ratio_relative_max": 0.02,
+    "initial_centroid_shift_max_nm": 0.1,
+    "initial_normalized_axis_relative_max": 0.02,
+    "mass_relative_max": 1e-10
+  }
+}

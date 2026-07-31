@@ -1,0 +1,9 @@
+dynamic_profile_status=PASS_ELASTIC_TARGET_PROFILE_DYNAMIC_RESTART_AND_DT_V1
+restart_bytewise=true
+mass_relative=4.56819346976497719e-16
+initial_profile_handoff_status=PASS
+initial_probe_normalized_axis_relative_max=3.76081544376621587e-04
+dt_phi_l1_normalized=1.52262148086208023e-03
+dt_xB_mean_absolute=3.91152079818579804e-05
+dt_xB_preferred_status=NOT_MET
+audit_sha256=305e4cbb9e9abe2a26687d7624097766f997780ad70129e102977b51bbf61aaf

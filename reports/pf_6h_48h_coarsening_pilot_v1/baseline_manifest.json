@@ -1,0 +1,22 @@
+{
+  "commit": "6b69895af2d1b86b99c57c5479ff767349c61efe",
+  "branch_requested": "codex/pf-zero-mode-restart-provenance-v1",
+  "worktree_state": "detached_at_exact_commit_branch_checked_out_in_separate_worktree",
+  "cluster_source_root": "/data/home/luozhiheng/tmp/codex_pf_zero_mode_6h48h_20260729_v1",
+  "cluster_pilot_output_root": "/data/home/luozhiheng/tmp/pf_6h48h_pilot_zero_mode_20260729",
+  "cluster_target_job": 72670,
+  "cluster_tail_job": 72671,
+  "cluster_accelerated_resume_job": 72676,
+  "cluster_accelerated_resume_output_root": "/data/home/luozhiheng/tmp/pf_6h48h_pilot_zero_mode_fast_20260729",
+  "cluster_diagnostic_ab_job": 72674,
+  "cluster_diagnostic_ab_output_root": "/data/home/luozhiheng/tmp/pf_runtime_diag_ab_q14_20260729",
+  "temperature_C": 380,
+  "grid": [128, 128, 128],
+  "dx_nm": 1.0,
+  "lambda_sm_nm": 4.0,
+  "elastic_enabled": false,
+  "gp_used": false,
+  "external_source_used": false,
+  "commit_created": false,
+  "push_performed": false
+}

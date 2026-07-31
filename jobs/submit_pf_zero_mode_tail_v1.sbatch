@@ -21,7 +21,7 @@ mkdir -p "${OUT_ROOT}"
   echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
   echo "dependency_satisfied=true"
   if [[ -f "${OUT_ROOT}/status.txt" ]]; then
-    echo "target_status=$(tr -d '\\r\\n' <"${OUT_ROOT}/status.txt")"
+    echo "target_status=$(tr -d '\r\n' <"${OUT_ROOT}/status.txt")"
   else
     echo "target_status=MISSING"
   fi

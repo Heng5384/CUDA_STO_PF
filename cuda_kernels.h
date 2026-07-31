@@ -316,6 +316,21 @@ void launch_add_volume_constraint_kernel(const double *phi_r, double *rhs_r,
                                          double lambda,
                                          int total_size);
 
+// V5 multi-particle target-profile construction.  Every cell is assigned to
+// one periodic component ownership region.  These helpers form independent
+// h-volume constraints without introducing a global particle-volume exchange.
+// labels[idx] must be in [0, component_count).
+void launch_compute_component_constraint_moments_kernel(
+    const double *phi_r, const double *rhs_r, const int *labels,
+    double *sum_hprime_rhs, double *sum_hprime_sq, double *sum_h,
+    int component_count, int total_size);
+void launch_add_component_volume_constraint_kernel(
+    const double *phi_r, double *rhs_r, const int *labels,
+    const double *lambdas, int component_count, int total_size);
+void launch_apply_component_volume_projection_kernel(
+    double *phi_r, const int *labels, const double *lambdas,
+    int component_count, int total_size);
+
 // volume constraint (lagrange mode helpers):
 // out[idx] = h'(phi)
 void launch_compute_hprime_values_kernel(const double *phi_r, double *out_r, int total_size);
@@ -324,6 +339,12 @@ void launch_compute_hprime_sq_values_kernel(const double *phi_r, double *out_r, 
 // out[idx] = h'(phi) * rhs(phi)
 void launch_compute_hprime_times_rhs_kernel(const double *phi_r, const double *rhs_r,
                                             double *out_r, int total_size);
+// Bound-aware KKT norm contribution for phi in [0,1].  A gradient that
+// points outside the feasible interval at an active bound contributes zero.
+// out_r may alias residual_r.
+void launch_compute_projected_phi_kkt_residual_sq_kernel(
+    const double *phi_r, const double *residual_r, double *out_r,
+    double bound_eps, int total_size);
 
 // Full Euler-Lagrange residual: res = δF/δφ - λ h' (residual_r may alias lap_phi_r)
 void launch_compute_euler_lagrange_residual_kernel(const double *rhs_r,
@@ -1142,6 +1163,15 @@ void launch_add_external_strain_kernel(
     int total_size);
 
 // Green函数方法：从hij计算新的k空间位移（第二次迭代及之后）
+// Deterministic elementwise contributions for the fixed-point relative L2
+// residual.  The caller performs the registered pair reduction.
+void launch_compute_elastic_displacement_residual_kernel(
+    const cufftComplex *old_ux, const cufftComplex *old_uy,
+    const cufftComplex *old_uz, const cufftComplex *new_ux,
+    const cufftComplex *new_uy, const cufftComplex *new_uz,
+    double *difference_sq, double *reference_sq,
+    int Nz, int NzC, int total_k);
+
 void launch_compute_displacement_from_hij_green_kernel(
     const cufftComplex *k_uxx, const cufftComplex *k_uyy, const cufftComplex *k_uzz,
     const cufftComplex *k_uxy, const cufftComplex *k_uxz, const cufftComplex *k_uyz,

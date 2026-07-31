@@ -1,0 +1,13 @@
+{
+  "schema": "PF_PARTICLE_SHAPE_TENSOR_6_8H_V1",
+  "snapshot_count": 30,
+  "particle_row_count": 2463,
+  "particle_h_threshold": 0.0001,
+  "unexpected_ages_h": [],
+  "major_axis_orientation_condition": "(lambda_major-lambda_intermediate)/lambda_major >= 0.05",
+  "aspect_ratio_major_minor_min": 1.0000002377092205,
+  "aspect_ratio_major_minor_max": 1.5468288334564408,
+  "aspect_ratio_major_minor_mean": 1.3526497973347833,
+  "orientation_well_conditioned_fraction": 0.9366626065773447,
+  "status": "PASS_PARTICLE_SHAPE_TENSOR_6_8H_V1"
+}

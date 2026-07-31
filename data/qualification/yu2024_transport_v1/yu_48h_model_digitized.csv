@@ -1,0 +1,8 @@
+state,T_K,yu_model_kappa_lat_W_mK,digitization_uncertainty_W_mK,source_location,interpolation
+48h,303.94,1.99926681741,0.0112676056338,main text Figure 6b dashed Callaway curve,PCHIP_between_masked_curve_pixels
+48h,323.3,1.90988854204,0.0112676056338,main text Figure 6b dashed Callaway curve,PCHIP_between_masked_curve_pixels
+48h,371.35,1.71362095278,0.0112676056338,main text Figure 6b dashed Callaway curve,PCHIP_between_masked_curve_pixels
+48h,420.52,1.55837677648,0.0112676056338,main text Figure 6b dashed Callaway curve,PCHIP_between_masked_curve_pixels
+48h,471.83,1.41689964039,0.0112676056338,main text Figure 6b dashed Callaway curve,PCHIP_between_masked_curve_pixels
+48h,522.02,1.30424448957,0.0112676056338,main text Figure 6b dashed Callaway curve,PCHIP_between_masked_curve_pixels
+48h,572.27,1.2054421016,0.0112676056338,main text Figure 6b dashed Callaway curve,PCHIP_between_masked_curve_pixels

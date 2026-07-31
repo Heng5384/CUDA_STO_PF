@@ -1,0 +1,14 @@
+{
+  "scope": "T350C_to_T450C_no_strain_400cube_dx0p1",
+  "cases": 55,
+  "scan_points": 605,
+  "complete_peak_fits": 55,
+  "generated_files": [
+    "energy_minimization_T350_T450_complete.csv",
+    "energy_minimization_T350_T450_report.md",
+    "energy_minimization_T350_T450_overview.png",
+    "energy_minimization_T350_T450_overview.pdf",
+    "barrier_real_units_by_case.csv",
+    "barrier_real_units_detail.csv"
+  ]
+}

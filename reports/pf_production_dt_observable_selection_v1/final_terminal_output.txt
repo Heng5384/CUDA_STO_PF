@@ -1,0 +1,13 @@
+production_dt_observable_convergence_status=PASS_PRODUCTION_DT_OBSERVABLE_CONVERGENCE_V1
+selected_production_dt_code=0.02
+selected_production_dt_physical_s=0.9909260953431841
+fallback_dt_code=0.01
+common_physical_time_s=253.67708040785513
+common_endpoint_age_h=6.070465855668848
+refinement_monotone=True
+restart_bytewise_equal=True
+full_field_xB_dt_MAE_blocking=False
+cluster_used=false
+commit_created=false
+push_performed=false
+final_status=PASS_PRODUCTION_DT_OBSERVABLE_CONVERGENCE_V1

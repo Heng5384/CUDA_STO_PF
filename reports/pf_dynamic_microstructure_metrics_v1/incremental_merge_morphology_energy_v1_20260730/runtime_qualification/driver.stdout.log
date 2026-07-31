@@ -1,0 +1,313 @@
+[site-env] mode=slurm
+[site-env] PROJECT_ROOT=/data/home/luozhiheng/tmp/codex_pf_dynamic_microstructure_audit_v1_20260730
+[site-env] CUDA_ROOT=/usr/local/cuda-12.8
+[site-env] NVCC=/usr/local/cuda-12.8/bin/nvcc
+[site-env] CUDA_ARCH=sm_80
+nvcc -arch=sm_80 -O3 -std=c++14 --expt-relaxed-constexpr -Xcompiler -Wno-format-truncation -I/usr/local/cuda-12.8/include -o main_cuda main_cuda.cu cuda_kernels.cu cuda_common.cu pf_zero_mode_checkpoint.cpp -L/usr/local/cuda-12.8/lib64 -lcufft -lcudart -lm
+c++ -O2 -std=c++14 -Wall -Wextra -pedantic -o test_pf_zero_mode_checkpoint_bin tests/test_pf_zero_mode_checkpoint.cpp pf_zero_mode_checkpoint.cpp
+./test_pf_zero_mode_checkpoint_bin
+PASS_PF_ZERO_MODE_CHECKPOINT_PROVENANCE_V1
+[pf-param-file] loaded 114 override(s) from /data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/pf_input.params
+PF_ZERO_MODE_INITIAL_RAW_FIXTURE_ACCEPTED target_mass_from_raw_state=true checkpoint_restart_required=true
+
+========== Run Configuration ==========
+  mode                     : dynamics raw_fields
+  model_mode               : two_phase
+  init_mode                : raw_fields
+  pf_param_file            : /data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/pf_input.params
+  grid                     : 246x246x246
+  dx / dy / dz (grid)      : 1.000000 / 1.000000 / 1.000000
+  cell_size_phys_nm        : 1.000000 / 1.000000 / 1.000000
+  system_size_phys_nm      : 246.000000 / 246.000000 / 246.000000
+  system_size_phys_m       : 2.460000e-07 / 2.460000e-07 / 2.460000e-07
+  t_real_unit_s            : 4.954630e+01
+  lambda_sm_nm             : 4.000000
+  lambda_sm/dx             : 4.000000
+  steps                    : 7266
+  dt                       : 2.000000e-02
+  out_every                : 256
+  csv_out_every            : 256
+  elastic                  : 启用
+  external_strain(E0)      : xx=0.000000e+00 yy=0.000000e+00 zz=0.000000e+00 yz=0.000000e+00 xz=0.000000e+00 xy=0.000000e+00
+  diag_vtk                 : 禁用
+  diag_elastic_bulk        : 禁用
+  scheduled_nucleation_test : disabled
+  dynamics_mass_diagnostics : enabled (interval=256)
+  Y_rhs_previous_time_level : disabled
+[RUN PARAM] Nx Ny Nz = 246 246 246, dx_nm = 1.000000, interface_width_nm / lambda_sm = 4.000000, dt = 2.000000e-02, init_mode = raw_fields, scheduled nucleation test = disabled
+
+========== Thermodynamics ==========
+  T_C                      : 380.000000
+  T_K                      : 653.150000
+  thermo_convex_extrapolation_enabled : 0
+  xB_eq                    : 4.66495182e-03
+  mu0_compound_hat         : -7.50528003e+00
+  mu_reference_scale       : 2.06685360e+04
+
+========== Dynamics Controls ==========
+  xB safety cap            : not applied in dynamics mode
+
+========== Interface-Width Consistency (Diagnostics) ==========
+  dx_internal              : 1
+  dx_phys_nm(inferred)     : 1.000000
+  unit_to_nm(internal->phys) : 1.000000e+00
+  ic_phi_iface_w(grids_halfwidth) : 2.000000
+  interface_width_grids(2*ic) : 4.000000
+  interface_width_nm(2*ic*dx_phys) : 4.000000
+  kappa_phi_loaded         : 2.00000000e+00
+  kappa_phi_expected_from_ic(0.5*(ic*dx)^2) : 2.00000000e+00
+  kappa_phi_rel_error      : 0.000e+00
+  seed_R_internal          : 10
+  seed_w_init_internal(ic*dx) : 2
+  seed_R_over_w            : 5
+  seed_phi_center_ideal(0.5*(1+tanh(R/w))) : 0.999955
+
+========== Output Layout ==========
+  output_root              : Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030
+  output_pf_input          : Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/pf_input.params
+  init_case_tag            : raw_fields_relax
+  case_output_dir          : Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax
+  pf_zero_mode             : PF_CONSERVED_Y_ZERO_MODE_V1
+  pf_zero_mode_backend     : HOST_NEWTON_BISECTION_V1
+  pf_sm_explicit_context   : SM_EXPLICIT_CONTEXT_N_V1
+  pf_reaction_discretization : SM_TANGENT_N_V1
+  pf_zero_mode_tolerance_relative : 9.99999999999999980e-13
+  pf_zero_mode_max_iterations : 24
+  pf_zero_mode_parameter_fingerprint : aa304b81a6b1dbc7
+  pf_checkpoint_every      : 256
+  pf_checkpoint_path       : /data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk
+  gp_paths_enabled         : false
+  case_pf_input            : Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax/pf_input.params
+
+[Unit Conversion Summary]
+  Reference scales:
+    w_ref (J/m^3)      = 5.04000000e+08
+    dx_ref (m)         = 1.00000000e-09
+    t0_diff (s)        = 4.95463048e+01
+    mu_reference_scale = 2.06685360e+04
+
+                       physical            code               kernel_used        ratio(kernel/expected)
+  W_phi              5.04000000e+08     1.00000000e+00     1.00000000e+00     1.00000000e+00    
+  kappa_phi          1.00800000e-09     2.00000000e+00     2.00000000e+00     1.00000000e+00    
+  L_phi              2.59208260e-10     6.47277697e+00     6.47277697e+00     1.00000000e+00    
+  W_eta              6.00000000e+08     1.19047619e+00     1.19047619e+00     1.00000000e+00    
+  kappa_eta          7.50000000e-11     1.48809524e-01     1.48809524e-01     1.00000000e+00    
+  L_eta              4.10626947e-11     1.02539041e+00     1.02539041e+00     1.00000000e+00    
+
+  Stability indicators (S_W = L·dt·W; S_grad = L·dt·κ·k_max²):
+    S_phi_W    = 1.29455539e-01     S_phi_grad = 7.66604977e+00     S_phi_total = 7.79550531e+00
+    S_eta_W    = 2.44140574e-02     S_eta_grad = 9.03589082e-02     S_eta_total = 1.14772966e-01
+    CFL_diff   = 8.00000000e+00
+    Note: semi-implicit denom damps S_grad; instability risk comes from explicit source term S_W. Production-safe envelope: S_W < 1.
+  vtk_mode                 : dynamic/raw-continue (with case suffix)
+  relaxation_diagnostics_csv : Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax/relaxation_diagnostics.csv
+  pf_zero_mode_trace       : Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax/pf_zero_mode_trace.csv
+  dynamics_mass_diagnostics_csv : Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax/dynamics_mass_diagnostics.csv
+
+========== Initialization ==========
+  path                     : raw_fields phi/xB from Python embedding
+
+========== INIT raw_fields ==========
+  init_phi_raw             : /data/home/luozhiheng/tmp/codex_pf_random_psd_v2_246x96_6b69895_20260730/data/qualification/pf_6h_48h_random_psd_v2_246x96/phi.raw
+  init_xB_raw              : /data/home/luozhiheng/tmp/codex_pf_random_psd_v2_246x96_6b69895_20260730/data/qualification/pf_6h_48h_random_psd_v2_246x96/xB_alpha.raw
+  init_meta                : /data/home/luozhiheng/tmp/codex_pf_random_psd_v2_246x96_6b69895_20260730/data/qualification/pf_6h_48h_random_psd_v2_246x96/init_meta.json
+  dtype/order              : float64 / C
+  phi min/max/mean         : 0.00000000e+00 / 9.99978298e-01 / 2.58454856e-02
+  eta min/max/mean         : 0.00000000e+00 / 0.00000000e+00 / 0.00000000e+00
+  xB min/max/mean          : 6.21927977e-03 / 6.21927977e-03 / 6.21927977e-03
+  hphi mean                : 2.39295448e-02
+  xBtot mean               : 3.00000000e-02
+  python_meta mean_xBtot   : 3.00000000e-02 (diff=5.510e-12)
+  phi clamp count          : low=0 high=0 fraction=0.000e+00
+  eta clamp count          : low=0 high=0 fraction=0.000e+00
+  xB clamp count           : low=0 high=0 fraction=0.000e+00
+[INIT] phi min/max/mean = 0.00000000e+00 / 9.99978298e-01 / 2.58454856e-02, eta min/max/mean = 0.00000000e+00 / 0.00000000e+00 / 0.00000000e+00, xB min/max/mean = 6.21927977e-03 / 6.21927977e-03 / 6.21927977e-03, hphi mean = 2.39295448e-02, xBtot mean = 3.00000000e-02, clamp counts phi_low/high=0/0 eta_low/high=0/0 xB_low/high=0/0
+写出初始化 vtk: Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax/phi_init.vtk
+分配GPU内存...
+[gpu mem] before main cudaMallocs: free=39.08 GB / total=39.49 GB (used=0.42 GB)
+[mem-opt] two_phase mode: GP/eta device buffers are aliases, not resident allocations.
+分配弹性计算GPU内存（float精度）...
+[gpu mem] before elastic cudaMallocs: free=36.84 GB / total=39.49 GB (used=2.65 GB)
+弹性计算GPU内存分配完成
+[gpu mem] after elastic cudaMallocs: free=35.65 GB / total=39.49 GB (used=3.84 GB)
+[gpu mem] after main cudaMallocs: free=35.65 GB / total=39.49 GB (used=3.84 GB)
+
+=== Memory Ledger (resident arrays) ===
+  d_phi_r                        14886936 elem     119095488 bytes
+  d_eta_r                           alias       0 bytes
+  d_Y_r                          14886936 elem     119095488 bytes
+  d_xB_r                         14886936 elem     119095488 bytes
+  d_phi_rhs_r(=d_lapY_r)         14886936 elem     119095488 bytes
+  d_eta_prev_r                      alias       0 bytes
+  d_eta_rhs_r                       alias       0 bytes
+  d_phi_n_saved                  14886936 elem     119095488 bytes
+  d_Y_n_saved                    14886936 elem     119095488 bytes
+  d_dY_dt_prev_r                 14886936 elem     119095488 bytes
+  d_mu_x_r(=d_Y_rhs_r)           14886936 elem     119095488 bytes
+  d_divJ_r(=d_xB_prev_r)         14886936 elem     119095488 bytes
+  d_phi_k                         7503984 elem     120063744 bytes
+  d_eta_k                           alias       0 bytes
+  d_eta_rhs_k                       alias       0 bytes
+  d_phi_rhs_k(=d_mu_x_k=d_Y_rhs_k)        7503984 elem     120063744 bytes
+  d_Y_k                           7503984 elem     120063744 bytes
+  d_divJ_k                        7503984 elem     120063744 bytes
+  d_scratch_k_double              7503984 elem     120063744 bytes
+  d_scratch_r_double             29773872 elem     238190976 bytes
+  d_uxx_r..d_uyz_r (6)           89321616 elem     357286464 bytes
+  d_sigma_*_r (6)                89321616 elem     357286464 bytes
+  d_ux_k,d_uy_k,d_uz_k           22511952 elem     180095616 bytes
+  d_uxx_k..d_uyz_k (6)           45023904 elem     360191232 bytes
+  ----------------------------------------
+  Total resident (est.)              3165228864 bytes (3018.60 MB)
+  Peak estimate (resident+transient) ~ same (scratch reused)
+=== End Memory Ledger ===
+
+PF_ZERO_MODE_INITIALIZED mode=PF_CONSERVED_Y_ZERO_MODE_V1 backend=HOST_NEWTON_BISECTION_V1 restart_loaded=0 accepted_step=0 target_mass_code=4.46608079999958049e+05 parameter_fingerprint=aa304b81a6b1dbc7 gp_paths_enabled=false
+创建cuFFT计划...
+  网格: 246x246x246
+弹性FFT计划创建成功（float精度）
+cuFFT计划创建成功（复用计划，减少内存使用）
+构建k空间...
+[gpu mem] before minimize work buffers: free=35.19 GB / total=39.49 GB (used=4.31 GB)
+
+========================================
+初始化完成后的显存使用情况:
+  网格大小: 246x246x246
+  已使用: 4.31 GB (10.91%)
+  空闲: 35.19 GB
+  总计: 39.49 GB
+  弹性功能: 已启用
+========================================
+
+[3D] step=00000 t=0.000000 t_real=0.000000e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.392954e-02 R_avg_internal=9.479961e+00 R_avg_nm=9.479961e+00 xB_range=[0.0062, 0.0062] Meff_range=[1.0085e-01, 1.0085e+01] t_wall=2026-07-30 16:11:46
+
+开始时间推进...
+========================================
+[3D] step=00256 t=5.120000 t_real=2.536771e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.254926e-02 R_avg_internal=8.894995e+00 R_avg_nm=8.894995e+00 xB_range=[0.0065, 0.0092] Meff_range=[1.1382e-01, 1.3644e+01] t_wall=2026-07-30 16:13:31
+step=00256 完成，已输出VTK文件（phi_256.vtk, xB_256.vtk, xBtot_256.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=256 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=-2.11998244955228729e-06 residual=2.43599060922861099e-07 accepted_zero_mode_steps=256
+[3D] step=00512 t=10.240000 t_real=5.073542e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.243567e-02 R_avg_internal=8.844956e+00 R_avg_nm=8.844956e+00 xB_range=[0.0067, 0.0089] Meff_range=[1.1213e-01, 1.3834e+01] t_wall=2026-07-30 16:15:26
+step=00512 完成，已输出VTK文件（phi_512.vtk, xB_512.vtk, xBtot_512.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=512 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=-8.37577236877214312e-08 residual=3.49245965480804443e-10 accepted_zero_mode_steps=512
+[3D] step=00768 t=15.360000 t_real=7.610312e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.244256e-02 R_avg_internal=8.834572e+00 R_avg_nm=8.834572e+00 xB_range=[0.0068, 0.0089] Meff_range=[1.1601e-01, 1.3974e+01] t_wall=2026-07-30 16:17:20
+step=00768 完成，已输出VTK文件（phi_768.vtk, xB_768.vtk, xBtot_768.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=768 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.95511009064424581e-08 residual=5.82076609134674072e-11 accepted_zero_mode_steps=768
+[3D] step=01024 t=20.480000 t_real=1.014708e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.244603e-02 R_avg_internal=8.827214e+00 R_avg_nm=8.827214e+00 xB_range=[0.0069, 0.0091] Meff_range=[1.1684e-01, 1.4103e+01] t_wall=2026-07-30 16:19:15
+step=01024 完成，已输出VTK文件（phi_1024.vtk, xB_1024.vtk, xBtot_1024.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=1024 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.99919923185878804e-08 residual=0.00000000000000000e+00 accepted_zero_mode_steps=1024
+[3D] step=01280 t=25.600000 t_real=1.268385e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.244537e-02 R_avg_internal=8.837211e+00 R_avg_nm=8.837211e+00 xB_range=[0.0070, 0.0093] Meff_range=[1.1678e-01, 1.4316e+01] t_wall=2026-07-30 16:21:10
+step=01280 完成，已输出VTK文件（phi_1280.vtk, xB_1280.vtk, xBtot_1280.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=1280 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=2.58169718238284155e-09 residual=0.00000000000000000e+00 accepted_zero_mode_steps=1280
+[3D] step=01536 t=30.720000 t_real=1.522062e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.244286e-02 R_avg_internal=8.843243e+00 R_avg_nm=8.843243e+00 xB_range=[0.0070, 0.0097] Meff_range=[1.1690e-01, 1.4573e+01] t_wall=2026-07-30 16:23:05
+step=01536 完成，已输出VTK文件（phi_1536.vtk, xB_1536.vtk, xBtot_1536.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=1536 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=3.32273361647977632e-09 residual=0.00000000000000000e+00 accepted_zero_mode_steps=1536
+[3D] step=01792 t=35.840000 t_real=1.775740e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.243822e-02 R_avg_internal=8.860503e+00 R_avg_nm=8.860503e+00 xB_range=[0.0070, 0.0102] Meff_range=[1.1683e-01, 1.5020e+01] t_wall=2026-07-30 16:25:00
+step=01792 完成，已输出VTK文件（phi_1792.vtk, xB_1792.vtk, xBtot_1792.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=1792 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=4.30324696397216153e-09 residual=-1.16415321826934814e-10 accepted_zero_mode_steps=1792
+[3D] step=02048 t=40.960000 t_real=2.029417e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.243121e-02 R_avg_internal=8.888856e+00 R_avg_nm=8.888856e+00 xB_range=[0.0070, 0.0114] Meff_range=[1.1667e-01, 1.5960e+01] t_wall=2026-07-30 16:26:55
+step=02048 完成，已输出VTK文件（phi_2048.vtk, xB_2048.vtk, xBtot_2048.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=2048 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=6.89507024060021310e-09 residual=0.00000000000000000e+00 accepted_zero_mode_steps=2048
+[3D] step=02304 t=46.080000 t_real=2.283094e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.241931e-02 R_avg_internal=8.929657e+00 R_avg_nm=8.929657e+00 xB_range=[0.0070, 0.0197] Meff_range=[1.1648e-01, 2.3798e+01] t_wall=2026-07-30 16:28:50
+step=02304 完成，已输出VTK文件（phi_2304.vtk, xB_2304.vtk, xBtot_2304.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=2304 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.74642729362530521e-09 residual=-5.82076609134674072e-11 accepted_zero_mode_steps=2304
+[3D] step=02560 t=51.200000 t_real=2.536771e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.242363e-02 R_avg_internal=8.979033e+00 R_avg_nm=8.979033e+00 xB_range=[0.0070, 0.0114] Meff_range=[1.1623e-01, 1.5751e+01] t_wall=2026-07-30 16:30:45
+step=02560 完成，已输出VTK文件（phi_2560.vtk, xB_2560.vtk, xBtot_2560.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=2560 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=4.13145483431507333e-08 residual=1.16415321826934814e-10 accepted_zero_mode_steps=2560
+[3D] step=02816 t=56.320000 t_real=2.790448e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.240522e-02 R_avg_internal=9.048982e+00 R_avg_nm=9.048982e+00 xB_range=[0.0070, 0.0167] Meff_range=[1.1589e-01, 2.9701e+01] t_wall=2026-07-30 16:32:40
+step=02816 完成，已输出VTK文件（phi_2816.vtk, xB_2816.vtk, xBtot_2816.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=2816 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=-1.02698028384970303e-06 residual=5.82076609134674072e-08 accepted_zero_mode_steps=2816
+[3D] step=03072 t=61.440000 t_real=3.044125e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.240402e-02 R_avg_internal=9.146157e+00 R_avg_nm=9.146157e+00 xB_range=[0.0070, 0.0202] Meff_range=[1.1544e-01, 2.5120e+01] t_wall=2026-07-30 16:34:35
+step=03072 完成，已输出VTK文件（phi_3072.vtk, xB_3072.vtk, xBtot_3072.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=3072 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=2.14524825951182058e-08 residual=5.82076609134674072e-11 accepted_zero_mode_steps=3072
+[3D] step=03328 t=66.560000 t_real=3.297802e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.241964e-02 R_avg_internal=9.279963e+00 R_avg_nm=9.279963e+00 xB_range=[0.0070, 0.0185] Meff_range=[1.1483e-01, 2.1872e+01] t_wall=2026-07-30 16:36:30
+step=03328 完成，已输出VTK文件（phi_3328.vtk, xB_3328.vtk, xBtot_3328.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=3328 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=8.20690801130761895e-08 residual=4.65661287307739258e-10 accepted_zero_mode_steps=3328
+[3D] step=03584 t=71.680000 t_real=3.551479e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.246869e-02 R_avg_internal=9.390229e+00 R_avg_nm=9.390229e+00 xB_range=[0.0070, 0.0201] Meff_range=[1.1523e-01, 2.4107e+01] t_wall=2026-07-30 16:38:25
+step=03584 完成，已输出VTK文件（phi_3584.vtk, xB_3584.vtk, xBtot_3584.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=3584 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.15426912119954560e-07 residual=7.56699591875076294e-10 accepted_zero_mode_steps=3584
+[3D] step=03840 t=76.800000 t_real=3.805156e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.249403e-02 R_avg_internal=9.501684e+00 R_avg_nm=9.501684e+00 xB_range=[0.0070, 0.0206] Meff_range=[1.1472e-01, 2.5937e+01] t_wall=2026-07-30 16:40:20
+step=03840 完成，已输出VTK文件（phi_3840.vtk, xB_3840.vtk, xBtot_3840.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=3840 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=-3.26293010076852364e-08 residual=0.00000000000000000e+00 accepted_zero_mode_steps=3840
+[3D] step=04096 t=81.920000 t_real=4.058833e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.254367e-02 R_avg_internal=9.589062e+00 R_avg_nm=9.589062e+00 xB_range=[0.0069, 0.0162] Meff_range=[1.1431e-01, 1.9372e+01] t_wall=2026-07-30 16:42:15
+step=04096 完成，已输出VTK文件（phi_4096.vtk, xB_4096.vtk, xBtot_4096.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=4096 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=2.73041388148294102e-07 residual=4.07453626394271851e-09 accepted_zero_mode_steps=4096
+[3D] step=04352 t=87.040000 t_real=4.312510e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.254633e-02 R_avg_internal=9.695873e+00 R_avg_nm=9.695873e+00 xB_range=[0.0069, 0.0171] Meff_range=[1.1435e-01, 2.8700e+01] t_wall=2026-07-30 16:44:10
+step=04352 完成，已输出VTK文件（phi_4352.vtk, xB_4352.vtk, xBtot_4352.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=4352 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=-8.43941089905760658e-07 residual=3.85916791856288910e-08 accepted_zero_mode_steps=4352
+[3D] step=04608 t=92.160000 t_real=4.566187e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.258510e-02 R_avg_internal=9.774574e+00 R_avg_nm=9.774574e+00 xB_range=[0.0069, 0.0132] Meff_range=[1.1389e-01, 1.6873e+01] t_wall=2026-07-30 16:46:05
+step=04608 完成，已输出VTK文件（phi_4608.vtk, xB_4608.vtk, xBtot_4608.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=4608 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=7.59653710638299029e-08 residual=2.91038304567337036e-10 accepted_zero_mode_steps=4608
+[3D] step=04864 t=97.280000 t_real=4.819865e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.260165e-02 R_avg_internal=9.850676e+00 R_avg_nm=9.850676e+00 xB_range=[0.0069, 0.0175] Meff_range=[1.1391e-01, 2.0892e+01] t_wall=2026-07-30 16:48:00
+step=04864 完成，已输出VTK文件（phi_4864.vtk, xB_4864.vtk, xBtot_4864.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=4864 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.08853165804604701e-07 residual=6.40284270048141479e-10 accepted_zero_mode_steps=4864
+[3D] step=05120 t=102.400000 t_real=5.073542e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.262491e-02 R_avg_internal=9.929761e+00 R_avg_nm=9.929761e+00 xB_range=[0.0069, 0.0128] Meff_range=[1.1337e-01, 1.6620e+01] t_wall=2026-07-30 16:49:55
+step=05120 完成，已输出VTK文件（phi_5120.vtk, xB_5120.vtk, xBtot_5120.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=5120 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=3.47365345052702133e-08 residual=1.16415321826934814e-10 accepted_zero_mode_steps=5120
+[3D] step=05376 t=107.520000 t_real=5.327219e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.264256e-02 R_avg_internal=1.001052e+01 R_avg_nm=1.001052e+01 xB_range=[0.0069, 0.0123] Meff_range=[1.1343e-01, 1.6437e+01] t_wall=2026-07-30 16:51:50
+step=05376 完成，已输出VTK文件（phi_5376.vtk, xB_5376.vtk, xBtot_5376.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=5376 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=2.40527396488644143e-09 residual=0.00000000000000000e+00 accepted_zero_mode_steps=5376
+[3D] step=05632 t=112.640000 t_real=5.580896e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.265787e-02 R_avg_internal=1.007772e+01 R_avg_nm=1.007772e+01 xB_range=[0.0069, 0.0105] Meff_range=[1.1323e-01, 1.5107e+01] t_wall=2026-07-30 16:53:45
+step=05632 完成，已输出VTK文件（phi_5632.vtk, xB_5632.vtk, xBtot_5632.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=5632 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=2.51285509634450114e-08 residual=0.00000000000000000e+00 accepted_zero_mode_steps=5632
+[3D] step=05888 t=117.760000 t_real=5.834573e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.266067e-02 R_avg_internal=1.013979e+01 R_avg_nm=1.013979e+01 xB_range=[0.0069, 0.0132] Meff_range=[1.1316e-01, 1.6987e+01] t_wall=2026-07-30 16:55:39
+step=05888 完成，已输出VTK文件（phi_5888.vtk, xB_5888.vtk, xBtot_5888.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=5888 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=3.66460382254459004e-08 residual=5.82076609134674072e-11 accepted_zero_mode_steps=5888
+[3D] step=06144 t=122.880000 t_real=6.088250e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.266254e-02 R_avg_internal=1.023309e+01 R_avg_nm=1.023309e+01 xB_range=[0.0068, 0.0140] Meff_range=[1.1249e-01, 1.7633e+01] t_wall=2026-07-30 16:57:34
+step=06144 完成，已输出VTK文件（phi_6144.vtk, xB_6144.vtk, xBtot_6144.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=6144 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.22411359144010453e-07 residual=8.14907252788543701e-10 accepted_zero_mode_steps=6144
+[3D] step=06400 t=128.000000 t_real=6.341927e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.267706e-02 R_avg_internal=1.032708e+01 R_avg_nm=1.032708e+01 xB_range=[0.0068, 0.0128] Meff_range=[1.1211e-01, 1.6575e+01] t_wall=2026-07-30 16:59:29
+step=06400 完成，已输出VTK文件（phi_6400.vtk, xB_6400.vtk, xBtot_6400.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=6400 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.26532765619563077e-07 residual=8.73114913702011108e-10 accepted_zero_mode_steps=6400
+[3D] step=06656 t=133.120000 t_real=6.595604e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.269386e-02 R_avg_internal=1.042261e+01 R_avg_nm=1.042261e+01 xB_range=[0.0068, 0.0112] Meff_range=[1.1217e-01, 1.5488e+01] t_wall=2026-07-30 17:01:24
+step=06656 完成，已输出VTK文件（phi_6656.vtk, xB_6656.vtk, xBtot_6656.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=6656 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=9.05209697221731709e-08 residual=4.07453626394271851e-10 accepted_zero_mode_steps=6656
+[3D] step=06912 t=138.240000 t_real=6.849281e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.270866e-02 R_avg_internal=1.052307e+01 R_avg_nm=1.052307e+01 xB_range=[0.0068, 0.0201] Meff_range=[1.1190e-01, 2.4444e+01] t_wall=2026-07-30 17:03:19
+step=06912 完成，已输出VTK文件（phi_6912.vtk, xB_6912.vtk, xBtot_6912.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=6912 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=1.27872271256357935e-07 residual=8.73114913702011108e-10 accepted_zero_mode_steps=6912
+[3D] step=07168 t=143.360000 t_real=7.102958e+03 s <x_B_tot>=3.000000e-02 vf_precip=2.276026e-02 R_avg_internal=1.061820e+01 R_avg_nm=1.061820e+01 xB_range=[0.0068, 0.0137] Meff_range=[1.1127e-01, 1.7131e+01] t_wall=2026-07-30 17:05:14
+step=07168 完成，已输出VTK文件（phi_7168.vtk, xB_7168.vtk, xBtot_7168.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=7168 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=2.18161208918022862e-07 residual=2.50292941927909851e-09 accepted_zero_mode_steps=7168
+
+========================================
+性能统计（精确计时）:
+  总计算时间: 3257035.750000 ms (steps 1-7266)
+  平均每步: 448.257050 ms
+  网格大小: 246x246x246 = 14886936 points
+  吞吐量: 33.21 M points/s
+
+显存使用情况:
+  已使用: 4.31 GB (10.91%)
+  空闲: 35.19 GB
+  总计: 39.49 GB
+========================================
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=7266 path=/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/checkpoint_6h8h_highres.chk target_mass_code=4.46608079999958049e+05 lambda=-2.83735314633735248e-07 residual=4.24915924668312073e-09 accepted_zero_mode_steps=7266
+
+========================================
+步进墙钟统计:
+  总步进墙钟时间: 3258.212167 s
+  平均每步墙钟时间: 0.448419 s
+========================================
+step=07266（最终步）完成，已输出VTK文件（phi_29.vtk, xB_29.vtk, xBtot_29.vtk）
+写出 geometry summary: Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax/summary.txt
+[mass-drift-summary] initial=<xBtot>=3.00000000e-02 final=<xBtot>=3.00000000e-02 rel_drift=9.483155e-15 primary=Y_update_k0_drift
+PF_ZERO_MODE_FINAL_AUDIT status=PASS final_step=7266 target_mass_code=4.46608079999958049e+05 final_mass_code=4.46608079999962298e+05 mean_mass_error=2.85428730712829079e-16 last_lambda=-2.83735314633735248e-07 zero_mode_wall_s=84.568401493 checkpoint_wall_s=21.984834604 gp_paths_enabled=false
+
+========== Run Summary ==========
+  mode                     : dynamic
+  steps_completed          : 7266
+  wall_time_s              : 3277.258
+  wall_time_hms            : 00:54:37
+  pf_zero_mode_status      : PASS
+  pf_zero_mode_final_absolute_step : 7266
+  pf_zero_mode_target_mass_code : 4.46608079999958049e+05
+  pf_zero_mode_final_mass_code : 4.46608079999962298e+05
+  pf_zero_mode_final_mean_mass_error : 2.85428730712829079e-16
+  pf_zero_mode_wall_s      : 84.568401493
+  pf_checkpoint_wall_s     : 21.984834604
+pf_zero_mode_status=PASS_PF_CONSERVED_Y_ZERO_MODE_V1
+checkpoint_restart_provenance=FRESH_HASH_PINNED
+pf_sm_explicit_context=SM_EXPLICIT_CONTEXT_N_V1
+pf_reaction_discretization=SM_TANGENT_N_V1
+gp_enabled=false
+PASS_RUNTIME_ELASTIC_SCALAR_EXTRACTED
+PASS_HIGH_TIME_MORPHOLOGY_OBSERVATION_V1

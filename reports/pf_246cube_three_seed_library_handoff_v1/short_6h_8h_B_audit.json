@@ -1,0 +1,51 @@
+{
+  "checkpoint_hashes": {
+    "1024": "47a2b2e1c9a73e3b928be43eedf75f2addeefa2d5455c4629cbe5b3e2fb2007e",
+    "1536": "d2841fa22cd068039df0d548d12139b70248727f166979e4c29e740cfb764095",
+    "2048": "3f949b457777b46b75893667f2554dff577d3bc4d150d585aaa6c38763d96b7f",
+    "256": "d3dd2c8e185ad234ad459630227aaa191b1bb3d44f26289e5a28d13a39c3f9d3",
+    "2560": "8c0d05a52a46afcefeee4d69554a843cc8149d37335c95bf98160b6e4463c9c8",
+    "3072": "af7403bf1a33fefb7cf918fdf38d60788849964d075eb684a61e833806934111",
+    "3584": "3d016dead1ff01d9004de5284526befa48e1c6e6b2bc5c034d06a05bb6e323b8",
+    "4096": "099ff9636ef03d3f9b3d36d07dfc1ca074eb0361d54ffd6b84577c7e979181e9",
+    "4608": "8c4281733433a6fd55de157b164a873f4f00548e382f88dc8ee1f50876e63c57",
+    "512": "9d6d74de75d0b1abba18a4547cdc54e8555b77872aff08bd783d681a7fb0c440",
+    "5120": "446b3d343dfc984efcf0d67c0c646132506fed6569d436f4668beb6bec58ea69",
+    "5632": "056caf0de9ff072ee9b02e1f293f3c96a82e7e3488fc23a6f197419089888d8c",
+    "6144": "9f9e7c873b36754eafa4c4e067f420338b4bc4ce7cbe02d050c463c66f0f71cd",
+    "6656": "378f18f37f1aa89cf23c8d2b50c384593e06adc5190525a02a52f7233770c46a",
+    "7168": "55c55d09551c603b7213c05234de5333290c0d96f0b3ac792d6f3b822bd33fdb",
+    "7266": "876c2a3cca487bf97120a4229e08d0abaf8f60d9cc0324ca81b5d5d7924489c2"
+  },
+  "fixture_manifest_sha256": "b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c",
+  "gates": {
+    "checkpoint_provenance": true,
+    "endpoint": true,
+    "finite_and_bounds": true,
+    "fixture_schema": true,
+    "mass_and_zero_mode": true,
+    "particle_lineage": true,
+    "prohibited_paths": true,
+    "snapshot_contract": true,
+    "stderr_empty": true
+  },
+  "metrics": {
+    "actual_endpoint_age_h": 8.000019169100993,
+    "dissolution_count": 42,
+    "endpoint_time_error_s": 0.0690087636,
+    "final_particle_count": 54,
+    "gpu_sample_count": 2987,
+    "gpu_utilization_mean_percent": 97.1888182122531,
+    "initial_particle_count": 96,
+    "max_system_mass_drift": 3.421234785941659e-13,
+    "max_zero_mode_lambda": 4.5824295654878103e-07,
+    "merge_count": 0,
+    "peak_VRAM_MiB": 4411.0,
+    "segment_wall_seconds": 2954.4939999999997,
+    "split_count": 0,
+    "wall_seconds_per_step": 0.42146847360912976
+  },
+  "replicate": "replicate_B",
+  "schema": "PF_246CUBE_6H8H_SHORT_SCREENING_AUDIT_V1",
+  "status": "PASS_246CUBE_6H8H_SHORT_SCREENING_V1"
+}

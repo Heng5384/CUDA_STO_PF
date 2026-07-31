@@ -1,0 +1,5 @@
+xAg,chemical_flat,coherent_flat,finite_particle_observation,status
+0.004654096254055399,0.004654096254055399,NOT_RESOLVED,analytic_root_only,PASS_ANALYTIC_CHEMICAL
+0.005799999966328532,below,NOT_RESOLVED,short_bracket_endpoint,OBSERVED_NOT_ROOT
+0.006199999999723161,below,NOT_RESOLVED,center_box_sensitivity_only,OBSERVED_NOT_ROOT
+0.006599999997050068,below,NOT_RESOLVED,short_bracket_endpoint,OBSERVED_NOT_ROOT

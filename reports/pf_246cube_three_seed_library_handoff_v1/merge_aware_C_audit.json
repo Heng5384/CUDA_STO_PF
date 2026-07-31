@@ -1,0 +1,101 @@
+{
+  "gates": {
+    "low_dissolution_qualified": true,
+    "low_group_rows_complete": true,
+    "low_identity_mapping": true,
+    "low_initial_count": true,
+    "low_merge_qualified": true,
+    "low_no_new_component": true,
+    "low_no_split": true,
+    "low_tracker_status": true,
+    "medium_dissolution_qualified": true,
+    "medium_group_rows_complete": true,
+    "medium_identity_mapping": true,
+    "medium_initial_count": true,
+    "medium_merge_qualified": true,
+    "medium_no_new_component": true,
+    "medium_no_split": true,
+    "medium_tracker_status": true,
+    "strong_dissolution_qualified": true,
+    "strong_group_rows_complete": true,
+    "strong_identity_mapping": true,
+    "strong_initial_count": true,
+    "strong_merge_qualified": true,
+    "strong_no_new_component": true,
+    "strong_no_split": true,
+    "strong_tracker_status": true
+  },
+  "merge_group_count": 1,
+  "merge_groups": [
+    {
+      "child_stable_id": 32,
+      "experimental_age_h": 7.832112247390064,
+      "h_threshold": 0.0001,
+      "member_particle_ids": "P063+P086",
+      "merge_group_id": "MG_P063_P086",
+      "neck_classification": "DIFFUSE_TAIL_NECK_ONLY",
+      "overlap_detail": "parent_id:overlap_voxels:parent_fraction:child_fraction=32:13037:0.99984661400414143:0.4032851795712562+35:18629:1:0.57626751631762918",
+      "parent_stable_ids": "32+35",
+      "qualified_merge": 1,
+      "step": 6656,
+      "threshold_name": "low"
+    }
+  ],
+  "neck_classifications": {
+    "MG_P063_P086": "DIFFUSE_TAIL_NECK_ONLY"
+  },
+  "new_component_count_all_thresholds": 0,
+  "schema": "PF_246CUBE_MERGE_AWARE_LINEAGE_AUDIT_V1",
+  "split_count_all_thresholds": 0,
+  "status": "PASS_246CUBE_RESOLVED_MERGE_AWARE_LINEAGE_V1",
+  "threshold_identity_max_delta_nm": {
+    "low": 2.604892696897332e-13,
+    "medium": 5.405995248640712e-06,
+    "strong": 4.325324789133987e-06
+  },
+  "threshold_identity_tolerance_nm": 0.001,
+  "threshold_summaries": {
+    "low": {
+      "dissolution_count": "37",
+      "final_particle_count": "58",
+      "initial_particle_count": "96",
+      "max_mass_relative_error": "2.8321307389907654e-13",
+      "merge_count": "1",
+      "new_component_count": "0",
+      "qualified_merge_count": "1",
+      "snapshot_count": "17",
+      "split_count": "0",
+      "status": "PASS_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1",
+      "unqualified_dissolution_count": "0",
+      "unqualified_merge_count": "0"
+    },
+    "medium": {
+      "dissolution_count": "37",
+      "final_particle_count": "59",
+      "initial_particle_count": "96",
+      "max_mass_relative_error": "2.8321307389907654e-13",
+      "merge_count": "0",
+      "new_component_count": "0",
+      "qualified_merge_count": "0",
+      "snapshot_count": "17",
+      "split_count": "0",
+      "status": "PASS_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1",
+      "unqualified_dissolution_count": "0",
+      "unqualified_merge_count": "0"
+    },
+    "strong": {
+      "dissolution_count": "37",
+      "final_particle_count": "59",
+      "initial_particle_count": "96",
+      "max_mass_relative_error": "2.8321307389907654e-13",
+      "merge_count": "0",
+      "new_component_count": "0",
+      "qualified_merge_count": "0",
+      "snapshot_count": "17",
+      "split_count": "0",
+      "status": "PASS_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1",
+      "unqualified_dissolution_count": "0",
+      "unqualified_merge_count": "0"
+    }
+  }
+}

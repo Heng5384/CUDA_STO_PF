@@ -1,0 +1,6 @@
+term,status,note
+chemical,PASS_ANALYTIC,chemical-flat xAg=0.004654096254055399
+gradient/interface,OBSERVED_SHORT_DYNAMIC,interface relaxation is resolved but not an equilibrium shift
+elastic,OBSERVED_FIXED_CELL_SHORT,finite-particle R=8-20 observations; coherent flat slab unavailable
+finite-size,OBSERVED_SHORT_BRACKETS,all R=6-20 endpoint observations; only R=8 has a short sign change
+profile,BLOCKED_PROFILE_EQUILIBRATION_METHOD,minimize/raw/VTK handoff rejected by zero-mode contract

@@ -1,0 +1,44 @@
+{
+  "checkpoint_sha256": {
+    "continuous": "da9e197b671d18ebcc1df673b06aea496bc2909413db2b1e6281a9cb1bd4159c",
+    "initial_probe": "b8ac1258c65316d7c1ff78466d08b53a4584609e27ee41d79a651d9228be3348",
+    "refined": "d3b86de5be0bc8b41252469d14b186d1974279add59af49a0803230be334ee16",
+    "restart": "da9e197b671d18ebcc1df673b06aea496bc2909413db2b1e6281a9cb1bd4159c"
+  },
+  "continuous_restart_phi_exact": true,
+  "h_threshold": 0.0001,
+  "initial_overlap_fraction": {
+    "continuous": 1.0,
+    "initial_probe": 1.0,
+    "refined": 1.0,
+    "restart": 1.0
+  },
+  "minimum_overlap_fraction": 0.9,
+  "profile_manifest": "/home/zhiheng/tmp/pf_elastic_target_profile_cluster_selected_minpt300_dt0p025_v16_mirror_v2_20260730/profiles/R11p5/profile_manifest.json",
+  "profile_manifest_sha256": "d6593810c9b2463ed67cd34f4d798d5e8662b8edd1dfc9993f9a25a7329fd770",
+  "schema": "PF_ELASTIC_TARGET_PROFILE_IDENTITY_AUDIT_V1",
+  "states": {
+    "continuous": {
+      "component_count": 1,
+      "support_voxels": 14655
+    },
+    "initial": {
+      "component_count": 1,
+      "support_voxels": 14917
+    },
+    "initial_probe": {
+      "component_count": 1,
+      "support_voxels": 14895
+    },
+    "refined": {
+      "component_count": 1,
+      "support_voxels": 14663
+    },
+    "restart": {
+      "component_count": 1,
+      "support_voxels": 14655
+    }
+  },
+  "status": "PASS_ELASTIC_TARGET_PROFILE_SINGLE_PARTICLE_IDENTITY_V1",
+  "target_radius_nm": 11.5
+}

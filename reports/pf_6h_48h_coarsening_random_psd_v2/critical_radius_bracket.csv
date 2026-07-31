@@ -1,0 +1,10 @@
+requested_radius_nm,initial_R_avg_nm,final_R_avg_nm,delta_R_avg_nm,delta_vf,initial_t_real_s,final_t_real_s,classification,vf_history
+10.0,9.90586358,10.4187643,0.5129007199999993,0.0001434714999999998,0.0,4058.83329,growing,cases/R10nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R10nm/vf_precip_vs_time_R10nm.csv
+12.0,11.7251029,12.5834609,0.8583580000000008,0.00041619889000000035,0.0,4058.83329,growing,cases/R12nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R12nm/vf_precip_vs_time_R12nm.csv
+16.0,16.0165754,16.5780194,0.5614439999999981,0.000720581960000001,0.0,4058.83329,growing,cases/R16nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R16nm/vf_precip_vs_time_R16nm.csv
+20.0,20.0326163,20.2892782,0.25666189999999744,0.0008861021999999989,0.0,4058.83329,growing,cases/R20nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R20nm/vf_precip_vs_time_R20nm.csv
+24.0,23.916753,24.362566,0.4458130000000011,0.000985557300000002,0.0,4058.83329,growing,cases/R24nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R24nm/vf_precip_vs_time_R24nm.csv
+32.0,32.0393501,32.3927219,0.3533717999999979,0.0010757837999999936,0.0,4058.83329,growing,cases/R32nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R32nm/vf_precip_vs_time_R32nm.csv
+4.0,3.49419954,0.0,-3.49419954,-0.000146763522,0.0,4058.83329,dissolving,cases/R4nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R4nm/vf_precip_vs_time_R4nm.csv
+6.0,5.81798483,0.0,-5.81798483,-0.000459829715,0.0,4058.83329,dissolving,cases/R6nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R6nm/vf_precip_vs_time_R6nm.csv
+8.0,7.85189795,6.58047016,-1.2714277899999997,-0.00046050521800000005,0.0,4058.83329,dissolving,cases/R8nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R8nm/vf_precip_vs_time_R8nm.csv

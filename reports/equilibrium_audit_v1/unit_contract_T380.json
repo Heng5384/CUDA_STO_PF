@@ -1,0 +1,17 @@
+{
+  "temperature_C": 380.0,
+  "temperature_K": 653.15,
+  "gamma_J_m2": 0.168,
+  "lambda_sm_m": 4e-09,
+  "pf_dx_m": 1e-09,
+  "dx_code": 1.0,
+  "lambda_over_pf_dx": 4.0,
+  "L_ref_factor": 5.0,
+  "L_ref_m": 2e-08,
+  "t_real_unit_source": "L_ref^2/D_alpha_phys",
+  "composition": "xB is Ag2Te pseudo-binary fraction; xAg=2*xB/(2+xB)",
+  "GP_used": false,
+  "GP_birth_used": false,
+  "GP_release_used": false,
+  "beta_nucleation_used": false
+}

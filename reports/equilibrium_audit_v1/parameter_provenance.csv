@@ -1,0 +1,10 @@
+parameter,value,unit,source,sha256_or_note
+temperature,380.0,degC,Unit_Psedobinary.py / T380 audit contract,T_K=653.15
+lambda_sm,4e-09,m,pf_strict_dualdx_final.params,41b23b10ad6554b124eae48046d99fd40c86168a95cb4b6c07ea09b60dee3a83
+pf_dx,1e-09,m,pf_strict_dualdx_final.params,41b23b10ad6554b124eae48046d99fd40c86168a95cb4b6c07ea09b60dee3a83
+gamma,0.168,J m^-2,pf_strict_dualdx_final.params,41b23b10ad6554b124eae48046d99fd40c86168a95cb4b6c07ea09b60dee3a83
+Vm_alpha,4.1009e-05,m^3 mol^-1,physical_inputs.example.json,390b822cf04f40ad1e79a48662414cf100be33113411dc8e356171239913550a
+Vm_compound,4.1009e-05,m^3 mol^-1,physical_inputs.example.json,390b822cf04f40ad1e79a48662414cf100be33113411dc8e356171239913550a
+GP/birth/release,OFF,boolean,audit contract,required; no production writeback
+beta nucleation,OFF,boolean,audit contract,required; no production writeback
+elasticity,separate OFF/ON cases,boolean,audit contract,same frozen C/eigenstrain

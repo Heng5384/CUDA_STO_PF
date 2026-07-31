@@ -1,0 +1,4 @@
+particle_identity_status=PASS_ELASTIC_TARGET_PROFILE_SINGLE_PARTICLE_IDENTITY_V1
+target_radius_nm=11.5
+continuous_restart_phi_exact=true
+audit_sha256=2717173e6f5c90d7e09531f92717f60ee915637b9c7ad1b87a35b838dd86fe3b

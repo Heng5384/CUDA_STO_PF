@@ -1,0 +1,117 @@
+{
+  "status": "PASS_PF_RANDOM_PSD_6H12H_PREFLIGHT_V2",
+  "domain": {
+    "Nx": 246
+  },
+  "continuous_steps": 21800,
+  "dt_code": 0.02,
+  "dt2_steps": 43600,
+  "restart_bytewise_equal": true,
+  "checkpoint_sha256": {
+    "continuous_final.chk": "5c4d857f9cec7e7a11946c44fc4ee87fe54b623292549ddeedca81581b638761",
+    "restart_final.chk": "5c4d857f9cec7e7a11946c44fc4ee87fe54b623292549ddeedca81581b638761",
+    "dt2_final.chk": "0d824b512af9a44fcb9587d8c4fcee6ffd96431cf154fad8efae101371a9276b",
+    "restart_half.chk": "2265a118f27c51a16a19d415b5290f458fd967ef6a438eb6f1d15f0ea002e89d"
+  },
+  "fixture_manifest_sha256": "f03ca43771200490cc0ff83646a86c8041fc65427b44ec2c3e71772f5b1d3f50",
+  "vf_histories": {
+    "continuous_dt0p02": {
+      "path": "continuous_dt0p02/results/ch_T380_cuda_246x246x246_dt0.02_steps21800_xB0.006/continuous_dt0p02/vf_precip_vs_time_continuous_dt0p02.csv",
+      "rows": 87,
+      "first": {
+        "step": "0",
+        "t_code": "0.00000000",
+        "t_real_s": "0.00000000e+00",
+        "vf_precip": "2.39295448e-02",
+        "R_avg": "9.47996123e+00"
+      },
+      "last": {
+        "step": "21800",
+        "t_code": "436.00000000",
+        "t_real_s": "2.16021889e+04",
+        "vf_precip": "2.44209151e-02",
+        "R_avg": "1.39393251e+01"
+      }
+    },
+    "restart_first_half_dt0p02": {
+      "path": "restart_first_half_dt0p02/results/ch_T380_cuda_246x246x246_dt0.02_steps10900_xB0.006/restart_first_half_dt0p02/vf_precip_vs_time_restart_first_half_dt0p02.csv",
+      "rows": 44,
+      "first": {
+        "step": "0",
+        "t_code": "0.00000000",
+        "t_real_s": "0.00000000e+00",
+        "vf_precip": "2.39295448e-02",
+        "R_avg": "9.47996123e+00"
+      },
+      "last": {
+        "step": "10900",
+        "t_code": "218.00000000",
+        "t_real_s": "1.08010944e+04",
+        "vf_precip": "2.42100888e-02",
+        "R_avg": "1.17863173e+01"
+      }
+    },
+    "restart_second_leg_dt0p02": {
+      "path": "restart_second_leg_dt0p02/results/ch_T380_cuda_246x246x246_dt0.02_steps21800_xB0.006/restart_second_leg_dt0p02/vf_precip_vs_time_restart_second_leg_dt0p02.csv",
+      "rows": 45,
+      "first": {
+        "step": "0",
+        "t_code": "0.00000000",
+        "t_real_s": "0.00000000e+00",
+        "vf_precip": "2.42100888e-02",
+        "R_avg": "1.17863173e+01"
+      },
+      "last": {
+        "step": "21800",
+        "t_code": "436.00000000",
+        "t_real_s": "2.16021889e+04",
+        "vf_precip": "2.44209151e-02",
+        "R_avg": "1.39393251e+01"
+      }
+    },
+    "continuous_dt0p01": {
+      "path": "continuous_dt0p01/results/ch_T380_cuda_246x246x246_dt0.02_steps43600_xB0.006/continuous_dt0p01/vf_precip_vs_time_continuous_dt0p01.csv",
+      "rows": 172,
+      "first": {
+        "step": "0",
+        "t_code": "0.00000000",
+        "t_real_s": "0.00000000e+00",
+        "vf_precip": "2.39295448e-02",
+        "R_avg": "9.47996123e+00"
+      },
+      "last": {
+        "step": "43600",
+        "t_code": "872.00000000",
+        "t_real_s": "4.32043778e+04",
+        "vf_precip": "2.45743267e-02",
+        "R_avg": "1.61612512e+01"
+      }
+    }
+  },
+  "diagnostic_summaries": {
+    "continuous_dt0p02": {
+      "path": "continuous_dt0p02/results/ch_T380_cuda_246x246x246_dt0.02_steps21800_xB0.006/continuous_dt0p02/dynamics_mass_diagnostics.csv",
+      "rows": 85,
+      "max_abs_total_delta_mass_step": 2.8380076067e-15,
+      "max_clip_count": 2585847
+    },
+    "restart_first_half_dt0p02": {
+      "path": "restart_first_half_dt0p02/results/ch_T380_cuda_246x246x246_dt0.02_steps10900_xB0.006/restart_first_half_dt0p02/dynamics_mass_diagnostics.csv",
+      "rows": 42,
+      "max_abs_total_delta_mass_step": 2.8380076067e-15,
+      "max_clip_count": 2585847
+    },
+    "restart_second_leg_dt0p02": {
+      "path": "restart_second_leg_dt0p02/results/ch_T380_cuda_246x246x246_dt0.02_steps21800_xB0.006/restart_second_leg_dt0p02/dynamics_mass_diagnostics.csv",
+      "rows": 43,
+      "max_abs_total_delta_mass_step": 5.273559367e-16,
+      "max_clip_count": 2303358
+    },
+    "continuous_dt0p01": {
+      "path": "continuous_dt0p01/results/ch_T380_cuda_246x246x246_dt0.02_steps43600_xB0.006/continuous_dt0p01/dynamics_mass_diagnostics.csv",
+      "rows": 170,
+      "max_abs_total_delta_mass_step": 2.8380076067e-15,
+      "max_clip_count": 2585847
+    }
+  }
+}

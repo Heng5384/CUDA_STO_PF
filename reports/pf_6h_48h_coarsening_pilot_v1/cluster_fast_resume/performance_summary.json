@@ -1,0 +1,54 @@
+{
+  "status": "PASS_PF_RUNTIME_MASS_DIAGNOSTIC_AB_BYTEWISE_V1",
+  "grid": [
+    128,
+    128,
+    128
+  ],
+  "temperature_C": 380,
+  "dt_code": 0.02,
+  "physical_dt_s": 0.9909260953431841,
+  "fixture_seed_count": 32,
+  "checkpoint_bytewise_equal": true,
+  "rows": [
+    {
+      "label": "diag_off",
+      "steps": 512,
+      "gpu_event_ms_per_step": 5.093286,
+      "wall_s_per_step": 0.005325,
+      "checkpoint_adjusted_wall_s_per_step": 0.005108817794921875,
+      "mean_mass_error": 7.147060721024445e-16,
+      "zero_mode_wall_s_per_step": 0.000947770982421875,
+      "checkpoint_wall_s": 0.110685289,
+      "mass_diagnostic_bytes": 0,
+      "zero_mode_trace_bytes": 107279,
+      "slowdown_vs_diag_off": 0.0
+    },
+    {
+      "label": "diag_interval_256",
+      "steps": 512,
+      "gpu_event_ms_per_step": 5.584054,
+      "wall_s_per_step": 0.005819,
+      "checkpoint_adjusted_wall_s_per_step": 0.005601084705078125,
+      "mean_mass_error": 7.147060721024445e-16,
+      "zero_mode_wall_s_per_step": 0.00115949744921875,
+      "checkpoint_wall_s": 0.111572631,
+      "mass_diagnostic_bytes": 5794,
+      "zero_mode_trace_bytes": 107279,
+      "slowdown_vs_diag_off": 0.09635632545861395
+    },
+    {
+      "label": "diag_interval_1",
+      "steps": 512,
+      "gpu_event_ms_per_step": 121.959389,
+      "wall_s_per_step": 0.122457,
+      "checkpoint_adjusted_wall_s_per_step": 0.12223833500585937,
+      "mean_mass_error": 7.147060721024445e-16,
+      "zero_mode_wall_s_per_step": 0.05285141682617187,
+      "checkpoint_wall_s": 0.111956477,
+      "mass_diagnostic_bytes": 948206,
+      "zero_mode_trace_bytes": 107279,
+      "slowdown_vs_diag_off": 22.926931809422392
+    }
+  ]
+}

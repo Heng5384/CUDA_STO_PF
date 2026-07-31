@@ -1,0 +1,14 @@
+{
+  "status": "PASS_PF_RANDOM_PSD_STATIC_FIELDS_V2",
+  "manifest_sha256": "8ce52733e6755b23f4f7d4ba53f0414ef927bb863c3eb4ce9d43cb09d4d5de45",
+  "mean_h": 0.023929544766323994,
+  "mean_Ctot": 0.029999999999997168,
+  "min_phi": 0.0,
+  "max_phi": 0.9999782981299825,
+  "phi_clipping_required": false,
+  "physical_mass_projection": false,
+  "periodic_overlap": false,
+  "particle_count": 96,
+  "radius_realized_cv": 0.08326557372595417,
+  "radius_reference_cv": 0.25
+}

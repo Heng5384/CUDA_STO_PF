@@ -1,0 +1,14 @@
+{
+  "status": "PASS_PF_6H48H_ACCELERATED_RESUME_V1",
+  "source_completed_age_h": 12,
+  "final_age_h": 48,
+  "continued_physical_hours": 36,
+  "steps_per_hour": 3633,
+  "mass_diagnostic_interval": 256,
+  "segment_count": 36,
+  "mean_wall_s_per_step": 0.005533194444444445,
+  "max_wall_s_per_step": 0.005612,
+  "max_mass_error_mean": 2.8602120671905595e-14,
+  "GP_used": false,
+  "external_source_used": false
+}

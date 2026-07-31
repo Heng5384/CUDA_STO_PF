@@ -1,0 +1,254 @@
+{
+  "absolute_raw_composition_status": "FAIL_ABSOLUTE_RAW_COMPOSITION_BOX_SIZE_V1",
+  "analyzer_sha256": "12e1ab7249576e02ba42c88a5e80a2ff34b09e30e7d787854e1eaf67ca296d94",
+  "far_baseline_xB": 0.006219279767278563,
+  "far_offset_inventory_relative_spread": 0.006174520348483472,
+  "far_offset_inventory_scaling_status": "PASS",
+  "pairs": [
+    {
+      "absolute_composition_diagnostic": "FAIL",
+      "candidate_grid": 128,
+      "checks": {
+        "axes": true,
+        "axis_ratio": true,
+        "integrated_elastic_energy": true,
+        "local_phi": true,
+        "mass": true,
+        "portable_local_xB": true,
+        "radius": true
+      },
+      "metrics": {
+        "absolute_far_xB": 7.440722158624444e-05,
+        "absolute_local_xB_mean_absolute": 7.589085397857166e-05,
+        "axis_ratio_relative": 0.002677787246939418,
+        "axis_relative_max": 0.0015785644351771076,
+        "candidate_integrated_F_el_hat_code_nm3": 295.95009024,
+        "integrated_elastic_energy_relative": 0.02318979280990369,
+        "local_phi_l1_normalized": 0.002354232791505821,
+        "portable_local_xB_mean_absolute": 2.0598116929164615e-06,
+        "radius_relative": 2.447479899680396e-11,
+        "reference_integrated_F_el_hat_code_nm3": 302.97604187750403
+      },
+      "portable_status": "PASS",
+      "reference_grid": 96
+    },
+    {
+      "absolute_composition_diagnostic": "FAIL",
+      "candidate_grid": 160,
+      "checks": {
+        "axes": true,
+        "axis_ratio": true,
+        "integrated_elastic_energy": true,
+        "local_phi": true,
+        "mass": true,
+        "portable_local_xB": true,
+        "radius": true
+      },
+      "metrics": {
+        "absolute_far_xB": 2.63401445190865e-05,
+        "absolute_local_xB_mean_absolute": 2.716517777160721e-05,
+        "axis_ratio_relative": 0.001529277246827516,
+        "axis_relative_max": 0.0009169132442880681,
+        "candidate_integrated_F_el_hat_code_nm3": 293.1954372608,
+        "integrated_elastic_energy_relative": 0.009307829495730545,
+        "local_phi_l1_normalized": 0.0012705770477289087,
+        "portable_local_xB_mean_absolute": 9.888124299913325e-07,
+        "radius_relative": 1.019860524464513e-11,
+        "reference_integrated_F_el_hat_code_nm3": 295.95009024
+      },
+      "portable_status": "PASS",
+      "reference_grid": 128
+    },
+    {
+      "absolute_composition_diagnostic": "PASS",
+      "candidate_grid": 192,
+      "checks": {
+        "axes": true,
+        "axis_ratio": true,
+        "integrated_elastic_energy": true,
+        "local_phi": true,
+        "mass": true,
+        "portable_local_xB": true,
+        "radius": true
+      },
+      "metrics": {
+        "absolute_far_xB": 1.1609215596844295e-05,
+        "absolute_local_xB_mean_absolute": 1.3295873446754091e-05,
+        "axis_ratio_relative": 0.0009975785563255566,
+        "axis_relative_max": 0.000576710863129293,
+        "candidate_integrated_F_el_hat_code_nm3": 292.03676465725437,
+        "integrated_elastic_energy_relative": 0.003951878018193727,
+        "local_phi_l1_normalized": 0.0008140347513707069,
+        "portable_local_xB_mean_absolute": 1.6866578499097983e-06,
+        "radius_relative": 7.553069280692821e-12,
+        "reference_integrated_F_el_hat_code_nm3": 293.1954372608
+      },
+      "portable_status": "PASS",
+      "reference_grid": 160
+    }
+  ],
+  "profiles": [
+    {
+      "energy_provenance": {
+        "F_chem_excess_hat": -0.00084633469,
+        "F_el_hat": 0.000342447964,
+        "F_surf_hat": 0.000629710458,
+        "F_total_excess_hat": 0.000125823732,
+        "converged_iter": 3236,
+        "eigenstrain": {
+          "eps_xx00": 0.046,
+          "eps_xy00": 0.0,
+          "eps_xz00": 0.0,
+          "eps_yy00": -0.022,
+          "eps_yz00": 0.0,
+          "eps_zz00": -0.017
+        },
+        "elastic_runtime_marker": "PASS",
+        "energy_trace_sha256": "82f0ee421f1f641581cb11a1112ad2021b1a3415c842dbf7357043a79e5c1f95",
+        "mass_error_relative": 0.0,
+        "orientation_label": "variant_100_identity",
+        "profile_manifest_sha256": "c0826fc8d1d5e11fcfa0deda34e282e2d71fdd14e583352fdc0326c637acf7b3",
+        "projected_kkt_rms": 0.000665177376,
+        "run_log_sha256": "ec4935ad89618f4eb91994fa76ad2bc13da03e9554cfcdcf39e857efe534b8fd",
+        "target_radius_nm": 11.5,
+        "total_el_core_sum": 161.524692,
+        "total_interface_sum": 557.127512
+      },
+      "far_offset_inventory_code": 113.50704743409386,
+      "far_xB": 0.006347574589049231,
+      "grid_n": 96,
+      "integrated_F_el_hat_code_nm3": 302.97604187750403,
+      "path": "/home/zhiheng/tmp/pf_elastic_target_profile_library_workstation_v3_20260730/profiles/R11p5/profile_manifest.json",
+      "sha256": "c0826fc8d1d5e11fcfa0deda34e282e2d71fdd14e583352fdc0326c637acf7b3"
+    },
+    {
+      "energy_provenance": {
+        "F_chem_excess_hat": -0.000357125193,
+        "F_el_hat": 0.00014112,
+        "F_surf_hat": 0.000265828135,
+        "F_total_excess_hat": 4.98229415e-05,
+        "converged_iter": 3198,
+        "eigenstrain": {
+          "eps_xx00": 0.046,
+          "eps_xy00": 0.0,
+          "eps_xz00": 0.0,
+          "eps_yy00": -0.022,
+          "eps_yz00": 0.0,
+          "eps_zz00": -0.017
+        },
+        "elastic_runtime_marker": "PASS",
+        "energy_trace_sha256": "066b864e423f2e942fde8baf3b7392d71e6a91ee41038037f40ba2fa34ce25fd",
+        "mass_error_relative": 0.0,
+        "orientation_label": "variant_100_identity",
+        "profile_manifest_sha256": "4da1c0a07b4d9095ad6cc946abfebe680829e206839c79c21a414ecf84f7098f",
+        "projected_kkt_rms": 0.00041527029,
+        "run_log_sha256": "99ceb462bd8bf6b3d166a7b41df7d7fdf0f24d473bf42d69dfd765732b97dd6f",
+        "target_radius_nm": 11.5,
+        "total_el_core_sum": 154.947674,
+        "total_interface_sum": 557.482004
+      },
+      "far_offset_inventory_code": 113.01048850196457,
+      "far_xB": 0.006273167367462987,
+      "grid_n": 128,
+      "integrated_F_el_hat_code_nm3": 295.95009024,
+      "path": "/home/zhiheng/tmp/pf_elastic_target_profile_box128_R11p5_v1_20260730/profiles/R11p5/profile_manifest.json",
+      "sha256": "4da1c0a07b4d9095ad6cc946abfebe680829e206839c79c21a414ecf84f7098f"
+    },
+    {
+      "energy_provenance": {
+        "F_chem_excess_hat": -0.000182862258,
+        "F_el_hat": 7.15809173e-05,
+        "F_surf_hat": 0.000136146937,
+        "F_total_excess_hat": 2.48655965e-05,
+        "case_source_profile_sha256": "c2854fb1a2810114fe6c912789c82f80c1e77922572c35868751b7715cef0424",
+        "case_source_root": "/home/zhiheng/tmp/pf_elastic_target_profile_box160_R11p5_v1_20260730",
+        "converged_iter": 3050,
+        "eigenstrain": {
+          "eps_xx00": 0.046,
+          "eps_xy00": 0.0,
+          "eps_xz00": 0.0,
+          "eps_yy00": -0.022,
+          "eps_yz00": 0.0,
+          "eps_zz00": -0.017
+        },
+        "elastic_runtime_marker": "PASS",
+        "energy_trace_sha256": "91caba65b42f2c2bc30b303de733249715f218746d81452ba68670960e9367fd",
+        "mass_error_relative": 3.4194400235316765e-16,
+        "orientation_label": "variant_100_identity",
+        "profile_manifest_sha256": "c2854fb1a2810114fe6c912789c82f80c1e77922572c35868751b7715cef0424",
+        "projected_kkt_rms": 0.000291127729,
+        "run_log_sha256": "34842d27307cb0438b857c7154b649619ee1c9e3e589e6a7be0bf0284c20272e",
+        "target_radius_nm": 11.5,
+        "total_el_core_sum": 152.330031,
+        "total_interface_sum": 557.657855
+      },
+      "far_offset_inventory_code": 112.83437840522126,
+      "far_xB": 0.0062468272229439,
+      "grid_n": 160,
+      "integrated_F_el_hat_code_nm3": 293.1954372608,
+      "path": "/home/zhiheng/tmp/pf_elastic_target_profile_box160_R11p5_v1_20260730/profiles/R11p5/profile_manifest.json",
+      "sha256": "c2854fb1a2810114fe6c912789c82f80c1e77922572c35868751b7715cef0424"
+    },
+    {
+      "energy_provenance": {
+        "F_chem_excess_hat": -0.000105826647,
+        "F_el_hat": 4.12604388e-05,
+        "F_surf_hat": 7.88041114e-05,
+        "F_total_excess_hat": 1.4237903e-05,
+        "case_source_profile_sha256": "2159268ee65e182bf9c06d45cf69923e9a8934165c302268508a4fb831a40897",
+        "case_source_root": "/home/zhiheng/tmp/pf_elastic_target_profile_box192_R11p5_v1_20260730",
+        "converged_iter": 3002,
+        "eigenstrain": {
+          "eps_xx00": 0.046,
+          "eps_xy00": 0.0,
+          "eps_xz00": 0.0,
+          "eps_yy00": -0.022,
+          "eps_yz00": 0.0,
+          "eps_zz00": -0.017
+        },
+        "elastic_runtime_marker": "PASS",
+        "energy_trace_sha256": "519974e86625105db9130972ce0ad4bdf01e367f25d75202bbf515305f9f7540",
+        "mass_error_relative": 1.4418538980612649e-16,
+        "orientation_label": "variant_100_identity",
+        "profile_manifest_sha256": "2159268ee65e182bf9c06d45cf69923e9a8934165c302268508a4fb831a40897",
+        "projected_kkt_rms": 0.00022606205,
+        "run_log_sha256": "a11e90c8ce6b1aa7846b8e6cc31c2b891b09798f4e27d88a9c24166afd580ba9",
+        "target_radius_nm": 11.5,
+        "total_el_core_sum": 151.090795,
+        "total_interface_sum": 557.766674
+      },
+      "far_offset_inventory_code": 112.80907812190526,
+      "far_xB": 0.006235218007347056,
+      "grid_n": 192,
+      "integrated_F_el_hat_code_nm3": 292.03676465725437,
+      "path": "/home/zhiheng/tmp/pf_elastic_target_profile_box192_R11p5_v1_20260730/profiles/R11p5/profile_manifest.json",
+      "sha256": "2159268ee65e182bf9c06d45cf69923e9a8934165c302268508a4fb831a40897"
+    }
+  ],
+  "schema": "PF_ELASTIC_TARGET_PROFILE_BOX_SERIES_AUDIT_V1",
+  "scientific_interpretation": "Portable correction is xB_alpha minus the independently registered far-field baseline. Absolute raw xB remains a separate diagnostic because fixed single-particle inventory produces an O(box_volume^-1) uniform offset.",
+  "source_identity": {
+    "binary_sha256": "23d4d365de19c26670ed5d64f9f732ae71b555d2ef3ac57f7f5452467b7902d0",
+    "commit_labels": [
+      "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+      "NO_GIT_COMMIT",
+      "NO_GIT_COMMIT",
+      "NO_GIT_COMMIT"
+    ],
+    "source_tree_sha256": "f22202bdde8bd93732fa43fe95f68c8ca5816723e24204c8569e46d88bad2c90"
+  },
+  "status": "PASS_ELASTIC_TARGET_PROFILE_PORTABLE_CORRECTION_BOX_SIZE_V1",
+  "target_radius_nm": 11.5,
+  "thresholds": {
+    "absolute_far_xB_diagnostic_max": 2e-05,
+    "axis_ratio_relative_max": 0.02,
+    "axis_relative_max": 0.02,
+    "elastic_energy_relative_max": 0.05,
+    "mass_relative_max": 1e-12,
+    "offset_inventory_relative_spread_max": 0.02,
+    "phi_l1_normalized_max": 0.02,
+    "radius_relative_max": 0.002,
+    "reference_subtracted_xB_mean_absolute_max": 2e-05
+  },
+  "window_nm": 64.0
+}

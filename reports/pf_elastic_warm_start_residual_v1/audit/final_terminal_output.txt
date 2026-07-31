@@ -1,0 +1,10 @@
+status=PASS_ELASTIC_WARM_START_RESIDUAL_V1
+solver=ELASTIC_WARM_START_RESIDUAL_V1
+mean_elastic_iterations=4.597656250
+baseline_seconds_per_step=1.277179688
+accelerated_seconds_per_step=0.644726563
+speedup=1.980963344
+restart_status=PASS_BYTEWISE
+particle_identity_status=PASS
+GP_enabled=false
+physical_parameter_retuning=false

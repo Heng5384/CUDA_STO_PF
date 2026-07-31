@@ -1,0 +1,120 @@
+{
+  "status": "PASS_T380_DYNAMIC_CRITICAL_RADIUS_BRACKET_V2",
+  "classification_rule": "delta_R_avg_nm > 0.05 growing; < -0.05 dissolving",
+  "largest_dissolving_radius_nm": 8.0,
+  "smallest_growing_radius_nm": 10.0,
+  "growing_radii_nm": [
+    10.0,
+    12.0,
+    16.0,
+    20.0,
+    24.0,
+    32.0
+  ],
+  "dissolving_radii_nm": [
+    4.0,
+    6.0,
+    8.0
+  ],
+  "rows": [
+    {
+      "requested_radius_nm": 10.0,
+      "initial_R_avg_nm": 9.90586358,
+      "final_R_avg_nm": 10.4187643,
+      "delta_R_avg_nm": 0.5129007199999993,
+      "delta_vf": 0.0001434714999999998,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "growing",
+      "vf_history": "cases/R10nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R10nm/vf_precip_vs_time_R10nm.csv"
+    },
+    {
+      "requested_radius_nm": 12.0,
+      "initial_R_avg_nm": 11.7251029,
+      "final_R_avg_nm": 12.5834609,
+      "delta_R_avg_nm": 0.8583580000000008,
+      "delta_vf": 0.00041619889000000035,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "growing",
+      "vf_history": "cases/R12nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R12nm/vf_precip_vs_time_R12nm.csv"
+    },
+    {
+      "requested_radius_nm": 16.0,
+      "initial_R_avg_nm": 16.0165754,
+      "final_R_avg_nm": 16.5780194,
+      "delta_R_avg_nm": 0.5614439999999981,
+      "delta_vf": 0.000720581960000001,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "growing",
+      "vf_history": "cases/R16nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R16nm/vf_precip_vs_time_R16nm.csv"
+    },
+    {
+      "requested_radius_nm": 20.0,
+      "initial_R_avg_nm": 20.0326163,
+      "final_R_avg_nm": 20.2892782,
+      "delta_R_avg_nm": 0.25666189999999744,
+      "delta_vf": 0.0008861021999999989,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "growing",
+      "vf_history": "cases/R20nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R20nm/vf_precip_vs_time_R20nm.csv"
+    },
+    {
+      "requested_radius_nm": 24.0,
+      "initial_R_avg_nm": 23.916753,
+      "final_R_avg_nm": 24.362566,
+      "delta_R_avg_nm": 0.4458130000000011,
+      "delta_vf": 0.000985557300000002,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "growing",
+      "vf_history": "cases/R24nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R24nm/vf_precip_vs_time_R24nm.csv"
+    },
+    {
+      "requested_radius_nm": 32.0,
+      "initial_R_avg_nm": 32.0393501,
+      "final_R_avg_nm": 32.3927219,
+      "delta_R_avg_nm": 0.3533717999999979,
+      "delta_vf": 0.0010757837999999936,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "growing",
+      "vf_history": "cases/R32nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R32nm/vf_precip_vs_time_R32nm.csv"
+    },
+    {
+      "requested_radius_nm": 4.0,
+      "initial_R_avg_nm": 3.49419954,
+      "final_R_avg_nm": 0.0,
+      "delta_R_avg_nm": -3.49419954,
+      "delta_vf": -0.000146763522,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "dissolving",
+      "vf_history": "cases/R4nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R4nm/vf_precip_vs_time_R4nm.csv"
+    },
+    {
+      "requested_radius_nm": 6.0,
+      "initial_R_avg_nm": 5.81798483,
+      "final_R_avg_nm": 0.0,
+      "delta_R_avg_nm": -5.81798483,
+      "delta_vf": -0.000459829715,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "dissolving",
+      "vf_history": "cases/R6nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R6nm/vf_precip_vs_time_R6nm.csv"
+    },
+    {
+      "requested_radius_nm": 8.0,
+      "initial_R_avg_nm": 7.85189795,
+      "final_R_avg_nm": 6.58047016,
+      "delta_R_avg_nm": -1.2714277899999997,
+      "delta_vf": -0.00046050521800000005,
+      "initial_t_real_s": 0.0,
+      "final_t_real_s": 4058.83329,
+      "classification": "dissolving",
+      "vf_history": "cases/R8nm/results/ch_T380_cuda_128x128x128_dt0.02_steps4096_xB0.006/R8nm/vf_precip_vs_time_R8nm.csv"
+    }
+  ]
+}

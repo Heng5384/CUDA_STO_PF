@@ -1,0 +1,88 @@
+{
+  "manifest_version": "yu2024-debye-callaway-source-v1",
+  "generated_on": "2026-07-30",
+  "primary_article": {
+    "path": "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/Advanced Energy Materials - 2024 - Yu - Ostwald Ripening of Ag2Te Precipitates in Thermoelectric PbTe  Effects of.pdf",
+    "sha256": "da838898f561a26b00b37124b18f18df627adf95bf9fe4622f3089f3aaa19eba",
+    "title": "Ostwald Ripening of Ag2Te Precipitates in Thermoelectric PbTe: Effects of Crystallography, Dislocations, and Interatomic Bonding",
+    "authors": [
+      "Yuan Yu",
+      "Ariel Sheskin",
+      "Zhenyu Wang",
+      "Aleksandra Uzhansky",
+      "Yuriy Natanzon",
+      "Muhamed Dawod",
+      "Lamya Abdellaoui",
+      "Torsten Schwarz",
+      "Christina Scheu",
+      "Matthias Wuttig",
+      "Oana Cojocaru-Mirédin",
+      "Yaron Amouyal",
+      "Siyuan Zhang"
+    ],
+    "journal": "Advanced Energy Materials",
+    "volume": "14",
+    "year": 2024,
+    "article_number": "2304442",
+    "doi": "10.1002/aenm.202304442",
+    "pages_in_local_pdf": 13
+  },
+  "supplementary_information": {
+    "path": "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/AEM Yu 2024 SM.pdf",
+    "sha256": "f60bef889c0445b790f9a93828aa40b7ca56bf40850a461b0aff019a05d37ff0",
+    "matched_by": [
+      "identical article title",
+      "identical author list",
+      "Debye-Callaway Eqs. S1-S16",
+      "Table S1 and Table S2 values agree with main text"
+    ],
+    "pages_in_local_pdf": 20
+  },
+  "excluded_mismatched_article": {
+    "path_as_supplied_in_goal": "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/tailoring-thermoelectric-transport-properties-of-ag-alloyed-pbte-effects-of-microstructure-evolution.pdf",
+    "sha256": "fa159ef4b24568bc168bfe6859f496122a3d599de8c822664f635fa4cd62d0c4",
+    "identity": "Sheskin et al., ACS Applied Materials & Interfaces 2018, 10, 38994-39001",
+    "reason_excluded": "This is not the Yu 2024 article and must not be mixed with the Yu AQ/48 h states."
+  },
+  "prior_audits": [
+    {
+      "path": "reports/conditional_microstructure_path_v1/scientific_scope/Stage1_Yu2024_对标矩阵与项目边界.md",
+      "sha256": "e723daab2d1bd13c6c750d5b00eaca85ad8325b5abd7111d449f89a9c8286eed"
+    },
+    {
+      "path": "reports/conditional_microstructure_path_v1/scientific_scope/Stage1B_Yu2024_SI深度审计.md",
+      "sha256": "34f6a5a77ec76e116c7a1477c98f6c8b548d32e5ba8c796ee8de8ec251502bfe"
+    }
+  ],
+  "sample_states": {
+    "AQ": {
+      "nominal_composition": "(PbTe)0.97(Ag2Te)0.03",
+      "melt": "heated to 1273 K over 12 h and held 6 h",
+      "homogenization": "moderately cooled to 973 K and held 48 h",
+      "pre_consolidation_quench": "iced-water quench",
+      "consolidation": "hot pressed at 923 K for 30 min; 45 MPa applied for 15 min; flowing Ar-7% H2",
+      "final_treatment": "iced-water quench",
+      "source": "main text Experimental Section, local PDF page 10"
+    },
+    "48h": {
+      "starting_material": "AQ hot-pressed pellet",
+      "anneal": "653 K for 48 h in the two-phase region",
+      "atmosphere": "sealed quartz ampoule under 120 torr Ar-7% H2",
+      "final_treatment": "iced-water quench",
+      "source": "main text Experimental Section, local PDF page 10",
+      "source_discrepancy": "SI Table S2 lists 655 K for the gamma-prime calculation."
+    }
+  },
+  "thermal_transport_data": {
+    "experimental_kappa_lat": "SI Table S1, local SI PDF page 13; values transcribed directly, not digitized",
+    "published_model_kappa_lat": "main text Figure 6b dashed curves, local main PDF page 8; independently digitized",
+    "spectral_decomposition": "main text Figures 6c and 6d at 300 K; used for qualitative visual cross-check",
+    "measurement_range": "approximately 303-573 K; main text states measurements below 600 K"
+  },
+  "forbidden_inputs": {
+    "PF_data_used": false,
+    "Sheskin_data_used": false,
+    "cluster_used": false,
+    "GPU_used": false
+  }
+}

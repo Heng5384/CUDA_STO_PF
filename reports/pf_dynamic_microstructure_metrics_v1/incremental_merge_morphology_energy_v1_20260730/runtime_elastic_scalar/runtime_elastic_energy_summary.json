@@ -1,0 +1,10 @@
+{
+  "schema": "PF_RUNTIME_ELASTIC_SCALAR_AUDIT_V1",
+  "source_diagnostics": "/data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/Results/chel_T380_cuda_246x246x246_dt0.02_steps7266_xB0.030/raw_fields_relax/dynamics_mass_diagnostics.csv",
+  "row_count": 28,
+  "15_16h_row_count": 0,
+  "energy_unit": "gel_hat (dimensionless) unless an explicit physical scale is supplied",
+  "mean_elastic_energy_hat_min": 0.0010592305374,
+  "mean_elastic_energy_hat_max": 0.0011269276633,
+  "window_15_16h": []
+}

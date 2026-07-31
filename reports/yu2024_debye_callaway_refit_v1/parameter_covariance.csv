@@ -1,0 +1,5 @@
+parameter_i,parameter_j,covariance_log_space
+A_N,A_N,5.20055477309e-06
+A_N,Annealed_dislocation_scale,-3.10039017937e-05
+Annealed_dislocation_scale,A_N,-3.10039017937e-05
+Annealed_dislocation_scale,Annealed_dislocation_scale,0.000289854883866

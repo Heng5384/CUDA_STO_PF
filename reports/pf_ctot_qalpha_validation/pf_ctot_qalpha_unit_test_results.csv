@@ -1,0 +1,17 @@
+test,metric,value,tolerance,status,notes
+G1_uniform_equilibrium,max_state_change,0.00000000000000000e+00,1.00000000000000008e-15,PASS,
+G2_shared_face_antisymmetry,global_pair_sum,0.00000000000000000e+00,9.99999999999999999e-15,PASS,
+G2_shared_face_antisymmetry,mass_change,0.00000000000000000e+00,9.99999999999999980e-13,PASS,
+G3_manufactured_transport,L2_finest,1.41939746979371387e-08,5.00000000000000024e-05,PASS,"errors=[5.677589877591788e-08, 2.8387949395091364e-08, 1.4193974697937139e-08]"
+G4_fixed_C_phase_conversion,direct_vs_transaction,5.55111512312578270e-17,1.00000000000000008e-15,PASS,
+G4_fixed_C_phase_conversion,delta_C,0.00000000000000000e+00,1.00000000000000008e-15,PASS,
+G5_moving_interface_round_trip,q_recovery,5.55111512312578270e-17,2.00000000000000016e-15,PASS,
+G6_capacity_bound_stress,C_lower,0.00000000000000000e+00,9.99999999999999999e-15,PASS,
+G6_capacity_bound_stress,C_upper,0.00000000000000000e+00,9.99999999999999999e-15,PASS,
+G6_capacity_bound_stress,q_lower,0.00000000000000000e+00,9.99999999999999999e-15,PASS,
+G6_capacity_bound_stress,q_upper,0.00000000000000000e+00,9.99999999999999999e-15,PASS,
+G7_free_energy_relaxation,delta_F,-1.57741184609051288e-01,0.00000000000000000e+00,PASS,
+G8_projection_free_conservation,mass_error,0.00000000000000000e+00,9.99999999999999980e-13,PASS,
+G9_restart_equivalence,Linf,0.00000000000000000e+00,1.00000000000000008e-15,PASS,
+G10_one_step_replay,transport_mass_residual,0.00000000000000000e+00,9.99999999999999980e-13,PASS,
+beta_support_context,core_context_response_change,2.69999460015797983e-10,1.00000000000000002e-08,PASS,matrix mobility weighted by 1-h; phi chemistry weighted by h'

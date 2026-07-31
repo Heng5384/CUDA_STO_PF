@@ -1,0 +1,4 @@
+dataset,temperature_C,observable,value,uncertainty,unit,use
+Sheskin2018_6h_TEM_APT,380,Nv,1.68e+24,9.2e+23,m^-3,nucleation-dominated external anchor; not fitted here
+Sheskin2018_48h_TEM_APT,380,Nv,1.21e+22,7.5e+21,m^-3,coarsening validation only
+Grossfeld2017_380C_6h_HRSEM,380,Nv,2.7e+20,NA,m^-3,method-specific trend only

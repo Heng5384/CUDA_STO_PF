@@ -1,0 +1,16 @@
+main_cuda.cu(30569): warning #177-D: label "gp_post_birth_skip_to_finalize" was declared but never referenced
+  gp_post_birth_skip_to_finalize:
+  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+main_cuda.cu(10174): warning #177-D: function "profile_family_max_abs_d_nm" was declared but never referenced
+  static double profile_family_max_abs_d_nm(const ScheduledNucProfileSet *profile) {
+                ^
+
+thermo_utils.h(270): warning #20044-D: extern declaration of the entity d_thermo_convex_extrapolation_enabled is treated as a static definition
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[warn] /data/home/luozhiheng/tmp/pf_elastic_6h8h_highres_energy_v1_20260730/pf_input.params:105 unknown key ignored: gp_birth_enabled
+[warn] 界面分辨率不足: lambda_sm/dx = 4.000000 <= 4.000000，建议减小 dx 或增大 lambda_sm。

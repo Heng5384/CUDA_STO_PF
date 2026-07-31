@@ -1,0 +1,118 @@
+{
+  "candidate_grid": {
+    "Nx": 128,
+    "Ny": 128,
+    "Nz": 128,
+    "dx_nm": 1.0
+  },
+  "candidate_profile": "/home/zhiheng/tmp/pf_elastic_target_profile_box128_R11p5_v1_20260730/profiles/R11p5/profile_manifest.json",
+  "candidate_profile_sha256": "4da1c0a07b4d9095ad6cc946abfebe680829e206839c79c21a414ecf84f7098f",
+  "checks": {
+    "axes": true,
+    "axis_ratio": true,
+    "elastic_energy": true,
+    "far_xB": false,
+    "local_phi": true,
+    "local_xB": false,
+    "mass": true,
+    "radius": true
+  },
+  "energy_provenance": {
+    "candidate": {
+      "F_chem_excess_hat": -0.000357125193,
+      "F_el_hat": 0.00014112,
+      "F_surf_hat": 0.000265828135,
+      "F_total_excess_hat": 4.98229415e-05,
+      "converged_iter": 3198,
+      "eigenstrain": {
+        "eps_xx00": 0.046,
+        "eps_xy00": 0.0,
+        "eps_xz00": 0.0,
+        "eps_yy00": -0.022,
+        "eps_yz00": 0.0,
+        "eps_zz00": -0.017
+      },
+      "elastic_runtime_marker": "PASS",
+      "energy_trace_sha256": "066b864e423f2e942fde8baf3b7392d71e6a91ee41038037f40ba2fa34ce25fd",
+      "mass_error_relative": 0.0,
+      "orientation_label": "variant_100_identity",
+      "profile_manifest_sha256": "4da1c0a07b4d9095ad6cc946abfebe680829e206839c79c21a414ecf84f7098f",
+      "projected_kkt_rms": 0.00041527029,
+      "run_log_sha256": "99ceb462bd8bf6b3d166a7b41df7d7fdf0f24d473bf42d69dfd765732b97dd6f",
+      "target_radius_nm": 11.5,
+      "total_el_core_sum": 154.947674,
+      "total_interface_sum": 557.482004
+    },
+    "reference": {
+      "F_chem_excess_hat": -0.00084633469,
+      "F_el_hat": 0.000342447964,
+      "F_surf_hat": 0.000629710458,
+      "F_total_excess_hat": 0.000125823732,
+      "converged_iter": 3236,
+      "eigenstrain": {
+        "eps_xx00": 0.046,
+        "eps_xy00": 0.0,
+        "eps_xz00": 0.0,
+        "eps_yy00": -0.022,
+        "eps_yz00": 0.0,
+        "eps_zz00": -0.017
+      },
+      "elastic_runtime_marker": "PASS",
+      "energy_trace_sha256": "82f0ee421f1f641581cb11a1112ad2021b1a3415c842dbf7357043a79e5c1f95",
+      "mass_error_relative": 0.0,
+      "orientation_label": "variant_100_identity",
+      "profile_manifest_sha256": "c0826fc8d1d5e11fcfa0deda34e282e2d71fdd14e583352fdc0326c637acf7b3",
+      "projected_kkt_rms": 0.000665177376,
+      "run_log_sha256": "ec4935ad89618f4eb91994fa76ad2bc13da03e9554cfcdcf39e857efe534b8fd",
+      "target_radius_nm": 11.5,
+      "total_el_core_sum": 161.524692,
+      "total_interface_sum": 557.127512
+    }
+  },
+  "metrics": {
+    "axis_ratio_relative": 0.002677787246939418,
+    "axis_relative_max": 0.0015785644351771076,
+    "candidate_F_el_hat_box_mean": 0.00014112,
+    "candidate_integrated_F_el_hat_code_nm3": 295.95009024,
+    "candidate_mass_error_relative": 1.8669776478206319e-16,
+    "elastic_energy_relative": 0.02318979280990369,
+    "far_xB_absolute": 7.440722158624444e-05,
+    "local_phi_l1_normalized": 0.002354232791505821,
+    "local_xB_mean_absolute": 7.589085397857166e-05,
+    "local_xB_reference_subtracted_mean_absolute": 2.0598116929164615e-06,
+    "radius_relative": 2.447479899680396e-11,
+    "reference_F_el_hat_box_mean": 0.000342447964,
+    "reference_integrated_F_el_hat_code_nm3": 302.97604187750403,
+    "reference_mass_error_relative": 4.568193469764978e-16
+  },
+  "reference_grid": {
+    "Nx": 96,
+    "Ny": 96,
+    "Nz": 96,
+    "dx_nm": 1.0
+  },
+  "reference_profile": "/home/zhiheng/tmp/pf_elastic_target_profile_library_workstation_v3_20260730/profiles/R11p5/profile_manifest.json",
+  "reference_profile_sha256": "c0826fc8d1d5e11fcfa0deda34e282e2d71fdd14e583352fdc0326c637acf7b3",
+  "schema": "PF_ELASTIC_TARGET_PROFILE_BOX_SIZE_AUDIT_V1",
+  "source_identity": {
+    "binary_sha256": "23d4d365de19c26670ed5d64f9f732ae71b555d2ef3ac57f7f5452467b7902d0",
+    "candidate_commit": "NO_GIT_COMMIT",
+    "commit_labels_equal": false,
+    "identity_basis": "source_tree_sha256_and_binary_sha256",
+    "reference_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+    "source_tree_sha256": "f22202bdde8bd93732fa43fe95f68c8ca5816723e24204c8569e46d88bad2c90"
+  },
+  "status": "FAIL_ELASTIC_TARGET_PROFILE_BOX_SIZE_REFINEMENT_V1",
+  "target_radius_nm": 11.5,
+  "thresholds": {
+    "axis_ratio_relative_max": 0.02,
+    "axis_relative_max": 0.02,
+    "elastic_energy_relative_max": 0.05,
+    "far_xB_absolute_max": 2e-05,
+    "mass_relative_max": 1e-12,
+    "phi_l1_normalized_max": 0.02,
+    "radius_relative_max": 0.002,
+    "xB_mean_absolute_max": 2e-05
+  },
+  "window_nm": 64.0
+}

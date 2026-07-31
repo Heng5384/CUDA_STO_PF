@@ -1,0 +1,3 @@
+candidate,parameter_writeback,status,note
+T0_original,false,PASS_ANALYTIC_BASELINE,xAg_eq_chem_flat=0.004654096254055399; no writeback
+T3_L_required_for_xAg_0.0062,false,DIAGNOSTIC_ONLY,L(T380)=27934.335429668758 J/mol versus frozen 29423.5425 J/mol (-5.0613%); no covariance and no production writeback

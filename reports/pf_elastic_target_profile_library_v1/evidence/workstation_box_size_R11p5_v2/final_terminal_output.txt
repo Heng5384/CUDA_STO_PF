@@ -1,0 +1,7 @@
+box_size_status=FAIL_ELASTIC_TARGET_PROFILE_BOX_SIZE_REFINEMENT_V1
+reference_grid=96^3
+candidate_grid=128^3
+target_radius_nm=11.5
+axis_ratio_relative=2.67778724693941818e-03
+elastic_energy_relative=2.31897928099036900e-02
+audit_sha256=1fd8dce00392927f8247998664f1b4f80bca58ea6dbf79d22504a4db637c2d2e

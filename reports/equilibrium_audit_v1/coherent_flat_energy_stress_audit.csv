@@ -1,0 +1,4 @@
+quantity,elastic_off,elastic_on,status
+mean_elastic_energy,0,NOT_REPORTED,FINITE_PARTICLE_SHORT_ONLY
+mean_stress_hydro,0,NOT_REPORTED,FINITE_PARTICLE_SHORT_ONLY
+fixed_cell_k0_displacement,0,0,PASS_STATIC_SOURCE_AUDIT

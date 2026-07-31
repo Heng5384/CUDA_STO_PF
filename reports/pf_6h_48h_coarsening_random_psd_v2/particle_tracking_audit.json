@@ -1,0 +1,104 @@
+{
+  "schema": "PF_RANDOM_PSD_PARTICLE_TRACKING_V1",
+  "domain": [
+    246,
+    246,
+    246
+  ],
+  "dx_nm": 1.0,
+  "h_component_threshold": 0.0001,
+  "identity_contract": "maximum voxel overlap; periodic centroid tie-breaker",
+  "snapshot_steps": [
+    0,
+    3633,
+    7266,
+    10899,
+    14532,
+    18165,
+    21798
+  ],
+  "snapshot_ages_h": [
+    6.0,
+    7.0,
+    8.0,
+    9.0,
+    10.0,
+    11.0,
+    12.0
+  ],
+  "initial_particle_count": 96,
+  "component_audits": [
+    {
+      "step": 0,
+      "experimental_age_h": 6.0,
+      "component_count": 96,
+      "split_component_labels": [],
+      "merge_component_labels": [],
+      "untracked_components": [],
+      "phi_sha256_remote": "ca75e33e234c15caa23c9f32b6b9c76dbbbf11d098f9e9609e8905476df855dd",
+      "xB_sha256_remote": "197bc5ecf7b48b3d55c8df51cd255d6318becbb5e6c846bac884df4e0b2faab0"
+    },
+    {
+      "step": 3633,
+      "experimental_age_h": 7.0,
+      "component_count": 96,
+      "split_component_labels": [],
+      "merge_component_labels": [],
+      "untracked_components": [],
+      "phi_sha256_remote": "fce2de477b4d3a5eff523cb1e83acf988919d8b002f923dd03100db8faaa43d3",
+      "xB_sha256_remote": "55bbcd33457011632d48865ed1a4f9dfb1c067548d8ce9eaec9da1fb12f2115d"
+    },
+    {
+      "step": 7266,
+      "experimental_age_h": 8.0,
+      "component_count": 70,
+      "split_component_labels": [],
+      "merge_component_labels": [],
+      "untracked_components": [],
+      "phi_sha256_remote": "a156d552e3ad7c448ffbc6c9a835ac82a7d0bd06efad142f6f8ed7160fe5cf1b",
+      "xB_sha256_remote": "5cc9a429e08f3f629e4db34b27b43a22ddf57ca1b47174deb165c2f4b1eb20f7"
+    },
+    {
+      "step": 10899,
+      "experimental_age_h": 9.0,
+      "component_count": 56,
+      "split_component_labels": [],
+      "merge_component_labels": [],
+      "untracked_components": [],
+      "phi_sha256_remote": "dc7d6d6577db17e9fbc18ee3dc9221b13c9d994223858594869e4c9d54944336",
+      "xB_sha256_remote": "738f7153c613333c01fb15775008c4671e75949ecced398f5f8a90944977f23f"
+    },
+    {
+      "step": 14532,
+      "experimental_age_h": 10.0,
+      "component_count": 48,
+      "split_component_labels": [],
+      "merge_component_labels": [],
+      "untracked_components": [],
+      "phi_sha256_remote": "eb2dfe1c581fbe479c39958931ca758328eb0a30166bdf397a235b00fc06ec27",
+      "xB_sha256_remote": "239d52122bee34c3ed9091e21021e07a88744c2ce3b5aafe7dbd585802adcdbc"
+    },
+    {
+      "step": 18165,
+      "experimental_age_h": 11.0,
+      "component_count": 42,
+      "split_component_labels": [],
+      "merge_component_labels": [],
+      "untracked_components": [],
+      "phi_sha256_remote": "b86b18df48eeb59d5e7bb2889c4bc386a8b60259c1044c6e2e5892b6f1d9833a",
+      "xB_sha256_remote": "3ba0f76aa8a35904c26e7eccc2da63ccc3a65de0c2624dab5954e531072018ce"
+    },
+    {
+      "step": 21798,
+      "experimental_age_h": 12.0,
+      "component_count": 34,
+      "split_component_labels": [],
+      "merge_component_labels": [],
+      "untracked_components": [],
+      "phi_sha256_remote": "e64ccba69ba00a4008c1697b8d82a9c56aa2d27cea3e06b22c792614773e9f0d",
+      "xB_sha256_remote": "1b3b3191820532314261d7eff0467cd695485bbdf9071e8857e8acb9f2554d8d"
+    }
+  ],
+  "merge_or_split_detected": false,
+  "source_remote_root": "/data/home/luozhiheng/tmp/pf_random_psd_v2_preflight_246x96_6h12h_20260730/continuous_dt0p02/results/ch_T380_cuda_246x246x246_dt0.02_steps21800_xB0.006/continuous_dt0p02"
+}

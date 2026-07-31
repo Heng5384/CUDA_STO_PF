@@ -1,0 +1,41 @@
+symbol,description,AQ_value,48h_value,unit,source,classification,participates_in_fit,uncertainty,notes
+k_B,Boltzmann constant,1.380649e-23,1.380649e-23,J/K,SI unit definition,TAKEN_FROM_LITERATURE,false,exact,Physical constant
+hbar,Reduced Planck constant,1.054571817e-34,1.054571817e-34,J s,CODATA value,TAKEN_FROM_LITERATURE,false,,Physical constant
+A_N,Combined Normal/Umklapp factor,1.5,1.5,dimensionless,SI Eq. S1 and Table S2,FITTED_BY_YU,true,not reported,Only explicitly fitted model parameter
+gamma,Gruneisen parameter,1.96,1.96,dimensionless,SI Table S2 ref. 7,TAKEN_FROM_LITERATURE,false,not reported,
+Mbar,Average atomic mass of solid solution,2.784e-25,2.784e-25,kg,SI Table S2,FIXED_BY_YU,false,not reported,
+v,Average sound velocity,1770,1770,m/s,SI Table S2 ref. 7,TAKEN_FROM_LITERATURE,false,not reported,Used in conductivity and all rates except vL/vT ratio
+Theta_D,Debye temperature,136,136,K,SI Table S2 ref. 7,TAKEN_FROM_LITERATURE,false,not reported,
+a_i,Solid-solution lattice constant,6.4286,6.445,angstrom,SI Table S2,DIRECTLY_MEASURED,false,not reported,
+Vbar,Average atomic volume,3.320926202820701e-29,3.3464071390625013e-29,m^3/atom,Derived as a_i^3/8 from SI Table S2,DERIVED_FROM_PUBLISHED_VALUES,false,derived,
+d,Average grain size,1.04e-5,1.21e-5,m,SI Table S2,DIRECTLY_MEASURED,false,not reported,Table description says average diameter of grain size
+x_i,Interstitial Ag fraction,0.0069,0.0034,fraction,SI Table S2 and main Table 2,DIRECTLY_MEASURED,false,AQ +/-0.0011; 48h +/-0.0005,Only interstitial Ag is retained
+Delta_M_i,Published mass-difference input,107.87,107.87,g/mol,SI Table S2,MISSING_OR_AMBIGUOUS,false,not reported,Value equals Ag atomic mass although table calls it host-impurity mass difference
+M_matrix,Matrix atom mass used in Eq. S4,207.2,207.2,g/mol,SI Table S2 M_m,FIXED_BY_YU,false,not reported,Pb atomic mass
+epsilon,Point-defect phenomenological parameter,65,65,dimensionless,SI text after Eq. S6 and Table S2 ref. 5,TAKEN_FROM_LITERATURE,false,not reported,
+delta,Matrix atomic radius,180,180,pm,SI Table S2,FIXED_BY_YU,false,not reported,
+delta_i,Impurity atomic radius,160,160,pm,SI Table S2,FIXED_BY_YU,false,not reported,
+Gamma,Derived point-defect parameter,0.0074071633724095715,0.0036499065893032673,dimensionless,SI Eqs. S3-S5,DERIVED_FROM_PUBLISHED_VALUES,false,derived,Uses literal Delta_M_i table value
+R_small,Average small-particle radius,2e-9,2e-9,m,SI Table S2,DIRECTLY_MEASURED,false,not reported,R is explicitly radius
+N_P_small,Small-particle number density,7.5e24,2.5e19,m^-3,SI Table S2 and main Table 2,DIRECTLY_MEASURED,false,not reported,
+R_big,Effective big-precipitate radius,3e-8,5e-8,m,SI Table S2,FIXED_BY_YU,false,not reported,Plate/lath is represented by an effective spherical radius
+N_P_big,Big-precipitate number density,1.9e21,9.2e18,m^-3,SI Table S2 and main Table 2,DIRECTLY_MEASURED,false,not reported,
+D_M,Matrix density,8383,8383,kg/m^3,SI Table S2,FIXED_BY_YU,false,not reported,Converted from 8.383 g/cm^3
+Delta_D,Density difference,63,63,kg/m^3,SI Eq. S10 and Table S2,FIXED_BY_YU,false,not reported,Converted from 0.063 g/cm^3
+Delta_D_over_D_M,Density contrast ratio,0.007515209352260527,0.007515209352260527,dimensionless,Derived from SI Table S2,DERIVED_FROM_PUBLISHED_VALUES,false,derived,
+N_D,Dislocation density,0,3.5e15,m^-2,SI Table S2 and main Table 2,DIRECTLY_MEASURED,false,not reported,48h converted from 3.5e11 cm^-2
+B_D,Burgers vector,4.56e-10,4.56e-10,m,SI Table S2,FIXED_BY_YU,false,not reported,
+C,Dislocation prefactor,0.96,0.96,dimensionless,SI Table S2 ref. 1,TAKEN_FROM_LITERATURE,false,not reported,
+r,Poisson ratio,0.218,0.218,dimensionless,SI Table S2 ref. 1,TAKEN_FROM_LITERATURE,false,not reported,
+v_L,Longitudinal sound velocity,3590,3590,m/s,SI Table S2 ref. 7,TAKEN_FROM_LITERATURE,false,not reported,
+v_T,Transverse sound velocity,1610,1610,m/s,SI Table S2 ref. 7,TAKEN_FROM_LITERATURE,false,not reported,
+V_m,Matrix atomic volume,3.03e-29,3.03e-29,m^3/atom,SI Table S2,FIXED_BY_YU,false,not reported,SI unit is misprinted as m^-3
+V_i,Impurity atomic volume,1.71e-29,1.71e-29,m^3/atom,SI Table S2,FIXED_BY_YU,false,not reported,SI unit is misprinted as m^-3
+c_i,Ag fraction around dislocations,0.04,0.04,fraction,SI Table S2,DIRECTLY_MEASURED,false,average only,APT measurement; irrelevant when N_D=0
+B,Bulk modulus of PbTe,4.1e10,4.1e10,Pa,SI Table S2,FIXED_BY_YU,false,not reported,
+T_a,Annealing temperature used in gamma_prime,655,655,K,SI Table S2,FIXED_BY_YU,false,not reported,Main experimental section says 653 K
+M_m,Matrix atom mass for beta,207.2,207.2,g/mol,SI Table S2,FIXED_BY_YU,false,not reported,
+M_i,Impurity atom mass for beta,107.87,107.87,g/mol,SI Table S2,FIXED_BY_YU,false,not reported,
+alpha,Relative atomic-volume difference,-0.4356435643564357,-0.4356435643564357,dimensionless,SI Eq. S15,DERIVED_FROM_PUBLISHED_VALUES,false,derived,
+beta,Half relative atomic-mass difference,0.23969594594594593,0.23969594594594593,dimensionless,SI Eq. S16,DERIVED_FROM_PUBLISHED_VALUES,false,derived,
+gamma_prime,Extra Gruneisen parameter,2.62,2.62,dimensionless,SI Eq. S14 and Table S2,DERIVED_FROM_PUBLISHED_VALUES,false,not reported,Independent derivation gives 2.61778969265

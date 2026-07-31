@@ -215,6 +215,26 @@ static int copy_text_file(const char *src, const char *dst) {
     return 1;
 }
 
+static int write_device_field_raw_f64(const char *path,
+                                      const double *d_field,
+                                      size_t element_count) {
+    if (!path || path[0] == '\0' || !d_field || element_count == 0U) {
+        return 0;
+    }
+    std::vector<double> host(element_count);
+    CUDA_CHECK(cudaMemcpy(
+        host.data(), d_field, element_count * sizeof(double),
+        cudaMemcpyDeviceToHost));
+    FILE *stream = fopen(path, "wb");
+    if (!stream) {
+        return 0;
+    }
+    const size_t written =
+        fwrite(host.data(), sizeof(double), element_count, stream);
+    const int close_status = fclose(stream);
+    return written == element_count && close_status == 0;
+}
+
 static int build_continue_case_pf_param_path(const char *continue_phi_vtk_path,
                                              char *out,
                                              size_t out_size) {
@@ -2779,6 +2799,75 @@ static int read_raw_field_to_double(const char *path, const char *dtype, size_t 
     return 0;
 }
 
+// Validation-only V5 fixture input.  The component ownership map is a raw
+// int32 C-order array that is materialized together with the initial fields;
+// runtime never infers labels from a thresholded evolving phi field.
+static int read_raw_component_labels_i32(const char *path, size_t total,
+                                         int component_count, int *out) {
+    if (!path || path[0] == '\0' || !out || component_count <= 0) return 0;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        fprintf(stderr, "[fatal] cannot open component label raw field: %s\n", path);
+        return 0;
+    }
+    std::vector<int32_t> tmp(total);
+    const size_t got = fread(tmp.data(), sizeof(int32_t), total, fp);
+    int extra = fgetc(fp);
+    fclose(fp);
+    if (got != total || extra != EOF) {
+        fprintf(stderr,
+                "[fatal] component label raw size mismatch: got %zu int32 values, expected exactly %zu\n",
+                got, total);
+        return 0;
+    }
+    for (size_t i = 0; i < total; ++i) {
+        if (tmp[i] < 0 || tmp[i] >= component_count) {
+            fprintf(stderr,
+                    "[fatal] component label out of range at idx=%zu: %d not in [0,%d)\n",
+                    i, (int)tmp[i], component_count);
+            return 0;
+        }
+        out[i] = (int)tmp[i];
+    }
+    return 1;
+}
+
+static int parse_component_target_h_sums(const char *text, int component_count,
+                                         double *out) {
+    if (!text || text[0] == '\0' || !out || component_count <= 0) return 0;
+    const char *p = text;
+    for (int i = 0; i < component_count; ++i) {
+        while (*p && isspace((unsigned char)*p)) ++p;
+        char *end = NULL;
+        const double value = strtod(p, &end);
+        if (end == p || !isfinite(value) || value <= 0.0) {
+            fprintf(stderr,
+                    "[fatal] invalid component target h sum at entry %d in '%s'\n",
+                    i, text);
+            return 0;
+        }
+        out[i] = value;
+        p = end;
+        while (*p && isspace((unsigned char)*p)) ++p;
+        if (i + 1 < component_count) {
+            if (*p != ',') {
+                fprintf(stderr,
+                        "[fatal] expected comma after component target h sum %d in '%s'\n",
+                        i, text);
+                return 0;
+            }
+            ++p;
+        }
+    }
+    while (*p && isspace((unsigned char)*p)) ++p;
+    if (*p != '\0') {
+        fprintf(stderr,
+                "[fatal] component target h sums has extra entries: '%s'\n", text);
+        return 0;
+    }
+    return 1;
+}
+
 static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFParams *P,
                                               double dx_phys_nm, double interface_width_nm) {
     if (!meta || !meta->valid) return 0;
@@ -2814,6 +2903,7 @@ static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFP
 }
 
 static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, double *xB_r, double *xBtot_r,
+                                double *dY_dt_prev_r,
                                 const PFParams *P, int total_size,
                                 const RawInitMeta *meta, int emit_logs) {
     if (!meta || !meta->valid) return 0;
@@ -2822,6 +2912,15 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
     }
     if (!read_raw_field_to_double(P->init_xB_raw_path, meta->dtype, (size_t)total_size, xB_r, "xB")) {
         return 0;
+    }
+    if (P->init_dY_dt_prev_raw_path[0] != '\0') {
+        if (!read_raw_field_to_double(P->init_dY_dt_prev_raw_path, meta->dtype,
+                                      (size_t)total_size, dY_dt_prev_r, "dY_dt_prev")) {
+            return 0;
+        }
+    } else {
+        // Backward-compatible fresh-start contract for legacy raw fixtures.
+        memset(dY_dt_prev_r, 0, (size_t)total_size * sizeof(double));
     }
     if (P->init_eta_raw_path[0] != '\0') {
         if (!read_raw_field_to_double(P->init_eta_raw_path, meta->dtype, (size_t)total_size, eta_r, "eta")) {
@@ -2834,6 +2933,7 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
     double phi_min = 1.0e300, phi_max = -1.0e300, phi_sum = 0.0;
     double eta_min = 1.0e300, eta_max = -1.0e300, eta_sum = 0.0;
     double xb_min = 1.0e300, xb_max = -1.0e300, xb_sum = 0.0;
+    double dYdt_min = 1.0e300, dYdt_max = -1.0e300, dYdt_sum_sq = 0.0;
     double h_sum = 0.0, xbtot_sum = 0.0;
     int phi_low_clamp = 0, phi_high_clamp = 0, eta_low_clamp = 0, eta_high_clamp = 0;
     int xb_low_clamp = 0, xb_high_clamp = 0;
@@ -2842,9 +2942,10 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
         double phi0 = phi_r[i];
         double eta0 = eta_r[i];
         double xb0 = xB_r[i];
-        if (!isfinite(phi0) || !isfinite(eta0) || !isfinite(xb0)) {
-            fprintf(stderr, "[fatal] raw init contains NaN/Inf at idx=%d (phi=%g, eta=%g, xB=%g)\n",
-                    i, phi0, eta0, xb0);
+        double dYdt0 = dY_dt_prev_r[i];
+        if (!isfinite(phi0) || !isfinite(eta0) || !isfinite(xb0) || !isfinite(dYdt0)) {
+            fprintf(stderr, "[fatal] raw init contains NaN/Inf at idx=%d (phi=%g, eta=%g, xB=%g, dY_dt_prev=%g)\n",
+                    i, phi0, eta0, xb0, dYdt0);
             return 0;
         }
         if (phi0 < 0.0) ++phi_low_clamp;
@@ -2880,6 +2981,9 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
         phi_sum += phi;
         eta_sum += eta;
         xb_sum += xb;
+        dYdt_min = fmin(dYdt_min, dYdt0);
+        dYdt_max = fmax(dYdt_max, dYdt0);
+        dYdt_sum_sq += dYdt0 * dYdt0;
         xbtot_sum += xBtot_r[i];
     }
     if (emit_logs) {
@@ -2887,6 +2991,12 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
         log_section_header("INIT raw_fields");
         log_kv_text("init_phi_raw", "%s", P->init_phi_raw_path);
         log_kv_text("init_xB_raw", "%s", P->init_xB_raw_path);
+        if (P->init_dY_dt_prev_raw_path[0] != '\0') {
+            log_kv_text("init_dY_dt_prev_raw", "%s", P->init_dY_dt_prev_raw_path);
+            log_kv_text("dY_dt_prev initialization", "%s", "provenance_pinned_raw_history");
+        } else {
+            log_kv_text("dY_dt_prev initialization", "%s", "zero_for_fresh_dynamic_start");
+        }
         if (P->init_eta_raw_path[0] != '\0') {
             log_kv_text("init_eta_raw", "%s", P->init_eta_raw_path);
         }
@@ -2895,6 +3005,8 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
         log_kv_text("phi min/max/mean", "%.8e / %.8e / %.8e", phi_min, phi_max, phi_sum * invN);
         log_kv_text("eta min/max/mean", "%.8e / %.8e / %.8e", eta_min, eta_max, eta_sum * invN);
         log_kv_text("xB min/max/mean", "%.8e / %.8e / %.8e", xb_min, xb_max, xb_sum * invN);
+        log_kv_text("dY_dt_prev min/max/rms", "%.8e / %.8e / %.8e", dYdt_min, dYdt_max,
+                    sqrt(dYdt_sum_sq * invN));
         log_kv_text(is_gp_zone_mode(P) ? "hGP mean" : "hphi mean", "%.8e", h_sum * invN);
         log_kv_text("xBtot mean", "%.8e", xbtot_sum * invN);
         if (isfinite(meta->mean_xBtot)) {
@@ -3292,6 +3404,7 @@ static void write_mass_diag_csv_header(FILE *fp, const PFParams *P) {
             "mean_xBtot_old,"
             "mean_xBtot_before_step,mean_xBtot_after_phi_update,mean_xBtot_after_Y_update,mean_xBtot_after_Y_to_xB,"
             "mean_xBtot_before_clipping,mean_xBtot_after_clipping,mean_xBtot_end_step,"
+            "mean_elastic_energy,max_elastic_energy,stress_hydro_min,stress_hydro_max,"
             "delta_mass_phi_update,delta_mass_Y_update,delta_mass_Y_to_xB,delta_mass_clipping,total_delta_mass_step,"
             "delta_M_phi,delta_M_Y_actual,delta_M_Y_required,Y_compensation_ratio,"
             "mean_h_before_phi_update,mean_h_after_phi_update,delta_mean_h_phi_update,"
@@ -3439,6 +3552,10 @@ static void write_mass_diag_row_csv(FILE *fp, const DynamicsMassDiagRow *r, cons
     CSV_D(r->mean_xBtot_before_clipping); CSV_COMMA();
     CSV_D(r->mean_xBtot_after_clipping); CSV_COMMA();
     CSV_D(r->mean_xBtot_end_step); CSV_COMMA();
+    CSV_D(r->mean_elastic_energy); CSV_COMMA();
+    CSV_D(r->max_elastic_energy); CSV_COMMA();
+    CSV_D(r->stress_hydro_min); CSV_COMMA();
+    CSV_D(r->stress_hydro_max); CSV_COMMA();
     CSV_D(r->delta_mass_phi_update); CSV_COMMA();
     }
     CSV_D(r->delta_mass_Y_update); CSV_COMMA();
@@ -4100,6 +4217,52 @@ static std::uint64_t pf_zero_mode_parameter_fingerprint(const PFParams *P) {
         strlen(pf_zero_mode::kExplicitContextNV1) + 1U);
     add(pf_zero_mode::kReactionTangentNV1,
         strlen(pf_zero_mode::kReactionTangentNV1) + 1U);
+    return hash == 0U ? 1U : hash;
+}
+
+static std::uint64_t elastic_solver_parameter_fingerprint(
+    const PFParams *P) {
+    if (!P) return 0U;
+    std::uint64_t hash = 1469598103934665603ULL;
+    auto add = [&](const void *data, size_t size) {
+        hash = pf_zero_mode::fnv1a64(data, size, hash);
+    };
+    add(&P->Nx, sizeof(P->Nx));
+    add(&P->Ny, sizeof(P->Ny));
+    add(&P->Nz, sizeof(P->Nz));
+    add(&P->dx, sizeof(P->dx));
+    add(&P->dy, sizeof(P->dy));
+    add(&P->dz, sizeof(P->dz));
+    add(&P->elastic_enabled, sizeof(P->elastic_enabled));
+    add(&P->elastic_warm_start_enabled,
+        sizeof(P->elastic_warm_start_enabled));
+    add(&P->elastic_residual_control_enabled,
+        sizeof(P->elastic_residual_control_enabled));
+    add(&P->elastic_iter_min, sizeof(P->elastic_iter_min));
+    add(&P->elastic_iter_max, sizeof(P->elastic_iter_max));
+    add(&P->elastic_residual_tolerance,
+        sizeof(P->elastic_residual_tolerance));
+    add(&P->elastic_residual_absolute_floor,
+        sizeof(P->elastic_residual_absolute_floor));
+    add(&P->elastic_fail_on_nonconvergence,
+        sizeof(P->elastic_fail_on_nonconvergence));
+    const double stiffness[] = {
+        P->S_11, P->S_12, P->S_13, P->S_14, P->S_15, P->S_16,
+        P->S_22, P->S_23, P->S_24, P->S_25, P->S_26,
+        P->S_33, P->S_34, P->S_35, P->S_36,
+        P->S_44, P->S_45, P->S_46, P->S_55, P->S_56, P->S_66,
+        P->S_p_11, P->S_p_12, P->S_p_13, P->S_p_14, P->S_p_15,
+        P->S_p_16, P->S_p_22, P->S_p_23, P->S_p_24, P->S_p_25,
+        P->S_p_26, P->S_p_33, P->S_p_34, P->S_p_35, P->S_p_36,
+        P->S_p_44, P->S_p_45, P->S_p_46, P->S_p_55, P->S_p_56,
+        P->S_p_66};
+    add(stiffness, sizeof(stiffness));
+    const double strain[] = {
+        P->eps_xx00, P->eps_yy00, P->eps_zz00,
+        P->eps_yz00, P->eps_xz00, P->eps_xy00,
+        P->eps_iso_over_vB, P->E0_xx, P->E0_yy, P->E0_zz,
+        P->E0_yz, P->E0_xz, P->E0_xy};
+    add(strain, sizeof(strain));
     return hash == 0U ? 1U : hash;
 }
 
@@ -16103,7 +16266,13 @@ static void params_default(PFParams *P) {
     // 弹性参数默认值
     // ============================================================
     P->elastic_enabled = 1;      // 默认启用弹性计算（0/1）
-    P->elastic_iter_max = 20;     // 默认迭代1次（可根据需要调整）
+    P->elastic_iter_max = 20;
+    P->elastic_warm_start_enabled = 0;
+    P->elastic_residual_control_enabled = 0;
+    P->elastic_iter_min = 2;
+    P->elastic_residual_tolerance = 1.0e-6;
+    P->elastic_residual_absolute_floor = 1.0e-30;
+    P->elastic_fail_on_nonconvergence = 1;
     // 无量纲弹性 shift 能量密度（加在 delta_mu 上）；仅在 elastic_enabled=1 时生效
     P->elastic_shift_dimless = -1.0;
 
@@ -16145,10 +16314,19 @@ static void params_default(PFParams *P) {
     // ============================================================
     P->mode = 0; // 0=dynamics, 1=minimize
     P->minimize_full_model = 0; // 0=phi-only minimize, 1=full-model (chem+diff+volume)
+    P->minimize_freeze_phi = 0;
     P->minimize_max_iter = 2000;
     P->minimize_dt = P->dt;
     P->minimize_V0 = 0.0;  // if <=0, use initial mean_h at step 1
+    P->minimize_mass_constraint_enabled = 0;
+    P->minimize_target_mass_code = 0.0; // <=0 freezes the exact initial ledger
+    P->minimize_mass_tolerance_relative = 1.0e-12;
+    P->minimize_mass_max_iterations = 64;
     P->minimize_resample_elastic_every = 100;  // N<=0 disables true residual diagnostic
+    P->minimize_component_volume_constraint_enabled = 0;
+    P->minimize_component_volume_constraint_count = 0;
+    P->minimize_component_label_raw_path[0] = '\0';
+    P->minimize_component_target_h_sums[0] = '\0';
     // 收敛判据默认值（A/B 规则）
     P->minimize_rms_dphi_threshold = 1.0e-6;   // phi 收敛
     P->minimize_rms_dY_threshold   = 5.0e-5;   // Y 收敛（full-model）
@@ -16157,6 +16335,7 @@ static void params_default(PFParams *P) {
     P->minimize_rms_res_threshold = 1.0e-4;  // Euler-Lagrange/KKT 残差 rms_res 硬判停
     P->minimize_vol_err_rel_threshold = 1.0e-4;  // 体积约束相对误差硬判停，V0<=0 时禁用
     P->minimize_convergence_steps = 10;
+    P->minimize_min_pseudo_time = 0.0;
     P->minimize_dt_safety_limit = 1.0e-6; // 当前不再自动二分 dt，仅作保底/诊断
     P->eta_lambda_vol = 0.2; // lambda_vol under-relaxation 阻尼系数，默认 0.2
     P->minimize_xB_max_safe = 0.07; // minimize: pre-thermo xB 上限（硬裁剪），防止热力学核看到过大的 xB
@@ -16167,6 +16346,7 @@ static void params_default(PFParams *P) {
     P->init_mode_raw_fields = 0;
     P->init_phi_raw_path[0] = '\0';
     P->init_xB_raw_path[0] = '\0';
+    P->init_dY_dt_prev_raw_path[0] = '\0';
     P->init_eta_raw_path[0] = '\0';
     P->init_meta_path[0] = '\0';
 
@@ -21527,10 +21707,24 @@ static __attribute__((optimize("O0"))) int apply_pfparams_override_key(PFParams 
 
     TRY_SET_INT("elastic_enabled", elastic_enabled);
     TRY_SET_INT("elastic_iter_max", elastic_iter_max);
+    TRY_SET_INT("elastic_warm_start_enabled", elastic_warm_start_enabled);
+    TRY_SET_INT("elastic_residual_control_enabled", elastic_residual_control_enabled);
+    TRY_SET_INT("elastic_iter_min", elastic_iter_min);
+    TRY_SET_DOUBLE("elastic_residual_tolerance", elastic_residual_tolerance);
+    TRY_SET_DOUBLE("elastic_residual_absolute_floor", elastic_residual_absolute_floor);
+    TRY_SET_INT("elastic_fail_on_nonconvergence", elastic_fail_on_nonconvergence);
     TRY_SET_INT("diag_vtk_enabled", diag_vtk_enabled);
     TRY_SET_INT("diag_elastic_bulk_penalty_enabled", diag_elastic_bulk_penalty_enabled);
     TRY_SET_INT("mode", mode);
     TRY_SET_INT("minimize_full_model", minimize_full_model);
+    TRY_SET_INT("minimize_freeze_phi", minimize_freeze_phi);
+    TRY_SET_INT("minimize_mass_constraint_enabled", minimize_mass_constraint_enabled);
+    TRY_SET_INT("minimize_component_volume_constraint_enabled", minimize_component_volume_constraint_enabled);
+    TRY_SET_INT("minimize_component_volume_constraint_count", minimize_component_volume_constraint_count);
+    TRY_SET_DOUBLE("minimize_target_mass_code", minimize_target_mass_code);
+    TRY_SET_DOUBLE("minimize_mass_tolerance_relative", minimize_mass_tolerance_relative);
+    TRY_SET_INT("minimize_mass_max_iterations", minimize_mass_max_iterations);
+    TRY_SET_DOUBLE("minimize_min_pseudo_time", minimize_min_pseudo_time);
 
     if (strcmp(key, "model_mode") == 0) {
         if (!is_valid_model_mode(value)) {
@@ -22283,6 +22477,9 @@ int main(int argc, char **argv) {
     char pf_zero_mode_backend[64] = {0};
     char pf_checkpoint_path[4096] = {0};
     char pf_restart_from[4096] = {0};
+    char pf_initial_state_class[96] = {0};
+    char pf_fixture_manifest_sha256[96] = {0};
+    char pf_profile_library_manifest_sha256[96] = {0};
     double pf_zero_mode_tolerance_relative = 1.0e-12;
     int pf_zero_mode_max_iterations = 24;
     int pf_checkpoint_every = 0;
@@ -22290,6 +22487,14 @@ int main(int argc, char **argv) {
              "%s", pf_zero_mode::kModeOff);
     snprintf(pf_zero_mode_backend, sizeof(pf_zero_mode_backend),
              "%s", pf_zero_mode::kHostBackendV1);
+    snprintf(pf_initial_state_class, sizeof(pf_initial_state_class),
+             "%s", pf_zero_mode::kLegacyInitialStateClass);
+    snprintf(pf_fixture_manifest_sha256,
+             sizeof(pf_fixture_manifest_sha256), "%s",
+             pf_zero_mode::kLegacyInitialStateClass);
+    snprintf(pf_profile_library_manifest_sha256,
+             sizeof(pf_profile_library_manifest_sha256), "%s",
+             pf_zero_mode::kLegacyInitialStateClass);
 
     // Optional: interpret radius in physical nm and convert to internal length units later,
     // after we can infer (dx_phys_m_run, unit_to_m_run) from PF inputs.
@@ -22390,6 +22595,11 @@ int main(int argc, char **argv) {
             printf("  --pf-param-file <path>  required: load complete physical PF inputs (key=value)\n");
             printf("  --minimize-max-iter <n>\n");
             printf("  --minimize-dt <dt>\n");
+            printf("  --minimize-mass-constraint       preserve exact C_B_tot during full-model minimize\n");
+            printf("  --minimize-freeze-phi            validation-only: hold raw phi byte-identical and equilibrate conserved Y/xB\n");
+            printf("  --minimize-target-mass-code <v>  total code ledger; <=0 freezes exact initial ledger\n");
+            printf("  --minimize-mass-tolerance-relative <v> (default: 1e-12)\n");
+            printf("  --minimize-mass-max-iterations <n> (default: 64)\n");
             printf("  --eta-lambda-vol <value>   lambda_vol under-relaxation 阻尼系数 (default: 0.2, range: [0,1])\n");
             printf("  --minimize-rms-dY-threshold <val>    Y 收敛判据 (default: 5e-5)\n");
             printf("  --minimize-rms-res-threshold <val>   Euler-Lagrange/KKT 残差判据 (default: 1e-4)\n");
@@ -22401,6 +22611,13 @@ int main(int argc, char **argv) {
             printf("  --radius-phys-nm <nm>   seed radius in physical nm (converted using dx_phys inferred from lambda_sm_m/(2*ic_phi_iface_w))\n");
             printf("  --minimize-resample-elastic-every N   true residual diagnostic interval; N<=0 disables\n");
             printf("  --elastic 0|1           override elastic (0=off, 1=on)\n");
+            printf("  elastic_warm_start_enabled=1 and elastic_residual_control_enabled=1\n");
+            printf("                             dynamics-only accelerated elastic fixed-point solver\n");
+            printf("  elastic_iter_min=N       minimum fixed-point updates before residual stopping\n");
+            printf("  elastic_iter_max=N       hard fixed-point update cap\n");
+            printf("  elastic_residual_tolerance=v  relative k-space displacement residual\n");
+            printf("  elastic_residual_absolute_floor=v denominator floor for near-zero states\n");
+            printf("  elastic_fail_on_nonconvergence=1  fail closed at the hard cap\n");
             printf("\nInitialization (symmetry-breaking tests):\n");
             printf("  --init-shape sphere|ellipsoid\n");
             printf("  --init-axis-ratio-rx <val>\n");
@@ -22431,13 +22648,17 @@ int main(int argc, char **argv) {
             printf("  --pf-checkpoint-every <n>            0 disables periodic checkpoints\n");
             printf("  --pf-checkpoint-path <path>          atomic full-state checkpoint\n");
             printf("  --pf-restart-from <path>             provenance-strict restart\n");
+            printf("  --pf-initial-state-class <name>      checkpoint-pinned initial-state policy\n");
+            printf("  --pf-fixture-manifest-sha256 <hex>   checkpoint-pinned fixture identity\n");
+            printf("  --pf-profile-library-manifest-sha256 <hex> checkpoint-pinned profile-library identity\n");
             printf("  --init-test-id <int>    preset index for batch tests (0..7, <0 to disable)\n");
             printf("  --continue-phi-vtk <path>  continuation: load phi from ASCII VTK and continue minimize\n");
             printf("  --continue-xB-vtk <path>   continuation(full-model): optional xB ASCII VTK; if missing, rebuild xB/Y from phi via init logic\n");
             printf("                               若 VTK 同目录存在 pf_input.params，则 continue 会优先使用该参数快照\n");
-            printf("  --init-mode raw_fields      initialize from Python-generated raw phi/xB[/eta] fields\n");
+            printf("  --init-mode raw_fields      initialize from Python-generated raw phi/xB[/dY_dt_prev][/eta] fields\n");
             printf("  --init-phi-raw <path>       raw_fields phi_init.raw (C order, idx=i*(Ny*Nz)+j*Nz+k)\n");
             printf("  --init-xB-raw <path>        raw_fields xB_init.raw\n");
+            printf("  --init-dY-dt-prev-raw <path> optional provenance-pinned raw_fields time-level history; omitted means exact fresh zero history\n");
             printf("  --init-eta-raw <path>       raw_fields optional eta_init.raw (default zero)\n");
             printf("  --init-meta <path>          raw_fields init_meta.json with grid/dx/lambda/dtype metadata\n");
             printf("\nScheduled nucleation TEST mode (explicit opt-in, dynamics only):\n");
@@ -22507,6 +22728,32 @@ int main(int argc, char **argv) {
             snprintf(pf_restart_from, sizeof(pf_restart_from), "%s", v);
             continue;
         }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--pf-initial-state-class")) != NULL ||
+            (v = get_flag_value(argc, argv, &i,
+                                "--pf_initial_state_class")) != NULL) {
+            snprintf(pf_initial_state_class,
+                     sizeof(pf_initial_state_class), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--pf-fixture-manifest-sha256")) != NULL ||
+            (v = get_flag_value(argc, argv, &i,
+                                "--pf_fixture_manifest_sha256")) != NULL) {
+            snprintf(pf_fixture_manifest_sha256,
+                     sizeof(pf_fixture_manifest_sha256), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(
+                 argc, argv, &i,
+                 "--pf-profile-library-manifest-sha256")) != NULL ||
+            (v = get_flag_value(
+                 argc, argv, &i,
+                 "--pf_profile_library_manifest_sha256")) != NULL) {
+            snprintf(pf_profile_library_manifest_sha256,
+                     sizeof(pf_profile_library_manifest_sha256), "%s", v);
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--mode")) != NULL) {
             if (strcmp(v, "minimize") == 0) P.mode = 1;
             else if (strcmp(v, "minimize-continue") == 0) {
@@ -22537,6 +22784,12 @@ int main(int argc, char **argv) {
         if ((v = get_flag_value(argc, argv, &i, "--init-xB-raw")) != NULL) {
             strncpy(P.init_xB_raw_path, v, sizeof(P.init_xB_raw_path) - 1);
             P.init_xB_raw_path[sizeof(P.init_xB_raw_path) - 1] = '\0';
+            P.init_mode_raw_fields = 1;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--init-dY-dt-prev-raw")) != NULL) {
+            strncpy(P.init_dY_dt_prev_raw_path, v, sizeof(P.init_dY_dt_prev_raw_path) - 1);
+            P.init_dY_dt_prev_raw_path[sizeof(P.init_dY_dt_prev_raw_path) - 1] = '\0';
             P.init_mode_raw_fields = 1;
             continue;
         }
@@ -23472,6 +23725,36 @@ int main(int argc, char **argv) {
             P.minimize_full_model = 1;
             continue;
         }
+        if (strcmp(argv[i], "--minimize-mass-constraint") == 0) {
+            P.minimize_mass_constraint_enabled = 1;
+            continue;
+        }
+        if (strcmp(argv[i], "--minimize-freeze-phi") == 0) {
+            P.minimize_freeze_phi = 1;
+            continue;
+        }
+        if (strcmp(argv[i], "--minimize-component-volume-constraints") == 0) {
+            P.minimize_component_volume_constraint_enabled = 1;
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--minimize-component-count")) != NULL) {
+            P.minimize_component_volume_constraint_count = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--minimize-component-label-raw")) != NULL) {
+            strncpy(P.minimize_component_label_raw_path, v,
+                    sizeof(P.minimize_component_label_raw_path) - 1);
+            P.minimize_component_label_raw_path[
+                sizeof(P.minimize_component_label_raw_path) - 1] = '\0';
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--minimize-component-target-h-sums")) != NULL) {
+            strncpy(P.minimize_component_target_h_sums, v,
+                    sizeof(P.minimize_component_target_h_sums) - 1);
+            P.minimize_component_target_h_sums[
+                sizeof(P.minimize_component_target_h_sums) - 1] = '\0';
+            continue;
+        }
         if ((v = get_flag_value(argc, argv, &i, "--minimize-max-iter")) != NULL) {
             P.minimize_max_iter = atoi(v);
             continue;
@@ -23493,6 +23776,18 @@ int main(int argc, char **argv) {
         }
         if ((v = get_flag_value(argc, argv, &i, "--V0")) != NULL) {
             P.minimize_V0 = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--minimize-target-mass-code")) != NULL) {
+            P.minimize_target_mass_code = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--minimize-mass-tolerance-relative")) != NULL) {
+            P.minimize_mass_tolerance_relative = atof(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--minimize-mass-max-iterations")) != NULL) {
+            P.minimize_mass_max_iterations = atoi(v);
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i, "--minimize-resample-elastic-every")) != NULL) {
@@ -23526,6 +23821,10 @@ int main(int argc, char **argv) {
         }
         if ((v = get_flag_value(argc, argv, &i, "--minimize-convergence-steps")) != NULL) {
             P.minimize_convergence_steps = atoi(v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i, "--minimize-min-pseudo-time")) != NULL) {
+            P.minimize_min_pseudo_time = atof(v);
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i, "--minimize-dt-safety-limit")) != NULL) {
@@ -24132,6 +24431,21 @@ int main(int argc, char **argv) {
     }
     const int pf_zero_mode_enabled =
         strcmp(pf_zero_mode_selector, pf_zero_mode::kModeV1) == 0;
+    const int minimize_mass_constraint_enabled =
+        (P.mode == 1 && P.minimize_full_model == 1 &&
+         P.minimize_mass_constraint_enabled != 0);
+    const int minimize_fixed_phi_composition =
+        (P.mode == 1 && P.minimize_full_model == 1 &&
+         P.minimize_freeze_phi != 0);
+    const int minimize_component_volume_constraints =
+        (P.mode == 1 && P.minimize_full_model == 1 &&
+         P.minimize_component_volume_constraint_enabled != 0);
+    const int elastic_accelerated_solver_enabled =
+        P.elastic_warm_start_enabled != 0 ||
+        P.elastic_residual_control_enabled != 0;
+    enum { MINIMIZE_COMPONENT_CONSTRAINT_MAX = 64 };
+    std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX>
+        minimize_component_target_h_sums_host = {};
     if (!pf_zero_mode_enabled &&
         strcmp(pf_zero_mode_selector, pf_zero_mode::kModeOff) != 0) {
         fprintf(stderr,
@@ -24170,6 +24484,192 @@ int main(int argc, char **argv) {
                 "[fatal] --pf-checkpoint-path is required when periodic checkpointing is enabled\n");
         return 2;
     }
+    if (elastic_accelerated_solver_enabled) {
+        if (!P.elastic_enabled || P.mode != 0 ||
+            !P.elastic_warm_start_enabled ||
+            !P.elastic_residual_control_enabled) {
+            fprintf(stderr,
+                    "[fatal] accelerated elastic solver requires dynamics, "
+                    "elastic_enabled=1, elastic_warm_start_enabled=1 and "
+                    "elastic_residual_control_enabled=1\n");
+            return 2;
+        }
+        if (P.elastic_iter_min <= 0 ||
+            P.elastic_iter_max < P.elastic_iter_min ||
+            !(P.elastic_residual_tolerance > 0.0) ||
+            !isfinite(P.elastic_residual_tolerance) ||
+            !(P.elastic_residual_absolute_floor > 0.0) ||
+            !isfinite(P.elastic_residual_absolute_floor) ||
+            (P.elastic_fail_on_nonconvergence != 0 &&
+             P.elastic_fail_on_nonconvergence != 1)) {
+            fprintf(stderr,
+                    "[fatal] accelerated elastic iteration/residual contract "
+                    "is invalid\n");
+            return 2;
+        }
+        if (!pf_zero_mode_enabled) {
+            fprintf(stderr,
+                    "[fatal] accelerated elastic warm-start requires %s so "
+                    "the elastic runtime state can be checkpointed with "
+                    "strict provenance\n",
+                    pf_zero_mode::kModeV1);
+            return 2;
+        }
+    }
+    const auto is_lowercase_sha256 = [](const char* value) -> bool {
+        if (value == NULL || strlen(value) != 64U) return false;
+        for (size_t i = 0; i < 64U; ++i) {
+            const char c = value[i];
+            if (!((c >= '0' && c <= '9') ||
+                  (c >= 'a' && c <= 'f'))) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const int legacy_initial_state_identity =
+        strcmp(pf_initial_state_class,
+               pf_zero_mode::kLegacyInitialStateClass) == 0 &&
+        strcmp(pf_fixture_manifest_sha256,
+               pf_zero_mode::kLegacyInitialStateClass) == 0 &&
+        strcmp(pf_profile_library_manifest_sha256,
+               pf_zero_mode::kLegacyInitialStateClass) == 0;
+    const int conditional_handoff_identity =
+        strcmp(pf_initial_state_class,
+               pf_zero_mode::kConditionalHandoffV1) == 0 &&
+        is_lowercase_sha256(pf_fixture_manifest_sha256) &&
+        is_lowercase_sha256(pf_profile_library_manifest_sha256);
+    if (!legacy_initial_state_identity && !conditional_handoff_identity) {
+        fprintf(stderr,
+                "[fatal] PF initial-state provenance must be either the "
+                "complete LEGACY_UNSPECIFIED identity or %s with two "
+                "lowercase SHA-256 identities\n",
+                pf_zero_mode::kConditionalHandoffV1);
+        return 2;
+    }
+    if (conditional_handoff_identity) {
+        if (!pf_zero_mode_enabled || P.mode != 0) {
+            fprintf(stderr,
+                    "[fatal] %s requires dynamics with %s enabled\n",
+                    pf_zero_mode::kConditionalHandoffV1,
+                    pf_zero_mode::kModeV1);
+            return 2;
+        }
+        if (pf_restart_from[0] == '\0' && !P.init_mode_raw_fields) {
+            fprintf(stderr,
+                    "[fatal] fresh %s runs require --init-mode raw_fields; "
+                    "continuation must use a provenance-matched checkpoint\n",
+                    pf_zero_mode::kConditionalHandoffV1);
+            return 2;
+        }
+    }
+    if (P.minimize_mass_constraint_enabled) {
+        const int prohibited_gp_or_source_path =
+            is_gp_zone_mode(&P) ||
+            P.enable_legacy_gp_storage_coupling ||
+            P.enable_gp_assisted_beta_nucleation ||
+            P.enable_gp_runtime_library_nucleation ||
+            P.gp_nuc_enabled ||
+            P.gp_to_beta_enabled ||
+            P.gp_initial_population_enabled ||
+            P.gp_growth_enabled ||
+            P.gp_radius_evolution_enabled ||
+            P.gp_inventory_growth_enabled ||
+            P.gp_literature_model_enabled ||
+            P.scheduled_nuc_enabled ||
+            P.diagnostic_rsmd_enabled ||
+            P.enable_dynamic_continue_bridge;
+        if (!minimize_mass_constraint_enabled) {
+            fprintf(stderr,
+                    "[fatal] --minimize-mass-constraint requires "
+                    "--mode=minimize --minimize-full-model\n");
+            return 2;
+        }
+        if (prohibited_gp_or_source_path) {
+            fprintf(stderr,
+                    "[fatal] MINIMIZE_CONSERVED_MASS_CONSTRAINT_V1 requires "
+                    "two-phase PF with every GP, nucleation, source, RSMD, "
+                    "and bridge path OFF\n");
+            return 2;
+        }
+        if (!(P.minimize_mass_tolerance_relative > 0.0) ||
+            !isfinite(P.minimize_mass_tolerance_relative) ||
+            P.minimize_mass_max_iterations <= 0 ||
+            !isfinite(P.minimize_target_mass_code)) {
+            fprintf(stderr,
+                    "[fatal] minimize mass-constraint tolerance, iteration, "
+                    "or target contract is invalid\n");
+            return 2;
+        }
+        if (strcmp(P.pf_composition_mode, "legacy") != 0 ||
+            strcmp(P.pf_y_update_mode, "lagged_rhs") != 0 ||
+            P.enable_Y_rhs_picard ||
+            P.enable_Y_rhs_previous_time_level ||
+            P.disable_Y_rhs_gamma_term ||
+            P.Y_rhs_term_h_scale != 1.0 ||
+            P.y_update_mass_projection_enabled) {
+            fprintf(stderr,
+                    "[fatal] MINIMIZE_CONSERVED_MASS_CONSTRAINT_V1 owns the "
+                    "full-model minimize Y zero mode and requires "
+                    "composition_mode=legacy, y_update_mode=lagged_rhs, "
+                    "legacy Y modifiers/Picard OFF, and legacy mass "
+                    "projection OFF\n");
+            return 2;
+        }
+    }
+    if (P.minimize_freeze_phi) {
+        if (!minimize_fixed_phi_composition ||
+            !minimize_mass_constraint_enabled) {
+            fprintf(stderr,
+                    "[fatal] --minimize-freeze-phi requires --mode=minimize "
+                    "--minimize-full-model --minimize-mass-constraint\n");
+            return 2;
+        }
+        if (P.minimize_post_projection_iters != 0) {
+            fprintf(stderr,
+                    "[fatal] --minimize-freeze-phi requires "
+                    "--minimize-post-projection-iters 0; any phi projection "
+                    "would violate byte-identical profile preservation\n");
+            return 2;
+        }
+        if (P.minimize_V0 > 0.0) {
+            fprintf(stderr,
+                    "[fatal] --minimize-freeze-phi requires V0<=0; fixed phi "
+                    "uses its exact input h-volume rather than a requested projection\n");
+            return 2;
+        }
+    }
+    if (minimize_component_volume_constraints) {
+        if (!minimize_mass_constraint_enabled || minimize_fixed_phi_composition) {
+            fprintf(stderr,
+                    "[fatal] --minimize-component-volume-constraints requires "
+                    "full-model constrained minimize with phi evolution enabled\n");
+            return 2;
+        }
+        if (P.minimize_component_volume_constraint_count < 2 ||
+            P.minimize_component_volume_constraint_count >
+                MINIMIZE_COMPONENT_CONSTRAINT_MAX ||
+            P.minimize_component_label_raw_path[0] == '\0' ||
+            P.minimize_component_target_h_sums[0] == '\0') {
+            fprintf(stderr,
+                    "[fatal] V5 component constraints require component count in [2,%d], "
+                    "a label raw path, and exactly one positive target h sum per component\n",
+                    MINIMIZE_COMPONENT_CONSTRAINT_MAX);
+            return 2;
+        }
+        if (P.minimize_post_projection_iters != 0 || P.minimize_V0 > 0.0) {
+            fprintf(stderr,
+                    "[fatal] V5 component constraints own the phi volume projection; "
+                    "require --minimize-post-projection-iters 0 and V0<=0\n");
+            return 2;
+        }
+        if (!parse_component_target_h_sums(
+                P.minimize_component_target_h_sums,
+                P.minimize_component_volume_constraint_count,
+                minimize_component_target_h_sums_host.data())) {
+            return 2;
+        }
+    }
     if (pf_zero_mode_enabled) {
         const int prohibited_gp_or_source_path =
             is_gp_zone_mode(&P) ||
@@ -24207,10 +24707,19 @@ int main(int argc, char **argv) {
                     pf_zero_mode::kReactionTangentNV1);
             return 2;
         }
-        if (P.minimize_continue_from_vtk || P.init_mode_raw_fields) {
+        if (P.minimize_continue_from_vtk) {
             fprintf(stderr,
-                    "[fatal] zero-mode restart cannot be mixed with VTK/raw-field continuation; use --pf-restart-from for exact state restoration\n");
+                    "[fatal] zero-mode restart cannot be mixed with VTK continuation; use --pf-restart-from for exact state restoration\n");
             return 2;
+        }
+        // A raw field is allowed only as the explicitly materialized t=0
+        // fixture.  The zero-mode target is initialized from that field's
+        // exact C_B_tot ledger; subsequent continuation must still use the
+        // checksummed PF zero-mode checkpoint above.  This does not permit
+        // raw/VTK continuation or bypass checkpoint provenance.
+        if (P.init_mode_raw_fields) {
+            fprintf(stdout,
+                    "PF_ZERO_MODE_INITIAL_RAW_FIXTURE_ACCEPTED target_mass_from_raw_state=true checkpoint_restart_required=true\n");
         }
     }
     pf_zero_mode::Provenance pf_zero_mode_provenance;
@@ -24222,9 +24731,25 @@ int main(int argc, char **argv) {
         pf_zero_mode::kExplicitContextNV1;
     pf_zero_mode_provenance.reaction_discretization =
         pf_zero_mode::kReactionTangentNV1;
+    pf_zero_mode_provenance.initial_state_class =
+        pf_initial_state_class;
+    pf_zero_mode_provenance.fixture_manifest_sha256 =
+        pf_fixture_manifest_sha256;
+    pf_zero_mode_provenance.profile_library_manifest_sha256 =
+        pf_profile_library_manifest_sha256;
+    if (elastic_accelerated_solver_enabled) {
+        pf_zero_mode_provenance.elastic_solver_mode =
+            pf_zero_mode::kElasticWarmStartResidualV1;
+        pf_zero_mode_provenance.elastic_solver_fingerprint =
+            elastic_solver_parameter_fingerprint(&P);
+    }
     pf_zero_mode_provenance.parameter_fingerprint =
         pf_zero_mode_parameter_fingerprint(&P);
     pf_zero_mode::RuntimeState pf_zero_mode_runtime;
+    // The profile-library minimizer uses the same monotone scalar solve as
+    // production PF, but keeps independent state/provenance because its
+    // iterations are offline constrained minimization, not physical time.
+    pf_zero_mode::RuntimeState minimize_mass_constraint_runtime;
     pf_zero_mode::Checkpoint pf_restart_checkpoint;
     int pf_restart_loaded = 0;
     int pf_restart_step = 0;
@@ -24325,6 +24850,14 @@ int main(int argc, char **argv) {
         }
         if (P.minimize_dt <= 0.0) {
             fprintf(stderr, "[fatal] Invalid minimize_dt=%.6e. It must be > 0.\n", P.minimize_dt);
+            return 2;
+        }
+        if (!isfinite(P.minimize_min_pseudo_time) ||
+            P.minimize_min_pseudo_time < 0.0) {
+            fprintf(stderr,
+                    "[fatal] Invalid minimize_min_pseudo_time=%.6e. "
+                    "It must be finite and >= 0.\n",
+                    P.minimize_min_pseudo_time);
             return 2;
         }
     }
@@ -24602,9 +25135,9 @@ int main(int argc, char **argv) {
         log_kv_text("t_real_unit_s", "%.6e", P.t_real_unit);
         log_kv_text("lambda_sm_nm", "%.6f", P.lambda_sm_m * 1.0e9);
         log_kv_text("lambda_sm/dx", "%.6f", lambda_over_dx);
-        if (lambda_over_dx <= 4.0) {
+        if (lambda_over_dx < 4.0) {
             fprintf(stderr,
-                    "[warn] 界面分辨率不足: lambda_sm/dx = %.6f <= 4.000000，建议减小 dx 或增大 lambda_sm。\n",
+                    "[warn] 界面分辨率不足: lambda_sm/dx = %.6f < 4.000000，建议减小 dx 或增大 lambda_sm。\n",
                     lambda_over_dx);
         }
         log_kv_text("steps", "%d", P.nsteps);
@@ -24695,12 +25228,38 @@ int main(int argc, char **argv) {
             log_kv_text("max_iter", "%d", P.minimize_max_iter);
             log_kv_text("minimize_dt", "%.3e", P.minimize_dt);
             log_kv_text("target_V0", "%.6e (0 means use initial <h>)", P.minimize_V0);
+            log_kv_text("minimize_mass_constraint", "%s",
+                        minimize_mass_constraint_enabled
+                            ? "MINIMIZE_CONSERVED_MASS_CONSTRAINT_V1"
+                            : "OFF");
+            log_kv_text("minimize_phi_evolution", "%s",
+                        minimize_fixed_phi_composition
+                            ? "FROZEN_FOR_CONSERVED_COMPOSITION_TARGET_PROFILE_V4"
+                            : (minimize_component_volume_constraints
+                                   ? "JOINT_PHI_Y_COMPONENT_H_VOLUME_CONSTRAINED_V5"
+                                   : "ENABLED"));
+            if (minimize_component_volume_constraints) {
+                log_kv_text("component_volume_constraints", "%s",
+                            "V5 per-particle h-volume preservation");
+                log_kv_text("component_count", "%d",
+                            P.minimize_component_volume_constraint_count);
+            }
+            if (minimize_mass_constraint_enabled) {
+                log_kv_text("minimize_target_mass_code", "%.17e (<=0 means exact initial ledger)",
+                            P.minimize_target_mass_code);
+                log_kv_text("minimize_mass_tolerance_relative", "%.17e",
+                            P.minimize_mass_tolerance_relative);
+                log_kv_text("minimize_mass_max_iterations", "%d",
+                            P.minimize_mass_max_iterations);
+            }
             log_kv_text("rms_dphi_threshold", "%.3e", P.minimize_rms_dphi_threshold);
             log_kv_text("rms_dY_threshold", "%.3e", P.minimize_rms_dY_threshold);
             log_kv_text("energy_diff_rel_threshold", "%.3e", P.minimize_energy_diff_rel_threshold);
             log_kv_text("rms_res_threshold", "%.3e", P.minimize_rms_res_threshold);
             log_kv_text("vol_err_rel_threshold", "%.3e", P.minimize_vol_err_rel_threshold);
             log_kv_text("convergence_steps", "%d", P.minimize_convergence_steps);
+            log_kv_text("min_pseudo_time", "%.17e",
+                        P.minimize_min_pseudo_time);
             log_kv_text("eta_lambda_vol", "%.3f", P.eta_lambda_vol);
             log_kv_text("post_projection_iters", "%d", P.minimize_post_projection_iters);
             log_kv_text("xB safety cap", "soft cap enabled, xB_max_safe=%.6f", P.minimize_xB_max_safe);
@@ -24936,6 +25495,13 @@ int main(int argc, char **argv) {
                     pf_zero_mode_provenance.explicit_context.c_str());
         log_kv_text("pf_reaction_discretization", "%s",
                     pf_zero_mode_provenance.reaction_discretization.c_str());
+        log_kv_text("pf_initial_state_class", "%s",
+                    pf_zero_mode_provenance.initial_state_class.c_str());
+        log_kv_text("pf_fixture_manifest_sha256", "%s",
+                    pf_zero_mode_provenance.fixture_manifest_sha256.c_str());
+        log_kv_text("pf_profile_library_manifest_sha256", "%s",
+                    pf_zero_mode_provenance
+                        .profile_library_manifest_sha256.c_str());
         log_kv_text("pf_zero_mode_tolerance_relative", "%.17e",
                     pf_zero_mode_tolerance_relative);
         log_kv_text("pf_zero_mode_max_iterations", "%d",
@@ -25000,6 +25566,8 @@ int main(int argc, char **argv) {
     FILE *eta_bulk_max_location_fp = NULL;
     FILE *energy_fp = NULL; // minimize mode energy log
     FILE *pf_zero_mode_trace_fp = NULL;
+    FILE *elastic_solver_trace_fp = NULL;
+    FILE *minimize_mass_constraint_trace_fp = NULL;
     int csv_step_offset = 0;
     double csv_time_offset = 0.0;
     double csv_real_time_offset = 0.0;
@@ -25068,6 +25636,60 @@ int main(int argc, char **argv) {
             fflush(pf_zero_mode_trace_fp);
         }
         log_kv_text("pf_zero_mode_trace", "%s", zero_mode_trace_path);
+    }
+    if (elastic_accelerated_solver_enabled) {
+        char elastic_trace_path[4096];
+        snprintf(elastic_trace_path, sizeof(elastic_trace_path),
+                 "%s/elastic_solver_trace.csv", case_output_dir);
+        elastic_solver_trace_fp = fopen(
+            elastic_trace_path, pf_restart_from[0] != '\0' ? "a" : "w");
+        if (!elastic_solver_trace_fp) {
+            fprintf(stderr,
+                    "[fatal] cannot open accelerated elastic trace: %s\n",
+                    elastic_trace_path);
+            return 2;
+        }
+        if (pf_restart_from[0] == '\0') {
+            fprintf(elastic_solver_trace_fp,
+                    "step,warm_start_used,iterations,relative_residual,"
+                    "converged,hard_cap,tolerance,solver_wall_s,"
+                    "source_field_step\n");
+            fflush(elastic_solver_trace_fp);
+        }
+        log_kv_text("elastic_solver_mode", "%s",
+                    pf_zero_mode::kElasticWarmStartResidualV1);
+        log_kv_text("elastic_solver_fingerprint", "%016llx",
+                    static_cast<unsigned long long>(
+                        pf_zero_mode_provenance
+                            .elastic_solver_fingerprint));
+        log_kv_text("elastic_iter_min", "%d", P.elastic_iter_min);
+        log_kv_text("elastic_iter_max", "%d", P.elastic_iter_max);
+        log_kv_text("elastic_residual_tolerance", "%.17e",
+                    P.elastic_residual_tolerance);
+        log_kv_text("elastic_solver_trace", "%s", elastic_trace_path);
+    }
+    if (minimize_mass_constraint_enabled) {
+        char minimize_mass_trace_path[4096];
+        snprintf(minimize_mass_trace_path,
+                 sizeof(minimize_mass_trace_path),
+                 "%s/minimize_mass_constraint_trace.csv",
+                 case_output_dir);
+        minimize_mass_constraint_trace_fp =
+            fopen(minimize_mass_trace_path, "w");
+        if (!minimize_mass_constraint_trace_fp) {
+            fprintf(stderr,
+                    "[fatal] cannot open minimize mass-constraint trace: %s\n",
+                    minimize_mass_trace_path);
+            return 2;
+        }
+        fprintf(minimize_mass_constraint_trace_fp,
+                "iter,target_mass_code,current_mass_code,lambda,"
+                "residual_code,residual_relative,derivative_code,"
+                "iterations,newton_steps,bisection_steps,Y_star_min,Y_star_max,"
+                "lambda_lower,lambda_upper,accepted_constraint_steps\n");
+        fflush(minimize_mass_constraint_trace_fp);
+        log_kv_text("minimize_mass_constraint_trace", "%s",
+                    minimize_mass_trace_path);
     }
     if (P.mode == 0 && P.dynamics_mass_diag_enabled) {
         char mass_diag_csv_path[4096];
@@ -26557,6 +27179,10 @@ int main(int argc, char **argv) {
     double *h_Y_r = (double*)malloc(size_r);
     double *h_xB_r = (double*)malloc(size_r);
     double *h_xBtot_r = (double*)malloc(size_r);
+    // Raw-field handoff may supply a qualified previous-time-level state.
+    // All other initialization paths retain an explicit zero history.
+    double *h_dY_dt_prev_r = (double*)calloc((size_t)total_r, sizeof(double));
+    int *h_minimize_component_labels = NULL;
 
     // 优化：不再分配d_diag_stats，使用直接归约函数节省显存
 
@@ -26565,7 +27191,8 @@ int main(int argc, char **argv) {
         log_section_header("Initialization");
         log_kv_text("path", "%s", "raw_fields phi/xB from Python embedding");
         fflush(stdout);
-        if (!load_raw_init_fields(h_phi_r, h_eta_r, h_Y_r, h_xB_r, h_xBtot_r, &P, total_r, &raw_init_meta, 1)) {
+        if (!load_raw_init_fields(h_phi_r, h_eta_r, h_Y_r, h_xB_r, h_xBtot_r,
+                                  h_dY_dt_prev_r, &P, total_r, &raw_init_meta, 1)) {
             return 2;
         }
     } else if (P.minimize_continue_from_vtk) {
@@ -26634,6 +27261,45 @@ int main(int argc, char **argv) {
             double xB = clamp01(h_xB_r[i]);
             h_xBtot_r[i] = (1.0 - h) * xB + P.v_B * h;
         }
+    }
+
+    if (minimize_component_volume_constraints) {
+        h_minimize_component_labels =
+            (int *)malloc((size_t)total_r * sizeof(int));
+        if (!h_minimize_component_labels) {
+            fprintf(stderr,
+                    "[fatal] cannot allocate V5 component ownership labels\n");
+            return 2;
+        }
+        const int component_count =
+            P.minimize_component_volume_constraint_count;
+        if (!read_raw_component_labels_i32(
+                P.minimize_component_label_raw_path, (size_t)total_r,
+                component_count, h_minimize_component_labels)) {
+            return 2;
+        }
+        std::array<unsigned long long, MINIMIZE_COMPONENT_CONSTRAINT_MAX>
+            ownership_counts = {};
+        for (int idx = 0; idx < total_r; ++idx) {
+            ++ownership_counts[(size_t)h_minimize_component_labels[idx]];
+        }
+        for (int component = 0; component < component_count; ++component) {
+            if (ownership_counts[(size_t)component] == 0U) {
+                fprintf(stderr,
+                        "[fatal] V5 component %d owns no grid cells\n", component);
+                return 2;
+            }
+        }
+        log_section_header("V5 Component Volume Constraints");
+        log_kv_text("mode", "%s",
+                    "COMPONENT_CONSERVED_H_VOLUME_TARGET_PROFILE_V5");
+        log_kv_text("component_count", "%d", component_count);
+        log_kv_text("ownership_label_raw", "%s",
+                    P.minimize_component_label_raw_path);
+        log_kv_text("target_h_sums", "%s",
+                    P.minimize_component_target_h_sums);
+        log_kv_text("inter_component_volume_exchange", "%s", "forbidden");
+        log_kv_text("phi_Y_joint_relaxation", "%s", "enabled");
     }
 
     if (is_gp_zone_mode(&P)) {
@@ -26721,6 +27387,13 @@ int main(int argc, char **argv) {
                     pf_zero_mode_provenance.zero_mode.c_str());
         log_kv_text("backend", "%s",
                     pf_zero_mode_provenance.backend.c_str());
+        log_kv_text("initial_state_class", "%s",
+                    pf_zero_mode_provenance.initial_state_class.c_str());
+        log_kv_text("fixture_manifest_sha256", "%s",
+                    pf_zero_mode_provenance.fixture_manifest_sha256.c_str());
+        log_kv_text("profile_library_manifest_sha256", "%s",
+                    pf_zero_mode_provenance
+                        .profile_library_manifest_sha256.c_str());
         log_kv_text("parameter_fingerprint", "%016llx",
                     static_cast<unsigned long long>(
                         pf_zero_mode_provenance.parameter_fingerprint));
@@ -26783,13 +27456,17 @@ int main(int argc, char **argv) {
             // F_surf_hat,F_el_hat,F_chem_excess_hat,F_total_excess_hat,
             // F_chem_CNT_hat,F_total_CNT_hat,
             // total_interface_sum,total_el_core_sum,
-            // rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,post_proj_iters_used
+            // rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,
+            // mass_target_code,mass_current_code,mass_err_rel,
+            // mass_lambda,post_proj_iters_used
             fprintf(energy_fp,
                     "iter,dt,mean_h,V0,lambda,"
                     "F_surf_hat,F_el_hat,F_chem_excess_hat,F_total_excess_hat,"
                     "F_chem_CNT_hat,F_total_CNT_hat,"
                     "total_interface_sum,total_el_core_sum,"
-                    "rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,post_proj_iters_used\n");
+                    "rms_res,rms_dphi,rms_dY,rel_dF,vol_err_rel,"
+                    "mass_target_code,mass_current_code,mass_err_rel,"
+                    "mass_lambda,post_proj_iters_used\n");
             fflush(energy_fp);
         }
     }
@@ -27044,6 +27721,11 @@ int main(int argc, char **argv) {
     double *d_q_alpha_r = NULL, *d_pf_q_stats = NULL;
     double *d_pf_conservative_storage_r = NULL;
     double *d_pf_conservative_stats = NULL;
+    int *d_minimize_component_labels = NULL;
+    double *d_minimize_component_hpg = NULL;
+    double *d_minimize_component_hp2 = NULL;
+    double *d_minimize_component_hsum = NULL;
+    double *d_minimize_component_lambdas = NULL;
     FILE *pf_conservative_diag_fp = NULL;
     FILE *pf_q_transport_diag_fp = NULL;
     double *d_dY_dt_picard_r, *d_dY_dt_picard_old_r;
@@ -27085,6 +27767,21 @@ int main(int argc, char **argv) {
     CUDA_CHECK(cudaMalloc(&d_dY_dt_prev_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_dY_dt_picard_r, size_r));
     CUDA_CHECK(cudaMalloc(&d_dY_dt_picard_old_r, size_r));
+    if (minimize_component_volume_constraints) {
+        const size_t component_bytes =
+            (size_t)P.minimize_component_volume_constraint_count * sizeof(double);
+        CUDA_CHECK(cudaMalloc(&d_minimize_component_labels,
+                              (size_t)total_r * sizeof(int)));
+        CUDA_CHECK(cudaMemcpy(d_minimize_component_labels,
+                              h_minimize_component_labels,
+                              (size_t)total_r * sizeof(int),
+                              cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMalloc(&d_minimize_component_hpg, component_bytes));
+        CUDA_CHECK(cudaMalloc(&d_minimize_component_hp2, component_bytes));
+        CUDA_CHECK(cudaMalloc(&d_minimize_component_hsum, component_bytes));
+        CUDA_CHECK(cudaMalloc(&d_minimize_component_lambdas, component_bytes));
+        CUDA_CHECK(cudaMemset(d_minimize_component_lambdas, 0, component_bytes));
+    }
     const int pf_mode_q_transport_runtime =
         (!gp_storage_coupling_enabled(&P) &&
          strcmp(P.pf_y_update_mode, "q_transport_projection_split") == 0);
@@ -27146,12 +27843,12 @@ int main(int argc, char **argv) {
             ? 1
             : 0;
     if (P.y_update_mass_projection_enabled || P.y_update_k0_audit_enabled ||
-        pf_zero_mode_enabled ||
+        pf_zero_mode_enabled || minimize_mass_constraint_enabled ||
         pf_mode_q_transport_runtime ||
         staged_active_post_y_projection_possible_for_buffers) {
         CUDA_CHECK(cudaMalloc(&d_Y_projection_base_r, size_r));
     }
-    if (pf_zero_mode_enabled) {
+    if (pf_zero_mode_enabled || minimize_mass_constraint_enabled) {
         CUDA_CHECK(cudaMalloc(&d_pf_zero_mode_invalid, sizeof(int)));
     }
     // 优化：不再分配d_xBtot_r，节省1GB显存
@@ -27248,8 +27945,14 @@ int main(int argc, char **argv) {
     // Optimization(3): 移除 d_uxx0_k..d_uyz0_k，复用 d_uxx_k..d_uyz_k 作为临时 eigenstrain_k 容器
 
     cufftComplex *d_ux_k = NULL, *d_uy_k = NULL, *d_uz_k = NULL;
+    cufftComplex *d_ux_next_k = NULL, *d_uy_next_k = NULL;
+    cufftComplex *d_uz_next_k = NULL;
     cufftComplex *d_uxx_k = NULL, *d_uyy_k = NULL, *d_uzz_k = NULL;
     cufftComplex *d_uxy_k = NULL, *d_uxz_k = NULL, *d_uyz_k = NULL;
+    int elastic_warm_state_valid = 0;
+    std::uint64_t elastic_warm_source_field_step = 0U;
+    std::uint64_t elastic_last_iterations = 0U;
+    double elastic_last_relative_residual = NAN;
 
     // Optimization: 移除 d_elastic_tmp_r/d_elastic_tmp_k，弹性 FFT 直接 out-of-place
 
@@ -27283,12 +27986,55 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaMalloc(&d_ux_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uy_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uz_k, size_k_float));
+        if (elastic_accelerated_solver_enabled) {
+            CUDA_CHECK(cudaMalloc(&d_ux_next_k, size_k_float));
+            CUDA_CHECK(cudaMalloc(&d_uy_next_k, size_k_float));
+            CUDA_CHECK(cudaMalloc(&d_uz_next_k, size_k_float));
+        }
         CUDA_CHECK(cudaMalloc(&d_uxx_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uyy_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uzz_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uxy_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uxz_k, size_k_float));
         CUDA_CHECK(cudaMalloc(&d_uyz_k, size_k_float));
+
+        if (elastic_accelerated_solver_enabled && pf_restart_loaded) {
+            if (!pf_restart_checkpoint.elastic.present ||
+                pf_restart_checkpoint.elastic.displacement_k.size() !=
+                    static_cast<std::size_t>(6U) *
+                        static_cast<std::size_t>(total_k)) {
+                fprintf(stderr,
+                        "[fatal] accelerated elastic restart lacks the "
+                        "registered V4 warm state\n");
+                return 2;
+            }
+            const float *packed =
+                pf_restart_checkpoint.elastic.displacement_k.data();
+            CUDA_CHECK(cudaMemcpy(
+                d_ux_k, packed, size_k_float, cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaMemcpy(
+                d_uy_k, packed + 2 * total_k, size_k_float,
+                cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaMemcpy(
+                d_uz_k, packed + 4 * total_k, size_k_float,
+                cudaMemcpyHostToDevice));
+            elastic_warm_state_valid = 1;
+            elastic_warm_source_field_step =
+                pf_restart_checkpoint.elastic.source_field_step;
+            elastic_last_iterations =
+                pf_restart_checkpoint.elastic.last_iterations;
+            elastic_last_relative_residual =
+                pf_restart_checkpoint.elastic.last_relative_residual;
+            printf("PF_ELASTIC_WARM_STATE_RESTORED "
+                   "accepted_step=%d source_field_step=%llu "
+                   "iterations=%llu residual=%.17e\n",
+                   pf_restart_step,
+                   static_cast<unsigned long long>(
+                       elastic_warm_source_field_step),
+                   static_cast<unsigned long long>(
+                       elastic_last_iterations),
+                   elastic_last_relative_residual);
+        }
 
         // FFT临时缓冲区（复用）
 
@@ -27329,7 +28075,8 @@ int main(int argc, char **argv) {
             d_dY_dt_prev_r, pf_restart_checkpoint.dY_dt_prev.data(),
             size_r, cudaMemcpyHostToDevice));
     } else {
-        CUDA_CHECK(cudaMemset(d_dY_dt_prev_r, 0, size_r));
+        CUDA_CHECK(cudaMemcpy(d_dY_dt_prev_r, h_dY_dt_prev_r,
+                              size_r, cudaMemcpyHostToDevice));
     }
     CUDA_CHECK(cudaMemset(d_dY_dt_picard_r, 0, size_r));
     CUDA_CHECK(cudaMemset(d_dY_dt_picard_old_r, 0, size_r));
@@ -27370,6 +28117,46 @@ int main(int argc, char **argv) {
                pf_zero_mode_runtime.target_mass_code,
                static_cast<unsigned long long>(
                    pf_zero_mode_provenance.parameter_fingerprint));
+    }
+    if (minimize_mass_constraint_enabled) {
+        const double current_mass_code =
+            gpu_reduce_sum_xBtot(d_phi_r, d_xB_r, P.v_B, total_r);
+        const double requested_target = P.minimize_target_mass_code;
+        minimize_mass_constraint_runtime.target_mass_code =
+            (requested_target > 0.0) ? requested_target : current_mass_code;
+        minimize_mass_constraint_runtime.last_lambda = 0.0;
+        minimize_mass_constraint_runtime.last_residual_code =
+            current_mass_code -
+            minimize_mass_constraint_runtime.target_mass_code;
+        minimize_mass_constraint_runtime.last_derivative_code = 0.0;
+        minimize_mass_constraint_runtime.last_iterations = 0U;
+        minimize_mass_constraint_runtime.accepted_zero_mode_steps = 0U;
+        const double initial_tolerance =
+            P.minimize_mass_tolerance_relative *
+            fmax(fabs(minimize_mass_constraint_runtime.target_mass_code), 1.0);
+        if (!isfinite(current_mass_code) ||
+            fabs(minimize_mass_constraint_runtime.last_residual_code) >
+                initial_tolerance) {
+            fprintf(stderr,
+                    "[fatal] explicit minimize target mass does not match "
+                    "the initial ledger: current=%.17e target=%.17e "
+                    "residual=%.17e tolerance=%.17e. Materialize a matching "
+                    "initial field or omit --minimize-target-mass-code to "
+                    "freeze the exact initial ledger.\n",
+                    current_mass_code,
+                    minimize_mass_constraint_runtime.target_mass_code,
+                    minimize_mass_constraint_runtime.last_residual_code,
+                    initial_tolerance);
+            return 2;
+        }
+        printf("MINIMIZE_MASS_CONSTRAINT_INITIALIZED "
+               "mode=MINIMIZE_CONSERVED_MASS_CONSTRAINT_V1 "
+               "backend=%s target_source=%s target_mass_code=%.17e "
+               "initial_mass_code=%.17e gp_paths_enabled=false\n",
+               pf_zero_mode::kHostBackendV1,
+               (requested_target > 0.0) ? "explicit" : "exact_initial_ledger",
+               minimize_mass_constraint_runtime.target_mass_code,
+               current_mass_code);
     }
 
     // 创建cuFFT计划（优化：复用计划以减少内存使用）
@@ -27562,10 +28349,22 @@ int main(int argc, char **argv) {
     double prev_F_total = NAN;
     // minimize 收敛判据：连续满足 A/B 条件的步数
     int convergence_count = 0;
+    int minimize_converged = 0;
+    int minimize_converged_iter = -1;
+    char minimize_convergence_trigger[16] = "NONE";
+    double minimize_final_rms_res = NAN;
+    double minimize_final_rms_dphi = NAN;
+    double minimize_final_rms_dY = NAN;
+    double minimize_final_energy_diff_rel = NAN;
+    double minimize_final_vol_err_rel = NAN;
+    double minimize_final_mass_err_rel = NAN;
     // 上一时间步的总能量，用于能量相对变化率判据
     double F_total_prev_step = NAN;
     // lambda_vol: 跨迭代的状态量，用于抗过冲方案
     double lambda_vol = 0.0;
+    std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX>
+        minimize_component_lambdas_host = {};
+    double minimize_component_max_vol_err_rel = NAN;
     int steps_completed = 0;
     int stop_after_conversion_audit_done = 0;
     const double step_loop_wall_t0 = wall_time_sec_monotonic();
@@ -27573,7 +28372,12 @@ int main(int argc, char **argv) {
     const int steps_requested =
         (nsteps_run >= first_step) ? (nsteps_run - first_step + 1) : 0;
     double pf_zero_mode_wall_s = 0.0;
+    double minimize_mass_constraint_wall_s = 0.0;
     double pf_checkpoint_wall_s = 0.0;
+    double elastic_solver_wall_s_total = 0.0;
+    std::uint64_t elastic_solver_iterations_total = 0U;
+    std::uint64_t elastic_solver_warm_steps = 0U;
+    std::uint64_t elastic_solver_nonconverged_steps = 0U;
     double pf_zero_mode_final_mass_code = NAN;
     double pf_zero_mode_final_mean_mass_error = NAN;
     int pf_zero_mode_final_status = 1;
@@ -27987,11 +28791,28 @@ int main(int argc, char **argv) {
 
             float E0_xx_f = (float)P.E0_xx, E0_yy_f = (float)P.E0_yy, E0_zz_f = (float)P.E0_zz;
             float E0_yz_f = (float)P.E0_yz, E0_xz_f = (float)P.E0_xz, E0_xy_f = (float)P.E0_xy;
+            const double elastic_solver_t0 =
+                wall_time_sec_monotonic();
+            const int elastic_warm_start_used =
+                elastic_accelerated_solver_enabled &&
+                elastic_warm_state_valid;
+            if (elastic_warm_start_used &&
+                elastic_warm_source_field_step + 2U !=
+                    static_cast<std::uint64_t>(step)) {
+                fprintf(stderr,
+                        "[fatal] elastic warm-state time-level mismatch at "
+                        "step %d: source_field_step=%llu\n",
+                        step,
+                        static_cast<unsigned long long>(
+                            elastic_warm_source_field_step));
+                return 2;
+            }
 
             // ============================================================
             // 在do循环外：计算eigenstrain和homogeneous displacement field
             // 因为phi在这个时间步是固定的，所以这些只需要计算一次
             // ============================================================
+            if (!elastic_warm_start_used) {
 
             // === 步骤1：eigenstrain（实空间，临时写入 d_uxx_r..d_uyz_r）===
             // Optimization(4): 不再分配持久 eps0_r 数组；临时写入 d_uxx_r..d_uyz_r（此时它们还不是真实应变）
@@ -28049,6 +28870,7 @@ int main(int argc, char **argv) {
             launch_dealias_float_kernel(d_ux_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
             launch_dealias_float_kernel(d_uy_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
             launch_dealias_float_kernel(d_uz_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
+            }
 
             // 现在d_ux_k, d_uy_k, d_uz_k包含了homogeneous elasticity displacement field
             // Optimization(3)+(4) Lifetime note:
@@ -28061,8 +28883,12 @@ int main(int argc, char **argv) {
             // ============================================================
             // 进入do循环：迭代细化（对非均匀弹性系数进行修正）
             // ============================================================
-            int elastic_iter = 1;
-            do {
+            int elastic_iter =
+                elastic_accelerated_solver_enabled ? 0 : 1;
+            int elastic_converged =
+                elastic_accelerated_solver_enabled ? 0 : 1;
+            double elastic_relative_residual = NAN;
+            while (true) {
                 // === 循环开始：对当前k空间的k_ux, k_uy, k_uz求导得到应变场 ===
                 // 第一次迭代：使用的是homogeneous displacement field
                 // 第二次及之后迭代：使用的是上一次迭代通过Green function更新的displacement field
@@ -28128,10 +28954,20 @@ int main(int argc, char **argv) {
                     launch_dealias_float_kernel(hij_dst_k[comp], P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
                 }
 
-                // 使用Green函数计算新的k空间位移
+                // 使用Green函数计算新的k空间位移。加速模式使用独立的
+                // next缓冲区，以便在覆盖warm state前计算固定点残差。
+                cufftComplex *update_ux_k =
+                    elastic_accelerated_solver_enabled
+                        ? d_ux_next_k : d_ux_k;
+                cufftComplex *update_uy_k =
+                    elastic_accelerated_solver_enabled
+                        ? d_uy_next_k : d_uy_k;
+                cufftComplex *update_uz_k =
+                    elastic_accelerated_solver_enabled
+                        ? d_uz_next_k : d_uz_k;
                 launch_compute_displacement_from_hij_green_kernel(
                     d_uxx_k, d_uyy_k, d_uzz_k, d_uxy_k, d_uxz_k, d_uyz_k,
-                    d_ux_k, d_uy_k, d_uz_k,
+                    update_ux_k, update_uy_k, update_uz_k,
                     S_11_f, S_12_f, S_13_f, S_14_f, S_15_f, S_16_f,
                     S_22_f, S_23_f, S_24_f, S_25_f, S_26_f,
                     S_33_f, S_34_f, S_35_f, S_36_f,
@@ -28140,15 +28976,127 @@ int main(int argc, char **argv) {
                     S_66_f,
                     P.Nx, P.Ny, P.Nz, NzC,
                     P.dx, P.dy, P.dz, total_k);
-                launch_dealias_float_kernel(d_ux_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
-                launch_dealias_float_kernel(d_uy_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
-                launch_dealias_float_kernel(d_uz_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
+                launch_dealias_float_kernel(update_ux_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
+                launch_dealias_float_kernel(update_uy_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
+                launch_dealias_float_kernel(update_uz_k, P.Nx, P.Ny, P.Nz, NzC, P.dx, P.dy, P.dz, total_k);
 
                 // 现在d_ux_k, d_uy_k, d_uz_k包含了更新后的displacement field
                 // 下一次循环开始时会使用这些值进行求导
 
-                elastic_iter++;
-            } while (elastic_iter < P.elastic_iter_max);
+                if (elastic_accelerated_solver_enabled) {
+                    double *d_difference_sq =
+                        static_cast<double *>(d_scratch_r_double);
+                    double *d_reference_sq =
+                        d_difference_sq + total_k;
+                    double *d_reduction_work =
+                        d_reference_sq + total_k;
+                    const std::size_t scratch_capacity =
+                        scratch_r_double_bytes / sizeof(double);
+                    const std::size_t used_capacity =
+                        static_cast<std::size_t>(2) *
+                        static_cast<std::size_t>(total_k);
+                    if (scratch_capacity <= used_capacity ||
+                        scratch_capacity - used_capacity >
+                            static_cast<std::size_t>(
+                                std::numeric_limits<int>::max())) {
+                        fprintf(stderr,
+                                "[fatal] accelerated elastic residual "
+                                "scratch contract is invalid\n");
+                        return 2;
+                    }
+                    launch_compute_elastic_displacement_residual_kernel(
+                        d_ux_k, d_uy_k, d_uz_k,
+                        update_ux_k, update_uy_k, update_uz_k,
+                        d_difference_sq, d_reference_sq,
+                        P.Nz, NzC, total_k);
+                    double difference_sum = 0.0;
+                    double reference_sum = 0.0;
+                    if (!gpu_reduce_sum_pair_reuse(
+                            d_difference_sq, d_reference_sq, total_k,
+                            d_reduction_work,
+                            static_cast<int>(
+                                scratch_capacity - used_capacity),
+                            &difference_sum, &reference_sum)) {
+                        fprintf(stderr,
+                                "[fatal] accelerated elastic residual "
+                                "reduction failed at step %d\n", step);
+                        return 2;
+                    }
+                    if (!isfinite(difference_sum) ||
+                        !isfinite(reference_sum) ||
+                        difference_sum < 0.0 ||
+                        reference_sum < 0.0) {
+                        fprintf(stderr,
+                                "[fatal] accelerated elastic residual "
+                                "is non-finite at step %d\n", step);
+                        return 2;
+                    }
+                    elastic_relative_residual =
+                        sqrt(difference_sum /
+                             fmax(reference_sum,
+                                  P.elastic_residual_absolute_floor));
+                    std::swap(d_ux_k, d_ux_next_k);
+                    std::swap(d_uy_k, d_uy_next_k);
+                    std::swap(d_uz_k, d_uz_next_k);
+                    ++elastic_iter;
+                    if (elastic_iter >= P.elastic_iter_min &&
+                        elastic_relative_residual <=
+                            P.elastic_residual_tolerance) {
+                        elastic_converged = 1;
+                        break;
+                    }
+                    if (elastic_iter >= P.elastic_iter_max) {
+                        break;
+                    }
+                } else {
+                    ++elastic_iter;
+                    if (elastic_iter >= P.elastic_iter_max) {
+                        break;
+                    }
+                }
+            }
+
+            if (elastic_accelerated_solver_enabled) {
+                elastic_warm_state_valid = 1;
+                elastic_warm_source_field_step =
+                    static_cast<std::uint64_t>(step - 1);
+                elastic_last_iterations =
+                    static_cast<std::uint64_t>(elastic_iter);
+                elastic_last_relative_residual =
+                    elastic_relative_residual;
+                const double elastic_solver_wall_s =
+                    wall_time_sec_monotonic() - elastic_solver_t0;
+                elastic_solver_wall_s_total += elastic_solver_wall_s;
+                elastic_solver_iterations_total +=
+                    static_cast<std::uint64_t>(elastic_iter);
+                elastic_solver_warm_steps +=
+                    elastic_warm_start_used ? 1U : 0U;
+                elastic_solver_nonconverged_steps +=
+                    elastic_converged ? 0U : 1U;
+                if (elastic_solver_trace_fp) {
+                    fprintf(elastic_solver_trace_fp,
+                            "%d,%d,%d,%.17e,%d,%d,%.17e,%.9f,%llu\n",
+                            step, elastic_warm_start_used,
+                            elastic_iter, elastic_relative_residual,
+                            elastic_converged, P.elastic_iter_max,
+                            P.elastic_residual_tolerance,
+                            elastic_solver_wall_s,
+                            static_cast<unsigned long long>(
+                                elastic_warm_source_field_step));
+                    fflush(elastic_solver_trace_fp);
+                }
+                if (!elastic_converged &&
+                    P.elastic_fail_on_nonconvergence) {
+                    fprintf(stderr,
+                            "[fatal] accelerated elastic solver did not "
+                            "converge at step %d: iterations=%d "
+                            "residual=%.17e tolerance=%.17e\n",
+                            step, elastic_iter,
+                            elastic_relative_residual,
+                            P.elastic_residual_tolerance);
+                    return 2;
+                }
+            }
 
             // ============================================================
             // 迭代循环结束后：按照SDV_Poly.c:1237-1330的逻辑
@@ -28321,8 +29269,14 @@ int main(int argc, char **argv) {
             // 记录上一时间步的总能量，用于能量相对变化率判据
             F_total_prev_step = prev_F_total;
             mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r); // <h(phi)>
-            if (step == 1 && V0_target <= 0.0) {
-                if (P.ic_phi_seed_radius > 0.0) {
+            if (step == 1 && (minimize_fixed_phi_composition ||
+                              V0_target <= 0.0)) {
+                if (minimize_fixed_phi_composition) {
+                    // Raw-field fixtures retain an unrelated legacy seed
+                    // radius default.  A fixed-phi target must instead lock
+                    // the actual supplied h-volume exactly.
+                    V0_target = mean_h_now;
+                } else if (P.ic_phi_seed_radius > 0.0) {
                     V0_target = compute_effective_vf_target(&P);
                 } else {
                     V0_target = mean_h_now; // lock to initial volume fraction
@@ -28399,8 +29353,12 @@ int main(int argc, char **argv) {
         // 步骤1：相场φ的更新
         // ============================================================
 
-        // minimize mode: Lagrange volume, no linesearch
-        if (P.mode == 1) {
+        // Minimize normally evolves phi with a volume Lagrange multiplier.
+        // The V4 target-profile path is intentionally different: it holds a
+        // provenance-pinned resolved-beta field fixed and only equilibrates
+        // the conserved composition field below.  Do not route that path to
+        // the dynamics branch: its phi must remain byte-identical.
+        if (P.mode == 1 && !minimize_fixed_phi_composition) {
             // 1) phi -> k-space，去混叠（与弹性一致）
             CUFFT_CHECK(cufftExecD2Z(plan_r2c_phi, d_phi_r, d_phi_k));
             launch_dealias_kernel(d_phi_k, P.Nx, P.Ny, P.Nz, NzC,
@@ -28490,25 +29448,66 @@ int main(int argc, char **argv) {
             launch_subtract_scaled_kernel(d_phi_rhs_r, d_lap_phi_r, P.kappa_phi, total_r);
             // 现在 d_phi_rhs_r = g_full
 
-            // 4) Lagrange 乘子：λ = -<h'*g_full>/<(h')²>
-            launch_compute_hprime_times_rhs_kernel(d_phi_r, d_phi_rhs_r, d_energy_tmp, total_r);
-            double sum_hpg = gpu_reduce_sum(d_energy_tmp, total_r);
-            launch_compute_hprime_sq_values_kernel(d_phi_r, d_energy_tmp, total_r);
-            double sum_hp2 = gpu_reduce_sum(d_energy_tmp, total_r);
-            // 任务A：lambda under-relaxation
-            double lambda_raw = (fabs(sum_hp2) > 1e-30) ? (-sum_hpg / sum_hp2) : 0.0;
-            // under-relaxation（使用可配置参数）
+            // 4) Constraint multipliers.  The legacy path uses one global
+            // h-volume.  V5 uses an independently constrained periodic
+            // ownership region for every initial beta particle, so the
+            // minimizer cannot transfer h-volume between particles.
             double eta = P.eta_lambda_vol;
-            // 保护：夹到 [0,1]
             if (eta < 0.0) eta = 0.0;
             if (eta > 1.0) eta = 1.0;
-            lambda_vol = (1.0 - eta) * lambda_vol + eta * lambda_raw;
+            if (minimize_component_volume_constraints) {
+                const int component_count =
+                    P.minimize_component_volume_constraint_count;
+                const size_t component_bytes =
+                    (size_t)component_count * sizeof(double);
+                std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX> sum_hpg = {};
+                std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX> sum_hp2 = {};
+                CUDA_CHECK(cudaMemset(d_minimize_component_hpg, 0, component_bytes));
+                CUDA_CHECK(cudaMemset(d_minimize_component_hp2, 0, component_bytes));
+                CUDA_CHECK(cudaMemset(d_minimize_component_hsum, 0, component_bytes));
+                launch_compute_component_constraint_moments_kernel(
+                    d_phi_r, d_phi_rhs_r, d_minimize_component_labels,
+                    d_minimize_component_hpg, d_minimize_component_hp2,
+                    d_minimize_component_hsum, component_count, total_r);
+                CUDA_CHECK(cudaMemcpy(sum_hpg.data(), d_minimize_component_hpg,
+                                      component_bytes, cudaMemcpyDeviceToHost));
+                CUDA_CHECK(cudaMemcpy(sum_hp2.data(), d_minimize_component_hp2,
+                                      component_bytes, cudaMemcpyDeviceToHost));
+                for (int component = 0; component < component_count; ++component) {
+                    const double raw = (fabs(sum_hp2[(size_t)component]) > 1.0e-30)
+                        ? (-sum_hpg[(size_t)component] /
+                           sum_hp2[(size_t)component])
+                        : 0.0;
+                    minimize_component_lambdas_host[(size_t)component] =
+                        (1.0 - eta) *
+                            minimize_component_lambdas_host[(size_t)component] +
+                        eta * raw;
+                }
+                CUDA_CHECK(cudaMemcpy(d_minimize_component_lambdas,
+                                      minimize_component_lambdas_host.data(),
+                                      component_bytes, cudaMemcpyHostToDevice));
+            } else {
+                launch_compute_hprime_times_rhs_kernel(d_phi_r, d_phi_rhs_r, d_energy_tmp, total_r);
+                double sum_hpg = gpu_reduce_sum(d_energy_tmp, total_r);
+                launch_compute_hprime_sq_values_kernel(d_phi_r, d_energy_tmp, total_r);
+                double sum_hp2 = gpu_reduce_sum(d_energy_tmp, total_r);
+                const double lambda_raw = (fabs(sum_hp2) > 1e-30)
+                    ? (-sum_hpg / sum_hp2) : 0.0;
+                lambda_vol = (1.0 - eta) * lambda_vol + eta * lambda_raw;
+            }
 
-            // 5) 更新 RHS = g_explicit + λ*h'（用 d_lap_phi_r 正确加回 κ*Lap(φ)）
+            // 5) 更新 RHS = g_explicit + constraint*h'（用 d_lap_phi_r 正确加回 κ*Lap(φ)）
             launch_subtract_scaled_kernel(d_phi_rhs_r, d_lap_phi_r, -P.kappa_phi, total_r);
             // d_phi_rhs_r = g_full + κ*Lap = g_explicit
-            launch_add_volume_constraint_kernel(d_phi_r, d_phi_rhs_r, lambda_vol, total_r);
-            // d_phi_rhs_r = g_explicit + λ*h'（更新方向）
+            if (minimize_component_volume_constraints) {
+                launch_add_component_volume_constraint_kernel(
+                    d_phi_r, d_phi_rhs_r, d_minimize_component_labels,
+                    d_minimize_component_lambdas,
+                    P.minimize_component_volume_constraint_count, total_r);
+            } else {
+                launch_add_volume_constraint_kernel(d_phi_r, d_phi_rhs_r, lambda_vol, total_r);
+            }
+            // d_phi_rhs_r = g_explicit + constrained normal direction（更新方向）
             CUFFT_CHECK(cufftExecD2Z(plan_r2c_phi_rhs, d_phi_rhs_r, d_phi_rhs_k));
             launch_dealias_kernel(d_phi_rhs_k, P.Nx, P.Ny, P.Nz, NzC,
                                  P.dx, P.dy, P.dz, total_k);
@@ -28664,9 +29663,73 @@ int main(int argc, char **argv) {
             // d_res_r 此时为 g_explicit(φ^{n+1})，减去 κ*Lap(φ^{n+1}) 得到 g_full
             launch_subtract_scaled_kernel(d_res_r, d_lap_phi_r, P.kappa_phi, total_r);
             // d_res_r = g_full(φ^{n+1})
-            launch_add_volume_constraint_kernel(d_phi_r, d_res_r, lambda_vol, total_r);
+            // The convergence residual must use the exact KKT multiplier for
+            // the current field, not the under-relaxed lambda used by the
+            // pseudo-time integrator.  V5 has one independent constraint
+            // normal per particle, so a single global multiplier would turn
+            // legitimate radius-dependent equilibrium multipliers into a
+            // false residual floor.  Compute and apply the complete local
+            // KKT set using the frozen periodic ownership labels.
+            if (minimize_component_volume_constraints) {
+                const int component_count =
+                    P.minimize_component_volume_constraint_count;
+                const size_t component_bytes =
+                    (size_t)component_count * sizeof(double);
+                std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX>
+                    sum_hpg_res = {};
+                std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX>
+                    sum_hp2_res = {};
+                std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX>
+                    lambda_kkt_res = {};
+                CUDA_CHECK(cudaMemset(d_minimize_component_hpg, 0,
+                                      component_bytes));
+                CUDA_CHECK(cudaMemset(d_minimize_component_hp2, 0,
+                                      component_bytes));
+                CUDA_CHECK(cudaMemset(d_minimize_component_hsum, 0,
+                                      component_bytes));
+                launch_compute_component_constraint_moments_kernel(
+                    d_phi_r, d_res_r, d_minimize_component_labels,
+                    d_minimize_component_hpg, d_minimize_component_hp2,
+                    d_minimize_component_hsum, component_count, total_r);
+                CUDA_CHECK(cudaMemcpy(sum_hpg_res.data(),
+                                      d_minimize_component_hpg,
+                                      component_bytes, cudaMemcpyDeviceToHost));
+                CUDA_CHECK(cudaMemcpy(sum_hp2_res.data(),
+                                      d_minimize_component_hp2,
+                                      component_bytes, cudaMemcpyDeviceToHost));
+                for (int component = 0; component < component_count;
+                     ++component) {
+                    const double denom = sum_hp2_res[(size_t)component];
+                    lambda_kkt_res[(size_t)component] =
+                        (fabs(denom) > 1.0e-30)
+                            ? (-sum_hpg_res[(size_t)component] / denom)
+                            : 0.0;
+                }
+                CUDA_CHECK(cudaMemcpy(d_minimize_component_lambdas,
+                                      lambda_kkt_res.data(), component_bytes,
+                                      cudaMemcpyHostToDevice));
+                launch_add_component_volume_constraint_kernel(
+                    d_phi_r, d_res_r, d_minimize_component_labels,
+                    d_minimize_component_lambdas, component_count, total_r);
+            } else {
+                launch_compute_hprime_times_rhs_kernel(
+                    d_phi_r, d_res_r, d_lap_phi_r, total_r);
+                const double sum_hpg_res =
+                    gpu_reduce_sum(d_lap_phi_r, total_r);
+                launch_compute_hprime_sq_values_kernel(
+                    d_phi_r, d_lap_phi_r, total_r);
+                const double sum_hp2_res =
+                    gpu_reduce_sum(d_lap_phi_r, total_r);
+                const double lambda_kkt_res =
+                    (fabs(sum_hp2_res) > 1e-30)
+                        ? (-sum_hpg_res / sum_hp2_res)
+                        : 0.0;
+                launch_add_volume_constraint_kernel(
+                    d_phi_r, d_res_r, lambda_kkt_res, total_r);
+            }
             // d_res_r = res = g_full(φ^{n+1}) + λ*h'(φ^{n+1})
-            square_values_kernel<<<(total_r + 255) / 256, 256>>>(d_res_r, d_energy_tmp, total_r);
+            launch_compute_projected_phi_kkt_residual_sq_kernel(
+                d_phi_r, d_res_r, d_energy_tmp, 1.0e-12, total_r);
             CUDA_CHECK(cudaDeviceSynchronize());
             rms_res = sqrt(gpu_reduce_sum(d_energy_tmp, total_r) / (double)total_r);
 
@@ -28690,7 +29753,7 @@ int main(int argc, char **argv) {
                 rms_dphi = sqrt(gpu_reduce_sum(d_energy_tmp, total_r) / (double)total_r) / dt_phi;
             }
 
-        } else {
+        } else if (P.mode == 0) {
             // dynamics mode (original path)
             CUFFT_CHECK(cufftExecD2Z(plan_r2c_phi, d_phi_r, d_phi_k));
             launch_dealias_kernel(d_phi_k, P.Nx, P.Ny, P.Nz, NzC,
@@ -29086,6 +30149,46 @@ int main(int argc, char **argv) {
                 fflush(mass_diag_fp);
             }
             break;
+        }
+        // PF-only elasticity uses the same canonical gel_hat kernel as the
+        // coupled path, but historically the scalar was written only for GP
+        // mode.  Sample it at the existing diagnostic cadence so a completed
+        // PF run carries auditable elastic-energy and hydrostatic-stress
+        // scalars without exporting displacement/stress fields.
+        if (do_mass_diag && P.elastic_enabled && !gp_elastic_solver_enabled) {
+            double elastic_stats_init[GP_ELASTIC_STATS_COUNT];
+            double elastic_stats[GP_ELASTIC_STATS_COUNT] = {0.0};
+            init_gp_elastic_stats_host(elastic_stats_init);
+            CUDA_CHECK(cudaMemcpy(d_gp_elastic_stats, elastic_stats_init,
+                                  GP_ELASTIC_STATS_COUNT * sizeof(double),
+                                  cudaMemcpyHostToDevice));
+            double *d_gel_diag_tmp = (double *)d_scratch_r_double;
+            launch_compute_gel_density_kernel(
+                d_uxx_r, d_uyy_r, d_uzz_r,
+                d_uxy_r, d_uxz_r, d_uyz_r,
+                d_phi_r, d_eta_r, d_xB_r,
+                d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
+                d_sigma_xy_r, d_sigma_xz_r, d_sigma_yz_r,
+                (float)P.eps_xx00, (float)P.eps_yy00, (float)P.eps_zz00,
+                (float)P.eps_yz00, (float)P.eps_xz00, (float)P.eps_xy00,
+                (double)P.eps_iso_over_vB,
+                0, 0, P.gp_eps_iso,
+                d_gel_diag_tmp, total_r);
+            launch_compute_gp_elastic_stats_kernel(
+                d_phi_r, d_eta_r, d_gel_diag_tmp,
+                d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
+                P.gp_eps_iso, d_gp_elastic_stats, total_r);
+            CUDA_CHECK(cudaMemcpy(elastic_stats, d_gp_elastic_stats,
+                                  GP_ELASTIC_STATS_COUNT * sizeof(double),
+                                  cudaMemcpyDeviceToHost));
+            mass_diag_row.mean_elastic_energy =
+                elastic_stats[GP_ELASTIC_STATS_SUM_GEL] / (double)total_r;
+            mass_diag_row.max_elastic_energy =
+                elastic_stats[GP_ELASTIC_STATS_MAX_GEL];
+            mass_diag_row.stress_hydro_min =
+                elastic_stats[GP_ELASTIC_STATS_MIN_SIGMA_HYDRO];
+            mass_diag_row.stress_hydro_max =
+                elastic_stats[GP_ELASTIC_STATS_MAX_SIGMA_HYDRO];
         }
         if (do_mass_diag && gp_elastic_solver_enabled) {
             double gp_elastic_stats[GP_ELASTIC_STATS_COUNT] = {0.0};
@@ -29687,6 +30790,19 @@ int main(int argc, char **argv) {
                 if (pf_zero_mode_enabled) {
                     launch_copy_scaled_pf_Y_kernel(
                         d_Y_r, invN, d_Y_projection_base_r, total_r);
+                } else if (minimize_mass_constraint_enabled) {
+                    // Preserve the existing full-model minimizer's bounded-Y
+                    // safety step before applying the exact scalar mass
+                    // constraint.  Skipping this clamp lets the explicit
+                    // minimization increment produce an infeasible Y* even
+                    // though the constrained physical state is well inside
+                    // the registered composition bounds.
+                    launch_Y_normalize_and_clamp_kernel(
+                        d_Y_r, d_xB_r, invN,
+                        P.Y_clip, Y_upper_cap, P.xB_eps, total_r);
+                    CUDA_CHECK(cudaMemcpy(
+                        d_Y_projection_base_r, d_Y_r, size_r,
+                        cudaMemcpyDeviceToDevice));
                 } else {
                     launch_Y_normalize_and_clamp_kernel(
                         d_Y_r, d_xB_r, invN,
@@ -29748,10 +30864,12 @@ int main(int argc, char **argv) {
                         d_Y_n_saved, 0.0, d_Y_r, d_xB_r, total_r);
                     CUDA_CHECK(cudaDeviceSynchronize());
                     fprintf(stderr,
-                            "[fatal] PF zero-mode rejected step=%d "
+                            "[fatal] %s rejected step=%d "
                             "target=%.17e residual=%.17e derivative=%.17e "
                             "lambda=%.17e interval=[%.17e,%.17e] iterations=%d\n",
-                            step, pf_zero_mode_runtime.target_mass_code,
+                            "PF zero-mode",
+                            step,
+                            pf_zero_mode_runtime.target_mass_code,
                             zero_mode_result.residual_code,
                             zero_mode_result.derivative_code,
                             zero_mode_result.lambda,
@@ -29763,8 +30881,7 @@ int main(int argc, char **argv) {
                 CUDA_CHECK(cudaDeviceSynchronize());
                 pf_zero_mode_wall_s +=
                     wall_time_sec_monotonic() - zero_mode_t0;
-                pf_zero_mode_runtime.last_lambda =
-                    zero_mode_result.lambda;
+                pf_zero_mode_runtime.last_lambda = zero_mode_result.lambda;
                 pf_zero_mode_runtime.last_residual_code =
                     zero_mode_result.residual_code;
                 pf_zero_mode_runtime.last_derivative_code =
@@ -30992,7 +32109,9 @@ gp_post_birth_skip_to_finalize:
         // 6.5) 后投影修正（minimize 模式）：用当前 φ 重算 λ 并再更新 φ 一次，抑制 vol 慢漂
         // 弹性在后投影子步中冻结，不重复求解
         // -----------------------------------------------------------------
-        if (P.mode == 1 && P.minimize_post_projection_iters > 0) {
+        if (P.mode == 1 && !minimize_fixed_phi_composition &&
+            !minimize_component_volume_constraints &&
+            P.minimize_post_projection_iters > 0) {
             for (int post_k = 0; post_k < P.minimize_post_projection_iters; post_k++) {
                 // a) 用当前 φ (及 Y/xB)，弹性冻结，重新计算 g_full
                 CUFFT_CHECK(cufftExecD2Z(plan_r2c_phi, d_phi_r, d_phi_k));
@@ -31074,7 +32193,8 @@ gp_post_birth_skip_to_finalize:
             mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r);
         }
         // minimize 模式：用当前 φ（可能经后投影）重算 mean_h，保证 vol_err_rel/CSV 为最终体积
-        if (P.mode == 1 && P.minimize_post_projection_iters == 0) {
+        if (P.mode == 1 && (minimize_fixed_phi_composition ||
+                            P.minimize_post_projection_iters == 0)) {
             mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r);
         }
 
@@ -31088,7 +32208,76 @@ gp_post_birth_skip_to_finalize:
         //   其中 lambda_correct = (V0_target - <h>) / <(h')^2>
         // - 该 kernel 已在 cuda_kernels.cu 中实现（apply_volume_projection_kernel）。
         // -----------------------------------------------------------------
-        if (P.mode == 1) {
+        if (P.mode == 1 && minimize_component_volume_constraints) {
+            // V5: restore every component's own initial h-volume after the
+            // joint phi/Y update.  A few local Newton corrections are enough
+            // for the small pseudo-time displacement; failure to reach the
+            // registered tolerance is retained as a hard qualification fail.
+            const int component_count =
+                P.minimize_component_volume_constraint_count;
+            const size_t component_bytes =
+                (size_t)component_count * sizeof(double);
+            std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX> sum_hp2 = {};
+            std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX> sum_h = {};
+            std::array<double, MINIMIZE_COMPONENT_CONSTRAINT_MAX> correction = {};
+            minimize_component_max_vol_err_rel = INFINITY;
+            for (int correction_iter = 0; correction_iter < 3; ++correction_iter) {
+                CUDA_CHECK(cudaMemset(d_minimize_component_hpg, 0, component_bytes));
+                CUDA_CHECK(cudaMemset(d_minimize_component_hp2, 0, component_bytes));
+                CUDA_CHECK(cudaMemset(d_minimize_component_hsum, 0, component_bytes));
+                launch_compute_component_constraint_moments_kernel(
+                    d_phi_r, d_phi_rhs_r, d_minimize_component_labels,
+                    d_minimize_component_hpg, d_minimize_component_hp2,
+                    d_minimize_component_hsum, component_count, total_r);
+                CUDA_CHECK(cudaMemcpy(sum_hp2.data(), d_minimize_component_hp2,
+                                      component_bytes, cudaMemcpyDeviceToHost));
+                CUDA_CHECK(cudaMemcpy(sum_h.data(), d_minimize_component_hsum,
+                                      component_bytes, cudaMemcpyDeviceToHost));
+                double max_error = 0.0;
+                int requires_projection = 0;
+                for (int component = 0; component < component_count; ++component) {
+                    const double target =
+                        minimize_component_target_h_sums_host[(size_t)component];
+                    const double delta = target - sum_h[(size_t)component];
+                    const double rel = fabs(delta) / fmax(target, 1.0e-30);
+                    max_error = fmax(max_error, rel);
+                    correction[(size_t)component] =
+                        (sum_hp2[(size_t)component] > 1.0e-30)
+                            ? (delta / sum_hp2[(size_t)component])
+                            : 0.0;
+                    if (fabs(delta) > 1.0e-14) requires_projection = 1;
+                }
+                minimize_component_max_vol_err_rel = max_error;
+                if (!requires_projection) break;
+                CUDA_CHECK(cudaMemcpy(d_minimize_component_lambdas,
+                                      correction.data(), component_bytes,
+                                      cudaMemcpyHostToDevice));
+                launch_apply_component_volume_projection_kernel(
+                    d_phi_r, d_minimize_component_labels,
+                    d_minimize_component_lambdas, component_count, total_r);
+            }
+            // Read the projected component h-volumes exactly once more for
+            // the qualification metric and recompute the global CSV value.
+            CUDA_CHECK(cudaMemset(d_minimize_component_hpg, 0, component_bytes));
+            CUDA_CHECK(cudaMemset(d_minimize_component_hp2, 0, component_bytes));
+            CUDA_CHECK(cudaMemset(d_minimize_component_hsum, 0, component_bytes));
+            launch_compute_component_constraint_moments_kernel(
+                d_phi_r, d_phi_rhs_r, d_minimize_component_labels,
+                d_minimize_component_hpg, d_minimize_component_hp2,
+                d_minimize_component_hsum, component_count, total_r);
+            CUDA_CHECK(cudaMemcpy(sum_h.data(), d_minimize_component_hsum,
+                                  component_bytes, cudaMemcpyDeviceToHost));
+            minimize_component_max_vol_err_rel = 0.0;
+            for (int component = 0; component < component_count; ++component) {
+                const double target =
+                    minimize_component_target_h_sums_host[(size_t)component];
+                minimize_component_max_vol_err_rel = fmax(
+                    minimize_component_max_vol_err_rel,
+                    fabs(sum_h[(size_t)component] - target) /
+                        fmax(target, 1.0e-30));
+            }
+            mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r);
+        } else if (P.mode == 1 && !minimize_fixed_phi_composition) {
             const double vol_tiny = 1e-30;
             if (V0_target > vol_tiny && isfinite(mean_h_now)) {
                 double vol_err = V0_target - mean_h_now;
@@ -31101,6 +32290,114 @@ gp_post_birth_skip_to_finalize:
                     // 投影后重算 mean_h，供后续收敛/CSV 使用
                     mean_h_now = gpu_compute_vf_from_h(d_phi_r, total_r);
                 }
+            }
+        }
+
+        // Offline target-profile minimization applies the exact mass
+        // constraint after every phi post-projection/volume correction.
+        // Applying it earlier would allow the subsequent phi correction to
+        // change C_B_tot again.  The production dynamics zero-mode remains
+        // in the Y update above and is not routed through this block.
+        if (minimize_mass_constraint_enabled) {
+            const double mass_constraint_t0 = wall_time_sec_monotonic();
+            PfZeroModeSolveResult mass_constraint_result;
+            double minimize_Y_upper_cap = P.Y_clip;
+            {
+                double xB_cap = P.minimize_xB_max_safe;
+                if (xB_cap < P.xB_eps) xB_cap = P.xB_eps;
+                if (xB_cap > 1.0 - P.xB_eps) {
+                    xB_cap = 1.0 - P.xB_eps;
+                }
+                const double y_cap_from_xB =
+                    log(xB_cap / (1.0 - xB_cap));
+                if (y_cap_from_xB < minimize_Y_upper_cap) {
+                    minimize_Y_upper_cap = y_cap_from_xB;
+                }
+            }
+            double *d_mass_constraint_terms =
+                static_cast<double *>(d_scratch_r_double);
+            double *d_mass_constraint_derivative_terms =
+                d_mass_constraint_terms + total_r;
+            if (!run_pf_conserved_y_zero_mode_host(
+                    &P, d_Y_projection_base_r, d_phi_r,
+                    d_mass_constraint_terms,
+                    d_mass_constraint_derivative_terms,
+                    static_cast<double *>(d_scratch_k_double),
+                    static_cast<int>(
+                        scratch_k_double_bytes / sizeof(double)),
+                    minimize_mass_constraint_runtime.target_mass_code,
+                    minimize_Y_upper_cap,
+                    P.minimize_mass_tolerance_relative,
+                    P.minimize_mass_max_iterations,
+                    total_r, d_pf_zero_mode_invalid,
+                    d_Y_r, d_xB_r, &mass_constraint_result)) {
+                CUDA_CHECK(cudaMemcpy(
+                    d_phi_r, d_phi_n_saved, size_r,
+                    cudaMemcpyDeviceToDevice));
+                CUDA_CHECK(cudaMemcpy(
+                    d_Y_r, d_Y_n_saved, size_r,
+                    cudaMemcpyDeviceToDevice));
+                launch_apply_pf_Y_zero_mode_shift_kernel(
+                    d_Y_n_saved, 0.0, d_Y_r, d_xB_r, total_r);
+                CUDA_CHECK(cudaDeviceSynchronize());
+                fprintf(stderr,
+                        "[fatal] minimize mass constraint rejected iter=%d "
+                        "target=%.17e residual=%.17e derivative=%.17e "
+                        "lambda=%.17e interval=[%.17e,%.17e] iterations=%d\n",
+                        step,
+                        minimize_mass_constraint_runtime.target_mass_code,
+                        mass_constraint_result.residual_code,
+                        mass_constraint_result.derivative_code,
+                        mass_constraint_result.lambda,
+                        mass_constraint_result.lambda_lower,
+                        mass_constraint_result.lambda_upper,
+                        mass_constraint_result.iterations);
+                return 2;
+            }
+            CUDA_CHECK(cudaDeviceSynchronize());
+            minimize_mass_constraint_wall_s +=
+                wall_time_sec_monotonic() - mass_constraint_t0;
+            minimize_mass_constraint_runtime.last_lambda =
+                mass_constraint_result.lambda;
+            minimize_mass_constraint_runtime.last_residual_code =
+                mass_constraint_result.residual_code;
+            minimize_mass_constraint_runtime.last_derivative_code =
+                mass_constraint_result.derivative_code;
+            minimize_mass_constraint_runtime.last_iterations =
+                static_cast<std::uint64_t>(
+                    mass_constraint_result.iterations);
+            ++minimize_mass_constraint_runtime.accepted_zero_mode_steps;
+            if (minimize_mass_constraint_trace_fp) {
+                const double current_mass_code =
+                    gpu_reduce_sum_xBtot(
+                        d_phi_r, d_xB_r, P.v_B, total_r);
+                const double residual_relative =
+                    mass_constraint_result.residual_code /
+                    fmax(fabs(minimize_mass_constraint_runtime
+                                  .target_mass_code),
+                         1.0);
+                fprintf(
+                    minimize_mass_constraint_trace_fp,
+                    "%d,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,"
+                    "%d,%d,%d,%.17e,%.17e,%.17e,%.17e,%llu\n",
+                    step,
+                    minimize_mass_constraint_runtime.target_mass_code,
+                    current_mass_code,
+                    mass_constraint_result.lambda,
+                    mass_constraint_result.residual_code,
+                    residual_relative,
+                    mass_constraint_result.derivative_code,
+                    mass_constraint_result.iterations,
+                    mass_constraint_result.newton_steps,
+                    mass_constraint_result.bisection_steps,
+                    mass_constraint_result.Y_star_min,
+                    mass_constraint_result.Y_star_max,
+                    mass_constraint_result.lambda_lower,
+                    mass_constraint_result.lambda_upper,
+                    static_cast<unsigned long long>(
+                        minimize_mass_constraint_runtime
+                            .accepted_zero_mode_steps));
+                fflush(minimize_mass_constraint_trace_fp);
             }
         }
 
@@ -31120,7 +32417,9 @@ gp_post_birth_skip_to_finalize:
             // 当 P.minimize_V0 <= 0（用户未指定体积目标）时，此判据禁用
             const double vol_tiny = 1e-30;
             double vol_err_rel = NAN;
-            if (V0_target > vol_tiny) {
+            if (minimize_component_volume_constraints) {
+                vol_err_rel = minimize_component_max_vol_err_rel;
+            } else if (V0_target > vol_tiny) {
                 vol_err_rel = fabs(mean_h_now - V0_target) / (V0_target + vol_tiny);
             } else {
                 vol_err_rel = 0.0;  // 无有效目标时视为满足
@@ -31143,13 +32442,27 @@ gp_post_birth_skip_to_finalize:
             }
             // 若 P.minimize_full_model==0（phi-only minimize），则本轮没有对 Y 做更新，
             // 此时保持 rms_dY=NaN，并在 CSV 中写出 NaN，仅作为占位诊断列。
+            double minimize_mass_current_code = NAN;
+            double minimize_mass_err_rel = 0.0;
+            if (minimize_mass_constraint_enabled) {
+                minimize_mass_current_code =
+                    gpu_reduce_sum_xBtot(
+                        d_phi_r, d_xB_r, P.v_B, total_r);
+                minimize_mass_err_rel =
+                    fabs(minimize_mass_current_code -
+                         minimize_mass_constraint_runtime.target_mass_code) /
+                    fmax(fabs(minimize_mass_constraint_runtime
+                                  .target_mass_code),
+                         1.0);
+            }
 
             // 记录 energy_minimize.csv（基于 excess 自由能 + CNT 汇总）
             if (energy_fp) {
                 fprintf(energy_fp,
                         "%d,%.8e,%.8e,%.8e,%.8e,"
                         "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,"
-                        "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%d\n",
+                        "%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,%.8e,"
+                        "%.17e,%.17e,%.17e,%.17e,%d\n",
                         step + energy_iter_offset,
                         dt_phi,
                         (isfinite(mean_h_now) ? mean_h_now : NAN),
@@ -31167,6 +32480,16 @@ gp_post_birth_skip_to_finalize:
                         (isfinite(rms_dY)   ? rms_dY   : NAN),
                         (isfinite(energy_diff_rel) ? energy_diff_rel : NAN),
                         (isfinite(vol_err_rel) ? vol_err_rel : NAN),
+                        minimize_mass_constraint_enabled
+                            ? minimize_mass_constraint_runtime.target_mass_code
+                            : NAN,
+                        minimize_mass_current_code,
+                        minimize_mass_constraint_enabled
+                            ? minimize_mass_err_rel
+                            : NAN,
+                        minimize_mass_constraint_enabled
+                            ? minimize_mass_constraint_runtime.last_lambda
+                            : NAN,
                         P.minimize_post_projection_iters);
                 fflush(energy_fp);
             }
@@ -31175,56 +32498,129 @@ gp_post_birth_skip_to_finalize:
             // 体积约束：vol_err_rel 以 V0_target 为参考
             // V0<=0 时 V0_target 已在 step1 设为 mean_h，即按第一步体积计算误差并判停
             int vol_ok = (isfinite(vol_err_rel) && vol_err_rel < P.minimize_vol_err_rel_threshold);
+            int mass_ok =
+                !minimize_mass_constraint_enabled ||
+                (isfinite(minimize_mass_err_rel) &&
+                 minimize_mass_err_rel <
+                     P.minimize_mass_tolerance_relative);
             // rms_res 硬条件：Euler-Lagrange/KKT 残差
             int rms_res_ok = isfinite(rms_res) && rms_res < P.minimize_rms_res_threshold;
 
             int this_step_satisfies = 0;
             int condA = 0, condB = 0;
 
-            if (!P.minimize_full_model) {
+            if (minimize_fixed_phi_composition) {
+                // V4 is a composition-only target construction.  The
+                // supplied phi is intentionally not a stationary Euler-
+                // Lagrange field at this stage, so neither phi residual nor
+                // rms_dphi is a legitimate stopping criterion.  Exact
+                // conserved mass, fixed h-volume, and the Y update itself
+                // are the contract.
+                condA = (isfinite(rms_dY) &&
+                         rms_dY < P.minimize_rms_dY_threshold &&
+                         vol_ok && mass_ok);
+                condB = (isfinite(energy_diff_rel) &&
+                         energy_diff_rel <
+                             P.minimize_energy_diff_rel_threshold &&
+                         isfinite(rms_dY) &&
+                         rms_dY < 5.0 * P.minimize_rms_dY_threshold &&
+                         vol_ok && mass_ok);
+                if (condA || condB) this_step_satisfies = 1;
+            } else if (minimize_component_volume_constraints) {
+                // V5 must use the locally projected KKT residual above:
+                // each particle has its own constraint normal.  A small
+                // update alone can be caused by pseudo-time damping and is
+                // not evidence of an equilibrium target profile.
+                condA = (isfinite(rms_dphi) && isfinite(rms_dY) &&
+                         rms_dphi < P.minimize_rms_dphi_threshold &&
+                         rms_dY < P.minimize_rms_dY_threshold &&
+                         rms_res_ok && vol_ok && mass_ok);
+                condB = (isfinite(energy_diff_rel) &&
+                         energy_diff_rel < P.minimize_energy_diff_rel_threshold &&
+                         isfinite(rms_dphi) && isfinite(rms_dY) &&
+                         rms_dphi < 5.0 * P.minimize_rms_dphi_threshold &&
+                         rms_dY < 5.0 * P.minimize_rms_dY_threshold &&
+                         rms_res_ok && vol_ok && mass_ok);
+                if (condA || condB) this_step_satisfies = 1;
+            } else if (!P.minimize_full_model) {
                 // (1) phi-only minimize：φ 收敛 & 能量平台，且均需满足 rms_res、vol_err_rel
                 condA = (isfinite(rms_dphi) &&
                          rms_dphi < P.minimize_rms_dphi_threshold &&
-                         rms_res_ok && vol_ok);
+                         rms_res_ok && vol_ok && mass_ok);
                 condB = (isfinite(energy_diff_rel) &&
                          energy_diff_rel < P.minimize_energy_diff_rel_threshold &&
                          isfinite(rms_dphi) && rms_dphi < 5.0 * P.minimize_rms_dphi_threshold &&
-                         rms_res_ok && vol_ok);
+                         rms_res_ok && vol_ok && mass_ok);
                 if (condA || condB) this_step_satisfies = 1;
             } else {
                 // (2) full-model minimize：双场收敛 + 能量平台，且均需满足 rms_res、vol_err_rel
                 condA = (isfinite(rms_dphi) && isfinite(rms_dY) &&
                          rms_dphi < P.minimize_rms_dphi_threshold &&
                          rms_dY   < P.minimize_rms_dY_threshold &&
-                         rms_res_ok && vol_ok);
+                         rms_res_ok && vol_ok && mass_ok);
                 condB = (isfinite(energy_diff_rel) &&
                          energy_diff_rel < P.minimize_energy_diff_rel_threshold &&
                          isfinite(rms_dphi) && isfinite(rms_dY) &&
                          rms_dphi < 5.0 * P.minimize_rms_dphi_threshold &&
                          rms_dY   < 5.0 * P.minimize_rms_dY_threshold &&
-                         rms_res_ok && vol_ok);
+                         rms_res_ok && vol_ok && mass_ok);
                 if (condA || condB) this_step_satisfies = 1;
             }
 
-            if (this_step_satisfies) {
+            const double minimize_pseudo_time =
+                static_cast<double>(step) * dt_phi;
+            const int min_pseudo_time_ok =
+                isfinite(minimize_pseudo_time) &&
+                minimize_pseudo_time + 1.0e-14 >=
+                    P.minimize_min_pseudo_time;
+            if (this_step_satisfies && min_pseudo_time_ok) {
                 convergence_count++;
             } else {
                 convergence_count = 0;
             }
+            minimize_final_rms_res = rms_res;
+            minimize_final_rms_dphi = rms_dphi;
+            minimize_final_rms_dY = rms_dY;
+            minimize_final_energy_diff_rel = energy_diff_rel;
+            minimize_final_vol_err_rel = vol_err_rel;
+            minimize_final_mass_err_rel =
+                minimize_mass_constraint_enabled
+                    ? minimize_mass_err_rel
+                    : NAN;
 
             if (convergence_count >= P.minimize_convergence_steps) {
                 minimize_should_stop = 1;
                 const char *trigger = condA ? "condA" : "condB";
+                minimize_converged = 1;
+                minimize_converged_iter = step;
+                snprintf(minimize_convergence_trigger,
+                         sizeof(minimize_convergence_trigger),
+                         "%s", trigger);
                 log_section_header("Minimize Converged");
                 log_kv_text("iter", "%d", step);
                 log_kv_text("trigger", "%s", trigger);
                 log_kv_text("F_total_excess_hat", "%.6e", (isfinite(F_total_excess_hat) ? F_total_excess_hat : -1.0));
-                log_kv_text("rms_res", "%.3e", rms_res);
-                log_kv_text("rms_dphi", "%.3e", rms_dphi);
+                if (minimize_fixed_phi_composition) {
+                    log_kv_text("rms_res", "%s", "not_applicable_fixed_phi");
+                    log_kv_text("rms_dphi", "%s", "not_applicable_fixed_phi");
+                } else if (minimize_component_volume_constraints) {
+                    log_kv_text("rms_res", "%s",
+                                "not_applicable_component_constraints");
+                    log_kv_text("rms_dphi", "%.3e", rms_dphi);
+                } else {
+                    log_kv_text("rms_res", "%.3e", rms_res);
+                    log_kv_text("rms_dphi", "%.3e", rms_dphi);
+                }
                 if (P.minimize_full_model) {
                     log_kv_text("rms_dY", "%.3e", (isfinite(rms_dY) ? rms_dY : -1.0));
                 }
                 log_kv_text("vol_err_rel", "%.3e", (isfinite(vol_err_rel) ? vol_err_rel : -1.0));
+                if (minimize_mass_constraint_enabled) {
+                    log_kv_text("mass_err_rel", "%.3e",
+                                minimize_mass_err_rel);
+                    log_kv_text("mass_lambda", "%.17e",
+                                minimize_mass_constraint_runtime.last_lambda);
+                }
                 log_kv_text("energy_diff_rel", "%.3e", (isfinite(energy_diff_rel) ? energy_diff_rel : -1.0));
             }
         }
@@ -32117,6 +33513,26 @@ gp_post_birth_skip_to_finalize:
             checkpoint.Y.resize((size_t)total_r);
             checkpoint.xB.resize((size_t)total_r);
             checkpoint.dY_dt_prev.resize((size_t)total_r);
+            if (elastic_accelerated_solver_enabled) {
+                if (!elastic_warm_state_valid ||
+                    elastic_warm_source_field_step + 1U !=
+                        static_cast<std::uint64_t>(step)) {
+                    fprintf(stderr,
+                            "[fatal] refusing to checkpoint an invalid "
+                            "elastic warm state at step %d\n", step);
+                    return 2;
+                }
+                checkpoint.elastic.present = true;
+                checkpoint.elastic.source_field_step =
+                    elastic_warm_source_field_step;
+                checkpoint.elastic.last_iterations =
+                    elastic_last_iterations;
+                checkpoint.elastic.last_relative_residual =
+                    elastic_last_relative_residual;
+                checkpoint.elastic.displacement_k.resize(
+                    static_cast<std::size_t>(6U) *
+                    static_cast<std::size_t>(total_k));
+            }
             CUDA_CHECK(cudaMemcpy(
                 checkpoint.phi.data(), d_phi_r, size_r,
                 cudaMemcpyDeviceToHost));
@@ -32129,6 +33545,19 @@ gp_post_birth_skip_to_finalize:
             CUDA_CHECK(cudaMemcpy(
                 checkpoint.dY_dt_prev.data(), d_dY_dt_prev_r, size_r,
                 cudaMemcpyDeviceToHost));
+            if (elastic_accelerated_solver_enabled) {
+                float *packed =
+                    checkpoint.elastic.displacement_k.data();
+                CUDA_CHECK(cudaMemcpy(
+                    packed, d_ux_k, size_k_float,
+                    cudaMemcpyDeviceToHost));
+                CUDA_CHECK(cudaMemcpy(
+                    packed + 2 * total_k, d_uy_k, size_k_float,
+                    cudaMemcpyDeviceToHost));
+                CUDA_CHECK(cudaMemcpy(
+                    packed + 4 * total_k, d_uz_k, size_k_float,
+                    cudaMemcpyDeviceToHost));
+            }
             std::string checkpoint_error;
             if (!pf_zero_mode::write_checkpoint(
                     pf_checkpoint_path, checkpoint,
@@ -32144,13 +33573,33 @@ gp_post_birth_skip_to_finalize:
             printf("PF_ZERO_MODE_CHECKPOINT_WRITTEN "
                    "step=%d path=%s target_mass_code=%.17e "
                    "lambda=%.17e residual=%.17e "
-                   "accepted_zero_mode_steps=%llu\n",
+                   "accepted_zero_mode_steps=%llu "
+                   "initial_state_class=%s "
+                   "fixture_manifest_sha256=%s "
+                   "profile_library_manifest_sha256=%s "
+                   "elastic_solver_mode=%s "
+                   "elastic_source_field_step=%llu "
+                   "elastic_iterations=%llu "
+                   "elastic_residual=%.17e\n",
                    step, pf_checkpoint_path,
                    pf_zero_mode_runtime.target_mass_code,
                    pf_zero_mode_runtime.last_lambda,
                    pf_zero_mode_runtime.last_residual_code,
                    static_cast<unsigned long long>(
-                       pf_zero_mode_runtime.accepted_zero_mode_steps));
+                       pf_zero_mode_runtime.accepted_zero_mode_steps),
+                   pf_zero_mode_provenance.initial_state_class.c_str(),
+                   pf_zero_mode_provenance.fixture_manifest_sha256.c_str(),
+                   pf_zero_mode_provenance
+                       .profile_library_manifest_sha256.c_str(),
+                   pf_zero_mode_provenance.elastic_solver_mode.c_str(),
+                   static_cast<unsigned long long>(
+                       elastic_accelerated_solver_enabled
+                           ? elastic_warm_source_field_step : 0U),
+                   static_cast<unsigned long long>(
+                       elastic_accelerated_solver_enabled
+                           ? elastic_last_iterations : 0U),
+                   elastic_accelerated_solver_enabled
+                       ? elastic_last_relative_residual : 0.0);
         }
         CUDA_CHECK(cudaDeviceSynchronize());
         if (step_wall_s) {
@@ -32217,6 +33666,153 @@ gp_post_birth_skip_to_finalize:
                 fprintf(stderr, "ERROR: Failed to write xB VTK file (final): %s\n", filename);
             } else {
                 printf("写出 final xB vtk: %s\n", filename);
+            }
+        }
+        if (minimize_mass_constraint_enabled) {
+            const char *target_profile_mode =
+                minimize_fixed_phi_composition
+                    ? "FIXED_PHI_CONSERVED_COMPOSITION_TARGET_PROFILE_V4"
+                    : (minimize_component_volume_constraints
+                           ? "COMPONENT_CONSERVED_H_VOLUME_TARGET_PROFILE_V5"
+                           : "ELASTIC_CONSERVED_TARGET_PROFILE_V1");
+            printf("MINIMIZE_TARGET_PROFILE_CONVERGENCE_FINAL_AUDIT "
+                   "status=%s mode=%s "
+                   "converged=%s converged_iter=%d max_iter=%d "
+                   "trigger=%s consecutive_required=%d "
+                   "min_pseudo_time=%.17e converged_pseudo_time=%.17e "
+                   "rms_res=%.17e rms_dphi=%.17e rms_dY=%.17e "
+                   "energy_diff_rel=%.17e vol_err_rel=%.17e "
+                   "mass_err_rel=%.17e\n",
+                   minimize_converged ? "PASS" : "FAIL",
+                   target_profile_mode,
+                   minimize_converged ? "true" : "false",
+                   minimize_converged_iter,
+                   P.minimize_max_iter,
+                   minimize_convergence_trigger,
+                   P.minimize_convergence_steps,
+                   P.minimize_min_pseudo_time,
+                   minimize_converged
+                       ? static_cast<double>(minimize_converged_iter) *
+                             P.minimize_dt
+                       : NAN,
+                   minimize_final_rms_res,
+                   minimize_final_rms_dphi,
+                   minimize_final_rms_dY,
+                   minimize_final_energy_diff_rel,
+                   minimize_final_vol_err_rel,
+                   minimize_final_mass_err_rel);
+            if (!minimize_converged) {
+                fprintf(stderr,
+                        "[fatal] constrained target-profile minimization "
+                        "reached max_iter without satisfying the registered "
+                        "convergence contract\n");
+                return 2;
+            }
+            char raw_phi_path[4096];
+            char raw_Y_path[4096];
+            char raw_xB_path[4096];
+            char raw_dYdt_path[4096];
+            snprintf(raw_phi_path, sizeof(raw_phi_path),
+                     "%s/phi_final_constraint.raw.f64", case_output_dir);
+            snprintf(raw_Y_path, sizeof(raw_Y_path),
+                     "%s/Y_final_constraint.raw.f64", case_output_dir);
+            snprintf(raw_xB_path, sizeof(raw_xB_path),
+                     "%s/xB_final_constraint.raw.f64", case_output_dir);
+            snprintf(raw_dYdt_path, sizeof(raw_dYdt_path),
+                     "%s/dY_dt_prev_final_constraint.raw.f64",
+                     case_output_dir);
+            const int raw_write_pass =
+                write_device_field_raw_f64(
+                    raw_phi_path, d_phi_r, static_cast<size_t>(total_r)) &&
+                write_device_field_raw_f64(
+                    raw_Y_path, d_Y_r, static_cast<size_t>(total_r)) &&
+                write_device_field_raw_f64(
+                    raw_xB_path, d_xB_r, static_cast<size_t>(total_r)) &&
+                write_device_field_raw_f64(
+                    raw_dYdt_path, d_dY_dt_prev_r,
+                    static_cast<size_t>(total_r));
+            if (!raw_write_pass) {
+                fprintf(stderr,
+                        "[fatal] failed to write byte-exact constrained "
+                        "minimize raw fields\n");
+                return 2;
+            }
+            printf("MINIMIZE_CONSTRAINT_RAW_FIELDS "
+                   "status=PASS dtype=float64_native_little_endian "
+                   "order=C phi=%s Y=%s xB=%s dY_dt_prev=%s\n",
+                   raw_phi_path, raw_Y_path, raw_xB_path, raw_dYdt_path);
+            const double final_mass_code =
+                gpu_reduce_sum_xBtot(
+                    d_phi_r, d_xB_r, P.v_B, total_r);
+            const double final_residual =
+                final_mass_code -
+                minimize_mass_constraint_runtime.target_mass_code;
+            const double final_relative =
+                fabs(final_residual) /
+                fmax(fabs(minimize_mass_constraint_runtime.target_mass_code),
+                     1.0);
+            const int final_mass_pass =
+                isfinite(final_mass_code) &&
+                final_relative <=
+                    P.minimize_mass_tolerance_relative;
+            printf("MINIMIZE_MASS_CONSTRAINT_FINAL_AUDIT "
+                   "status=%s mode=MINIMIZE_CONSERVED_MASS_CONSTRAINT_V1 "
+                   "target_mass_code=%.17e final_mass_code=%.17e "
+                   "residual_code=%.17e residual_relative=%.17e "
+                   "last_lambda=%.17e accepted_constraint_steps=%llu "
+                   "constraint_wall_s=%.9f "
+                   "gp_paths_enabled=false\n",
+                   final_mass_pass ? "PASS" : "FAIL",
+                   minimize_mass_constraint_runtime.target_mass_code,
+                   final_mass_code,
+                   final_residual,
+                   final_relative,
+                   minimize_mass_constraint_runtime.last_lambda,
+                   static_cast<unsigned long long>(
+                       minimize_mass_constraint_runtime
+                           .accepted_zero_mode_steps),
+                   minimize_mass_constraint_wall_s);
+            if (minimize_fixed_phi_composition) {
+                printf("MINIMIZE_FIXED_PHI_COMPOSITION_FINAL_AUDIT "
+                       "status=%s mode=FIXED_PHI_CONSERVED_COMPOSITION_TARGET_PROFILE_V4 "
+                       "phi_update_kernels=false post_projection=false "
+                       "input_phi_to_output_phi_byte_identity=EXTERNAL_RAW_AUDIT_REQUIRED "
+                       "h_volume_fixed=true mass_constraint=%s\n",
+                       (minimize_converged && final_mass_pass) ? "PASS" : "FAIL",
+                       final_mass_pass ? "PASS" : "FAIL");
+            }
+            if (minimize_component_volume_constraints) {
+                const int component_pass =
+                    isfinite(minimize_component_max_vol_err_rel) &&
+                    minimize_component_max_vol_err_rel <
+                        P.minimize_vol_err_rel_threshold;
+                printf("MINIMIZE_COMPONENT_VOLUME_FINAL_AUDIT "
+                       "status=%s mode=COMPONENT_CONSERVED_H_VOLUME_TARGET_PROFILE_V5 "
+                       "component_count=%d max_component_h_volume_relative_error=%.17e "
+                       "component_threshold=%.17e phi_Y_joint_relaxation=true "
+                       "inter_component_volume_exchange=false "
+                       "component_kkt_residual=%.17e component_kkt_threshold=%.17e "
+                       "mass_constraint=%s\n",
+                       (minimize_converged && final_mass_pass && component_pass)
+                           ? "PASS" : "FAIL",
+                       P.minimize_component_volume_constraint_count,
+                       minimize_component_max_vol_err_rel,
+                       P.minimize_vol_err_rel_threshold,
+                       minimize_final_rms_res,
+                       P.minimize_rms_res_threshold,
+                       final_mass_pass ? "PASS" : "FAIL");
+                if (!component_pass) {
+                    fprintf(stderr,
+                            "[fatal] V5 component h-volume constraint did not meet "
+                            "the registered tolerance\n");
+                    return 2;
+                }
+            }
+            if (!final_mass_pass) {
+                fprintf(stderr,
+                        "[fatal] final target-profile minimize ledger failed "
+                        "the registered mass tolerance\n");
+                return 2;
             }
         }
     }
@@ -32729,6 +34325,34 @@ gp_post_birth_skip_to_finalize:
                pf_zero_mode_wall_s,
                pf_checkpoint_wall_s);
     }
+    if (elastic_accelerated_solver_enabled) {
+        printf("PF_ELASTIC_SOLVER_FINAL_AUDIT "
+               "status=%s mode=%s steps=%d warm_steps=%llu "
+               "total_iterations=%llu mean_iterations=%.9f "
+               "last_iterations=%llu last_residual=%.17e "
+               "nonconverged_steps=%llu solver_wall_s=%.9f "
+               "source_field_step=%llu checkpoint_state=V4\n",
+               elastic_solver_nonconverged_steps == 0U ? "PASS" : "FAIL",
+               pf_zero_mode::kElasticWarmStartResidualV1,
+               steps_completed,
+               static_cast<unsigned long long>(
+                   elastic_solver_warm_steps),
+               static_cast<unsigned long long>(
+                   elastic_solver_iterations_total),
+               steps_completed > 0
+                   ? static_cast<double>(
+                         elastic_solver_iterations_total) /
+                         static_cast<double>(steps_completed)
+                   : 0.0,
+               static_cast<unsigned long long>(
+                   elastic_last_iterations),
+               elastic_last_relative_residual,
+               static_cast<unsigned long long>(
+                   elastic_solver_nonconverged_steps),
+               elastic_solver_wall_s_total,
+               static_cast<unsigned long long>(
+                   elastic_warm_source_field_step));
+    }
 
     // 清理（只销毁实际创建的计划）
     CUFFT_CHECK(cufftDestroy(plan_r2c_base));
@@ -32758,6 +34382,9 @@ gp_post_birth_skip_to_finalize:
         CUDA_CHECK(cudaFree(d_ux_k));
         CUDA_CHECK(cudaFree(d_uy_k));
         CUDA_CHECK(cudaFree(d_uz_k));
+        if (d_ux_next_k) CUDA_CHECK(cudaFree(d_ux_next_k));
+        if (d_uy_next_k) CUDA_CHECK(cudaFree(d_uy_next_k));
+        if (d_uz_next_k) CUDA_CHECK(cudaFree(d_uz_next_k));
         CUDA_CHECK(cudaFree(d_uxx_k));
         CUDA_CHECK(cudaFree(d_uyy_k));
         CUDA_CHECK(cudaFree(d_uzz_k));
@@ -32793,6 +34420,16 @@ gp_post_birth_skip_to_finalize:
     CUDA_CHECK(cudaFree(d_dY_dt_prev_r));
     CUDA_CHECK(cudaFree(d_dY_dt_picard_r));
     CUDA_CHECK(cudaFree(d_dY_dt_picard_old_r));
+    if (d_minimize_component_labels)
+        CUDA_CHECK(cudaFree(d_minimize_component_labels));
+    if (d_minimize_component_hpg)
+        CUDA_CHECK(cudaFree(d_minimize_component_hpg));
+    if (d_minimize_component_hp2)
+        CUDA_CHECK(cudaFree(d_minimize_component_hp2));
+    if (d_minimize_component_hsum)
+        CUDA_CHECK(cudaFree(d_minimize_component_hsum));
+    if (d_minimize_component_lambdas)
+        CUDA_CHECK(cudaFree(d_minimize_component_lambdas));
     // 优化：不再需要释放d_xBtot_r
     CUDA_CHECK(cudaFree(d_mu_x_r));
     // Optimization: d_Y_rhs_r 复用 d_mu_x_r，不需要单独释放
@@ -32834,6 +34471,8 @@ gp_post_birth_skip_to_finalize:
     free(h_Y_r);
     free(h_xB_r);
     free(h_xBtot_r);
+    free(h_dY_dt_prev_r);
+    if (h_minimize_component_labels) free(h_minimize_component_labels);
     if (step_wall_s) free(step_wall_s);
 
     if (csv_fp) {
@@ -32859,6 +34498,12 @@ gp_post_birth_skip_to_finalize:
     }
     if (pf_zero_mode_trace_fp) {
         fclose(pf_zero_mode_trace_fp);
+    }
+    if (elastic_solver_trace_fp) {
+        fclose(elastic_solver_trace_fp);
+    }
+    if (minimize_mass_constraint_trace_fp) {
+        fclose(minimize_mass_constraint_trace_fp);
     }
     if (scheduled_runtime.events_csv) {
         fclose(scheduled_runtime.events_csv);
@@ -33077,7 +34722,43 @@ gp_post_birth_skip_to_finalize:
                pf_zero_mode_provenance.explicit_context.c_str());
         printf("pf_reaction_discretization=%s\n",
                pf_zero_mode_provenance.reaction_discretization.c_str());
+        printf("initial_state_class=%s\n",
+               pf_zero_mode_provenance.initial_state_class.c_str());
+        printf("fixture_manifest_sha256=%s\n",
+               pf_zero_mode_provenance.fixture_manifest_sha256.c_str());
+        printf("profile_library_manifest_sha256=%s\n",
+               pf_zero_mode_provenance
+                   .profile_library_manifest_sha256.c_str());
         printf("gp_enabled=false\n");
+    }
+    if (elastic_accelerated_solver_enabled) {
+        log_kv_text("elastic_solver_mode", "%s",
+                    pf_zero_mode::kElasticWarmStartResidualV1);
+        log_kv_text("elastic_solver_wall_s", "%.9f",
+                    elastic_solver_wall_s_total);
+        log_kv_text("elastic_solver_mean_iterations", "%.9f",
+                    steps_completed > 0
+                        ? static_cast<double>(
+                              elastic_solver_iterations_total) /
+                              static_cast<double>(steps_completed)
+                        : 0.0);
+        log_kv_text("elastic_solver_nonconverged_steps", "%llu",
+                    static_cast<unsigned long long>(
+                        elastic_solver_nonconverged_steps));
+        printf("elastic_solver_status=%s\n",
+               elastic_solver_nonconverged_steps == 0U
+                   ? "PASS_ELASTIC_WARM_START_RESIDUAL_V1"
+                   : "FAIL_ELASTIC_WARM_START_RESIDUAL_V1");
+    }
+    if (minimize_mass_constraint_enabled) {
+        log_kv_text("minimize_mass_constraint_mode", "%s",
+                    "MINIMIZE_CONSERVED_MASS_CONSTRAINT_V1");
+        log_kv_text("minimize_mass_constraint_target_code", "%.17e",
+                    minimize_mass_constraint_runtime.target_mass_code);
+        log_kv_text("minimize_mass_constraint_last_residual_code", "%.17e",
+                    minimize_mass_constraint_runtime.last_residual_code);
+        log_kv_text("minimize_mass_constraint_wall_s", "%.9f",
+                    minimize_mass_constraint_wall_s);
     }
     if (P.enable_gp_assisted_beta_nucleation) {
         const int mass_ok = (gp_assisted_runtime.max_abs_rel_drift <= 1.0e-8) ? 1 : 0;
@@ -33115,5 +34796,9 @@ gp_post_birth_skip_to_finalize:
                    (mass_ok && reservoir_ok) ? "true" : "false");
         }
     }
-    return pf_zero_mode_final_status ? 0 : 2;
+    return (pf_zero_mode_final_status &&
+            (!elastic_accelerated_solver_enabled ||
+             elastic_solver_nonconverged_steps == 0U))
+               ? 0
+               : 2;
 }

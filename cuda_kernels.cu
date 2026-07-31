@@ -582,6 +582,50 @@ __global__ void add_volume_constraint_kernel(
     rhs_r[idx] += lambda * hp;
 }
 
+// Component-local version of the h-volume constraint.  The ownership label
+// is a fixed, periodic Voronoi partition materialized with the fixture.  It
+// is intentionally independent of the evolving thresholded geometry: that
+// prevents a component from changing owners while its constrained profile is
+// being relaxed.
+__global__ void compute_component_constraint_moments_kernel(
+    const double *phi_r, const double *rhs_r, const int *labels,
+    double *sum_hprime_rhs, double *sum_hprime_sq, double *sum_h,
+    int component_count, int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int component = labels[idx];
+    if (component < 0 || component >= component_count) return;
+    const double phi = phi_r[idx];
+    const double hp = h_prime_of_phi(phi);
+    atomicAdd(&sum_hprime_rhs[component], hp * rhs_r[idx]);
+    atomicAdd(&sum_hprime_sq[component], hp * hp);
+    atomicAdd(&sum_h[component], h_of_phi(clamp01(phi)));
+}
+
+__global__ void add_component_volume_constraint_kernel(
+    const double *phi_r, double *rhs_r, const int *labels,
+    const double *lambdas, int component_count, int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int component = labels[idx];
+    if (component < 0 || component >= component_count) return;
+    rhs_r[idx] += lambdas[component] * h_prime_of_phi(phi_r[idx]);
+}
+
+__global__ void apply_component_volume_projection_kernel(
+    double *phi_r, const int *labels, const double *lambdas,
+    int component_count, int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const int component = labels[idx];
+    if (component < 0 || component >= component_count) return;
+    phi_r[idx] = clamp01(phi_r[idx] +
+                         lambdas[component] * h_prime_of_phi(phi_r[idx]));
+}
+
 // Minimize: g = rhs_r - kappa*lap_r (in-place: rhs_r -= kappa*lap_r)
 __global__ void subtract_scaled_kernel(double *rhs_r, const double *lap_r, double scale, int total_size)
 {
@@ -635,6 +679,29 @@ __global__ void compute_hprime_times_rhs_kernel(
     if (idx >= total_size) return;
     double hp = h_prime_of_phi(phi_r[idx]);
     out_r[idx] = hp * rhs_r[idx];
+}
+
+__global__ void compute_projected_phi_kkt_residual_sq_kernel(
+    const double *phi_r,
+    const double *residual_r,
+    double *out_r,
+    double bound_eps,
+    int total_size)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_size) return;
+    const double phi = phi_r[idx];
+    double residual = residual_r[idx];
+    // The descent direction is -residual.  At the lower bound a positive
+    // residual only points out of the feasible interval; at the upper bound
+    // a negative residual does the same.  Those active-bound components
+    // satisfy the complementarity condition and must not inflate the KKT
+    // norm.
+    if ((phi <= bound_eps && residual > 0.0) ||
+        (phi >= 1.0 - bound_eps && residual < 0.0)) {
+        residual = 0.0;
+    }
+    out_r[idx] = residual * residual;
 }
 
 // Full Euler-Lagrange residual: res = δF/δφ - λ h' = (f - κ lap φ) - λ h' = rhs - κ*lap_phi - λ h'
@@ -4188,6 +4255,38 @@ void launch_add_volume_constraint_kernel(const double *phi_r, double *rhs_r,
     add_volume_constraint_kernel<<<blocks, threads>>>(phi_r, rhs_r, lambda, total_size);
 }
 
+void launch_compute_component_constraint_moments_kernel(
+    const double *phi_r, const double *rhs_r, const int *labels,
+    double *sum_hprime_rhs, double *sum_hprime_sq, double *sum_h,
+    int component_count, int total_size)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_component_constraint_moments_kernel<<<blocks, threads>>>(
+        phi_r, rhs_r, labels, sum_hprime_rhs, sum_hprime_sq, sum_h,
+        component_count, total_size);
+}
+
+void launch_add_component_volume_constraint_kernel(
+    const double *phi_r, double *rhs_r, const int *labels,
+    const double *lambdas, int component_count, int total_size)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    add_component_volume_constraint_kernel<<<blocks, threads>>>(
+        phi_r, rhs_r, labels, lambdas, component_count, total_size);
+}
+
+void launch_apply_component_volume_projection_kernel(
+    double *phi_r, const int *labels, const double *lambdas,
+    int component_count, int total_size)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    apply_component_volume_projection_kernel<<<blocks, threads>>>(
+        phi_r, labels, lambdas, component_count, total_size);
+}
+
 void launch_apply_volume_projection_kernel(double *phi_r, double lambda_correct, int total_size)
 {
     int threads, blocks;
@@ -4215,6 +4314,16 @@ void launch_compute_hprime_times_rhs_kernel(const double *phi_r, const double *r
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
     compute_hprime_times_rhs_kernel<<<blocks, threads>>>(phi_r, rhs_r, out_r, total_size);
+}
+
+void launch_compute_projected_phi_kkt_residual_sq_kernel(
+    const double *phi_r, const double *residual_r, double *out_r,
+    double bound_eps, int total_size)
+{
+    int threads, blocks;
+    configure_launch(total_size, threads, blocks);
+    compute_projected_phi_kkt_residual_sq_kernel<<<blocks, threads>>>(
+        phi_r, residual_r, out_r, bound_eps, total_size);
 }
 
 void launch_compute_euler_lagrange_residual_kernel(const double *rhs_r,
@@ -6323,6 +6432,54 @@ __global__ void add_external_strain_kernel(
 // 6. Green函数方法：从hij计算新的k空间位移（第二次迭代及之后）
 // 按照SDV_Poly.c:1217-1226行的公式
 // ============================================================================
+
+__global__ void compute_elastic_displacement_residual_kernel(
+    const cufftComplex *old_ux, const cufftComplex *old_uy,
+    const cufftComplex *old_uz, const cufftComplex *new_ux,
+    const cufftComplex *new_uy, const cufftComplex *new_uz,
+    double *difference_sq, double *reference_sq,
+    int Nz, int NzC, int total_k)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= total_k) return;
+
+    const int k = idx % NzC;
+    const double hermitian_weight =
+        (k == 0 || ((Nz % 2) == 0 && k == Nz / 2)) ? 1.0 : 2.0;
+    const cufftComplex old_values[3] = {
+        old_ux[idx], old_uy[idx], old_uz[idx]};
+    const cufftComplex new_values[3] = {
+        new_ux[idx], new_uy[idx], new_uz[idx]};
+    double local_difference = 0.0;
+    double local_reference = 0.0;
+    for (int component = 0; component < 3; ++component) {
+        const double dr =
+            (double)new_values[component].x - (double)old_values[component].x;
+        const double di =
+            (double)new_values[component].y - (double)old_values[component].y;
+        const double nr = (double)new_values[component].x;
+        const double ni = (double)new_values[component].y;
+        local_difference += dr * dr + di * di;
+        local_reference += nr * nr + ni * ni;
+    }
+    difference_sq[idx] = hermitian_weight * local_difference;
+    reference_sq[idx] = hermitian_weight * local_reference;
+}
+
+void launch_compute_elastic_displacement_residual_kernel(
+    const cufftComplex *old_ux, const cufftComplex *old_uy,
+    const cufftComplex *old_uz, const cufftComplex *new_ux,
+    const cufftComplex *new_uy, const cufftComplex *new_uz,
+    double *difference_sq, double *reference_sq,
+    int Nz, int NzC, int total_k)
+{
+    const int threads = 256;
+    const int blocks = (total_k + threads - 1) / threads;
+    compute_elastic_displacement_residual_kernel<<<blocks, threads>>>(
+        old_ux, old_uy, old_uz, new_ux, new_uy, new_uz,
+        difference_sq, reference_sq, Nz, NzC, total_k);
+    CUDA_CHECK(cudaGetLastError());
+}
 
 __global__ void compute_displacement_from_hij_green_kernel(
     const cufftComplex *k_uxx, const cufftComplex *k_uyy, const cufftComplex *k_uzz,

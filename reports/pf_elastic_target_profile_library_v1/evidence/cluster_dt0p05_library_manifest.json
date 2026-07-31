@@ -1,0 +1,112 @@
+{
+  "binary_sha256": "5bc974703227b10d6ad4f49e5c4f9fe7a2b294113013b0d63b078de459e656f1",
+  "canonical_content_sha256": "420b6ae0bcb6f612e0b4507dc8b6bed77f7ae79a3496f3ab7d21bcb28885137f",
+  "grid": {
+    "Nx": 96,
+    "Ny": 96,
+    "Nz": 96,
+    "dx_nm": 1.0
+  },
+  "interpolation_status": "NOT_YET_QUALIFIED",
+  "lambda_sm_nm": 4.0,
+  "orientation_scope": "single_frozen_identity_variant",
+  "profile_count": 8,
+  "profiles": [
+    {
+      "actual_radius_nm": 8.000000000084492,
+      "axis_ratio_major_minor": 1.348234320411724,
+      "far_field_xB_mean": 0.006308111112363215,
+      "mass_error_relative": 2.35864019114932e-16,
+      "profile_directory_sha256": "c29c0b410b5c9834372261d010f8919d35f37da77bd185e9361ef137db304be9",
+      "profile_manifest_path": "../profiles/R8p0/profile_manifest.json",
+      "profile_manifest_sha256": "2bc217a62c2d228f98713916d8f5edcefbf1bf3c2957ab642d738b5645089c74",
+      "target_radius_nm": 8.0
+    },
+    {
+      "actual_radius_nm": 8.500000000169933,
+      "axis_ratio_major_minor": 1.3701492055559346,
+      "far_field_xB_mean": 0.006313735542783164,
+      "mass_error_relative": 2.2340821254451063e-16,
+      "profile_directory_sha256": "36991486e9700fd097693e9f4eb9219ec72efbf1bd062f1177397f817c80bdef",
+      "profile_manifest_path": "../profiles/R8p5/profile_manifest.json",
+      "profile_manifest_sha256": "ccd0c9b93e15c3c05cc72a8824ebcd8292bd4f1547a80e48a7be18734e4b4815",
+      "target_radius_nm": 8.5
+    },
+    {
+      "actual_radius_nm": 9.00000000022202,
+      "axis_ratio_major_minor": 1.3912007257338586,
+      "far_field_xB_mean": 0.006319349504586727,
+      "mass_error_relative": 2.108963713348545e-16,
+      "profile_directory_sha256": "5fba9babaa96208aeb4e425fbb3c6ba1844139cb4f0e8de58cd6589d463c11a4",
+      "profile_manifest_path": "../profiles/R9p0/profile_manifest.json",
+      "profile_manifest_sha256": "ab3341a968cb10d6e3a463c3d9392f56bd396ff78f9cfdef8941521e437b00f4",
+      "target_radius_nm": 9.0
+    },
+    {
+      "actual_radius_nm": 9.500000000192491,
+      "axis_ratio_major_minor": 1.4117671010448203,
+      "far_field_xB_mean": 0.006324936454530665,
+      "mass_error_relative": 3.969740217809937e-16,
+      "profile_directory_sha256": "3ffbb86647cbc55a93f454dbe0778ced5fa53a2a0d56f3ebfe63771c03ce7386",
+      "profile_manifest_path": "../profiles/R9p5/profile_manifest.json",
+      "profile_manifest_sha256": "2a43b62c71e396f74fba9dd0b778aa8c90f90cba8094fe9031b3d163505379fb",
+      "target_radius_nm": 9.5
+    },
+    {
+      "actual_radius_nm": 10.000000000277327,
+      "axis_ratio_major_minor": 1.4325707561672563,
+      "far_field_xB_mean": 0.006330607913386654,
+      "mass_error_relative": 1.8631802335437667e-16,
+      "profile_directory_sha256": "93cf112ecc2983f606d311449a692c1dbbfa1291010847614e36d6a478d93c80",
+      "profile_manifest_path": "../profiles/R10p0/profile_manifest.json",
+      "profile_manifest_sha256": "753d68994e4b87db60f2e1d2a789358e7422f279a86fc5544395146ec8cbe5a8",
+      "target_radius_nm": 10.0
+    },
+    {
+      "actual_radius_nm": 10.500000000316946,
+      "axis_ratio_major_minor": 1.4526638308862172,
+      "far_field_xB_mean": 0.00633627629356277,
+      "mass_error_relative": 0.0,
+      "profile_directory_sha256": "069a122b0fca34be9e0f5162aa3d9a4a93b8b8712fae804a4179b4366bf33ad3",
+      "profile_manifest_path": "../profiles/R10p5/profile_manifest.json",
+      "profile_manifest_sha256": "b81cc48c01b144e173e400ab2c8ecffef56fb4580e988198c4f68415b4f91f66",
+      "target_radius_nm": 10.5
+    },
+    {
+      "actual_radius_nm": 11.000000000347194,
+      "axis_ratio_major_minor": 1.4738698095008107,
+      "far_field_xB_mean": 0.006341958426114426,
+      "mass_error_relative": 0.0,
+      "profile_directory_sha256": "4e1ee44c9b36ada4c84bb6057744aeaa6f19b9e5c161d31639ab98d48583c7b9",
+      "profile_manifest_path": "../profiles/R11p0/profile_manifest.json",
+      "profile_manifest_sha256": "4a7e1b474763c1c68a6c8aa7a6a9d486894ccc5325cf7d68e6b2c33cc2820d86",
+      "target_radius_nm": 11.0
+    },
+    {
+      "actual_radius_nm": 11.500000000386903,
+      "axis_ratio_major_minor": 1.4945948046462407,
+      "far_field_xB_mean": 0.006347676357932525,
+      "mass_error_relative": 3.0454623131766526e-16,
+      "profile_directory_sha256": "db1847f1610342e08a135476d9a7b628252bbb5dfd72caa498cdb657be218a5a",
+      "profile_manifest_path": "../profiles/R11p5/profile_manifest.json",
+      "profile_manifest_sha256": "240b07696e611bd7beba254d94dde5668fc7cadd89713b8b610ff8181dc119db",
+      "target_radius_nm": 11.5
+    }
+  ],
+  "radius_ladder_nm": [
+    8.0,
+    8.5,
+    9.0,
+    9.5,
+    10.0,
+    10.5,
+    11.0,
+    11.5
+  ],
+  "schema": "PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1",
+  "scientific_role": "radius_resolved_single_variant_elastic_profile_library",
+  "source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+  "source_tree_sha256": "f22202bdde8bd93732fa43fe95f68c8ca5816723e24204c8569e46d88bad2c90",
+  "temperature_C": 380.0,
+  "v_B": 1.0
+}

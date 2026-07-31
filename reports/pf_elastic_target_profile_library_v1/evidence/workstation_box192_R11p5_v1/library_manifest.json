@@ -1,0 +1,35 @@
+{
+  "binary_sha256": "23d4d365de19c26670ed5d64f9f732ae71b555d2ef3ac57f7f5452467b7902d0",
+  "canonical_content_sha256": "52d3ffa21cb2dbcd59e099995a31c459eebe3a15c09dd9110032802a3b3dea4d",
+  "grid": {
+    "Nx": 192,
+    "Ny": 192,
+    "Nz": 192,
+    "dx_nm": 1.0
+  },
+  "interpolation_status": "NOT_YET_QUALIFIED",
+  "lambda_sm_nm": 4.0,
+  "orientation_scope": "single_frozen_identity_variant",
+  "profile_count": 1,
+  "profiles": [
+    {
+      "actual_radius_nm": 11.500000000752285,
+      "axis_ratio_major_minor": 1.5021379510723651,
+      "far_field_xB_mean": 0.006235218007347056,
+      "mass_error_relative": 7.209269490306325e-16,
+      "profile_directory_sha256": "cdf8dc5c7248438876b787e05169a421bd94f02557feda1a235987b88c4436dc",
+      "profile_manifest_path": "../profiles/R11p5/profile_manifest.json",
+      "profile_manifest_sha256": "2159268ee65e182bf9c06d45cf69923e9a8934165c302268508a4fb831a40897",
+      "target_radius_nm": 11.5
+    }
+  ],
+  "radius_ladder_nm": [
+    11.5
+  ],
+  "schema": "PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1",
+  "scientific_role": "radius_resolved_single_variant_elastic_profile_library",
+  "source_commit": "NO_GIT_COMMIT",
+  "source_tree_sha256": "f22202bdde8bd93732fa43fe95f68c8ca5816723e24204c8569e46d88bad2c90",
+  "temperature_C": 380.0,
+  "v_B": 1.0
+}

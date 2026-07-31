@@ -1,0 +1,22 @@
+{
+  "base_run_root": "/data/home/luozhiheng/tmp/pf_elastic_target_profile_cluster_full_minpt300_dt0p05_v12_20260730",
+  "base_run_status": "runner_status=PASS_PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1\nrun_label=cluster_full_minpt300_dt0p05_v12\ngrid=96x96x96\nradii_nm=8.0 8.5 9.0 9.5 10.0 10.5 11.0 11.5\nminimize_dt=0.05\nmin_pseudo_time=300\nelastic_enabled=true\ngp_enabled=false\nsource_commit=5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d\nsource_tree_sha256=f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75\nbinary_sha256=55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1\nlibrary_manifest_sha256=0fd1875f7271726d0ee383b0561669b5e4ffc3ba68aae6f623dd739d57de21c3",
+  "binary_sha256": "55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1",
+  "extension_run_root": "/data/home/luozhiheng/tmp/pf_elastic_target_profile_cluster_minpt314_dt0p05_R11p5_contract_v17_20260730",
+  "extension_run_status": "runner_status=PASS_PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1\nrun_label=cluster_minpt314_dt0p05_R11p5_contract_v17\ngrid=96x96x96\nradii_nm=11.5\nminimize_dt=0.05\nmin_pseudo_time=314\nelastic_enabled=true\ngp_enabled=false\nsource_commit=5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d\nsource_tree_sha256=f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75\nbinary_sha256=55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1\nlibrary_manifest_sha256=6342c08af87d8857e0567982632d94cd49989f3135b1c1c3270613f086325e67",
+  "library_manifest_sha256": "fbd5bc65e7d477475c1f4ab572bfe110915921ded9f3075c18a4d7f9ae0937b1",
+  "profile_manifest_sha256": {
+    "10.0": "131ab22db23e1bb42889e4d0c4b866f2cf7d551f91423e2c4aabacbab04678f2",
+    "10.5": "83e0968e9c2f874e0767081b08c3603e23d6f633cb97cc9bddda0fd0daafde50",
+    "11.0": "5037e591881617cca8b2c961c374d7b6fbea027421af1cf90e203619a7eef434",
+    "11.5": "6af24421c53159fac4e887b38b9abfdbb263412011e3ed2d45fa82037e51db90",
+    "8.0": "10bfe6686f5cfa95a972f254d9df49df63fe42e6c6662021a4b4680539c8bc3d",
+    "8.5": "21ad93fb3252356bc8a741704e42eaf5690d97ff2a54691dab328c8a14d3296c",
+    "9.0": "206754573dc5609150e665efa1a1481df0a9f8dd654ad676d0e96996e81e55c0",
+    "9.5": "5cdb986073f7927597dad3ac2de91b4d5bd6369b68cb2d8919ada77d87cf7c1d"
+  },
+  "schema": "PF_ELASTIC_TARGET_PROFILE_SELECTION_PROVENANCE_V1",
+  "selection_status": "PASS_REUSE_ONLY_INDIVIDUALLY_QUALIFIED_PROFILES",
+  "source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+  "source_tree_sha256": "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75"
+}

@@ -1,0 +1,9 @@
+status=PASS_246CUBE_SHORT_RESTART_AND_OBSERVABLES_V1
+replicate=replicate_B
+restart_status=PASS_BYTEWISE
+particle_identity_status=PASS
+particle_count=96
+mass_relative_error=1.764705485777036e-13
+zero_mode_status=PASS
+GP_enabled=false
+new_beta_nucleation_enabled=false

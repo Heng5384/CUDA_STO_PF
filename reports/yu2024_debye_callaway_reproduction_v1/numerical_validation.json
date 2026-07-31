@@ -1,0 +1,291 @@
+{
+  "asymptotic_slopes": {
+    "expected": {
+      "phonon_phonon": 2.0,
+      "point_defect": 4.0,
+      "precipitate_geometric": 0.0,
+      "precipitate_rayleigh": 4.0
+    },
+    "pass": true,
+    "phonon_phonon_low_frequency": 2.0,
+    "point_defect_low_frequency": 4.0,
+    "precipitate_small_geometric": 2.122484753878598e-12,
+    "precipitate_small_rayleigh": 4.0
+  },
+  "convergence": {
+    "grid_threshold": 0.005,
+    "max_gauss_vs_quad_relative_difference": 6.806179356253289e-14,
+    "max_grid_refinement_relative_difference": 6.613411749213447e-14,
+    "pass": true,
+    "quad_threshold": 0.002,
+    "rows": [
+      {
+        "T_K": 303.06,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 7.106397847060352e-15,
+        "gauss_vs_quad_relative_difference": 3.083908499667687e-15,
+        "kappa_gauss_W_mK": 1.6560238132311818,
+        "kappa_gauss_refined_W_mK": 1.65602381323117,
+        "kappa_quad_W_mK": 1.6560238132311766,
+        "quad_reported_abs_error": 1.831350238120999e-14,
+        "state": "AQ"
+      },
+      {
+        "T_K": 322.42,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 7.253833777631634e-15,
+        "gauss_vs_quad_relative_difference": 2.9294328717358397e-15,
+        "kappa_gauss_W_mK": 1.5917540724060495,
+        "kappa_gauss_refined_W_mK": 1.591754072406038,
+        "kappa_quad_W_mK": 1.5917540724060448,
+        "quad_reported_abs_error": 5.084163096705543e-11,
+        "state": "AQ"
+      },
+      {
+        "T_K": 370.8,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 7.191561052157383e-15,
+        "gauss_vs_quad_relative_difference": 3.060238745598874e-15,
+        "kappa_gauss_W_mK": 1.4511587061262368,
+        "kappa_gauss_refined_W_mK": 1.4511587061262263,
+        "kappa_quad_W_mK": 1.4511587061262323,
+        "quad_reported_abs_error": 7.063311711786249e-11,
+        "state": "AQ"
+      },
+      {
+        "T_K": 420.95,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 7.180740066378226e-15,
+        "gauss_vs_quad_relative_difference": 2.671903280512816e-15,
+        "kappa_gauss_W_mK": 1.3296565428515965,
+        "kappa_gauss_refined_W_mK": 1.329656542851587,
+        "kappa_quad_W_mK": 1.329656542851593,
+        "quad_reported_abs_error": 2.8937110017128692e-11,
+        "state": "AQ"
+      },
+      {
+        "T_K": 473.74,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 6.903791266202463e-15,
+        "gauss_vs_quad_relative_difference": 2.725180762974645e-15,
+        "kappa_gauss_W_mK": 1.2221828067800973,
+        "kappa_gauss_refined_W_mK": 1.2221828067800888,
+        "kappa_quad_W_mK": 1.222182806780094,
+        "quad_reported_abs_error": 1.368091251071631e-14,
+        "state": "AQ"
+      },
+      {
+        "T_K": 523.0,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 7.227994825618153e-15,
+        "gauss_vs_quad_relative_difference": 2.9302681725478875e-15,
+        "kappa_gauss_W_mK": 1.136643091263364,
+        "kappa_gauss_refined_W_mK": 1.1366430912633558,
+        "kappa_quad_W_mK": 1.1366430912633607,
+        "quad_reported_abs_error": 1.2851460701557005e-14,
+        "state": "AQ"
+      },
+      {
+        "T_K": 573.15,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 7.323484313609376e-15,
+        "gauss_vs_quad_relative_difference": 2.72015131648347e-15,
+        "kappa_gauss_W_mK": 1.0611835623016366,
+        "kappa_gauss_refined_W_mK": 1.0611835623016288,
+        "kappa_quad_W_mK": 1.0611835623016337,
+        "quad_reported_abs_error": 1.1888816402177268e-14,
+        "state": "AQ"
+      },
+      {
+        "T_K": 303.94,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 4.800662342082943e-14,
+        "gauss_vs_quad_relative_difference": 5.1034068141061764e-14,
+        "kappa_gauss_W_mK": 1.0268146097516748,
+        "kappa_gauss_refined_W_mK": 1.0268146097517241,
+        "kappa_quad_W_mK": 1.0268146097517272,
+        "quad_reported_abs_error": 9.282377503075546e-11,
+        "state": "48h"
+      },
+      {
+        "T_K": 323.3,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 4.9185488531787716e-14,
+        "gauss_vs_quad_relative_difference": 5.2072221493021156e-14,
+        "kappa_gauss_W_mK": 0.9999469652335767,
+        "kappa_gauss_refined_W_mK": 0.9999469652336259,
+        "kappa_quad_W_mK": 0.9999469652336288,
+        "quad_reported_abs_error": 9.283407559706976e-11,
+        "state": "48h"
+      },
+      {
+        "T_K": 371.35,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 5.2501124596731235e-14,
+        "gauss_vs_quad_relative_difference": 5.522077744746266e-14,
+        "kappa_gauss_W_mK": 0.9389113599372964,
+        "kappa_gauss_refined_W_mK": 0.9389113599373456,
+        "kappa_quad_W_mK": 0.9389113599373482,
+        "quad_reported_abs_error": 9.285968456976906e-11,
+        "state": "48h"
+      },
+      {
+        "T_K": 420.52,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 5.577790102119323e-14,
+        "gauss_vs_quad_relative_difference": 5.778791547240729e-14,
+        "kappa_gauss_W_mK": 0.8837532677076646,
+        "kappa_gauss_refined_W_mK": 0.8837532677077139,
+        "kappa_quad_W_mK": 0.8837532677077157,
+        "quad_reported_abs_error": 2.2302736328351715e-13,
+        "state": "48h"
+      },
+      {
+        "T_K": 471.83,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 5.958942817006052e-14,
+        "gauss_vs_quad_relative_difference": 6.132245404525233e-14,
+        "kappa_gauss_W_mK": 0.8328149929398986,
+        "kappa_gauss_refined_W_mK": 0.8328149929399482,
+        "kappa_quad_W_mK": 0.8328149929399496,
+        "quad_reported_abs_error": 2.2241444607959344e-13,
+        "state": "48h"
+      },
+      {
+        "T_K": 522.02,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 6.27983921333812e-14,
+        "gauss_vs_quad_relative_difference": 6.476964211066209e-14,
+        "kappa_gauss_W_mK": 0.7884906797153188,
+        "kappa_gauss_refined_W_mK": 0.7884906797153683,
+        "kappa_quad_W_mK": 0.7884906797153699,
+        "quad_reported_abs_error": 2.2187597642254543e-13,
+        "state": "48h"
+      },
+      {
+        "T_K": 572.27,
+        "gauss_order": 256,
+        "gauss_refined_order": 512,
+        "gauss_refinement_relative_difference": 6.613411749213447e-14,
+        "gauss_vs_quad_relative_difference": 6.806179356253289e-14,
+        "kappa_gauss_W_mK": 0.7487201580057038,
+        "kappa_gauss_refined_W_mK": 0.7487201580057533,
+        "kappa_quad_W_mK": 0.7487201580057548,
+        "quad_reported_abs_error": 2.2138796974278028e-13,
+        "state": "48h"
+      }
+    ]
+  },
+  "determinism": {
+    "in_process_numeric_signatures": {
+      "48h": {
+        "first": "aa59842c49562f06f439accadec3e80824d67418b4ab28ea6d0ae5dcd567737c",
+        "second": "aa59842c49562f06f439accadec3e80824d67418b4ab28ea6d0ae5dcd567737c"
+      },
+      "AQ": {
+        "first": "3299bd36083c13bb09d895c652ec0bb00723e827750af418aa551275cea8ddfc",
+        "second": "3299bd36083c13bb09d895c652ec0bb00723e827750af418aa551275cea8ddfc"
+      }
+    },
+    "pass": true
+  },
+  "experiment_comparison_metrics": {
+    "48h": {
+      "experiment_MAE_W_mK": 0.6672211381012666,
+      "experiment_MAPE": 0.4174015233446936,
+      "experiment_RMSE_W_mK": 0.703435449677811,
+      "experiment_max_relative_error": 0.49665950502368883,
+      "yu_model_MAE_W_mK": 0.698326755282695,
+      "yu_model_MAPE": 0.4334836087226794,
+      "yu_model_RMSE_W_mK": 0.7215757165238541,
+      "yu_model_max_relative_error": 0.48640441545371743
+    },
+    "AQ": {
+      "experiment_MAE_W_mK": 0.01624497389890161,
+      "experiment_MAPE": 0.012049684428513495,
+      "experiment_RMSE_W_mK": 0.019917466668108785,
+      "experiment_max_relative_error": 0.030013645412621217,
+      "yu_model_MAE_W_mK": 0.007813482632880302,
+      "yu_model_MAPE": 0.005452338855347364,
+      "yu_model_RMSE_W_mK": 0.009097895188328197,
+      "yu_model_max_relative_error": 0.01011323316711223
+    }
+  },
+  "input_hashes": {
+    "48h_digitized_model": "1bdeecee45b64e5fdec9ddbe8e21a2d33213cdd26fe9cef25c6bbaf87237a27b",
+    "48h_experiment": "de02f0e4e41bc52eabd12f61b64b8b7a8893c39e8d4751c5076283960545ec15",
+    "48h_parameters": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f",
+    "AQ_digitized_model": "c75a99e7b15314d855c6e73fde858de232673197f31c6471b2e7dd5aeaa28749",
+    "AQ_experiment": "a4175a1a11b1cc9fb8a0685e2b53d1688f37022728a72e431e870e8819c101d2",
+    "AQ_parameters": "01f6a5d8dd8e922a4f1f210e3a7801445c9fbe2f9a812087300bbdba0ff75edb",
+    "figure6b_digitization_contract": "282d640a83af740665c0b46b4328d93961bd3bfd182388bc2a3d1a0653fcea59",
+    "implementation": "c394ec20ff97bed9f1ff7578781c9fb010b7bc1ac5a142cdf8b4003ad0b7ce4b"
+  },
+  "input_isolation": {
+    "PF_data_used": false,
+    "Sheskin_data_used": false,
+    "loaded_scientific_inputs": [
+      "yu_AQ_parameters.json",
+      "yu_48h_parameters.json",
+      "yu_AQ_kappaL_digitized.csv (SI Table S1)",
+      "yu_48h_kappaL_digitized.csv (SI Table S1)"
+    ],
+    "pass": true
+  },
+  "overall_numerical_pass": true,
+  "positivity": {
+    "full_total_rates_finite_positive": true,
+    "kappa_finite_positive": true,
+    "note": "Mechanisms with a published zero density have zero rate and infinite individual relaxation time by construction.",
+    "pass": true
+  },
+  "precipitate_continuity": {
+    "crossover_omega_rad_s": 14868797866655.736,
+    "pass": true,
+    "rate_above_s-1": 167152039893.80606,
+    "rate_below_s-1": 166484766281.45786,
+    "relative_change_across_0.2_percent_interval": 0.003992015968050007
+  },
+  "source_contract": {
+    "callaway_second_term_present": false,
+    "normal_umklapp_separable": false,
+    "refit_performed": false
+  },
+  "state_isolation": {
+    "pass": true,
+    "shared_parameters_identical": true,
+    "state_specific_keys": [
+      "big_precipitate_number_density_m3",
+      "big_precipitate_radius_m",
+      "dislocation_density_m2",
+      "grain_size_m",
+      "interstitial_Ag_fraction",
+      "small_precipitate_number_density_m3",
+      "small_precipitate_radius_m",
+      "solid_solution_lattice_constant_angstrom"
+    ]
+  },
+  "unit_checks": {
+    "angstrom_to_m": 1e-10,
+    "cm^-2_to_m^-2": 10000.0,
+    "g_cm^-3_to_kg_m^-3": 1000.0,
+    "gamma_prime_derived": 2.617789692651021,
+    "gamma_prime_published": 2.62,
+    "gamma_prime_relative_difference": 0.0008436287591522822,
+    "pass": true,
+    "published_Vm_Vi_unit_typo": "Table S2 prints m^-3; values are used as m^3/atom because Eq. S15 and dimensional consistency require volumes"
+  }
+}

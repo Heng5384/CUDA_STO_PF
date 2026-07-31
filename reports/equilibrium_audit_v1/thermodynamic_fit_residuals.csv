@@ -1,0 +1,2 @@
+dataset,model_status,residual,note
+all external fit targets,NOT_FIT,NA,equilibrium audit does not refit kinetic S_GP or mobility

@@ -1,0 +1,3 @@
+route,T_C,T_K,xB_alpha,xAg_alpha,residual_J_mol,equation
+runtime_reaction_root,380.0,653.15,0.004664951821454188,0.004654096254055399,-2.9103830456733704e-11,"mu_Ag2Te(xB,T)-G_Ag2Te^0(T)=0"
+common_tangent_to_pure_beta,380.0,653.15,0.004664951821454188,0.004654096254055399,-2.955857780762017e-11,"g'(x)=[g(1)-g(x)]/(1-x), g(1)=G_Ag2Te^0"

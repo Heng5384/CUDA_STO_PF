@@ -1,0 +1,2 @@
+stage,replicate,gate,observed,required,status
+Stage8,replicate_C,original_strict_lineage_merge,merge_count=1,explicit_resolved_merge_group_or_no_merge,RESOLVED_BY_MULTI_THRESHOLD_MERGE_AWARE_AUDIT

@@ -1,0 +1,30 @@
+{
+  "PF_data_used": false,
+  "Sheskin_data_used": false,
+  "doi": "10.1002/aenm.202304442",
+  "metrics": {
+    "48h": {
+      "experiment_MAE_W_mK": 0.6672211381012666,
+      "experiment_MAPE": 0.4174015233446936,
+      "experiment_RMSE_W_mK": 0.703435449677811,
+      "experiment_max_relative_error": 0.49665950502368883,
+      "yu_model_MAE_W_mK": 0.698326755282695,
+      "yu_model_MAPE": 0.4334836087226794,
+      "yu_model_RMSE_W_mK": 0.7215757165238541,
+      "yu_model_max_relative_error": 0.48640441545371743
+    },
+    "AQ": {
+      "experiment_MAE_W_mK": 0.01624497389890161,
+      "experiment_MAPE": 0.012049684428513495,
+      "experiment_RMSE_W_mK": 0.019917466668108785,
+      "experiment_max_relative_error": 0.030013645412621217,
+      "yu_model_MAE_W_mK": 0.007813482632880302,
+      "yu_model_MAPE": 0.005452338855347364,
+      "yu_model_RMSE_W_mK": 0.009097895188328197,
+      "yu_model_max_relative_error": 0.01011323316711223
+    }
+  },
+  "model": "Yu 2024 published single-relaxation-time Debye integral",
+  "numerical_validation_pass": true,
+  "refit_performed": false
+}

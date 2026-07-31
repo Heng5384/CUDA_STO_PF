@@ -183,9 +183,9 @@ def build_quality_checks(inputs: "PhysicalInputs") -> Dict[str, object]:
     lambda_over_phys_dx_ref = inputs.lambda_sm / phys_dx_ref if phys_dx_ref > 0.0 else float("inf")
     warnings: List[str] = []
 
-    if lambda_over_pf_dx <= 4.0:
+    if lambda_over_pf_dx < 4.0:
         warnings.append(
-            f"界面分辨率不足: lambda_sm/pf_dx = {lambda_over_pf_dx:.3f} <= 4，建议减小 pf_dx 或增大 lambda_sm。"
+            f"界面分辨率不足: lambda_sm/pf_dx = {lambda_over_pf_dx:.3f} < 4，建议减小 pf_dx 或增大 lambda_sm。"
         )
 
     if phys_dx_ref > 0.0:
@@ -203,7 +203,7 @@ def build_quality_checks(inputs: "PhysicalInputs") -> Dict[str, object]:
         "lambda_over_pf_dx": lambda_over_pf_dx,
         "lambda_over_phys_dx_ref": lambda_over_phys_dx_ref,
         "refinement_ratio_phys_over_pf": _safe_ratio(phys_dx_ref, pf_dx),
-        "interface_resolution_ok": (lambda_over_pf_dx > 4.0),
+        "interface_resolution_ok": (lambda_over_pf_dx >= 4.0),
         "warnings": warnings,
     }
 

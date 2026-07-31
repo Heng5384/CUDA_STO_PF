@@ -1,0 +1,8 @@
+source_output_root=/data/home/luozhiheng/tmp/pf_6h48h_pilot_zero_mode_20260729
+source_job_id=72670
+source_completed_age_h=12
+source_completed_step=21798
+mass_diagnostic_interval_old=1
+mass_diagnostic_interval_new=256
+diagnostic_ab_status=PASS_PF_RUNTIME_MASS_DIAGNOSTIC_AB_BYTEWISE_V1
+diagnostic_ab_job_id=72674

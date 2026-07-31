@@ -1,0 +1,108 @@
+{
+  "fixture_id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+  "initial_state_class": "MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1",
+  "particles": [
+    {
+      "center_grid": [
+        22,
+        5,
+        22
+      ],
+      "orientation_label": "variant_100_identity",
+      "particle_id": "MP001",
+      "registered_radius_nm": 10.5,
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "source_profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e"
+    },
+    {
+      "center_grid": [
+        54,
+        37,
+        32
+      ],
+      "orientation_label": "variant_100_identity",
+      "particle_id": "MP002",
+      "registered_radius_nm": 10.5,
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "source_profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e"
+    },
+    {
+      "center_grid": [
+        86,
+        81,
+        70
+      ],
+      "orientation_label": "variant_100_identity",
+      "particle_id": "MP003",
+      "registered_radius_nm": 9.5,
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "source_profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f"
+    },
+    {
+      "center_grid": [
+        33,
+        81,
+        70
+      ],
+      "orientation_label": "variant_100_identity",
+      "particle_id": "MP004",
+      "registered_radius_nm": 9.5,
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "source_profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f"
+    },
+    {
+      "center_grid": [
+        95,
+        43,
+        5
+      ],
+      "orientation_label": "variant_100_identity",
+      "particle_id": "MP005",
+      "registered_radius_nm": 8.0,
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "source_profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2"
+    },
+    {
+      "center_grid": [
+        18,
+        34,
+        56
+      ],
+      "orientation_label": "variant_100_identity",
+      "particle_id": "MP006",
+      "registered_radius_nm": 8.0,
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "source_profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2"
+    }
+  ],
+  "placement": {
+    "max_trials_per_particle": 20000,
+    "method": "deterministic_hard_core_rejection_integer_grid_v1",
+    "periodic_separation_rule": "distance_nm > Ri_nm + Rj_nm + 4*lambda_sm_nm",
+    "random_non_lattice": true,
+    "seed": 2026073091
+  },
+  "profile_library_manifest_sha256": "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe",
+  "schema": "PF_MASS_CONSERVING_LIBRARY_HANDOFF_SPEC_V1",
+  "selection_provenance_sha256": "56c44d8f72b27bb462dffe89b59cb2fcb2ff0bf8807dec9d9cac31d2bd7fcbe3",
+  "target": {
+    "component_h_threshold": 0.0001,
+    "dt_code": 0.02,
+    "grid": [
+      96,
+      96,
+      96
+    ],
+    "lambda_sm_nm": 4.0,
+    "mean_C_B_tot": 0.03,
+    "temperature_C": 380.0,
+    "xB_max_safe": 0.499999
+  },
+  "validation_only": true
+}

@@ -1,0 +1,57 @@
+{
+  "gates": {
+    "checkpoint_bytewise": true,
+    "checkpoint_provenance": true,
+    "elastic_finite": true,
+    "endpoint": true,
+    "finite_and_bounds": true,
+    "fixture_schema": true,
+    "initial_state_class": true,
+    "library_hash": true,
+    "mass": true,
+    "no_illegal_event_marker": true,
+    "particle_identity": true,
+    "prohibited_paths_off": true,
+    "stderr_empty": true,
+    "zero_mode": true
+  },
+  "metrics": {
+    "M6_nm3": 4.844286284167011,
+    "Sv_nm_inv": 0.00712636009647109,
+    "beta_volume_fraction": 0.02256375113551635,
+    "continuous_checkpoint_sha256": "0cab6cd5f3f8965f99b4b0864afacd84b63f30a863346f343d6faf8a0574151e",
+    "continuous_wall_seconds": 165.05,
+    "continuous_zero_mode": {
+      "final_mass_code": 446608.0800000616,
+      "last_lambda": -1.0703841662031684e-06,
+      "mean_mass_error": 4.164131482317301e-15
+    },
+    "endpoint_age_h": 6.070465855668848,
+    "far_field_matrix_xAg": 0.007570552282709159,
+    "fixture_manifest_sha256": "b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c",
+    "gpu_sample_count": 669,
+    "gpu_utilization_mean_percent": 97.38415545590433,
+    "initial_reconstruction_phi_normalized_L1": 0.03584086121973439,
+    "initial_reconstruction_xB_MAE": 0.0008030647521394509,
+    "mass_relative_error": 1.764705485777036e-13,
+    "max_elastic_energy": 0.040662085764,
+    "mean_elastic_energy": 0.0010687123253,
+    "mean_radius_nm": 9.33723763503063,
+    "particle_count": 96,
+    "peak_VRAM_MiB": 4854.0,
+    "physical_time_s": 253.67708040785513,
+    "replicate": "replicate_B",
+    "restart_bytewise_equal": true,
+    "restart_checkpoint_sha256": "0cab6cd5f3f8965f99b4b0864afacd84b63f30a863346f343d6faf8a0574151e",
+    "restart_second_leg_wall_seconds": 80.078,
+    "restart_zero_mode": {
+      "final_mass_code": 446608.0800000616,
+      "last_lambda": -1.0703841662031684e-06,
+      "mean_mass_error": 4.164131482317301e-15
+    },
+    "stress_hydro_max": 2.87421,
+    "stress_hydro_min": -2.9969941974
+  },
+  "schema": "PF_246CUBE_SHORT_RESTART_AUDIT_V1",
+  "status": "PASS_246CUBE_SHORT_RESTART_AND_OBSERVABLES_V1"
+}

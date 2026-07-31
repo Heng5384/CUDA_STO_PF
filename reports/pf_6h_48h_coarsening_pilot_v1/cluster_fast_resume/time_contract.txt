@@ -1,0 +1,4 @@
+dt_code=2.0000000000000000e-02
+t_real_unit_s=4.9546304767159207e+01
+dt_physical_s=0.9909260953431841
+steps_per_physical_hour=3633

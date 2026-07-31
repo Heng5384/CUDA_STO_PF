@@ -1,0 +1,55 @@
+{
+  "fit_method": {
+    "algorithm": "bounded nonlinear least squares in log-parameter space",
+    "chi_square": 3.237496838582469,
+    "degrees_of_freedom": 12,
+    "formal_interval_warning": "Intervals are local least-squares intervals. Digitized curve points are correlated, so they are not physical confidence bounds.",
+    "function_evaluations": 7,
+    "jacobian_condition_number": 12.54559872879139,
+    "observations": 14,
+    "optimality": 1.6163227241980845e-05,
+    "parameters": 2,
+    "reduced_chi_square": 0.2697914032152057,
+    "residual": "(calculated - digitized Yu model) / digitization uncertainty"
+  },
+  "fit_target": "Yu 2024 main Figure 6b dashed Callaway curves",
+  "fitted_parameters": {
+    "A_N": {
+      "fitted": 1.5107116046433722,
+      "formal_95pct_interval": [
+        1.5032239151062992,
+        1.5182365910156275
+      ],
+      "published": 1.5
+    },
+    "Annealed_dislocation_rate_scale": {
+      "applies_to": "both SI S11 and S13 through their common linear N_D dependence",
+      "fitted": 0.11727677592127755,
+      "formal_95pct_interval": [
+        0.11300614371324638,
+        0.12170880023470215
+      ],
+      "published_reference": 1.0
+    },
+    "Annealed_effective_dislocation_density_cm-2": {
+      "fitted": 41046871572.44714,
+      "published": 350000000000.0
+    },
+    "Annealed_effective_dislocation_density_m-2": {
+      "fitted": 410468715724471.44,
+      "published": 3500000000000000.0
+    }
+  },
+  "frozen_parameters": "all Yu Table S2 inputs except the two listed fitted parameters",
+  "isolation": {
+    "GPU_used": false,
+    "PF_data_used": false,
+    "Sheskin_data_used": false,
+    "cluster_used": false
+  },
+  "state_labels": {
+    "AQ": "As-quenched",
+    "Annealed": "Annealed at 653 K for 48 h"
+  },
+  "status": "USER_AUTHORIZED_REFIT_NOT_YU_PUBLISHED_PARAMETER_SET"
+}

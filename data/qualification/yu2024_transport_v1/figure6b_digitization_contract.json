@@ -1,0 +1,41 @@
+{
+  "curve_extraction": {
+    "48h_dash_components": 18,
+    "AQ_dash_components": 18,
+    "extrapolation": false,
+    "interpolation": "monotonic piecewise cubic PCHIP",
+    "legend_exclusion": "restrict y to 430:622 in full-page coordinates",
+    "minimum_connected_component_pixels": 20,
+    "navy_mask": "90 < B < 150 and R < 70 and G < 70",
+    "state_classification": "connected-component centroid relative to the midpoint between the two dashed curves"
+  },
+  "plot_box_calibration": {
+    "kappa_bottom_W_mK": 1.0,
+    "kappa_top_W_mK": 3.0,
+    "temperature_left_K": 275.0,
+    "temperature_right_K": 600.0,
+    "x_left_px": 1101.0,
+    "x_right_px": 1564.0,
+    "y_bottom_px": 622.0,
+    "y_top_px": 267.0
+  },
+  "render_contract": {
+    "color_mode": "PNG RGB",
+    "dpi": 240,
+    "expected_pixel_dimensions": [
+      1985,
+      2608
+    ],
+    "renderer": "Poppler pdftoppm"
+  },
+  "rendered_page_image": "tmp/pdfs/yu2024_reproduction/main_page-08.png",
+  "rendered_page_image_sha256": "23af898ec5fca440f794981f4421f0b7af8bfc12e1e5fd00a167aab3f5cc858f",
+  "source_pdf": "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/Advanced Energy Materials - 2024 - Yu - Ostwald Ripening of Ag2Te Precipitates in Thermoelectric PbTe  Effects of.pdf",
+  "source_pdf_page": 8,
+  "source_pdf_sha256": "da838898f561a26b00b37124b18f18df627adf95bf9fe4622f3089f3aaa19eba",
+  "uncertainty_contract": {
+    "assumed_vertical_pixel_uncertainty": 2.0,
+    "kappa_uncertainty_W_mK": 0.011267605633802818,
+    "note": "This covers line thickness and antialiasing in the 240 dpi render; it does not represent experimental uncertainty."
+  }
+}

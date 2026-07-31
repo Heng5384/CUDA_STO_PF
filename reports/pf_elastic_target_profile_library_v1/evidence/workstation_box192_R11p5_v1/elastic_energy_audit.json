@@ -1,0 +1,43 @@
+{
+  "boundary_contract": "periodic_fixed_cell",
+  "case_source_roots": [
+    "/home/zhiheng/tmp/pf_elastic_target_profile_box192_R11p5_v1_20260730"
+  ],
+  "library_manifest_sha256": "9ef34e79349c28b370f98047eb7f4dbec7c13eb86cf0117fb35a564bc4c901a2",
+  "orientation_scope": "single_frozen_identity_variant",
+  "profile_count": 1,
+  "profiles": [
+    {
+      "F_chem_excess_hat": -0.000105826647,
+      "F_el_hat": 4.12604388e-05,
+      "F_surf_hat": 7.88041114e-05,
+      "F_total_excess_hat": 1.4237903e-05,
+      "case_source_profile_sha256": "2159268ee65e182bf9c06d45cf69923e9a8934165c302268508a4fb831a40897",
+      "case_source_root": "/home/zhiheng/tmp/pf_elastic_target_profile_box192_R11p5_v1_20260730",
+      "converged_iter": 3002,
+      "eigenstrain": {
+        "eps_xx00": 0.046,
+        "eps_xy00": 0.0,
+        "eps_xz00": 0.0,
+        "eps_yy00": -0.022,
+        "eps_yz00": 0.0,
+        "eps_zz00": -0.017
+      },
+      "elastic_runtime_marker": "PASS",
+      "energy_trace_sha256": "519974e86625105db9130972ce0ad4bdf01e367f25d75202bbf515305f9f7540",
+      "mass_error_relative": 1.4418538980612649e-16,
+      "orientation_label": "variant_100_identity",
+      "profile_manifest_sha256": "2159268ee65e182bf9c06d45cf69923e9a8934165c302268508a4fb831a40897",
+      "projected_kkt_rms": 0.00022606205,
+      "run_log_sha256": "a11e90c8ce6b1aa7846b8e6cc31c2b891b09798f4e27d88a9c24166afd580ba9",
+      "target_radius_nm": 11.5,
+      "total_el_core_sum": 151.090795,
+      "total_interface_sum": 557.766674
+    }
+  ],
+  "run_root": "/home/zhiheng/tmp/pf_elastic_target_profile_box192_R11p5_v1_20260730",
+  "schema": "PF_ELASTIC_TARGET_PROFILE_ENERGY_AUDIT_V1",
+  "source_commit": "NO_GIT_COMMIT",
+  "source_tree_sha256": "f22202bdde8bd93732fa43fe95f68c8ca5816723e24204c8569e46d88bad2c90",
+  "status": "PASS_ELASTIC_TARGET_PROFILE_ENERGY_PROVENANCE_V1"
+}

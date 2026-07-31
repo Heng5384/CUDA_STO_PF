@@ -1,0 +1,54 @@
+{
+  "schema": "PF_ELASTIC_DIAGNOSTIC_RESTART_AUDIT_V1",
+  "status": "PASS_PF_ELASTIC_DIAGNOSTIC_AND_FIELD_RESTART_V1",
+  "continuous_diagnostics": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/continuous/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/elastic_diag_continuous/dynamics_mass_diagnostics.csv",
+  "first_half_diagnostics": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/first_half/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/elastic_diag_first_half/dynamics_mass_diagnostics.csv",
+  "restart_diagnostics": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/restart/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/elastic_diag_restart/dynamics_mass_diagnostics.csv",
+  "diagnostic_steps": [
+    64,
+    128,
+    192,
+    256,
+    320,
+    384,
+    448,
+    512
+  ],
+  "diagnostic_columns": [
+    "time",
+    "mean_elastic_energy",
+    "max_elastic_energy",
+    "stress_hydro_min",
+    "stress_hydro_max",
+    "mean_xBtot_end_step",
+    "total_delta_mass_step"
+  ],
+  "diagnostic_trajectory_string_exact": true,
+  "final_fields": {
+    "phi": {
+      "continuous_path": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/continuous/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/elastic_diag_continuous/phi_512.vtk",
+      "restart_path": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/restart/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/phi_512.vtk",
+      "continuous_sha256": "5edf289012ef4063d77847f27c4204a270774bbffcb76dd863ae1e7d3052c9af",
+      "restart_sha256": "5edf289012ef4063d77847f27c4204a270774bbffcb76dd863ae1e7d3052c9af",
+      "bytewise_equal": true
+    },
+    "xB": {
+      "continuous_path": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/continuous/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/elastic_diag_continuous/xB_512.vtk",
+      "restart_path": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/restart/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/xB_512.vtk",
+      "continuous_sha256": "8fdf4ea7485cfad26240cf9ac940b823741b9cc61daefb866911ba5f789d7588",
+      "restart_sha256": "8fdf4ea7485cfad26240cf9ac940b823741b9cc61daefb866911ba5f789d7588",
+      "bytewise_equal": true
+    },
+    "xBtot": {
+      "continuous_path": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/continuous/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/elastic_diag_continuous/xBtot_512.vtk",
+      "restart_path": "/data/home/luozhiheng/tmp/pf_elastic_diag_restart_v1_20260730/results/restart/chel_T380_cuda_246x246x246_dt0.02_steps512_xB0.030/xBtot_512.vtk",
+      "continuous_sha256": "17a29fd880fce524eff64b72dbe9a24f8099b0df56e6f9a857dbbe0b6df8a36c",
+      "restart_sha256": "17a29fd880fce524eff64b72dbe9a24f8099b0df56e6f9a857dbbe0b6df8a36c",
+      "bytewise_equal": true
+    }
+  },
+  "final_fields_bytewise_equal": true,
+  "continuous_checkpoint_sha256": "ec22d8046fcea72a217ba1218bc552111f6f3cb8670f4db5476ddaeac600ed00",
+  "restart_checkpoint_sha256": "ec22d8046fcea72a217ba1218bc552111f6f3cb8670f4db5476ddaeac600ed00",
+  "checkpoint_bytewise_equal": true
+}

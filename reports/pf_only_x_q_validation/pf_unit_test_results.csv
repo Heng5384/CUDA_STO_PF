@@ -1,0 +1,23 @@
+test,mode,passed,metric,tolerance,note
+G1_uniform_equilibrium,X,True,0.0,0.0,zero divJ and static h leave x unchanged
+G1_uniform_equilibrium,Q,True,0.0,0.0,zero divJ and static h leave q unchanged
+G2_static_diffuse_interface,X,True,0.0,0.0,uniform mu gives zero flux
+G2_static_diffuse_interface,Q,True,0.0,0.0,uniform mu gives zero flux
+G3_pure_transport_sinusoid,Q,True,1.0842021724855044e-18,1e-14,discrete Fourier decay matches explicit q update
+G4_pure_phi_storage,Q,True,5.551115123125783e-17,5e-16,q_new=q_old-Delta h closes local total storage
+G4_pure_phi_storage,X_current,False,0.008000000000000007,5e-16,current X leaves x fixed during phi and requires later global projection
+G5_moving_interface_round_trip,Q,True,2.7755575615628914e-17,5e-16,feasible local storage transfer is reversible
+G6_h_to_one_conditioning,X,True,1.0,10.0,X inversion condition scales as 1/(1-h)
+G6_h_to_one_conditioning,Q,True,1.0,1.0,Q evolution has no storage division
+G6_h_to_one_conditioning,X,True,2.0,10.0,X inversion condition scales as 1/(1-h)
+G6_h_to_one_conditioning,Q,True,1.0,1.0,Q evolution has no storage division
+G6_h_to_one_conditioning,X,True,10.0,10.0,X inversion condition scales as 1/(1-h)
+G6_h_to_one_conditioning,Q,True,1.0,1.0,Q evolution has no storage division
+G6_h_to_one_conditioning,X,False,20.0,10.0,X inversion condition scales as 1/(1-h)
+G6_h_to_one_conditioning,Q,True,1.0,1.0,Q evolution has no storage division
+G6_h_to_one_conditioning,X,False,100.0,10.0,X inversion condition scales as 1/(1-h)
+G6_h_to_one_conditioning,Q,True,1.0,1.0,Q evolution has no storage division
+G6_h_to_one_conditioning,X,False,1000.0,10.0,X inversion condition scales as 1/(1-h)
+G6_h_to_one_conditioning,Q,True,1.0,1.0,Q evolution has no storage division
+G7_projection_identity,projection,True,1.0408340855860843e-17,1e-14,satisfied state is unchanged
+G7_projection_idempotence,projection,True,6.938893903907228e-18,1e-14,P(P(x))=P(x)

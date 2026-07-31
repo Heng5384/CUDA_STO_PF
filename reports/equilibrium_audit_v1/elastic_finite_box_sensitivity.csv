@@ -1,0 +1,6 @@
+case,R_nm,box_nm,status,note
+elastic,8,128,BRANCH_PASS_SHORT_DYNAMIC,128 nm periodic box; explicit R=8 nm CLI; lambda=4 nm; 128-step GP-OFF elastic zero-mode run; no image overlap; not equilibrium
+elastic,10,96,NOT_RESOLVED,finite-box secondary run not performed at center composition; low/high main box short bracket available
+elastic,12,96,NOT_RESOLVED,finite-box secondary run not performed; center fixed-cell short observation available
+elastic,14,112,NOT_RESOLVED,finite-box secondary run not performed; center fixed-cell short observation available
+elastic,20,160,NOT_RESOLVED,finite-box secondary run not performed; center fixed-cell short observation available

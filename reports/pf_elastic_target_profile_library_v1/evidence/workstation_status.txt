@@ -1,0 +1,10 @@
+runner_status=PASS_PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1
+run_label=workstation_canonical_v3
+grid=96x96x96
+radii_nm=8.0 8.5 9.0 9.5 10.0 10.5 11.0 11.5
+elastic_enabled=true
+gp_enabled=false
+source_commit=5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d
+source_tree_sha256=f22202bdde8bd93732fa43fe95f68c8ca5816723e24204c8569e46d88bad2c90
+binary_sha256=23d4d365de19c26670ed5d64f9f732ae71b555d2ef3ac57f7f5452467b7902d0
+library_manifest_sha256=961df153c1404fe08ab1ad04d5bdba1841858419571d9ca842fcad0671ec33bc

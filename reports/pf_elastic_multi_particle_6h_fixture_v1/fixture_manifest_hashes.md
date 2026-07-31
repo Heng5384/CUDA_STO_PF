@@ -1,0 +1,3 @@
+# Fixture manifest hashes
+
+E2 `bbac0b9ce0521fb525f76d7bea90da1fc6352cb5bac62cda86a06d27d5e54093`; S0 `8b9b9ddf4c4b7fda2f701b14451e916682519a0123d86ea3623a20d767a0412f`.

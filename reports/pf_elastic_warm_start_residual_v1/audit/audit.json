@@ -1,0 +1,56 @@
+{
+  "configuration": {
+    "hard_cap": 32,
+    "minimum_iterations": 4,
+    "residual_control": true,
+    "residual_tolerance": 1e-06,
+    "warm_start": true
+  },
+  "field_differences": {
+    "Y_mean_absolute": 3.545371682836073e-07,
+    "dYdt_mean_absolute": 9.143895141137777e-08,
+    "phi_normalized_L1": 6.381899413146483e-07,
+    "xB_mean_absolute": 2.682764013711608e-09
+  },
+  "gates": {
+    "M6": true,
+    "Sv": true,
+    "accelerated_checkpoint_v4": true,
+    "accelerated_restart_bytewise": true,
+    "beta_volume_fraction": true,
+    "elastic_provenance": true,
+    "iteration_reduction": true,
+    "mass_tier": true,
+    "matrix_xAg": true,
+    "mean_elastic_energy": true,
+    "mean_radius": true,
+    "nested_accelerated_pass": true,
+    "nested_baseline_pass": true,
+    "particle_identity": true,
+    "performance_improved": true,
+    "phi_field": true,
+    "trace_complete": true,
+    "trace_converged": true,
+    "trace_residual": true,
+    "trace_time_level": true
+  },
+  "observable_differences": {
+    "M6_relative": 1.6799146011998583e-07,
+    "Sv_relative": 8.534742927856135e-08,
+    "beta_volume_fraction_relative": 1.1573401665436801e-07,
+    "matrix_xAg_absolute": 2.6716003567392455e-09,
+    "mean_elastic_energy_relative": 2.920337715577279e-07,
+    "mean_radius_relative": 4.68456401790241e-08
+  },
+  "performance": {
+    "accelerated_seconds_per_step": 0.6447265625,
+    "accelerated_wall_seconds": 165.05,
+    "baseline_seconds_per_step": 1.2771796875,
+    "baseline_wall_seconds": 326.958,
+    "maximum_elastic_iterations": 22,
+    "mean_elastic_iterations": 4.59765625,
+    "speedup": 1.9809633444410786
+  },
+  "schema": "PF_ELASTIC_WARM_START_RESIDUAL_AUDIT_V1",
+  "status": "PASS_ELASTIC_WARM_START_RESIDUAL_V1"
+}

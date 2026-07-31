@@ -1,0 +1,8 @@
+runner_status=PASS_PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1
+assembly_mode=REUSE_QUALIFIED_PROFILES_WITH_EXTENDED_ITERATION_BUDGET
+profile_count=8
+radii_nm=8.0 8.5 9.0 9.5 10.0 10.5 11.0 11.5
+elastic_enabled=true
+gp_enabled=false
+library_manifest_sha256=58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe
+selection_provenance_sha256=56c44d8f72b27bb462dffe89b59cb2fcb2ff0bf8807dec9d9cac31d2bd7fcbe3

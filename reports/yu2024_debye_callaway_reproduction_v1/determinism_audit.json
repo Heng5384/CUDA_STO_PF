@@ -1,0 +1,21 @@
+{
+  "check": "two independent Python process runs with identical frozen inputs",
+  "directories_compared": [
+    "tmp/yu2024_repeat_a",
+    "tmp/yu2024_repeat_b"
+  ],
+  "recursive_diff_empty": true,
+  "all_generated_files_identical": true,
+  "representative_sha256": {
+    "AQ_frequency_resolved.csv": "9b7856898034288e726e45253a5be444e09c9ea71ddc4dc6292b224a4e656c58",
+    "48h_frequency_resolved.csv": "29d8df286998ccba0469d9f09fb9cb8fa25e3715a82e5091a7ea12da53be96bc",
+    "AQ_scattering_budget.csv": "5831bcad1dc7d68e8d8a89146837cf8124a285a39cddbcb4099065362d78e4c3",
+    "48h_scattering_budget.csv": "43a2d24850381fdec37075fe209b4c44b29b7aa48c4c720ffe12ce2c2fb45822",
+    "reproduction_comparison.csv": "3e7272a1eecc30fdf2559fa0d7cd56facf8b102323b6fd9b81476cd7898a6850",
+    "numerical_validation.json": "4e05e27afdbe04b684562aa2ac6df77df6e5d634812bae37c6b44c4ce1038884",
+    "AQ_reproduction.png": "0e0a8cfeaaf075e33e2db4f3f39136c79be55e5d8e34f3a9ccc8f85e616d084a",
+    "48h_reproduction.png": "661e5e5d0d6a9401dc1e2ced2b9242a11acd5eb7e1b5cc3c1ab0525faa1f425a",
+    "combined_reproduction.png": "97bc59ad3a34ad39c5caf7b44a57702fb16c1a431d425fede72988ac0f306955"
+  },
+  "pass": true
+}

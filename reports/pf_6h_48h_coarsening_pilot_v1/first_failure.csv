@@ -1,0 +1,2 @@
+gate,first_failure_age_h,observed,lower_bound,upper_bound,unit,interpretation
+matrix_xAg_all_hourly,8.0000191691,0.006889797923205341,0.0058,0.0066,atomic_fraction,transient hourly matrix composition leaves registered uncertainty band

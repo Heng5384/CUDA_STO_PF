@@ -1,0 +1,18 @@
+5795d31cf0fbd89694541a02d78beb414c04a610f5f51facce308eee1f003bc4  /data/home/luozhiheng/tmp/pf_random_psd_v2_246x96_elastic_12h48h_20260730/Results/chel_T380_cuda_246x246x246_dt0.02_steps152600_xB0.030/case_test-1_legacy_th0_ph0_noise0e+00/mass_drift_summary.json
+b8104cc812afe68165a6502b25383df840613c40b4df73829d58e8df76978ba8  /data/home/luozhiheng/tmp/pf_random_psd_v2_246x96_elastic_12h48h_20260730/Results/chel_T380_cuda_246x246x246_dt0.02_steps152600_xB0.030/case_test-1_legacy_th0_ph0_noise0e+00/performance_summary.json
+{
+  "case_name": "case_test-1_legacy_th0_ph0_noise0e+00",
+  "picard_enabled": 0.00000000000000000e+00,
+  "picard_iters": 1.00000000000000000e+00,
+  "picard_omega": 1.00000000000000000e+00,
+  "nsteps": 1.30800000000000000e+05,
+  "dt": 2.00000000000000004e-02,
+  "total_walltime_s": 5.52554125489890575e+04,
+  "avg_walltime_per_step_s": 4.22441991964748131e-01,
+  "median_walltime_per_step_s": 4.13289904594421387e-01,
+  "min_walltime_per_step_s": 3.99808749556541443e-01,
+  "max_walltime_per_step_s": 8.94458198547363281e+00,
+  "warmup_excluded_avg_walltime_per_step_s": 4.22443521844758751e-01,
+  "estimated_steps_per_hour": 8.52184922680135787e+03,
+  "relative_slowdown_vs_baseline": 1.00000000000000000e+00
+}

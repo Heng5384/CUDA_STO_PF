@@ -1,0 +1,44 @@
+{
+  "checkpoint_sha256": {
+    "continuous": "84796be832ec0fbcc29fb70ced2792eb454f1d3b1320c5097546c1e602f6e8d9",
+    "initial_probe": "ce1e6e4dd16db2b9ad11f8ed6aad647e564f1a84d31e3e8baef0634f3d4e390f",
+    "refined": "af6107ac1636b68aecf1f7ee91cbcd76a7fccf7879378815077f9c88157ee2a1",
+    "restart": "84796be832ec0fbcc29fb70ced2792eb454f1d3b1320c5097546c1e602f6e8d9"
+  },
+  "continuous_restart_phi_exact": true,
+  "h_threshold": 0.0001,
+  "initial_overlap_fraction": {
+    "continuous": 1.0,
+    "initial_probe": 1.0,
+    "refined": 1.0,
+    "restart": 1.0
+  },
+  "minimum_overlap_fraction": 0.9,
+  "profile_manifest": "/home/zhiheng/tmp/pf_elastic_target_profile_library_workstation_v3_20260730/profiles/R8p0/profile_manifest.json",
+  "profile_manifest_sha256": "29b33f22041fcfa3a7089ebbf0b7b0c369907a727dfd65d006f7e6c18aac968c",
+  "schema": "PF_ELASTIC_TARGET_PROFILE_IDENTITY_AUDIT_V1",
+  "states": {
+    "continuous": {
+      "component_count": 1,
+      "support_voxels": 6355
+    },
+    "initial": {
+      "component_count": 1,
+      "support_voxels": 6727
+    },
+    "initial_probe": {
+      "component_count": 1,
+      "support_voxels": 6695
+    },
+    "refined": {
+      "component_count": 1,
+      "support_voxels": 6381
+    },
+    "restart": {
+      "component_count": 1,
+      "support_voxels": 6355
+    }
+  },
+  "status": "PASS_ELASTIC_TARGET_PROFILE_SINGLE_PARTICLE_IDENTITY_V1",
+  "target_radius_nm": 8.0
+}

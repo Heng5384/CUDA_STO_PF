@@ -523,6 +523,14 @@ typedef struct {
     // 弹性计算控制
     int elastic_enabled;     // 是否启用弹性计算（0/1）
     int elastic_iter_max;    // 弹性弛豫最大迭代次数（类似SDV_Poly.c的total）
+    // Optional dynamics-only accelerated solver.  The legacy fixed-iteration
+    // path remains the default unless both switches are explicitly enabled.
+    int elastic_warm_start_enabled;
+    int elastic_residual_control_enabled;
+    int elastic_iter_min;
+    double elastic_residual_tolerance;
+    double elastic_residual_absolute_floor;
+    int elastic_fail_on_nonconvergence;
     // 无量纲的弹性 shift 能量密度（加在 delta_mu 上）；仅在 elastic_enabled=1 时有效
     double elastic_shift_dimless;
     
@@ -563,11 +571,35 @@ typedef struct {
     // 0 = legacy phi-only minimization (no chemical/transport)
     // 1 = full-model minimization (chemistry + diffusion + volume constraint)
     int minimize_full_model;
+    // Validation-only target-profile construction mode.  Keep the supplied
+    // resolved-beta field byte-identical while the full conserved composition
+    // path equilibrates Y/xB.  This is deliberately not a physical-time
+    // evolution mode and cannot be combined with any phi projection.
+    int minimize_freeze_phi;
     // minimize iteration control
     int    minimize_max_iter;
     double minimize_dt;       // dt for gradient flow / semi-implicit update
     double minimize_V0;       // target volume fraction <h(phi)>; if <=0 use initial mean_h
+    // Offline target-profile materialization only.  This reuses the
+    // monotone host Newton/bisection zero-mode solve after every full-model
+    // minimize Y update so the canonical two-phase C_B_tot ledger remains
+    // fixed while the h-volume constraint relaxes shape/interface fields.
+    // It is deliberately separate from the production dynamics zero-mode
+    // selector and must never be interpreted as physical-time projection.
+    int    minimize_mass_constraint_enabled;
+    double minimize_target_mass_code;        // <=0: freeze exact initial ledger
+    double minimize_mass_tolerance_relative; // relative to total code mass
+    int    minimize_mass_max_iterations;
     int    minimize_resample_elastic_every;  // true residual diagnostic interval; N<=0 disables
+    // V5 validation-only multi-particle profile construction.  A periodic
+    // ownership map assigns each voxel to one initial beta component, and a
+    // separate h-volume constraint is applied to every component.  This
+    // permits joint phi/Y interface and shape relaxation without allowing
+    // initial-state dissolution, growth, or coarsening between particles.
+    int    minimize_component_volume_constraint_enabled;
+    int    minimize_component_volume_constraint_count;
+    char   minimize_component_label_raw_path[4096];
+    char   minimize_component_target_h_sums[4096];
     // 智能收敛判据参数
     double minimize_rms_dphi_threshold;        // phi 收敛判据：rms_dphi < threshold (default: 1e-6)
     double minimize_rms_dY_threshold;          // Y 收敛判据（full-model）：rms_dY < threshold (default: 5e-5)
@@ -576,6 +608,7 @@ typedef struct {
     double minimize_rms_res_threshold;        // Euler-Lagrange/KKT 残差判据：rms_res < threshold (default: 1e-4)
     double minimize_vol_err_rel_threshold;    // 体积约束相对误差：vol_err_rel < threshold (default: 1e-4)，V0<=0 时以第一步体积为参考
     int    minimize_convergence_steps;        // 连续满足判据的步数阈值 (default: 10)
+    double minimize_min_pseudo_time;           // 判停前必须完成的最小梯度流伪时间；0 禁用
     double minimize_dt_safety_limit;          // 预留：dt 安全下限（当前不再用于能量上升自适应）
     double eta_lambda_vol;                    // lambda_vol under-relaxation 阻尼系数 (default: 0.2, range: [0,1])
     double minimize_xB_max_safe;              // minimize 模式下热力学调用前的 xB 上限（pre-thermo clamp, default: 0.07）
@@ -586,6 +619,10 @@ typedef struct {
     int    init_mode_raw_fields;               // =1 时从 Python 生成的 raw 场读取
     char   init_phi_raw_path[4096];            // raw_fields: phi_init.raw
     char   init_xB_raw_path[4096];             // raw_fields: xB_init.raw
+    // Optional, provenance-pinned history state for a materialized dynamic
+    // handoff.  When omitted, raw-field initialization retains the legacy
+    // fresh-start contract dY_dt_prev=0 exactly.
+    char   init_dY_dt_prev_raw_path[4096];     // raw_fields: optional dY_dt_prev_init.raw
     char   init_eta_raw_path[4096];            // raw_fields: optional eta_init.raw
     char   init_meta_path[4096];               // raw_fields: init_meta.json
 

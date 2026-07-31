@@ -1,0 +1,500 @@
+[pf-param-file] loaded 100 override(s) from /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/provenance/pf_input_dt0p02.params
+PF_ZERO_MODE_INITIAL_RAW_FIXTURE_ACCEPTED target_mass_from_raw_state=true checkpoint_restart_required=true
+
+========== Run Configuration ==========
+  mode                     : dynamics raw_fields
+  model_mode               : two_phase
+  init_mode                : raw_fields
+  pf_param_file            : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/provenance/pf_input_dt0p02.params
+  grid                     : 246x246x246
+  dx / dy / dz (grid)      : 1.000000 / 1.000000 / 1.000000
+  cell_size_phys_nm        : 1.000000 / 1.000000 / 1.000000
+  system_size_phys_nm      : 246.000000 / 246.000000 / 246.000000
+  system_size_phys_m       : 2.460000e-07 / 2.460000e-07 / 2.460000e-07
+  t_real_unit_s            : 4.954630e+01
+  lambda_sm_nm             : 4.000000
+  lambda_sm/dx             : 4.000000
+  steps                    : 256
+  dt                       : 2.000000e-02
+  out_every                : 256
+  csv_out_every            : 1
+  elastic                  : 启用
+  external_strain(E0)      : xx=0.000000e+00 yy=0.000000e+00 zz=0.000000e+00 yz=0.000000e+00 xz=0.000000e+00 xy=0.000000e+00
+  diag_vtk                 : 禁用
+  diag_elastic_bulk        : 禁用
+  scheduled_nucleation_test : disabled
+  dynamics_mass_diagnostics : enabled (interval=32)
+  Y_rhs_previous_time_level : disabled
+[RUN PARAM] Nx Ny Nz = 246 246 246, dx_nm = 1.000000, interface_width_nm / lambda_sm = 4.000000, dt = 2.000000e-02, init_mode = raw_fields, scheduled nucleation test = disabled
+
+========== Thermodynamics ==========
+  T_C                      : 380.000000
+  T_K                      : 653.150000
+  thermo_convex_extrapolation_enabled : 0
+  xB_eq                    : 4.66495182e-03
+  mu0_compound_hat         : -7.50528003e+00
+  mu_reference_scale       : 2.06685360e+04
+
+========== Dynamics Controls ==========
+  xB safety cap            : not applied in dynamics mode
+
+========== Interface-Width Consistency (Diagnostics) ==========
+  dx_internal              : 1
+  dx_phys_nm(inferred)     : 1.000000
+  unit_to_nm(internal->phys) : 1.000000e+00
+  ic_phi_iface_w(grids_halfwidth) : 2.000000
+  interface_width_grids(2*ic) : 4.000000
+  interface_width_nm(2*ic*dx_phys) : 4.000000
+  kappa_phi_loaded         : 2.00000000e+00
+  kappa_phi_expected_from_ic(0.5*(ic*dx)^2) : 2.00000000e+00
+  kappa_phi_rel_error      : 0.000e+00
+  seed_R_internal          : 10
+  seed_w_init_internal(ic*dx) : 2
+  seed_R_over_w            : 5
+  seed_phi_center_ideal(0.5*(1+tanh(R/w))) : 0.999955
+
+========== Output Layout ==========
+  output_root              : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030
+  output_pf_input          : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_input.params
+  init_case_tag            : pf_246cube_continuous_v1
+  case_output_dir          : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1
+  pf_zero_mode             : PF_CONSERVED_Y_ZERO_MODE_V1
+  pf_zero_mode_backend     : HOST_NEWTON_BISECTION_V1
+  pf_sm_explicit_context   : SM_EXPLICIT_CONTEXT_N_V1
+  pf_reaction_discretization : SM_TANGENT_N_V1
+  pf_initial_state_class   : MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1
+  pf_fixture_manifest_sha256 : b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c
+  pf_profile_library_manifest_sha256 : 58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe
+  pf_zero_mode_tolerance_relative : 9.99999999999999980e-13
+  pf_zero_mode_max_iterations : 24
+  pf_zero_mode_parameter_fingerprint : aa304b81a6b1dbc7
+  pf_checkpoint_every      : 256
+  pf_checkpoint_path       : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/final.chk
+  gp_paths_enabled         : false
+  case_pf_input            : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/pf_input.params
+
+[Unit Conversion Summary]
+  Reference scales:
+    w_ref (J/m^3)      = 5.04000000e+08
+    dx_ref (m)         = 1.00000000e-09
+    t0_diff (s)        = 4.95463048e+01
+    mu_reference_scale = 2.06685360e+04
+
+                       physical            code               kernel_used        ratio(kernel/expected)
+  W_phi              5.04000000e+08     1.00000000e+00     1.00000000e+00     1.00000000e+00    
+  kappa_phi          1.00800000e-09     2.00000000e+00     2.00000000e+00     1.00000000e+00    
+  L_phi              2.59208260e-10     6.47277697e+00     6.47277697e+00     1.00000000e+00    
+  W_eta              6.00000000e+08     1.19047619e+00     1.19047619e+00     1.00000000e+00    
+  kappa_eta          7.50000000e-11     1.48809524e-01     1.48809524e-01     1.00000000e+00    
+  L_eta              4.10626947e-11     1.02539041e+00     1.02539041e+00     1.00000000e+00    
+
+  Stability indicators (S_W = L·dt·W; S_grad = L·dt·κ·k_max²):
+    S_phi_W    = 1.29455539e-01     S_phi_grad = 7.66604977e+00     S_phi_total = 7.79550531e+00
+    S_eta_W    = 2.44140574e-02     S_eta_grad = 9.03589082e-02     S_eta_total = 1.14772966e-01
+    CFL_diff   = 8.00000000e+00
+    Note: semi-implicit denom damps S_grad; instability risk comes from explicit source term S_W. Production-safe envelope: S_W < 1.
+  vtk_mode                 : dynamic/raw-continue (with case suffix)
+  relaxation_diagnostics_csv : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/relaxation_diagnostics.csv
+  pf_zero_mode_trace       : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/pf_zero_mode_trace.csv
+  elastic_solver_mode      : ELASTIC_WARM_START_RESIDUAL_V1
+  elastic_solver_fingerprint : 941613c0ff53008c
+  elastic_iter_min         : 2
+  elastic_iter_max         : 32
+  elastic_residual_tolerance : 9.99999999999999955e-07
+  elastic_solver_trace     : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/elastic_solver_trace.csv
+  dynamics_mass_diagnostics_csv : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/dynamics_mass_diagnostics.csv
+
+========== Initialization ==========
+  path                     : raw_fields phi/xB from Python embedding
+
+========== INIT raw_fields ==========
+  init_phi_raw             : /home/zhiheng/tmp/pf_246cube_three_seed_fixtures_v2_20260731/replicate_B/phi.raw.f64
+  init_xB_raw              : /home/zhiheng/tmp/pf_246cube_three_seed_fixtures_v2_20260731/replicate_B/xB_alpha.raw.f64
+  dY_dt_prev initialization : zero_for_fresh_dynamic_start
+  init_meta                : /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/provenance/init_meta_dt0p02.json
+  dtype/order              : float64 / C
+  phi min/max/mean         : 0.00000000e+00 / 9.99593020e-01 / 2.51928180e-02
+  eta min/max/mean         : 0.00000000e+00 / 0.00000000e+00 / 0.00000000e+00
+  xB min/max/mean          : 6.59171479e-03 / 6.97775459e-03 / 6.80758493e-03
+  dY_dt_prev min/max/rms   : 0.00000000e+00 / 0.00000000e+00 / 0.00000000e+00
+  hphi mean                : 2.33509123e-02
+  xBtot mean               : 3.00000000e-02
+  python_meta mean_xBtot   : 3.00000000e-02 (diff=-1.880e-15)
+  phi clamp count          : low=0 high=0 fraction=0.000e+00
+  eta clamp count          : low=0 high=0 fraction=0.000e+00
+  xB clamp count           : low=0 high=0 fraction=0.000e+00
+[INIT] phi min/max/mean = 0.00000000e+00 / 9.99593020e-01 / 2.51928180e-02, eta min/max/mean = 0.00000000e+00 / 0.00000000e+00 / 0.00000000e+00, xB min/max/mean = 6.59171479e-03 / 6.97775459e-03 / 6.80758493e-03, hphi mean = 2.33509123e-02, xBtot mean = 3.00000000e-02, clamp counts phi_low/high=0/0 eta_low/high=0/0 xB_low/high=0/0
+VTK_OUTPUT_SUPPRESSED field=xB_tot step=0 path=/home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/xBtot_0.vtk
+VTK_OUTPUT_SUPPRESSED field=phi step=0 path=/home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/phi_init.vtk
+写出初始化 vtk: /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/phi_init.vtk
+VTK_OUTPUT_SUPPRESSED field=xB step=0 path=/home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/xB_0.vtk
+分配GPU内存...
+[gpu mem] before main cudaMallocs: free=14.78 GB / total=15.46 GB (used=0.68 GB)
+[mem-opt] two_phase mode: GP/eta device buffers are aliases, not resident allocations.
+分配弹性计算GPU内存（float精度）...
+[gpu mem] before elastic cudaMallocs: free=12.55 GB / total=15.46 GB (used=2.91 GB)
+弹性计算GPU内存分配完成
+[gpu mem] after elastic cudaMallocs: free=11.19 GB / total=15.46 GB (used=4.27 GB)
+[gpu mem] after main cudaMallocs: free=11.19 GB / total=15.46 GB (used=4.27 GB)
+
+=== Memory Ledger (resident arrays) ===
+  d_phi_r                        14886936 elem     119095488 bytes
+  d_eta_r                           alias       0 bytes
+  d_Y_r                          14886936 elem     119095488 bytes
+  d_xB_r                         14886936 elem     119095488 bytes
+  d_phi_rhs_r(=d_lapY_r)         14886936 elem     119095488 bytes
+  d_eta_prev_r                      alias       0 bytes
+  d_eta_rhs_r                       alias       0 bytes
+  d_phi_n_saved                  14886936 elem     119095488 bytes
+  d_Y_n_saved                    14886936 elem     119095488 bytes
+  d_dY_dt_prev_r                 14886936 elem     119095488 bytes
+  d_mu_x_r(=d_Y_rhs_r)           14886936 elem     119095488 bytes
+  d_divJ_r(=d_xB_prev_r)         14886936 elem     119095488 bytes
+  d_phi_k                         7503984 elem     120063744 bytes
+  d_eta_k                           alias       0 bytes
+  d_eta_rhs_k                       alias       0 bytes
+  d_phi_rhs_k(=d_mu_x_k=d_Y_rhs_k)        7503984 elem     120063744 bytes
+  d_Y_k                           7503984 elem     120063744 bytes
+  d_divJ_k                        7503984 elem     120063744 bytes
+  d_scratch_k_double              7503984 elem     120063744 bytes
+  d_scratch_r_double             29773872 elem     238190976 bytes
+  d_uxx_r..d_uyz_r (6)           89321616 elem     357286464 bytes
+  d_sigma_*_r (6)                89321616 elem     357286464 bytes
+  d_ux_k,d_uy_k,d_uz_k           22511952 elem     180095616 bytes
+  d_uxx_k..d_uyz_k (6)           45023904 elem     360191232 bytes
+  ----------------------------------------
+  Total resident (est.)              3165228864 bytes (3018.60 MB)
+  Peak estimate (resident+transient) ~ same (scratch reused)
+=== End Memory Ledger ===
+
+PF_ZERO_MODE_INITIALIZED mode=PF_CONSERVED_Y_ZERO_MODE_V1 backend=HOST_NEWTON_BISECTION_V1 restart_loaded=0 accepted_step=0 target_mass_code=4.46608079999999609e+05 parameter_fingerprint=aa304b81a6b1dbc7 gp_paths_enabled=false
+创建cuFFT计划...
+  网格: 246x246x246
+弹性FFT计划创建成功（float精度）
+cuFFT计划创建成功（复用计划，减少内存使用）
+构建k空间...
+[gpu mem] before minimize work buffers: free=10.72 GB / total=15.46 GB (used=4.74 GB)
+
+========================================
+初始化完成后的显存使用情况:
+  网格大小: 246x246x246
+  已使用: 4.74 GB (30.66%)
+  空闲: 10.72 GB
+  总计: 15.46 GB
+  弹性功能: 已启用
+========================================
+
+[3D] step=00000 t=0.000000 t_real=0.000000e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.335091e-02 R_avg_internal=8.821166e+00 R_avg_nm=8.821166e+00 xB_range=[0.0066, 0.0070] Meff_range=[1.1015e-01, 1.1301e+01] t_wall=2026-07-31 14:57:22
+
+开始时间推进...
+========================================
+[3D] step=00001 t=0.020000 t_real=9.909261e-01 s <x_B_tot>=3.000000e-02 vf_precip=2.317528e-02 R_avg_internal=8.781282e+00 R_avg_nm=8.781282e+00 xB_range=[0.0068, 0.0072] Meff_range=[1.1322e-01, 1.1618e+01] t_wall=2026-07-31 14:57:23
+[3D] step=00002 t=0.040000 t_real=1.981852e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.304954e-02 R_avg_internal=8.759040e+00 R_avg_nm=8.759040e+00 xB_range=[0.0069, 0.0075] Meff_range=[1.1540e-01, 1.1845e+01] t_wall=2026-07-31 14:57:24
+[3D] step=00003 t=0.060000 t_real=2.972778e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.296810e-02 R_avg_internal=8.741544e+00 R_avg_nm=8.741544e+00 xB_range=[0.0070, 0.0079] Meff_range=[1.1682e-01, 1.2000e+01] t_wall=2026-07-31 14:57:25
+[3D] step=00004 t=0.080000 t_real=3.963704e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.292417e-02 R_avg_internal=8.746897e+00 R_avg_nm=8.746897e+00 xB_range=[0.0071, 0.0082] Meff_range=[1.1754e-01, 1.2142e+01] t_wall=2026-07-31 14:57:26
+[3D] step=00005 t=0.100000 t_real=4.954630e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.291026e-02 R_avg_internal=8.762889e+00 R_avg_nm=8.762889e+00 xB_range=[0.0071, 0.0085] Meff_range=[1.1770e-01, 1.2344e+01] t_wall=2026-07-31 14:57:26
+[3D] step=00006 t=0.120000 t_real=5.945557e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.291868e-02 R_avg_internal=8.783624e+00 R_avg_nm=8.783624e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.1739e-01, 1.2582e+01] t_wall=2026-07-31 14:57:27
+[3D] step=00007 t=0.140000 t_real=6.936483e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.294209e-02 R_avg_internal=8.805687e+00 R_avg_nm=8.805687e+00 xB_range=[0.0070, 0.0091] Meff_range=[1.1681e-01, 1.2798e+01] t_wall=2026-07-31 14:57:28
+[3D] step=00008 t=0.160000 t_real=7.927409e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.297391e-02 R_avg_internal=8.827161e+00 R_avg_nm=8.827161e+00 xB_range=[0.0070, 0.0092] Meff_range=[1.1609e-01, 1.2993e+01] t_wall=2026-07-31 14:57:29
+[3D] step=00009 t=0.180000 t_real=8.918335e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.300868e-02 R_avg_internal=8.846022e+00 R_avg_nm=8.846022e+00 xB_range=[0.0070, 0.0093] Meff_range=[1.1537e-01, 1.3161e+01] t_wall=2026-07-31 14:57:29
+[3D] step=00010 t=0.200000 t_real=9.909261e+00 s <x_B_tot>=3.000000e-02 vf_precip=2.304218e-02 R_avg_internal=8.861694e+00 R_avg_nm=8.861694e+00 xB_range=[0.0070, 0.0093] Meff_range=[1.1468e-01, 1.3299e+01] t_wall=2026-07-31 14:57:30
+[3D] step=00011 t=0.220000 t_real=1.090019e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.307151e-02 R_avg_internal=8.870517e+00 R_avg_nm=8.870517e+00 xB_range=[0.0069, 0.0092] Meff_range=[1.1388e-01, 1.3428e+01] t_wall=2026-07-31 14:57:31
+[3D] step=00012 t=0.240000 t_real=1.189111e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.309498e-02 R_avg_internal=8.874202e+00 R_avg_nm=8.874202e+00 xB_range=[0.0069, 0.0092] Meff_range=[1.1321e-01, 1.3530e+01] t_wall=2026-07-31 14:57:32
+[3D] step=00013 t=0.260000 t_real=1.288204e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.311191e-02 R_avg_internal=8.875635e+00 R_avg_nm=8.875635e+00 xB_range=[0.0069, 0.0091] Meff_range=[1.1258e-01, 1.3616e+01] t_wall=2026-07-31 14:57:33
+[3D] step=00014 t=0.280000 t_real=1.387297e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.312242e-02 R_avg_internal=8.875590e+00 R_avg_nm=8.875590e+00 xB_range=[0.0069, 0.0090] Meff_range=[1.1212e-01, 1.3665e+01] t_wall=2026-07-31 14:57:33
+[3D] step=00015 t=0.300000 t_real=1.486389e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.312719e-02 R_avg_internal=8.876227e+00 R_avg_nm=8.876227e+00 xB_range=[0.0068, 0.0090] Meff_range=[1.1189e-01, 1.3678e+01] t_wall=2026-07-31 14:57:34
+[3D] step=00016 t=0.320000 t_real=1.585482e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.312721e-02 R_avg_internal=8.873246e+00 R_avg_nm=8.873246e+00 xB_range=[0.0068, 0.0090] Meff_range=[1.1175e-01, 1.3673e+01] t_wall=2026-07-31 14:57:35
+[3D] step=00017 t=0.340000 t_real=1.684574e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.312361e-02 R_avg_internal=8.870265e+00 R_avg_nm=8.870265e+00 xB_range=[0.0068, 0.0089] Meff_range=[1.1153e-01, 1.3644e+01] t_wall=2026-07-31 14:57:35
+[3D] step=00018 t=0.360000 t_real=1.783667e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.311752e-02 R_avg_internal=8.866918e+00 R_avg_nm=8.866918e+00 xB_range=[0.0068, 0.0089] Meff_range=[1.1147e-01, 1.3590e+01] t_wall=2026-07-31 14:57:36
+[3D] step=00019 t=0.380000 t_real=1.882760e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.310996e-02 R_avg_internal=8.864257e+00 R_avg_nm=8.864257e+00 xB_range=[0.0068, 0.0089] Meff_range=[1.1157e-01, 1.3523e+01] t_wall=2026-07-31 14:57:37
+[3D] step=00020 t=0.400000 t_real=1.981852e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.310177e-02 R_avg_internal=8.862126e+00 R_avg_nm=8.862126e+00 xB_range=[0.0068, 0.0088] Meff_range=[1.1181e-01, 1.3454e+01] t_wall=2026-07-31 14:57:37
+[3D] step=00021 t=0.420000 t_real=2.080945e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.309359e-02 R_avg_internal=8.859668e+00 R_avg_nm=8.859668e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1194e-01, 1.3415e+01] t_wall=2026-07-31 14:57:38
+[3D] step=00022 t=0.440000 t_real=2.180037e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.308589e-02 R_avg_internal=8.857770e+00 R_avg_nm=8.857770e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1213e-01, 1.3383e+01] t_wall=2026-07-31 14:57:39
+[3D] step=00023 t=0.460000 t_real=2.279130e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.307894e-02 R_avg_internal=8.856143e+00 R_avg_nm=8.856143e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1243e-01, 1.3351e+01] t_wall=2026-07-31 14:57:39
+[3D] step=00024 t=0.480000 t_real=2.378223e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.307285e-02 R_avg_internal=8.855575e+00 R_avg_nm=8.855575e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1277e-01, 1.3308e+01] t_wall=2026-07-31 14:57:40
+[3D] step=00025 t=0.500000 t_real=2.477315e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.306764e-02 R_avg_internal=8.855855e+00 R_avg_nm=8.855855e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1296e-01, 1.3267e+01] t_wall=2026-07-31 14:57:41
+[3D] step=00026 t=0.520000 t_real=2.576408e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.306323e-02 R_avg_internal=8.856196e+00 R_avg_nm=8.856196e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1307e-01, 1.3221e+01] t_wall=2026-07-31 14:57:42
+[3D] step=00027 t=0.540000 t_real=2.675500e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.305950e-02 R_avg_internal=8.855828e+00 R_avg_nm=8.855828e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1324e-01, 1.3173e+01] t_wall=2026-07-31 14:57:42
+[3D] step=00028 t=0.560000 t_real=2.774593e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.305628e-02 R_avg_internal=8.856355e+00 R_avg_nm=8.856355e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1345e-01, 1.3133e+01] t_wall=2026-07-31 14:57:43
+[3D] step=00029 t=0.580000 t_real=2.873686e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.305341e-02 R_avg_internal=8.856747e+00 R_avg_nm=8.856747e+00 xB_range=[0.0069, 0.0088] Meff_range=[1.1370e-01, 1.3114e+01] t_wall=2026-07-31 14:57:43
+[3D] step=00030 t=0.600000 t_real=2.972778e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.305076e-02 R_avg_internal=8.857139e+00 R_avg_nm=8.857139e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1389e-01, 1.3116e+01] t_wall=2026-07-31 14:57:44
+[3D] step=00031 t=0.620000 t_real=3.071871e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.304820e-02 R_avg_internal=8.857542e+00 R_avg_nm=8.857542e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1408e-01, 1.3134e+01] t_wall=2026-07-31 14:57:45
+[3D] step=00032 t=0.640000 t_real=3.170964e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.304562e-02 R_avg_internal=8.858059e+00 R_avg_nm=8.858059e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1422e-01, 1.3157e+01] t_wall=2026-07-31 14:57:46
+[3D] step=00033 t=0.660000 t_real=3.270056e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.304296e-02 R_avg_internal=8.858154e+00 R_avg_nm=8.858154e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1436e-01, 1.3182e+01] t_wall=2026-07-31 14:57:46
+[3D] step=00034 t=0.680000 t_real=3.369149e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.304017e-02 R_avg_internal=8.858127e+00 R_avg_nm=8.858127e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1451e-01, 1.3208e+01] t_wall=2026-07-31 14:57:47
+[3D] step=00035 t=0.700000 t_real=3.468241e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.303724e-02 R_avg_internal=8.857659e+00 R_avg_nm=8.857659e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1467e-01, 1.3233e+01] t_wall=2026-07-31 14:57:48
+[3D] step=00036 t=0.720000 t_real=3.567334e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.303415e-02 R_avg_internal=8.857560e+00 R_avg_nm=8.857560e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1484e-01, 1.3255e+01] t_wall=2026-07-31 14:57:48
+[3D] step=00037 t=0.740000 t_real=3.666427e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.303093e-02 R_avg_internal=8.856660e+00 R_avg_nm=8.856660e+00 xB_range=[0.0070, 0.0088] Meff_range=[1.1501e-01, 1.3273e+01] t_wall=2026-07-31 14:57:49
+[3D] step=00038 t=0.760000 t_real=3.765519e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.302759e-02 R_avg_internal=8.855929e+00 R_avg_nm=8.855929e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1518e-01, 1.3287e+01] t_wall=2026-07-31 14:57:50
+[3D] step=00039 t=0.780000 t_real=3.864612e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.302416e-02 R_avg_internal=8.855632e+00 R_avg_nm=8.855632e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1535e-01, 1.3296e+01] t_wall=2026-07-31 14:57:50
+[3D] step=00040 t=0.800000 t_real=3.963704e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.302066e-02 R_avg_internal=8.854320e+00 R_avg_nm=8.854320e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1551e-01, 1.3301e+01] t_wall=2026-07-31 14:57:51
+[3D] step=00041 t=0.820000 t_real=4.062797e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.301712e-02 R_avg_internal=8.853802e+00 R_avg_nm=8.853802e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1566e-01, 1.3301e+01] t_wall=2026-07-31 14:57:51
+[3D] step=00042 t=0.840000 t_real=4.161890e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.301357e-02 R_avg_internal=8.852711e+00 R_avg_nm=8.852711e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1581e-01, 1.3297e+01] t_wall=2026-07-31 14:57:52
+[3D] step=00043 t=0.860000 t_real=4.260982e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.301001e-02 R_avg_internal=8.852041e+00 R_avg_nm=8.852041e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1595e-01, 1.3291e+01] t_wall=2026-07-31 14:57:53
+[3D] step=00044 t=0.880000 t_real=4.360075e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.300646e-02 R_avg_internal=8.851680e+00 R_avg_nm=8.851680e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1608e-01, 1.3282e+01] t_wall=2026-07-31 14:57:53
+[3D] step=00045 t=0.900000 t_real=4.459167e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.300293e-02 R_avg_internal=8.851044e+00 R_avg_nm=8.851044e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1618e-01, 1.3272e+01] t_wall=2026-07-31 14:57:54
+[3D] step=00046 t=0.920000 t_real=4.558260e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.299943e-02 R_avg_internal=8.850002e+00 R_avg_nm=8.850002e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1628e-01, 1.3262e+01] t_wall=2026-07-31 14:57:55
+[3D] step=00047 t=0.940000 t_real=4.657353e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.299594e-02 R_avg_internal=8.849193e+00 R_avg_nm=8.849193e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1639e-01, 1.3252e+01] t_wall=2026-07-31 14:57:55
+[3D] step=00048 t=0.960000 t_real=4.756445e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.299247e-02 R_avg_internal=8.849179e+00 R_avg_nm=8.849179e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1650e-01, 1.3244e+01] t_wall=2026-07-31 14:57:56
+[3D] step=00049 t=0.980000 t_real=4.855538e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.298902e-02 R_avg_internal=8.849885e+00 R_avg_nm=8.849885e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1659e-01, 1.3237e+01] t_wall=2026-07-31 14:57:57
+[3D] step=00050 t=1.000000 t_real=4.954630e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.298559e-02 R_avg_internal=8.849451e+00 R_avg_nm=8.849451e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1668e-01, 1.3231e+01] t_wall=2026-07-31 14:57:57
+[3D] step=00051 t=1.020000 t_real=5.053723e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.298216e-02 R_avg_internal=8.849319e+00 R_avg_nm=8.849319e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1678e-01, 1.3229e+01] t_wall=2026-07-31 14:57:58
+[3D] step=00052 t=1.040000 t_real=5.152816e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.297873e-02 R_avg_internal=8.848739e+00 R_avg_nm=8.848739e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1687e-01, 1.3228e+01] t_wall=2026-07-31 14:57:59
+[3D] step=00053 t=1.060000 t_real=5.251908e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.297531e-02 R_avg_internal=8.848916e+00 R_avg_nm=8.848916e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1697e-01, 1.3229e+01] t_wall=2026-07-31 14:57:59
+[3D] step=00054 t=1.080000 t_real=5.351001e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.297188e-02 R_avg_internal=8.848781e+00 R_avg_nm=8.848781e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1706e-01, 1.3232e+01] t_wall=2026-07-31 14:58:00
+[3D] step=00055 t=1.100000 t_real=5.450094e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.296845e-02 R_avg_internal=8.848844e+00 R_avg_nm=8.848844e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1716e-01, 1.3237e+01] t_wall=2026-07-31 14:58:00
+[3D] step=00056 t=1.120000 t_real=5.549186e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.296501e-02 R_avg_internal=8.848828e+00 R_avg_nm=8.848828e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1725e-01, 1.3244e+01] t_wall=2026-07-31 14:58:01
+[3D] step=00057 t=1.140000 t_real=5.648279e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.296158e-02 R_avg_internal=8.849001e+00 R_avg_nm=8.849001e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1735e-01, 1.3252e+01] t_wall=2026-07-31 14:58:02
+[3D] step=00058 t=1.160000 t_real=5.747371e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.295813e-02 R_avg_internal=8.849131e+00 R_avg_nm=8.849131e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1745e-01, 1.3261e+01] t_wall=2026-07-31 14:58:02
+[3D] step=00059 t=1.180000 t_real=5.846464e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.295469e-02 R_avg_internal=8.848688e+00 R_avg_nm=8.848688e+00 xB_range=[0.0070, 0.0089] Meff_range=[1.1754e-01, 1.3271e+01] t_wall=2026-07-31 14:58:03
+[3D] step=00060 t=1.200000 t_real=5.945557e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.295125e-02 R_avg_internal=8.848289e+00 R_avg_nm=8.848289e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.1762e-01, 1.3282e+01] t_wall=2026-07-31 14:58:03
+[3D] step=00061 t=1.220000 t_real=6.044649e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.294781e-02 R_avg_internal=8.848819e+00 R_avg_nm=8.848819e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.1769e-01, 1.3293e+01] t_wall=2026-07-31 14:58:04
+[3D] step=00062 t=1.240000 t_real=6.143742e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.294437e-02 R_avg_internal=8.848699e+00 R_avg_nm=8.848699e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.1776e-01, 1.3304e+01] t_wall=2026-07-31 14:58:05
+[3D] step=00063 t=1.260000 t_real=6.242834e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.294094e-02 R_avg_internal=8.847767e+00 R_avg_nm=8.847767e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.1783e-01, 1.3316e+01] t_wall=2026-07-31 14:58:05
+[3D] step=00064 t=1.280000 t_real=6.341927e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.293752e-02 R_avg_internal=8.847310e+00 R_avg_nm=8.847310e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1790e-01, 1.3329e+01] t_wall=2026-07-31 14:58:06
+[3D] step=00065 t=1.300000 t_real=6.441020e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.293410e-02 R_avg_internal=8.847099e+00 R_avg_nm=8.847099e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1797e-01, 1.3342e+01] t_wall=2026-07-31 14:58:07
+[3D] step=00066 t=1.320000 t_real=6.540112e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.293071e-02 R_avg_internal=8.846661e+00 R_avg_nm=8.846661e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1805e-01, 1.3356e+01] t_wall=2026-07-31 14:58:07
+[3D] step=00067 t=1.340000 t_real=6.639205e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.292732e-02 R_avg_internal=8.845844e+00 R_avg_nm=8.845844e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1812e-01, 1.3371e+01] t_wall=2026-07-31 14:58:08
+[3D] step=00068 t=1.360000 t_real=6.738297e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.292395e-02 R_avg_internal=8.845180e+00 R_avg_nm=8.845180e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1819e-01, 1.3386e+01] t_wall=2026-07-31 14:58:09
+[3D] step=00069 t=1.380000 t_real=6.837390e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.292060e-02 R_avg_internal=8.845419e+00 R_avg_nm=8.845419e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1827e-01, 1.3402e+01] t_wall=2026-07-31 14:58:09
+[3D] step=00070 t=1.400000 t_real=6.936483e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.291726e-02 R_avg_internal=8.845300e+00 R_avg_nm=8.845300e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1835e-01, 1.3419e+01] t_wall=2026-07-31 14:58:10
+[3D] step=00071 t=1.420000 t_real=7.035575e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.291394e-02 R_avg_internal=8.845470e+00 R_avg_nm=8.845470e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1843e-01, 1.3435e+01] t_wall=2026-07-31 14:58:11
+[3D] step=00072 t=1.440000 t_real=7.134668e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.291064e-02 R_avg_internal=8.845033e+00 R_avg_nm=8.845033e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1851e-01, 1.3452e+01] t_wall=2026-07-31 14:58:11
+[3D] step=00073 t=1.460000 t_real=7.233760e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.290736e-02 R_avg_internal=8.845453e+00 R_avg_nm=8.845453e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1860e-01, 1.3469e+01] t_wall=2026-07-31 14:58:12
+[3D] step=00074 t=1.480000 t_real=7.332853e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.290410e-02 R_avg_internal=8.845260e+00 R_avg_nm=8.845260e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1869e-01, 1.3486e+01] t_wall=2026-07-31 14:58:13
+[3D] step=00075 t=1.500000 t_real=7.431946e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.290087e-02 R_avg_internal=8.845516e+00 R_avg_nm=8.845516e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1878e-01, 1.3501e+01] t_wall=2026-07-31 14:58:13
+[3D] step=00076 t=1.520000 t_real=7.531038e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.289765e-02 R_avg_internal=8.845693e+00 R_avg_nm=8.845693e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1888e-01, 1.3516e+01] t_wall=2026-07-31 14:58:14
+[3D] step=00077 t=1.540000 t_real=7.630131e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.289445e-02 R_avg_internal=8.845652e+00 R_avg_nm=8.845652e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1897e-01, 1.3529e+01] t_wall=2026-07-31 14:58:14
+[3D] step=00078 t=1.560000 t_real=7.729224e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.289128e-02 R_avg_internal=8.845537e+00 R_avg_nm=8.845537e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1906e-01, 1.3541e+01] t_wall=2026-07-31 14:58:15
+[3D] step=00079 t=1.580000 t_real=7.828316e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.288813e-02 R_avg_internal=8.845480e+00 R_avg_nm=8.845480e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1915e-01, 1.3551e+01] t_wall=2026-07-31 14:58:16
+[3D] step=00080 t=1.600000 t_real=7.927409e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.288501e-02 R_avg_internal=8.845102e+00 R_avg_nm=8.845102e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1923e-01, 1.3559e+01] t_wall=2026-07-31 14:58:16
+[3D] step=00081 t=1.620000 t_real=8.026501e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.288191e-02 R_avg_internal=8.845105e+00 R_avg_nm=8.845105e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1932e-01, 1.3564e+01] t_wall=2026-07-31 14:58:17
+[3D] step=00082 t=1.640000 t_real=8.125594e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.287883e-02 R_avg_internal=8.844722e+00 R_avg_nm=8.844722e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1941e-01, 1.3568e+01] t_wall=2026-07-31 14:58:18
+[3D] step=00083 t=1.660000 t_real=8.224687e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.287577e-02 R_avg_internal=8.844477e+00 R_avg_nm=8.844477e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1951e-01, 1.3570e+01] t_wall=2026-07-31 14:58:18
+[3D] step=00084 t=1.680000 t_real=8.323779e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.287274e-02 R_avg_internal=8.844349e+00 R_avg_nm=8.844349e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1960e-01, 1.3570e+01] t_wall=2026-07-31 14:58:19
+[3D] step=00085 t=1.700000 t_real=8.422872e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.286973e-02 R_avg_internal=8.843949e+00 R_avg_nm=8.843949e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1969e-01, 1.3568e+01] t_wall=2026-07-31 14:58:20
+[3D] step=00086 t=1.720000 t_real=8.521964e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.286675e-02 R_avg_internal=8.843086e+00 R_avg_nm=8.843086e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1978e-01, 1.3564e+01] t_wall=2026-07-31 14:58:20
+[3D] step=00087 t=1.740000 t_real=8.621057e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.286379e-02 R_avg_internal=8.842398e+00 R_avg_nm=8.842398e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1987e-01, 1.3560e+01] t_wall=2026-07-31 14:58:21
+[3D] step=00088 t=1.760000 t_real=8.720150e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.286085e-02 R_avg_internal=8.841668e+00 R_avg_nm=8.841668e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.1996e-01, 1.3554e+01] t_wall=2026-07-31 14:58:22
+[3D] step=00089 t=1.780000 t_real=8.819242e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.285793e-02 R_avg_internal=8.841064e+00 R_avg_nm=8.841064e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2006e-01, 1.3547e+01] t_wall=2026-07-31 14:58:22
+[3D] step=00090 t=1.800000 t_real=8.918335e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.285503e-02 R_avg_internal=8.840315e+00 R_avg_nm=8.840315e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2015e-01, 1.3540e+01] t_wall=2026-07-31 14:58:23
+[3D] step=00091 t=1.820000 t_real=9.017427e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.285216e-02 R_avg_internal=8.839068e+00 R_avg_nm=8.839068e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2024e-01, 1.3532e+01] t_wall=2026-07-31 14:58:23
+[3D] step=00092 t=1.840000 t_real=9.116520e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.284930e-02 R_avg_internal=8.838202e+00 R_avg_nm=8.838202e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2033e-01, 1.3525e+01] t_wall=2026-07-31 14:58:24
+[3D] step=00093 t=1.860000 t_real=9.215613e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.284646e-02 R_avg_internal=8.837128e+00 R_avg_nm=8.837128e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2043e-01, 1.3517e+01] t_wall=2026-07-31 14:58:25
+[3D] step=00094 t=1.880000 t_real=9.314705e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.284364e-02 R_avg_internal=8.836384e+00 R_avg_nm=8.836384e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2052e-01, 1.3509e+01] t_wall=2026-07-31 14:58:25
+[3D] step=00095 t=1.900000 t_real=9.413798e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.284083e-02 R_avg_internal=8.835647e+00 R_avg_nm=8.835647e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2062e-01, 1.3501e+01] t_wall=2026-07-31 14:58:26
+[3D] step=00096 t=1.920000 t_real=9.512891e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.283805e-02 R_avg_internal=8.835141e+00 R_avg_nm=8.835141e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2071e-01, 1.3494e+01] t_wall=2026-07-31 14:58:27
+[3D] step=00097 t=1.940000 t_real=9.611983e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.283528e-02 R_avg_internal=8.834146e+00 R_avg_nm=8.834146e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2081e-01, 1.3487e+01] t_wall=2026-07-31 14:58:28
+[3D] step=00098 t=1.960000 t_real=9.711076e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.283253e-02 R_avg_internal=8.833605e+00 R_avg_nm=8.833605e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2090e-01, 1.3481e+01] t_wall=2026-07-31 14:58:28
+[3D] step=00099 t=1.980000 t_real=9.810168e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.282979e-02 R_avg_internal=8.832799e+00 R_avg_nm=8.832799e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2100e-01, 1.3476e+01] t_wall=2026-07-31 14:58:29
+[3D] step=00100 t=2.000000 t_real=9.909261e+01 s <x_B_tot>=3.000000e-02 vf_precip=2.282707e-02 R_avg_internal=8.832016e+00 R_avg_nm=8.832016e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2110e-01, 1.3472e+01] t_wall=2026-07-31 14:58:29
+[3D] step=00101 t=2.020000 t_real=1.000835e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.282437e-02 R_avg_internal=8.831783e+00 R_avg_nm=8.831783e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2120e-01, 1.3468e+01] t_wall=2026-07-31 14:58:30
+[3D] step=00102 t=2.040000 t_real=1.010745e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.282168e-02 R_avg_internal=8.831401e+00 R_avg_nm=8.831401e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2130e-01, 1.3465e+01] t_wall=2026-07-31 14:58:31
+[3D] step=00103 t=2.060000 t_real=1.020654e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.281901e-02 R_avg_internal=8.830663e+00 R_avg_nm=8.830663e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2140e-01, 1.3463e+01] t_wall=2026-07-31 14:58:31
+[3D] step=00104 t=2.080000 t_real=1.030563e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.281636e-02 R_avg_internal=8.830222e+00 R_avg_nm=8.830222e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2150e-01, 1.3461e+01] t_wall=2026-07-31 14:58:32
+[3D] step=00105 t=2.100000 t_real=1.040472e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.281372e-02 R_avg_internal=8.828990e+00 R_avg_nm=8.828990e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2160e-01, 1.3459e+01] t_wall=2026-07-31 14:58:32
+[3D] step=00106 t=2.120000 t_real=1.050382e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.281110e-02 R_avg_internal=8.828532e+00 R_avg_nm=8.828532e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2170e-01, 1.3458e+01] t_wall=2026-07-31 14:58:33
+[3D] step=00107 t=2.140000 t_real=1.060291e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.280850e-02 R_avg_internal=8.827641e+00 R_avg_nm=8.827641e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2180e-01, 1.3457e+01] t_wall=2026-07-31 14:58:34
+[3D] step=00108 t=2.160000 t_real=1.070200e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.280592e-02 R_avg_internal=8.827231e+00 R_avg_nm=8.827231e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2190e-01, 1.3457e+01] t_wall=2026-07-31 14:58:34
+[3D] step=00109 t=2.180000 t_real=1.080109e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.280335e-02 R_avg_internal=8.826384e+00 R_avg_nm=8.826384e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2200e-01, 1.3456e+01] t_wall=2026-07-31 14:58:35
+[3D] step=00110 t=2.200000 t_real=1.090019e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.280080e-02 R_avg_internal=8.826122e+00 R_avg_nm=8.826122e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2210e-01, 1.3455e+01] t_wall=2026-07-31 14:58:35
+[3D] step=00111 t=2.220000 t_real=1.099928e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.279827e-02 R_avg_internal=8.825395e+00 R_avg_nm=8.825395e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2220e-01, 1.3455e+01] t_wall=2026-07-31 14:58:36
+[3D] step=00112 t=2.240000 t_real=1.109837e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.279576e-02 R_avg_internal=8.824673e+00 R_avg_nm=8.824673e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2230e-01, 1.3454e+01] t_wall=2026-07-31 14:58:37
+[3D] step=00113 t=2.260000 t_real=1.119746e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.279327e-02 R_avg_internal=8.824354e+00 R_avg_nm=8.824354e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2239e-01, 1.3454e+01] t_wall=2026-07-31 14:58:37
+[3D] step=00114 t=2.280000 t_real=1.129656e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.279079e-02 R_avg_internal=8.823607e+00 R_avg_nm=8.823607e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2249e-01, 1.3453e+01] t_wall=2026-07-31 14:58:38
+[3D] step=00115 t=2.300000 t_real=1.139565e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.278834e-02 R_avg_internal=8.823220e+00 R_avg_nm=8.823220e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2259e-01, 1.3453e+01] t_wall=2026-07-31 14:58:38
+[3D] step=00116 t=2.320000 t_real=1.149474e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.278590e-02 R_avg_internal=8.822008e+00 R_avg_nm=8.822008e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2268e-01, 1.3452e+01] t_wall=2026-07-31 14:58:39
+[3D] step=00117 t=2.340000 t_real=1.159384e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.278348e-02 R_avg_internal=8.821326e+00 R_avg_nm=8.821326e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2278e-01, 1.3452e+01] t_wall=2026-07-31 14:58:40
+[3D] step=00118 t=2.360000 t_real=1.169293e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.278108e-02 R_avg_internal=8.820874e+00 R_avg_nm=8.820874e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2287e-01, 1.3451e+01] t_wall=2026-07-31 14:58:40
+[3D] step=00119 t=2.380000 t_real=1.179202e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.277870e-02 R_avg_internal=8.820254e+00 R_avg_nm=8.820254e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2297e-01, 1.3451e+01] t_wall=2026-07-31 14:58:41
+[3D] step=00120 t=2.400000 t_real=1.189111e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.277633e-02 R_avg_internal=8.819890e+00 R_avg_nm=8.819890e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2306e-01, 1.3450e+01] t_wall=2026-07-31 14:58:41
+[3D] step=00121 t=2.420000 t_real=1.199021e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.277399e-02 R_avg_internal=8.819216e+00 R_avg_nm=8.819216e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2315e-01, 1.3450e+01] t_wall=2026-07-31 14:58:42
+[3D] step=00122 t=2.440000 t_real=1.208930e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.277166e-02 R_avg_internal=8.818727e+00 R_avg_nm=8.818727e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2324e-01, 1.3449e+01] t_wall=2026-07-31 14:58:43
+[3D] step=00123 t=2.460000 t_real=1.218839e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.276935e-02 R_avg_internal=8.818060e+00 R_avg_nm=8.818060e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2333e-01, 1.3449e+01] t_wall=2026-07-31 14:58:43
+[3D] step=00124 t=2.480000 t_real=1.228748e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.276705e-02 R_avg_internal=8.817538e+00 R_avg_nm=8.817538e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2342e-01, 1.3449e+01] t_wall=2026-07-31 14:58:44
+[3D] step=00125 t=2.500000 t_real=1.238658e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.276478e-02 R_avg_internal=8.816847e+00 R_avg_nm=8.816847e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2351e-01, 1.3448e+01] t_wall=2026-07-31 14:58:44
+[3D] step=00126 t=2.520000 t_real=1.248567e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.276252e-02 R_avg_internal=8.816348e+00 R_avg_nm=8.816348e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2360e-01, 1.3448e+01] t_wall=2026-07-31 14:58:45
+[3D] step=00127 t=2.540000 t_real=1.258476e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.276027e-02 R_avg_internal=8.815800e+00 R_avg_nm=8.815800e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2369e-01, 1.3448e+01] t_wall=2026-07-31 14:58:46
+[3D] step=00128 t=2.560000 t_real=1.268385e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.275804e-02 R_avg_internal=8.815228e+00 R_avg_nm=8.815228e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2377e-01, 1.3449e+01] t_wall=2026-07-31 14:58:47
+[3D] step=00129 t=2.580000 t_real=1.278295e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.275583e-02 R_avg_internal=8.814353e+00 R_avg_nm=8.814353e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2386e-01, 1.3449e+01] t_wall=2026-07-31 14:58:47
+[3D] step=00130 t=2.600000 t_real=1.288204e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.275364e-02 R_avg_internal=8.813727e+00 R_avg_nm=8.813727e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2395e-01, 1.3449e+01] t_wall=2026-07-31 14:58:48
+[3D] step=00131 t=2.620000 t_real=1.298113e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.275145e-02 R_avg_internal=8.812627e+00 R_avg_nm=8.812627e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2403e-01, 1.3450e+01] t_wall=2026-07-31 14:58:48
+[3D] step=00132 t=2.640000 t_real=1.308022e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.274929e-02 R_avg_internal=8.812155e+00 R_avg_nm=8.812155e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2405e-01, 1.3451e+01] t_wall=2026-07-31 14:58:49
+[3D] step=00133 t=2.660000 t_real=1.317932e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.274714e-02 R_avg_internal=8.811340e+00 R_avg_nm=8.811340e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2405e-01, 1.3452e+01] t_wall=2026-07-31 14:58:50
+[3D] step=00134 t=2.680000 t_real=1.327841e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.274500e-02 R_avg_internal=8.810764e+00 R_avg_nm=8.810764e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2405e-01, 1.3454e+01] t_wall=2026-07-31 14:58:50
+[3D] step=00135 t=2.700000 t_real=1.337750e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.274287e-02 R_avg_internal=8.810117e+00 R_avg_nm=8.810117e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2406e-01, 1.3455e+01] t_wall=2026-07-31 14:58:51
+[3D] step=00136 t=2.720000 t_real=1.347659e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.274077e-02 R_avg_internal=8.809745e+00 R_avg_nm=8.809745e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2406e-01, 1.3457e+01] t_wall=2026-07-31 14:58:51
+[3D] step=00137 t=2.740000 t_real=1.357569e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.273867e-02 R_avg_internal=8.808942e+00 R_avg_nm=8.808942e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2405e-01, 1.3458e+01] t_wall=2026-07-31 14:58:52
+[3D] step=00138 t=2.760000 t_real=1.367478e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.273659e-02 R_avg_internal=8.808286e+00 R_avg_nm=8.808286e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2405e-01, 1.3460e+01] t_wall=2026-07-31 14:58:53
+[3D] step=00139 t=2.780000 t_real=1.377387e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.273452e-02 R_avg_internal=8.807646e+00 R_avg_nm=8.807646e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2405e-01, 1.3462e+01] t_wall=2026-07-31 14:58:53
+[3D] step=00140 t=2.800000 t_real=1.387297e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.273246e-02 R_avg_internal=8.807170e+00 R_avg_nm=8.807170e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2404e-01, 1.3463e+01] t_wall=2026-07-31 14:58:54
+[3D] step=00141 t=2.820000 t_real=1.397206e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.273042e-02 R_avg_internal=8.806983e+00 R_avg_nm=8.806983e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2403e-01, 1.3465e+01] t_wall=2026-07-31 14:58:54
+[3D] step=00142 t=2.840000 t_real=1.407115e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.272839e-02 R_avg_internal=8.806705e+00 R_avg_nm=8.806705e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2402e-01, 1.3467e+01] t_wall=2026-07-31 14:58:55
+[3D] step=00143 t=2.860000 t_real=1.417024e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.272638e-02 R_avg_internal=8.806122e+00 R_avg_nm=8.806122e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2402e-01, 1.3468e+01] t_wall=2026-07-31 14:58:56
+[3D] step=00144 t=2.880000 t_real=1.426934e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.272437e-02 R_avg_internal=8.805737e+00 R_avg_nm=8.805737e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2401e-01, 1.3470e+01] t_wall=2026-07-31 14:58:56
+[3D] step=00145 t=2.900000 t_real=1.436843e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.272238e-02 R_avg_internal=8.805160e+00 R_avg_nm=8.805160e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2400e-01, 1.3472e+01] t_wall=2026-07-31 14:58:57
+[3D] step=00146 t=2.920000 t_real=1.446752e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.272040e-02 R_avg_internal=8.804873e+00 R_avg_nm=8.804873e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2399e-01, 1.3473e+01] t_wall=2026-07-31 14:58:57
+[3D] step=00147 t=2.940000 t_real=1.456661e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.271843e-02 R_avg_internal=8.804872e+00 R_avg_nm=8.804872e+00 xB_range=[0.0071, 0.0094] Meff_range=[1.2398e-01, 1.3475e+01] t_wall=2026-07-31 14:58:58
+[3D] step=00148 t=2.960000 t_real=1.466571e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.271648e-02 R_avg_internal=8.804237e+00 R_avg_nm=8.804237e+00 xB_range=[0.0071, 0.0094] Meff_range=[1.2397e-01, 1.3476e+01] t_wall=2026-07-31 14:58:59
+[3D] step=00149 t=2.980000 t_real=1.476480e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.271454e-02 R_avg_internal=8.804017e+00 R_avg_nm=8.804017e+00 xB_range=[0.0071, 0.0094] Meff_range=[1.2396e-01, 1.3477e+01] t_wall=2026-07-31 14:58:59
+[3D] step=00150 t=3.000000 t_real=1.486389e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.271260e-02 R_avg_internal=8.803377e+00 R_avg_nm=8.803377e+00 xB_range=[0.0071, 0.0094] Meff_range=[1.2395e-01, 1.3478e+01] t_wall=2026-07-31 14:59:00
+[3D] step=00151 t=3.020000 t_real=1.496298e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.271068e-02 R_avg_internal=8.802802e+00 R_avg_nm=8.802802e+00 xB_range=[0.0071, 0.0094] Meff_range=[1.2394e-01, 1.3479e+01] t_wall=2026-07-31 14:59:00
+[3D] step=00152 t=3.040000 t_real=1.506208e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.270878e-02 R_avg_internal=8.802334e+00 R_avg_nm=8.802334e+00 xB_range=[0.0071, 0.0094] Meff_range=[1.2393e-01, 1.3480e+01] t_wall=2026-07-31 14:59:01
+[3D] step=00153 t=3.060000 t_real=1.516117e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.270688e-02 R_avg_internal=8.801860e+00 R_avg_nm=8.801860e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2392e-01, 1.3481e+01] t_wall=2026-07-31 14:59:02
+[3D] step=00154 t=3.080000 t_real=1.526026e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.270499e-02 R_avg_internal=8.801287e+00 R_avg_nm=8.801287e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2390e-01, 1.3482e+01] t_wall=2026-07-31 14:59:02
+[3D] step=00155 t=3.100000 t_real=1.535935e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.270312e-02 R_avg_internal=8.800828e+00 R_avg_nm=8.800828e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2386e-01, 1.3482e+01] t_wall=2026-07-31 14:59:03
+[3D] step=00156 t=3.120000 t_real=1.545845e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.270126e-02 R_avg_internal=8.800493e+00 R_avg_nm=8.800493e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2383e-01, 1.3483e+01] t_wall=2026-07-31 14:59:03
+[3D] step=00157 t=3.140000 t_real=1.555754e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.269941e-02 R_avg_internal=8.800748e+00 R_avg_nm=8.800748e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2379e-01, 1.3483e+01] t_wall=2026-07-31 14:59:04
+[3D] step=00158 t=3.160000 t_real=1.565663e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.269757e-02 R_avg_internal=8.800455e+00 R_avg_nm=8.800455e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2375e-01, 1.3484e+01] t_wall=2026-07-31 14:59:05
+[3D] step=00159 t=3.180000 t_real=1.575572e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.269574e-02 R_avg_internal=8.799957e+00 R_avg_nm=8.799957e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2371e-01, 1.3484e+01] t_wall=2026-07-31 14:59:05
+[3D] step=00160 t=3.200000 t_real=1.585482e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.269392e-02 R_avg_internal=8.799923e+00 R_avg_nm=8.799923e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2367e-01, 1.3484e+01] t_wall=2026-07-31 14:59:06
+[3D] step=00161 t=3.220000 t_real=1.595391e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.269211e-02 R_avg_internal=8.799397e+00 R_avg_nm=8.799397e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2364e-01, 1.3485e+01] t_wall=2026-07-31 14:59:07
+[3D] step=00162 t=3.240000 t_real=1.605300e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.269032e-02 R_avg_internal=8.799088e+00 R_avg_nm=8.799088e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2360e-01, 1.3487e+01] t_wall=2026-07-31 14:59:07
+[3D] step=00163 t=3.260000 t_real=1.615210e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.268853e-02 R_avg_internal=8.798877e+00 R_avg_nm=8.798877e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2356e-01, 1.3492e+01] t_wall=2026-07-31 14:59:08
+[3D] step=00164 t=3.280000 t_real=1.625119e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.268676e-02 R_avg_internal=8.798746e+00 R_avg_nm=8.798746e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2352e-01, 1.3497e+01] t_wall=2026-07-31 14:59:09
+[3D] step=00165 t=3.300000 t_real=1.635028e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.268499e-02 R_avg_internal=8.798452e+00 R_avg_nm=8.798452e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2348e-01, 1.3501e+01] t_wall=2026-07-31 14:59:09
+[3D] step=00166 t=3.320000 t_real=1.644937e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.268324e-02 R_avg_internal=8.798552e+00 R_avg_nm=8.798552e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2343e-01, 1.3505e+01] t_wall=2026-07-31 14:59:10
+[3D] step=00167 t=3.340000 t_real=1.654847e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.268150e-02 R_avg_internal=8.798377e+00 R_avg_nm=8.798377e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2339e-01, 1.3507e+01] t_wall=2026-07-31 14:59:10
+[3D] step=00168 t=3.360000 t_real=1.664756e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.267977e-02 R_avg_internal=8.798523e+00 R_avg_nm=8.798523e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2335e-01, 1.3509e+01] t_wall=2026-07-31 14:59:11
+[3D] step=00169 t=3.380000 t_real=1.674665e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.267805e-02 R_avg_internal=8.798605e+00 R_avg_nm=8.798605e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2330e-01, 1.3510e+01] t_wall=2026-07-31 14:59:12
+[3D] step=00170 t=3.400000 t_real=1.684574e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.267634e-02 R_avg_internal=8.798519e+00 R_avg_nm=8.798519e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2326e-01, 1.3512e+01] t_wall=2026-07-31 14:59:12
+[3D] step=00171 t=3.420000 t_real=1.694484e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.267464e-02 R_avg_internal=8.798001e+00 R_avg_nm=8.798001e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2322e-01, 1.3512e+01] t_wall=2026-07-31 14:59:13
+[3D] step=00172 t=3.440000 t_real=1.704393e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.267295e-02 R_avg_internal=8.797511e+00 R_avg_nm=8.797511e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2317e-01, 1.3512e+01] t_wall=2026-07-31 14:59:13
+[3D] step=00173 t=3.460000 t_real=1.714302e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.267127e-02 R_avg_internal=8.797488e+00 R_avg_nm=8.797488e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2313e-01, 1.3511e+01] t_wall=2026-07-31 14:59:14
+[3D] step=00174 t=3.480000 t_real=1.724211e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.266960e-02 R_avg_internal=8.797084e+00 R_avg_nm=8.797084e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2309e-01, 1.3510e+01] t_wall=2026-07-31 14:59:15
+[3D] step=00175 t=3.500000 t_real=1.734121e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.266794e-02 R_avg_internal=8.796989e+00 R_avg_nm=8.796989e+00 xB_range=[0.0071, 0.0093] Meff_range=[1.2304e-01, 1.3508e+01] t_wall=2026-07-31 14:59:15
+[3D] step=00176 t=3.520000 t_real=1.744030e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.266629e-02 R_avg_internal=8.796648e+00 R_avg_nm=8.796648e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2300e-01, 1.3506e+01] t_wall=2026-07-31 14:59:16
+[3D] step=00177 t=3.540000 t_real=1.753939e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.266465e-02 R_avg_internal=8.796480e+00 R_avg_nm=8.796480e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2296e-01, 1.3504e+01] t_wall=2026-07-31 14:59:16
+[3D] step=00178 t=3.560000 t_real=1.763848e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.266302e-02 R_avg_internal=8.796394e+00 R_avg_nm=8.796394e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2291e-01, 1.3503e+01] t_wall=2026-07-31 14:59:17
+[3D] step=00179 t=3.580000 t_real=1.773758e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.266140e-02 R_avg_internal=8.795892e+00 R_avg_nm=8.795892e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2287e-01, 1.3504e+01] t_wall=2026-07-31 14:59:18
+[3D] step=00180 t=3.600000 t_real=1.783667e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.265979e-02 R_avg_internal=8.795902e+00 R_avg_nm=8.795902e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2283e-01, 1.3504e+01] t_wall=2026-07-31 14:59:18
+[3D] step=00181 t=3.620000 t_real=1.793576e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.265819e-02 R_avg_internal=8.795476e+00 R_avg_nm=8.795476e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2279e-01, 1.3505e+01] t_wall=2026-07-31 14:59:19
+[3D] step=00182 t=3.640000 t_real=1.803485e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.265659e-02 R_avg_internal=8.795183e+00 R_avg_nm=8.795183e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2274e-01, 1.3505e+01] t_wall=2026-07-31 14:59:19
+[3D] step=00183 t=3.660000 t_real=1.813395e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.265501e-02 R_avg_internal=8.794698e+00 R_avg_nm=8.794698e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2270e-01, 1.3505e+01] t_wall=2026-07-31 14:59:20
+[3D] step=00184 t=3.680000 t_real=1.823304e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.265343e-02 R_avg_internal=8.794112e+00 R_avg_nm=8.794112e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2266e-01, 1.3506e+01] t_wall=2026-07-31 14:59:21
+[3D] step=00185 t=3.700000 t_real=1.833213e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.265187e-02 R_avg_internal=8.793720e+00 R_avg_nm=8.793720e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2261e-01, 1.3506e+01] t_wall=2026-07-31 14:59:21
+[3D] step=00186 t=3.720000 t_real=1.843123e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.265031e-02 R_avg_internal=8.793389e+00 R_avg_nm=8.793389e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2257e-01, 1.3506e+01] t_wall=2026-07-31 14:59:22
+[3D] step=00187 t=3.740000 t_real=1.853032e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.264876e-02 R_avg_internal=8.792764e+00 R_avg_nm=8.792764e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2253e-01, 1.3507e+01] t_wall=2026-07-31 14:59:22
+[3D] step=00188 t=3.760000 t_real=1.862941e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.264723e-02 R_avg_internal=8.792245e+00 R_avg_nm=8.792245e+00 xB_range=[0.0071, 0.0092] Meff_range=[1.2249e-01, 1.3507e+01] t_wall=2026-07-31 14:59:23
+[3D] step=00189 t=3.780000 t_real=1.872850e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.264570e-02 R_avg_internal=8.792011e+00 R_avg_nm=8.792011e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2245e-01, 1.3507e+01] t_wall=2026-07-31 14:59:23
+[3D] step=00190 t=3.800000 t_real=1.882760e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.264417e-02 R_avg_internal=8.791874e+00 R_avg_nm=8.791874e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2240e-01, 1.3507e+01] t_wall=2026-07-31 14:59:24
+[3D] step=00191 t=3.820000 t_real=1.892669e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.264266e-02 R_avg_internal=8.791821e+00 R_avg_nm=8.791821e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2236e-01, 1.3507e+01] t_wall=2026-07-31 14:59:25
+[3D] step=00192 t=3.840000 t_real=1.902578e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.264116e-02 R_avg_internal=8.791831e+00 R_avg_nm=8.791831e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2232e-01, 1.3508e+01] t_wall=2026-07-31 14:59:26
+[3D] step=00193 t=3.860000 t_real=1.912487e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.263966e-02 R_avg_internal=8.791507e+00 R_avg_nm=8.791507e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2228e-01, 1.3508e+01] t_wall=2026-07-31 14:59:26
+[3D] step=00194 t=3.880000 t_real=1.922397e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.263818e-02 R_avg_internal=8.791278e+00 R_avg_nm=8.791278e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2224e-01, 1.3508e+01] t_wall=2026-07-31 14:59:27
+[3D] step=00195 t=3.900000 t_real=1.932306e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.263670e-02 R_avg_internal=8.791113e+00 R_avg_nm=8.791113e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2219e-01, 1.3508e+01] t_wall=2026-07-31 14:59:28
+[3D] step=00196 t=3.920000 t_real=1.942215e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.263523e-02 R_avg_internal=8.790467e+00 R_avg_nm=8.790467e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2215e-01, 1.3508e+01] t_wall=2026-07-31 14:59:28
+[3D] step=00197 t=3.940000 t_real=1.952124e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.263377e-02 R_avg_internal=8.790536e+00 R_avg_nm=8.790536e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2211e-01, 1.3509e+01] t_wall=2026-07-31 14:59:29
+[3D] step=00198 t=3.960000 t_real=1.962034e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.263232e-02 R_avg_internal=8.790343e+00 R_avg_nm=8.790343e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2207e-01, 1.3509e+01] t_wall=2026-07-31 14:59:29
+[3D] step=00199 t=3.980000 t_real=1.971943e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.263088e-02 R_avg_internal=8.790103e+00 R_avg_nm=8.790103e+00 xB_range=[0.0071, 0.0091] Meff_range=[1.2203e-01, 1.3510e+01] t_wall=2026-07-31 14:59:30
+[3D] step=00200 t=4.000000 t_real=1.981852e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.262945e-02 R_avg_internal=8.789932e+00 R_avg_nm=8.789932e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2199e-01, 1.3511e+01] t_wall=2026-07-31 14:59:31
+[3D] step=00201 t=4.020000 t_real=1.991761e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.262803e-02 R_avg_internal=8.789830e+00 R_avg_nm=8.789830e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2195e-01, 1.3512e+01] t_wall=2026-07-31 14:59:31
+[3D] step=00202 t=4.040000 t_real=2.001671e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.262661e-02 R_avg_internal=8.789756e+00 R_avg_nm=8.789756e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2191e-01, 1.3513e+01] t_wall=2026-07-31 14:59:32
+[3D] step=00203 t=4.060000 t_real=2.011580e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.262521e-02 R_avg_internal=8.789854e+00 R_avg_nm=8.789854e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2187e-01, 1.3514e+01] t_wall=2026-07-31 14:59:32
+[3D] step=00204 t=4.080000 t_real=2.021489e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.262381e-02 R_avg_internal=8.789989e+00 R_avg_nm=8.789989e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2182e-01, 1.3515e+01] t_wall=2026-07-31 14:59:33
+[3D] step=00205 t=4.100000 t_real=2.031398e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.262243e-02 R_avg_internal=8.789479e+00 R_avg_nm=8.789479e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2178e-01, 1.3516e+01] t_wall=2026-07-31 14:59:34
+[3D] step=00206 t=4.120000 t_real=2.041308e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.262106e-02 R_avg_internal=8.788937e+00 R_avg_nm=8.788937e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2174e-01, 1.3518e+01] t_wall=2026-07-31 14:59:34
+[3D] step=00207 t=4.140000 t_real=2.051217e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261969e-02 R_avg_internal=8.788933e+00 R_avg_nm=8.788933e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2170e-01, 1.3520e+01] t_wall=2026-07-31 14:59:35
+[3D] step=00208 t=4.160000 t_real=2.061126e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261833e-02 R_avg_internal=8.788433e+00 R_avg_nm=8.788433e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2166e-01, 1.3522e+01] t_wall=2026-07-31 14:59:35
+[3D] step=00209 t=4.180000 t_real=2.071036e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261699e-02 R_avg_internal=8.788059e+00 R_avg_nm=8.788059e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2162e-01, 1.3524e+01] t_wall=2026-07-31 14:59:36
+[3D] step=00210 t=4.200000 t_real=2.080945e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261565e-02 R_avg_internal=8.787798e+00 R_avg_nm=8.787798e+00 xB_range=[0.0071, 0.0090] Meff_range=[1.2158e-01, 1.3527e+01] t_wall=2026-07-31 14:59:37
+[3D] step=00211 t=4.220000 t_real=2.090854e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261433e-02 R_avg_internal=8.786860e+00 R_avg_nm=8.786860e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2154e-01, 1.3529e+01] t_wall=2026-07-31 14:59:37
+[3D] step=00212 t=4.240000 t_real=2.100763e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261301e-02 R_avg_internal=8.787128e+00 R_avg_nm=8.787128e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2150e-01, 1.3532e+01] t_wall=2026-07-31 14:59:38
+[3D] step=00213 t=4.260000 t_real=2.110673e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261170e-02 R_avg_internal=8.786995e+00 R_avg_nm=8.786995e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2146e-01, 1.3535e+01] t_wall=2026-07-31 14:59:38
+[3D] step=00214 t=4.280000 t_real=2.120582e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.261041e-02 R_avg_internal=8.786746e+00 R_avg_nm=8.786746e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2141e-01, 1.3537e+01] t_wall=2026-07-31 14:59:39
+[3D] step=00215 t=4.300000 t_real=2.130491e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260912e-02 R_avg_internal=8.786491e+00 R_avg_nm=8.786491e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2137e-01, 1.3540e+01] t_wall=2026-07-31 14:59:39
+[3D] step=00216 t=4.320000 t_real=2.140400e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260784e-02 R_avg_internal=8.786194e+00 R_avg_nm=8.786194e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2133e-01, 1.3543e+01] t_wall=2026-07-31 14:59:40
+[3D] step=00217 t=4.340000 t_real=2.150310e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260658e-02 R_avg_internal=8.786373e+00 R_avg_nm=8.786373e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2129e-01, 1.3546e+01] t_wall=2026-07-31 14:59:41
+[3D] step=00218 t=4.360000 t_real=2.160219e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260532e-02 R_avg_internal=8.786093e+00 R_avg_nm=8.786093e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2125e-01, 1.3550e+01] t_wall=2026-07-31 14:59:41
+[3D] step=00219 t=4.380000 t_real=2.170128e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260407e-02 R_avg_internal=8.786454e+00 R_avg_nm=8.786454e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2121e-01, 1.3553e+01] t_wall=2026-07-31 14:59:42
+[3D] step=00220 t=4.400000 t_real=2.180037e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260283e-02 R_avg_internal=8.786479e+00 R_avg_nm=8.786479e+00 xB_range=[0.0071, 0.0089] Meff_range=[1.2117e-01, 1.3556e+01] t_wall=2026-07-31 14:59:42
+[3D] step=00221 t=4.420000 t_real=2.189947e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260160e-02 R_avg_internal=8.786222e+00 R_avg_nm=8.786222e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2113e-01, 1.3559e+01] t_wall=2026-07-31 14:59:43
+[3D] step=00222 t=4.440000 t_real=2.199856e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.260038e-02 R_avg_internal=8.785973e+00 R_avg_nm=8.785973e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2109e-01, 1.3562e+01] t_wall=2026-07-31 14:59:44
+[3D] step=00223 t=4.460000 t_real=2.209765e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259916e-02 R_avg_internal=8.785657e+00 R_avg_nm=8.785657e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2105e-01, 1.3565e+01] t_wall=2026-07-31 14:59:44
+[3D] step=00224 t=4.480000 t_real=2.219674e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259796e-02 R_avg_internal=8.785616e+00 R_avg_nm=8.785616e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2101e-01, 1.3568e+01] t_wall=2026-07-31 14:59:45
+[3D] step=00225 t=4.500000 t_real=2.229584e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259677e-02 R_avg_internal=8.785252e+00 R_avg_nm=8.785252e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2097e-01, 1.3571e+01] t_wall=2026-07-31 14:59:46
+[3D] step=00226 t=4.520000 t_real=2.239493e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259558e-02 R_avg_internal=8.785112e+00 R_avg_nm=8.785112e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2093e-01, 1.3574e+01] t_wall=2026-07-31 14:59:47
+[3D] step=00227 t=4.540000 t_real=2.249402e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259440e-02 R_avg_internal=8.784899e+00 R_avg_nm=8.784899e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2089e-01, 1.3576e+01] t_wall=2026-07-31 14:59:47
+[3D] step=00228 t=4.560000 t_real=2.259311e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259323e-02 R_avg_internal=8.784713e+00 R_avg_nm=8.784713e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2085e-01, 1.3579e+01] t_wall=2026-07-31 14:59:48
+[3D] step=00229 t=4.580000 t_real=2.269221e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259207e-02 R_avg_internal=8.784919e+00 R_avg_nm=8.784919e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2081e-01, 1.3581e+01] t_wall=2026-07-31 14:59:48
+[3D] step=00230 t=4.600000 t_real=2.279130e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.259092e-02 R_avg_internal=8.784816e+00 R_avg_nm=8.784816e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2078e-01, 1.3583e+01] t_wall=2026-07-31 14:59:49
+[3D] step=00231 t=4.620000 t_real=2.289039e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258977e-02 R_avg_internal=8.784599e+00 R_avg_nm=8.784599e+00 xB_range=[0.0071, 0.0088] Meff_range=[1.2074e-01, 1.3585e+01] t_wall=2026-07-31 14:59:50
+[3D] step=00232 t=4.640000 t_real=2.298949e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258863e-02 R_avg_internal=8.784434e+00 R_avg_nm=8.784434e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2070e-01, 1.3586e+01] t_wall=2026-07-31 14:59:50
+[3D] step=00233 t=4.660000 t_real=2.308858e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258751e-02 R_avg_internal=8.784195e+00 R_avg_nm=8.784195e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2066e-01, 1.3588e+01] t_wall=2026-07-31 14:59:51
+[3D] step=00234 t=4.680000 t_real=2.318767e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258638e-02 R_avg_internal=8.783866e+00 R_avg_nm=8.783866e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2063e-01, 1.3589e+01] t_wall=2026-07-31 14:59:51
+[3D] step=00235 t=4.700000 t_real=2.328676e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258527e-02 R_avg_internal=8.783856e+00 R_avg_nm=8.783856e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2059e-01, 1.3590e+01] t_wall=2026-07-31 14:59:52
+[3D] step=00236 t=4.720000 t_real=2.338586e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258417e-02 R_avg_internal=8.784120e+00 R_avg_nm=8.784120e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2056e-01, 1.3591e+01] t_wall=2026-07-31 14:59:52
+[3D] step=00237 t=4.740000 t_real=2.348495e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258307e-02 R_avg_internal=8.784157e+00 R_avg_nm=8.784157e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2052e-01, 1.3592e+01] t_wall=2026-07-31 14:59:53
+[3D] step=00238 t=4.760000 t_real=2.358404e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258198e-02 R_avg_internal=8.784065e+00 R_avg_nm=8.784065e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2049e-01, 1.3592e+01] t_wall=2026-07-31 14:59:54
+[3D] step=00239 t=4.780000 t_real=2.368313e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.258090e-02 R_avg_internal=8.784092e+00 R_avg_nm=8.784092e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2045e-01, 1.3593e+01] t_wall=2026-07-31 14:59:54
+[3D] step=00240 t=4.800000 t_real=2.378223e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257983e-02 R_avg_internal=8.784023e+00 R_avg_nm=8.784023e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2042e-01, 1.3593e+01] t_wall=2026-07-31 14:59:55
+[3D] step=00241 t=4.820000 t_real=2.388132e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257876e-02 R_avg_internal=8.783763e+00 R_avg_nm=8.783763e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2039e-01, 1.3593e+01] t_wall=2026-07-31 14:59:55
+[3D] step=00242 t=4.840000 t_real=2.398041e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257770e-02 R_avg_internal=8.783812e+00 R_avg_nm=8.783812e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2035e-01, 1.3593e+01] t_wall=2026-07-31 14:59:56
+[3D] step=00243 t=4.860000 t_real=2.407950e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257665e-02 R_avg_internal=8.783862e+00 R_avg_nm=8.783862e+00 xB_range=[0.0071, 0.0087] Meff_range=[1.2032e-01, 1.3593e+01] t_wall=2026-07-31 14:59:57
+[3D] step=00244 t=4.880000 t_real=2.417860e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257561e-02 R_avg_internal=8.783352e+00 R_avg_nm=8.783352e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2029e-01, 1.3593e+01] t_wall=2026-07-31 14:59:57
+[3D] step=00245 t=4.900000 t_real=2.427769e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257458e-02 R_avg_internal=8.783253e+00 R_avg_nm=8.783253e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2025e-01, 1.3593e+01] t_wall=2026-07-31 14:59:58
+[3D] step=00246 t=4.920000 t_real=2.437678e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257355e-02 R_avg_internal=8.783132e+00 R_avg_nm=8.783132e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2022e-01, 1.3592e+01] t_wall=2026-07-31 14:59:58
+[3D] step=00247 t=4.940000 t_real=2.447587e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257254e-02 R_avg_internal=8.782759e+00 R_avg_nm=8.782759e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2019e-01, 1.3592e+01] t_wall=2026-07-31 14:59:59
+[3D] step=00248 t=4.960000 t_real=2.457497e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257153e-02 R_avg_internal=8.782431e+00 R_avg_nm=8.782431e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2016e-01, 1.3592e+01] t_wall=2026-07-31 15:00:00
+[3D] step=00249 t=4.980000 t_real=2.467406e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.257053e-02 R_avg_internal=8.782169e+00 R_avg_nm=8.782169e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2013e-01, 1.3591e+01] t_wall=2026-07-31 15:00:00
+[3D] step=00250 t=5.000000 t_real=2.477315e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.256954e-02 R_avg_internal=8.781841e+00 R_avg_nm=8.781841e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2010e-01, 1.3591e+01] t_wall=2026-07-31 15:00:01
+[3D] step=00251 t=5.020000 t_real=2.487224e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.256855e-02 R_avg_internal=8.781770e+00 R_avg_nm=8.781770e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2007e-01, 1.3591e+01] t_wall=2026-07-31 15:00:01
+[3D] step=00252 t=5.040000 t_real=2.497134e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.256758e-02 R_avg_internal=8.781565e+00 R_avg_nm=8.781565e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2004e-01, 1.3590e+01] t_wall=2026-07-31 15:00:02
+[3D] step=00253 t=5.060000 t_real=2.507043e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.256661e-02 R_avg_internal=8.781617e+00 R_avg_nm=8.781617e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.2001e-01, 1.3590e+01] t_wall=2026-07-31 15:00:03
+[3D] step=00254 t=5.080000 t_real=2.516952e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.256565e-02 R_avg_internal=8.781435e+00 R_avg_nm=8.781435e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.1998e-01, 1.3589e+01] t_wall=2026-07-31 15:00:03
+[3D] step=00255 t=5.100000 t_real=2.526862e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.256470e-02 R_avg_internal=8.780960e+00 R_avg_nm=8.780960e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.1995e-01, 1.3589e+01] t_wall=2026-07-31 15:00:04
+
+========================================
+性能统计（精确计时）:
+  总计算时间: 161899.687500 ms (steps 1-256)
+  平均每步: 632.420654 ms
+  网格大小: 246x246x246 = 14886936 points
+  吞吐量: 23.54 M points/s
+
+显存使用情况:
+  已使用: 4.74 GB (30.66%)
+  空闲: 10.72 GB
+  总计: 15.46 GB
+========================================
+[3D] step=00256 t=5.120000 t_real=2.536771e+02 s <x_B_tot>=3.000000e-02 vf_precip=2.256375e-02 R_avg_internal=8.780572e+00 R_avg_nm=8.780572e+00 xB_range=[0.0071, 0.0086] Meff_range=[1.1992e-01, 1.3588e+01] t_wall=2026-07-31 15:00:05
+VTK_OUTPUT_SUPPRESSED field=xB_tot step=256 path=/home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/xBtot_256.vtk
+VTK_OUTPUT_SUPPRESSED field=xB step=256 path=/home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/xB_256.vtk
+VTK_OUTPUT_SUPPRESSED field=phi step=256 path=/home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/phi_256.vtk
+step=00256 完成，已输出VTK文件（phi_256.vtk, xB_256.vtk, xBtot_256.vtk）
+PF_ZERO_MODE_CHECKPOINT_WRITTEN step=256 path=/home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/final.chk target_mass_code=4.46608079999999609e+05 lambda=-1.07038416620316837e-06 residual=6.19911588728427887e-08 accepted_zero_mode_steps=256 initial_state_class=MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1 fixture_manifest_sha256=b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c profile_library_manifest_sha256=58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe elastic_solver_mode=ELASTIC_WARM_START_RESIDUAL_V1 elastic_source_field_step=255 elastic_iterations=4 elastic_residual=6.42543855854039964e-07
+
+========================================
+步进墙钟统计:
+  总步进墙钟时间: 164.162509 s
+  平均每步墙钟时间: 0.641260 s
+========================================
+写出 geometry summary: /home/zhiheng/tmp/pf_elastic_warm_start_residual_v2_20260731/warm_start_residual/continuous/results/chel_T380_cuda_246x246x246_dt0.02_steps256_xB0.030/pf_246cube_continuous_v1/summary.txt
+[mass-drift-summary] initial=<xBtot>=3.00000000e-02 final=<xBtot>=3.00000000e-02 rel_drift=1.387779e-13 primary=Y_update_k0_drift
+PF_ZERO_MODE_FINAL_AUDIT status=PASS final_step=256 target_mass_code=4.46608079999999609e+05 final_mass_code=4.46608080000061600e+05 mean_mass_error=4.16413148231730081e-15 last_lambda=-1.07038416620316837e-06 zero_mode_wall_s=10.538800246 checkpoint_wall_s=0.849199008 gp_paths_enabled=false
+PF_ELASTIC_SOLVER_FINAL_AUDIT status=PASS mode=ELASTIC_WARM_START_RESIDUAL_V1 steps=256 warm_steps=255 total_iterations=1177 mean_iterations=4.597656250 last_iterations=4 last_residual=6.42543855854039964e-07 nonconverged_steps=0 solver_wall_s=51.031208821 source_field_step=255 checkpoint_state=V4
+
+========== Run Summary ==========
+  mode                     : dynamic
+  steps_completed          : 256
+  wall_time_s              : 165.050
+  wall_time_hms            : 00:02:45
+  pf_zero_mode_status      : PASS
+  pf_zero_mode_final_absolute_step : 256
+  pf_zero_mode_target_mass_code : 4.46608079999999609e+05
+  pf_zero_mode_final_mass_code : 4.46608080000061600e+05
+  pf_zero_mode_final_mean_mass_error : 4.16413148231730081e-15
+  pf_zero_mode_wall_s      : 10.538800246
+  pf_checkpoint_wall_s     : 0.849199008
+pf_zero_mode_status=PASS_PF_CONSERVED_Y_ZERO_MODE_V1
+checkpoint_restart_provenance=FRESH_HASH_PINNED
+pf_sm_explicit_context=SM_EXPLICIT_CONTEXT_N_V1
+pf_reaction_discretization=SM_TANGENT_N_V1
+initial_state_class=MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1
+fixture_manifest_sha256=b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c
+profile_library_manifest_sha256=58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe
+gp_enabled=false
+  elastic_solver_mode      : ELASTIC_WARM_START_RESIDUAL_V1
+  elastic_solver_wall_s    : 51.031208821
+  elastic_solver_mean_iterations : 4.597656250
+  elastic_solver_nonconverged_steps : 0
+elastic_solver_status=PASS_ELASTIC_WARM_START_RESIDUAL_V1

@@ -1,0 +1,3237 @@
+{
+  "assembly_contract": {
+    "absolute_xB_copied_across_boxes": false,
+    "analytic_tanh_used": false,
+    "canonical_assembly_order_enforced": true,
+    "clipping_used": false,
+    "common_multi_particle_pre_relaxation_run": false,
+    "input_manifest_order": "canonical",
+    "native_window_embedding": "all 96^3 source values, minimum-image offsets [-48,47]",
+    "normalization_used": false,
+    "optimizer_invoked": false,
+    "phi": "1-product_j(1-phi_j), canonical particle-id order",
+    "portable_composition_field": "native delta_C_relaxation_j reconstructed as delta_x_j=delta_C_j/(1-h_j), embedded without resampling, then stored as (1-h_total)*sum_j(delta_x_j)",
+    "profile_scaling_used": false,
+    "radial_interpolation_used": false,
+    "rotation_used": false,
+    "spatial_resampling_used": false
+  },
+  "canonical_particle_order": [
+    "P000",
+    "P001",
+    "P002",
+    "P003",
+    "P004",
+    "P005",
+    "P006",
+    "P007",
+    "P008",
+    "P009",
+    "P010",
+    "P011",
+    "P012",
+    "P013",
+    "P014",
+    "P015",
+    "P016",
+    "P017",
+    "P018",
+    "P019",
+    "P020",
+    "P021",
+    "P022",
+    "P023",
+    "P024",
+    "P025",
+    "P026",
+    "P027",
+    "P028",
+    "P029",
+    "P030",
+    "P031",
+    "P032",
+    "P033",
+    "P034",
+    "P035",
+    "P036",
+    "P037",
+    "P038",
+    "P039",
+    "P040",
+    "P041",
+    "P042",
+    "P043",
+    "P044",
+    "P045",
+    "P046",
+    "P047",
+    "P048",
+    "P049",
+    "P050",
+    "P051",
+    "P052",
+    "P053",
+    "P054",
+    "P055",
+    "P056",
+    "P057",
+    "P058",
+    "P059",
+    "P060",
+    "P061",
+    "P062",
+    "P063",
+    "P064",
+    "P065",
+    "P066",
+    "P067",
+    "P068",
+    "P069",
+    "P070",
+    "P071",
+    "P072",
+    "P073",
+    "P074",
+    "P075",
+    "P076",
+    "P077",
+    "P078",
+    "P079",
+    "P080",
+    "P081",
+    "P082",
+    "P083",
+    "P084",
+    "P085",
+    "P086",
+    "P087",
+    "P088",
+    "P089",
+    "P090",
+    "P091",
+    "P092",
+    "P093",
+    "P094",
+    "P095"
+  ],
+  "common_multi_particle_equilibrium_claim": false,
+  "common_multi_particle_equilibrium_required": false,
+  "component_contract": {
+    "actual_count": 96,
+    "expected_count": 96,
+    "h_threshold": 0.0001,
+    "particle_to_component": {
+      "P000": 28,
+      "P001": 6,
+      "P002": 93,
+      "P003": 13,
+      "P004": 33,
+      "P005": 30,
+      "P006": 45,
+      "P007": 75,
+      "P008": 5,
+      "P009": 11,
+      "P010": 34,
+      "P011": 83,
+      "P012": 88,
+      "P013": 10,
+      "P014": 81,
+      "P015": 94,
+      "P016": 84,
+      "P017": 40,
+      "P018": 91,
+      "P019": 31,
+      "P020": 79,
+      "P021": 67,
+      "P022": 4,
+      "P023": 64,
+      "P024": 44,
+      "P025": 39,
+      "P026": 8,
+      "P027": 22,
+      "P028": 18,
+      "P029": 68,
+      "P030": 54,
+      "P031": 27,
+      "P032": 80,
+      "P033": 0,
+      "P034": 46,
+      "P035": 42,
+      "P036": 24,
+      "P037": 74,
+      "P038": 95,
+      "P039": 3,
+      "P040": 61,
+      "P041": 55,
+      "P042": 41,
+      "P043": 62,
+      "P044": 7,
+      "P045": 71,
+      "P046": 66,
+      "P047": 23,
+      "P048": 37,
+      "P049": 57,
+      "P050": 49,
+      "P051": 87,
+      "P052": 26,
+      "P053": 73,
+      "P054": 20,
+      "P055": 43,
+      "P056": 17,
+      "P057": 25,
+      "P058": 29,
+      "P059": 78,
+      "P060": 2,
+      "P061": 59,
+      "P062": 50,
+      "P063": 32,
+      "P064": 86,
+      "P065": 52,
+      "P066": 51,
+      "P067": 9,
+      "P068": 21,
+      "P069": 72,
+      "P070": 90,
+      "P071": 56,
+      "P072": 65,
+      "P073": 36,
+      "P074": 48,
+      "P075": 60,
+      "P076": 89,
+      "P077": 14,
+      "P078": 69,
+      "P079": 70,
+      "P080": 63,
+      "P081": 16,
+      "P082": 19,
+      "P083": 47,
+      "P084": 77,
+      "P085": 1,
+      "P086": 35,
+      "P087": 58,
+      "P088": 92,
+      "P089": 82,
+      "P090": 76,
+      "P091": 85,
+      "P092": 12,
+      "P093": 38,
+      "P094": 15,
+      "P095": 53
+    }
+  },
+  "derived_matrix_baseline": {
+    "clipping_used": false,
+    "effective_matrix_volume_code": 14539312.666406728,
+    "matrix_baseline_inventory_code": 99018.62532492615,
+    "normalization_used": false,
+    "observed_matrix_xAg_h_lt_0p005": 0.0067854693864858396,
+    "observed_matrix_xB_h_lt_0p005": 0.00680856905492984,
+    "xAg": 0.006787294098659213,
+    "xB_alpha": 0.0068104062136107694
+  },
+  "field_bounds": {
+    "phi_max": 0.9995930066861594,
+    "phi_min": 0.0,
+    "phi_numerical_contract": [
+      -1e-06,
+      1.000001
+    ],
+    "xB_max": 0.006967906574085964,
+    "xB_min": 0.00658453889376004
+  },
+  "fields": {
+    "C_B_tot": {
+      "dtype": "float64-le",
+      "order": "C",
+      "path": "C_B_tot.raw.f64",
+      "sha256": "db3d8fdaabad768d3865420349bdec9801877435c6c33bda88093a77da5fb351"
+    },
+    "Y": {
+      "dtype": "float64-le",
+      "order": "C",
+      "path": "Y.raw.f64",
+      "sha256": "8a171a54643ab1b87ba6f44de64156c3c52a4dcd493b52151ed0d9785014c28a"
+    },
+    "dY_dt_prev": {
+      "dtype": "float64-le",
+      "order": "C",
+      "path": "dY_dt_prev.raw.f64",
+      "sha256": "b11defe5e2f1b14f16e408fd81958fa9a3e959debae59fb30c4bb1d2f1f14fb1"
+    },
+    "delta_C_relaxation_total": {
+      "dtype": "float64-le",
+      "order": "C",
+      "path": "delta_C_relaxation_total.raw.f64",
+      "sha256": "aec1d75ede4f4c4fe1713d58b080ef515814839b5bcd5743fa49fa41d267aaf1"
+    },
+    "h_phi": {
+      "dtype": "float64-le",
+      "order": "C",
+      "path": "h_phi.raw.f64",
+      "sha256": "230a724d8c919d63c7265f088ea30f2befeace3e69e64782841df76c572966da"
+    },
+    "phi": {
+      "dtype": "float64-le",
+      "order": "C",
+      "path": "phi.raw.f64",
+      "sha256": "896a3d58dba9d59227aa647edbe99db415c17d084bde560fefe3a826917bdbed"
+    },
+    "xB_alpha": {
+      "dtype": "float64-le",
+      "order": "C",
+      "path": "xB_alpha.raw.f64",
+      "sha256": "845e8f992b66eda2270b30e48ea409af154822a8f1935cab1763fc454d21686e"
+    }
+  },
+  "fixture_id": "pf_246cube_library_handoff_replicate_C_v1",
+  "full_field_xB_dt_MAE_blocking": false,
+  "grid": {
+    "Nx": 246,
+    "Ny": 246,
+    "Nz": 246,
+    "dx_nm": 1.0,
+    "lambda_sm_nm": 4.0
+  },
+  "init_meta": {
+    "path": "init_meta.json",
+    "sha256": "230a460af308b5271d026ca4767266202d5ec48828a03d9dd5c197f868e39285"
+  },
+  "initial_canonical_inventory": {
+    "actual_total_code": 446608.0799999997,
+    "assembled_beta_phase_inventory_code": 347623.3335932316,
+    "decomposition_relative_error": 0.0,
+    "field_relative_error": 5.213310150006011e-16,
+    "local_relaxation_inventory_code": -33.87891815782472,
+    "matrix_baseline_inventory_code": 99018.62532492615,
+    "particle_inventory_sum_code": 347589.4546750738,
+    "status": "PASS_MACHINE_PRECISION",
+    "target_total_code": 446608.07999999996
+  },
+  "initial_components": {
+    "path": "initial_components.csv",
+    "sha256": "b62853f552c79501f444ed02fc3fafdf65072604cd7b0c6e9810d05f6a89887a"
+  },
+  "initial_particles": {
+    "path": "initial_particles.csv",
+    "sha256": "f4f4ac8cf5cbadf90959d2b39c0ac4271c7249fb5c5ae6f36ea8b709a36f6083"
+  },
+  "initial_relaxation_is_physical_evolution": true,
+  "initial_state_class": "MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1",
+  "initial_zero_mode_provenance": {
+    "backend": "HOST_NEWTON_BISECTION_V1",
+    "dY_dt_prev": "zero_for_fresh_dynamic_start",
+    "explicit_context": "SM_EXPLICIT_CONTEXT_N_V1",
+    "reaction_discretization": "SM_TANGENT_N_V1",
+    "target_mass_source": "initial_canonical_inventory",
+    "zero_mode": "PF_CONSERVED_Y_ZERO_MODE_V1"
+  },
+  "particle_library_mappings": [
+    {
+      "assembled_beta_inventory": 2144.6624718449507,
+      "assembled_relaxation_inventory": -0.13113091797551352,
+      "canonical_particle_inventory": 2144.531340926975,
+      "center_grid": [
+        56,
+        17,
+        214
+      ],
+      "center_nm": [
+        56.0,
+        17.0,
+        214.0
+      ],
+      "effective_h_volume": 2144.6605848700437,
+      "historical_particle_id": 0,
+      "historical_radius_nm": 8.167822574685072,
+      "library_entry_id": "R8p0",
+      "library_entry_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P000",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "support_radius_nm": 12.68857754044952
+    },
+    {
+      "assembled_beta_inventory": 2144.6635924377892,
+      "assembled_relaxation_inventory": -0.15711918109502662,
+      "canonical_particle_inventory": 2144.5064732566943,
+      "center_grid": [
+        245,
+        143,
+        243
+      ],
+      "center_nm": [
+        245.0,
+        143.0,
+        243.0
+      ],
+      "effective_h_volume": 2144.6605848700437,
+      "historical_particle_id": 1,
+      "historical_radius_nm": 8.192711243273335,
+      "library_entry_id": "R8p0",
+      "library_entry_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P001",
+      "placement_trial": 9,
+      "registered_radius_nm": 8.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "support_radius_nm": 12.68857754044952
+    },
+    {
+      "assembled_beta_inventory": 2144.6619925388723,
+      "assembled_relaxation_inventory": -0.1453354902654685,
+      "canonical_particle_inventory": 2144.5166570486067,
+      "center_grid": [
+        226,
+        105,
+        229
+      ],
+      "center_nm": [
+        226.0,
+        105.0,
+        229.0
+      ],
+      "effective_h_volume": 2144.6605848700437,
+      "historical_particle_id": 2,
+      "historical_radius_nm": 8.217659915927882,
+      "library_entry_id": "R8p0",
+      "library_entry_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P002",
+      "placement_trial": 21,
+      "registered_radius_nm": 8.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "support_radius_nm": 12.68857754044952
+    },
+    {
+      "assembled_beta_inventory": 2144.662561161225,
+      "assembled_relaxation_inventory": -0.1438598493213908,
+      "canonical_particle_inventory": 2144.5187013119034,
+      "center_grid": [
+        15,
+        169,
+        138
+      ],
+      "center_nm": [
+        15.0,
+        169.0,
+        138.0
+      ],
+      "effective_h_volume": 2144.6605848700437,
+      "historical_particle_id": 3,
+      "historical_radius_nm": 8.24266904335484,
+      "library_entry_id": "R8p0",
+      "library_entry_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P003",
+      "placement_trial": 5,
+      "registered_radius_nm": 8.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "support_radius_nm": 12.68857754044952
+    },
+    {
+      "assembled_beta_inventory": 2572.441952519759,
+      "assembled_relaxation_inventory": -0.22828627790005537,
+      "canonical_particle_inventory": 2572.213666241859,
+      "center_grid": [
+        63,
+        192,
+        2
+      ],
+      "center_nm": [
+        63.0,
+        192.0,
+        2.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 4,
+      "historical_radius_nm": 8.267739079074019,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P004",
+      "placement_trial": 2,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.460427109163,
+      "assembled_relaxation_inventory": -0.23145605583387155,
+      "canonical_particle_inventory": 2572.228971053329,
+      "center_grid": [
+        57,
+        170,
+        37
+      ],
+      "center_nm": [
+        57.0,
+        170.0,
+        37.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 5,
+      "historical_radius_nm": 8.2928704794609,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P005",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.456087135588,
+      "assembled_relaxation_inventory": -0.2092769101686385,
+      "canonical_particle_inventory": 2572.2468102254193,
+      "center_grid": [
+        103,
+        93,
+        117
+      ],
+      "center_nm": [
+        103.0,
+        93.0,
+        117.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 6,
+      "historical_radius_nm": 8.318063703788999,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P006",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.452223311266,
+      "assembled_relaxation_inventory": -0.2071034145282014,
+      "canonical_particle_inventory": 2572.245119896738,
+      "center_grid": [
+        183,
+        131,
+        158
+      ],
+      "center_nm": [
+        183.0,
+        131.0,
+        158.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 7,
+      "historical_radius_nm": 8.343319214272638,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P007",
+      "placement_trial": 5,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.442901008692,
+      "assembled_relaxation_inventory": -0.20767464872212274,
+      "canonical_particle_inventory": 2572.2352263599696,
+      "center_grid": [
+        4,
+        118,
+        162
+      ],
+      "center_nm": [
+        4.0,
+        118.0,
+        162.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 8,
+      "historical_radius_nm": 8.368637476110125,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P008",
+      "placement_trial": 3,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.443883915087,
+      "assembled_relaxation_inventory": -0.22580813459773413,
+      "canonical_particle_inventory": 2572.2180757804895,
+      "center_grid": [
+        12,
+        174,
+        237
+      ],
+      "center_nm": [
+        12.0,
+        174.0,
+        237.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 9,
+      "historical_radius_nm": 8.394018957527372,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P009",
+      "placement_trial": 2,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.443126931482,
+      "assembled_relaxation_inventory": -0.21825272626787742,
+      "canonical_particle_inventory": 2572.224874205214,
+      "center_grid": [
+        69,
+        17,
+        0
+      ],
+      "center_nm": [
+        69.0,
+        17.0,
+        0.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 10,
+      "historical_radius_nm": 8.419464129821929,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P010",
+      "placement_trial": 4,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4883886284183,
+      "assembled_relaxation_inventory": -0.20699325119889608,
+      "canonical_particle_inventory": 2572.2813953772193,
+      "center_grid": [
+        199,
+        200,
+        84
+      ],
+      "center_nm": [
+        199.0,
+        200.0,
+        84.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 11,
+      "historical_radius_nm": 8.44497346740748,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P011",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4489878656404,
+      "assembled_relaxation_inventory": -0.20963029478853862,
+      "canonical_particle_inventory": 2572.239357570852,
+      "center_grid": [
+        211,
+        63,
+        109
+      ],
+      "center_nm": [
+        211.0,
+        63.0,
+        109.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 12,
+      "historical_radius_nm": 8.470547447858777,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P012",
+      "placement_trial": 11,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.441460276348,
+      "assembled_relaxation_inventory": -0.2203547045784437,
+      "canonical_particle_inventory": 2572.22110557177,
+      "center_grid": [
+        12,
+        41,
+        67
+      ],
+      "center_nm": [
+        12.0,
+        41.0,
+        67.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 13,
+      "historical_radius_nm": 8.496186551957047,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P013",
+      "placement_trial": 3,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.446960780038,
+      "assembled_relaxation_inventory": -0.2173741397430562,
+      "canonical_particle_inventory": 2572.2295866402947,
+      "center_grid": [
+        198,
+        225,
+        193
+      ],
+      "center_nm": [
+        198.0,
+        225.0,
+        193.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 14,
+      "historical_radius_nm": 8.521891263735872,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P014",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4451163901595,
+      "assembled_relaxation_inventory": -0.20917594279022333,
+      "canonical_particle_inventory": 2572.235940447369,
+      "center_grid": [
+        228,
+        142,
+        33
+      ],
+      "center_nm": [
+        228.0,
+        142.0,
+        33.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 15,
+      "historical_radius_nm": 8.547662070527556,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P015",
+      "placement_trial": 3,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4680464145827,
+      "assembled_relaxation_inventory": -0.21609775388276548,
+      "canonical_particle_inventory": 2572.2519486607,
+      "center_grid": [
+        200,
+        233,
+        91
+      ],
+      "center_nm": [
+        200.0,
+        233.0,
+        91.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 16,
+      "historical_radius_nm": 8.57349946300998,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P016",
+      "placement_trial": 2,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.45133326757,
+      "assembled_relaxation_inventory": -0.21438896243257052,
+      "canonical_particle_inventory": 2572.2369443051375,
+      "center_grid": [
+        97,
+        18,
+        166
+      ],
+      "center_nm": [
+        97.0,
+        18.0,
+        166.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 17,
+      "historical_radius_nm": 8.59940393525398,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P017",
+      "placement_trial": 9,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4719368010014,
+      "assembled_relaxation_inventory": -0.21280884535499733,
+      "canonical_particle_inventory": 2572.2591279556464,
+      "center_grid": [
+        218,
+        147,
+        169
+      ],
+      "center_nm": [
+        218.0,
+        147.0,
+        169.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 18,
+      "historical_radius_nm": 8.625375984771232,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P018",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4761475114624,
+      "assembled_relaxation_inventory": -0.23673617438949376,
+      "canonical_particle_inventory": 2572.239411337073,
+      "center_grid": [
+        60,
+        174,
+        80
+      ],
+      "center_nm": [
+        60.0,
+        174.0,
+        80.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 19,
+      "historical_radius_nm": 8.65141611256266,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P019",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4450831119007,
+      "assembled_relaxation_inventory": -0.2195921489128455,
+      "canonical_particle_inventory": 2572.225490962988,
+      "center_grid": [
+        194,
+        185,
+        143
+      ],
+      "center_nm": [
+        194.0,
+        185.0,
+        143.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 20,
+      "historical_radius_nm": 8.677524823167401,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P020",
+      "placement_trial": 7,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.4420527939697,
+      "assembled_relaxation_inventory": -0.21334419035909913,
+      "canonical_particle_inventory": 2572.2287086036104,
+      "center_grid": [
+        158,
+        121,
+        218
+      ],
+      "center_nm": [
+        158.0,
+        121.0,
+        218.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 21,
+      "historical_radius_nm": 8.703702624712312,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P021",
+      "placement_trial": 3,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 2572.442748134364,
+      "assembled_relaxation_inventory": -0.2168125307095034,
+      "canonical_particle_inventory": 2572.2259356036548,
+      "center_grid": [
+        244,
+        114,
+        41
+      ],
+      "center_nm": [
+        244.0,
+        114.0,
+        41.0
+      ],
+      "effective_h_volume": 2572.4407845623964,
+      "historical_particle_id": 22,
+      "historical_radius_nm": 8.729950028962051,
+      "library_entry_id": "R8p5",
+      "library_entry_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P022",
+      "placement_trial": 1,
+      "registered_radius_nm": 8.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+      "source_phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+      "support_radius_nm": 13.379088160259652
+    },
+    {
+      "assembled_beta_inventory": 3053.631759035404,
+      "assembled_relaxation_inventory": -0.2949770570490669,
+      "canonical_particle_inventory": 3053.336781978355,
+      "center_grid": [
+        157,
+        195,
+        160
+      ],
+      "center_nm": [
+        157.0,
+        195.0,
+        160.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 23,
+      "historical_radius_nm": 8.756267551369708,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P023",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6443127665907,
+      "assembled_relaxation_inventory": -0.2650107902457416,
+      "canonical_particle_inventory": 3053.379301976345,
+      "center_grid": [
+        103,
+        150,
+        100
+      ],
+      "center_nm": [
+        103.0,
+        150.0,
+        100.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 24,
+      "historical_radius_nm": 8.782655711128063,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P024",
+      "placement_trial": 3,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6423957008055,
+      "assembled_relaxation_inventory": -0.28613571061581455,
+      "canonical_particle_inventory": 3053.3562599901898,
+      "center_grid": [
+        94,
+        146,
+        63
+      ],
+      "center_nm": [
+        94.0,
+        146.0,
+        63.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 25,
+      "historical_radius_nm": 8.809115031221411,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P025",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.633746449927,
+      "assembled_relaxation_inventory": -0.2770015751669669,
+      "canonical_particle_inventory": 3053.35674487476,
+      "center_grid": [
+        237,
+        201,
+        143
+      ],
+      "center_nm": [
+        237.0,
+        201.0,
+        143.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 26,
+      "historical_radius_nm": 8.835646038478012,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P026",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6413701810175,
+      "assembled_relaxation_inventory": -0.28001435781665107,
+      "canonical_particle_inventory": 3053.361355823201,
+      "center_grid": [
+        34,
+        129,
+        187
+      ],
+      "center_nm": [
+        34.0,
+        129.0,
+        187.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 27,
+      "historical_radius_nm": 8.862249263623182,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P027",
+      "placement_trial": 4,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.629308501514,
+      "assembled_relaxation_inventory": -0.2713000095905694,
+      "canonical_particle_inventory": 3053.3580084919236,
+      "center_grid": [
+        29,
+        70,
+        104
+      ],
+      "center_nm": [
+        29.0,
+        70.0,
+        104.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 28,
+      "historical_radius_nm": 8.888925241332986,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P028",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.63635734905,
+      "assembled_relaxation_inventory": -0.2924365627595258,
+      "canonical_particle_inventory": 3053.3439207862903,
+      "center_grid": [
+        163,
+        39,
+        174
+      ],
+      "center_nm": [
+        163.0,
+        39.0,
+        174.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 29,
+      "historical_radius_nm": 8.915674510288623,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P029",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.629014900225,
+      "assembled_relaxation_inventory": -0.29654427665880073,
+      "canonical_particle_inventory": 3053.3324706235658,
+      "center_grid": [
+        136,
+        7,
+        13
+      ],
+      "center_nm": [
+        136.0,
+        7.0,
+        13.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 30,
+      "historical_radius_nm": 8.942497613231446,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P030",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6304652087024,
+      "assembled_relaxation_inventory": -0.2911492532586099,
+      "canonical_particle_inventory": 3053.339315955444,
+      "center_grid": [
+        53,
+        97,
+        44
+      ],
+      "center_nm": [
+        53.0,
+        97.0,
+        44.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 31,
+      "historical_radius_nm": 8.969395097018669,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P031",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.641305026351,
+      "assembled_relaxation_inventory": -0.30528258507702,
+      "canonical_particle_inventory": 3053.336022441274,
+      "center_grid": [
+        197,
+        214,
+        122
+      ],
+      "center_nm": [
+        197.0,
+        214.0,
+        122.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 32,
+      "historical_radius_nm": 8.996367512679782,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P032",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6295831422576,
+      "assembled_relaxation_inventory": -0.2882541162157966,
+      "canonical_particle_inventory": 3053.341329026042,
+      "center_grid": [
+        242,
+        245,
+        68
+      ],
+      "center_nm": [
+        242.0,
+        245.0,
+        68.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 33,
+      "historical_radius_nm": 9.023415415473647,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P033",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6436159212367,
+      "assembled_relaxation_inventory": -0.3060013383845718,
+      "canonical_particle_inventory": 3053.337614582852,
+      "center_grid": [
+        107,
+        82,
+        152
+      ],
+      "center_nm": [
+        107.0,
+        82.0,
+        152.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 34,
+      "historical_radius_nm": 9.050539364946317,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P034",
+      "placement_trial": 4,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6303740845115,
+      "assembled_relaxation_inventory": -0.30695241283488756,
+      "canonical_particle_inventory": 3053.3234216716764,
+      "center_grid": [
+        101,
+        80,
+        29
+      ],
+      "center_nm": [
+        101.0,
+        80.0,
+        29.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 35,
+      "historical_radius_nm": 9.07773992498962,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P035",
+      "placement_trial": 7,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6575169872285,
+      "assembled_relaxation_inventory": -0.24036400799305874,
+      "canonical_particle_inventory": 3053.4171529792357,
+      "center_grid": [
+        42,
+        236,
+        127
+      ],
+      "center_nm": [
+        42.0,
+        236.0,
+        127.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 36,
+      "historical_radius_nm": 9.105017663900455,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P036",
+      "placement_trial": 4,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.62904301563,
+      "assembled_relaxation_inventory": -0.2821871464338373,
+      "canonical_particle_inventory": 3053.346855869196,
+      "center_grid": [
+        180,
+        219,
+        5
+      ],
+      "center_nm": [
+        180.0,
+        219.0,
+        5.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 37,
+      "historical_radius_nm": 9.13237315444087,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P037",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6327924803936,
+      "assembled_relaxation_inventory": -0.2716090110944121,
+      "canonical_particle_inventory": 3053.3611834692992,
+      "center_grid": [
+        233,
+        217,
+        92
+      ],
+      "center_nm": [
+        233.0,
+        217.0,
+        92.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 38,
+      "historical_radius_nm": 9.159806973898926,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P038",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6370044978926,
+      "assembled_relaxation_inventory": -0.25498767949180573,
+      "canonical_particle_inventory": 3053.3820168184006,
+      "center_grid": [
+        245,
+        54,
+        119
+      ],
+      "center_nm": [
+        245.0,
+        54.0,
+        119.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 39,
+      "historical_radius_nm": 9.187319704150335,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P039",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6294269199857,
+      "assembled_relaxation_inventory": -0.309077307706615,
+      "canonical_particle_inventory": 3053.320349612279,
+      "center_grid": [
+        154,
+        21,
+        100
+      ],
+      "center_nm": [
+        154.0,
+        21.0,
+        100.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 40,
+      "historical_radius_nm": 9.214911931720938,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P040",
+      "placement_trial": 7,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3053.6291844230004,
+      "assembled_relaxation_inventory": -0.2901215214254568,
+      "canonical_particle_inventory": 3053.339062901575,
+      "center_grid": [
+        136,
+        100,
+        237
+      ],
+      "center_nm": [
+        136.0,
+        100.0,
+        237.0
+      ],
+      "effective_h_volume": 3053.6280593591555,
+      "historical_particle_id": 41,
+      "historical_radius_nm": 9.24258424784998,
+      "library_entry_id": "R9p0",
+      "library_entry_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P041",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+      "source_phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+      "support_radius_nm": 14.177446878757825
+    },
+    {
+      "assembled_beta_inventory": 3591.380926529091,
+      "assembled_relaxation_inventory": -0.287874106347619,
+      "canonical_particle_inventory": 3591.0930524227433,
+      "center_grid": [
+        100,
+        213,
+        170
+      ],
+      "center_nm": [
+        100.0,
+        213.0,
+        170.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 42,
+      "historical_radius_nm": 9.27033724855426,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P042",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.3728214508474,
+      "assembled_relaxation_inventory": -0.31858729563155164,
+      "canonical_particle_inventory": 3591.054234155216,
+      "center_grid": [
+        154,
+        30,
+        209
+      ],
+      "center_nm": [
+        154.0,
+        30.0,
+        209.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 43,
+      "historical_radius_nm": 9.298171534693102,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P043",
+      "placement_trial": 4,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.366388858283,
+      "assembled_relaxation_inventory": -0.3269886308661559,
+      "canonical_particle_inventory": 3591.0394002274165,
+      "center_grid": [
+        244,
+        179,
+        26
+      ],
+      "center_nm": [
+        244.0,
+        179.0,
+        26.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 44,
+      "historical_radius_nm": 9.326087712034253,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P044",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.372681639512,
+      "assembled_relaxation_inventory": -0.3444598712125103,
+      "canonical_particle_inventory": 3591.0282217682993,
+      "center_grid": [
+        177,
+        46,
+        15
+      ],
+      "center_nm": [
+        177.0,
+        46.0,
+        15.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 45,
+      "historical_radius_nm": 9.35408639132063,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P045",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.366884139392,
+      "assembled_relaxation_inventory": -0.31369665168184907,
+      "canonical_particle_inventory": 3591.05318748771,
+      "center_grid": [
+        158,
+        209,
+        31
+      ],
+      "center_nm": [
+        158.0,
+        209.0,
+        31.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 46,
+      "historical_radius_nm": 9.382168188338008,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P046",
+      "placement_trial": 3,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.3652271143123,
+      "assembled_relaxation_inventory": -0.31888406719257406,
+      "canonical_particle_inventory": 3591.04634304712,
+      "center_grid": [
+        37,
+        0,
+        187
+      ],
+      "center_nm": [
+        37.0,
+        0.0,
+        187.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 47,
+      "historical_radius_nm": 9.410333723983623,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P047",
+      "placement_trial": 3,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.365750121112,
+      "assembled_relaxation_inventory": -0.31576366314747084,
+      "canonical_particle_inventory": 3591.049986457964,
+      "center_grid": [
+        90,
+        37,
+        195
+      ],
+      "center_nm": [
+        90.0,
+        37.0,
+        195.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 48,
+      "historical_radius_nm": 9.438583624335735,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P048",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.4097817318307,
+      "assembled_relaxation_inventory": -0.3293868594886097,
+      "canonical_particle_inventory": 3591.080394872342,
+      "center_grid": [
+        140,
+        116,
+        112
+      ],
+      "center_nm": [
+        140.0,
+        116.0,
+        112.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 49,
+      "historical_radius_nm": 9.46691852072416,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P049",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.364685524819,
+      "assembled_relaxation_inventory": -0.32326350391709374,
+      "canonical_particle_inventory": 3591.041422020902,
+      "center_grid": [
+        125,
+        87,
+        80
+      ],
+      "center_nm": [
+        125.0,
+        87.0,
+        80.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 50,
+      "historical_radius_nm": 9.495339049801773,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P050",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.396995154591,
+      "assembled_relaxation_inventory": -0.332788601074602,
+      "canonical_particle_inventory": 3591.064206553516,
+      "center_grid": [
+        211,
+        149,
+        129
+      ],
+      "center_nm": [
+        211.0,
+        149.0,
+        129.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 51,
+      "historical_radius_nm": 9.523845853617026,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P051",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.3655648679937,
+      "assembled_relaxation_inventory": -0.30880573531910444,
+      "canonical_particle_inventory": 3591.0567591326744,
+      "center_grid": [
+        48,
+        105,
+        101
+      ],
+      "center_nm": [
+        48.0,
+        105.0,
+        101.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 52,
+      "historical_radius_nm": 9.552439579687507,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P052",
+      "placement_trial": 3,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.3697966219083,
+      "assembled_relaxation_inventory": -0.32980619359154667,
+      "canonical_particle_inventory": 3591.0399904283167,
+      "center_grid": [
+        178,
+        98,
+        135
+      ],
+      "center_nm": [
+        178.0,
+        98.0,
+        135.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 53,
+      "historical_radius_nm": 9.581120881074519,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P053",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.3649910457702,
+      "assembled_relaxation_inventory": -0.3071747864633934,
+      "canonical_particle_inventory": 3591.057816259307,
+      "center_grid": [
+        33,
+        74,
+        169
+      ],
+      "center_nm": [
+        33.0,
+        74.0,
+        169.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 54,
+      "historical_radius_nm": 9.609890416458747,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P054",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.3676229540233,
+      "assembled_relaxation_inventory": -0.33591045859741914,
+      "canonical_particle_inventory": 3591.031712495426,
+      "center_grid": [
+        102,
+        47,
+        51
+      ],
+      "center_nm": [
+        102.0,
+        47.0,
+        51.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 55,
+      "historical_radius_nm": 9.638748850217002,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P055",
+      "placement_trial": 1,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.365783665247,
+      "assembled_relaxation_inventory": -0.31396608703758755,
+      "canonical_particle_inventory": 3591.0518175782095,
+      "center_grid": [
+        26,
+        231,
+        225
+      ],
+      "center_nm": [
+        26.0,
+        231.0,
+        225.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 56,
+      "historical_radius_nm": 9.667696852500075,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P056",
+      "placement_trial": 6,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.365148523231,
+      "assembled_relaxation_inventory": -0.3330420004803928,
+      "canonical_particle_inventory": 3591.0321065227504,
+      "center_grid": [
+        45,
+        17,
+        87
+      ],
+      "center_nm": [
+        45.0,
+        17.0,
+        87.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 57,
+      "historical_radius_nm": 9.696735099311736,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P057",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 3591.3642693384445,
+      "assembled_relaxation_inventory": -0.3128604494095174,
+      "canonical_particle_inventory": 3591.051408889035,
+      "center_grid": [
+        58,
+        98,
+        200
+      ],
+      "center_nm": [
+        58.0,
+        98.0,
+        200.0
+      ],
+      "effective_h_volume": 3591.3640018963897,
+      "historical_particle_id": 58,
+      "historical_radius_nm": 9.725864272588863,
+      "library_entry_id": "R9p5",
+      "library_entry_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P058",
+      "placement_trial": 2,
+      "registered_radius_nm": 9.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+      "source_phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+      "support_radius_nm": 14.696938456699069
+    },
+    {
+      "assembled_beta_inventory": 4188.7938998407935,
+      "assembled_relaxation_inventory": -0.47854675214248926,
+      "canonical_particle_inventory": 4188.315353088651,
+      "center_grid": [
+        196,
+        127,
+        54
+      ],
+      "center_nm": [
+        196.0,
+        127.0,
+        54.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 59,
+      "historical_radius_nm": 9.755085060282777,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P059",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.794589328688,
+      "assembled_relaxation_inventory": -0.4453205199052434,
+      "canonical_particle_inventory": 4188.349268808783,
+      "center_grid": [
+        7,
+        38,
+        222
+      ],
+      "center_nm": [
+        7.0,
+        38.0,
+        222.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 60,
+      "historical_radius_nm": 9.784398156441751,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P060",
+      "placement_trial": 5,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.821402049326,
+      "assembled_relaxation_inventory": -0.4494450056520863,
+      "canonical_particle_inventory": 4188.371957043674,
+      "center_grid": [
+        147,
+        118,
+        156
+      ],
+      "center_nm": [
+        147.0,
+        118.0,
+        156.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 61,
+      "historical_radius_nm": 9.813804261294756,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P061",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.798939815121,
+      "assembled_relaxation_inventory": -0.43784653470567725,
+      "canonical_particle_inventory": 4188.361093280416,
+      "center_grid": [
+        130,
+        124,
+        192
+      ],
+      "center_nm": [
+        130.0,
+        124.0,
+        192.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 62,
+      "historical_radius_nm": 9.843304081336465,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P062",
+      "placement_trial": 2,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.82324055137,
+      "assembled_relaxation_inventory": -0.43104864460982395,
+      "canonical_particle_inventory": 4188.39219190676,
+      "center_grid": [
+        64,
+        219,
+        80
+      ],
+      "center_nm": [
+        64.0,
+        219.0,
+        80.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 63,
+      "historical_radius_nm": 9.872898329413498,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P063",
+      "placement_trial": 2,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.791455967335,
+      "assembled_relaxation_inventory": -0.4480252941246545,
+      "canonical_particle_inventory": 4188.343430673211,
+      "center_grid": [
+        206,
+        97,
+        19
+      ],
+      "center_nm": [
+        206.0,
+        97.0,
+        19.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 64,
+      "historical_radius_nm": 9.902587724812012,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P064",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.795815082571,
+      "assembled_relaxation_inventory": -0.4119067779108262,
+      "canonical_particle_inventory": 4188.38390830466,
+      "center_grid": [
+        130,
+        222,
+        151
+      ],
+      "center_nm": [
+        130.0,
+        222.0,
+        151.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 65,
+      "historical_radius_nm": 9.932372993346567,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P065",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.790733288244,
+      "assembled_relaxation_inventory": -0.42998982318297013,
+      "canonical_particle_inventory": 4188.360743465061,
+      "center_grid": [
+        130,
+        176,
+        242
+      ],
+      "center_nm": [
+        130.0,
+        176.0,
+        242.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 66,
+      "historical_radius_nm": 9.962254867450381,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P066",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.799124158071,
+      "assembled_relaxation_inventory": -0.41567632308080277,
+      "canonical_particle_inventory": 4188.38344783499,
+      "center_grid": [
+        0,
+        213,
+        196
+      ],
+      "center_nm": [
+        0.0,
+        213.0,
+        196.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 67,
+      "historical_radius_nm": 9.992234086266949,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P067",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.792142465949,
+      "assembled_relaxation_inventory": -0.40991929070628697,
+      "canonical_particle_inventory": 4188.382223175243,
+      "center_grid": [
+        35,
+        46,
+        3
+      ],
+      "center_nm": [
+        35.0,
+        46.0,
+        3.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 68,
+      "historical_radius_nm": 10.022311395743056,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P068",
+      "placement_trial": 3,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.792918915356,
+      "assembled_relaxation_inventory": -0.47309523972350115,
+      "canonical_particle_inventory": 4188.3198236756325,
+      "center_grid": [
+        179,
+        79,
+        44
+      ],
+      "center_nm": [
+        179.0,
+        79.0,
+        44.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 69,
+      "historical_radius_nm": 10.05248754872325,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P069",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.809401756946,
+      "assembled_relaxation_inventory": -0.4287667664760565,
+      "canonical_particle_inventory": 4188.38063499047,
+      "center_grid": [
+        214,
+        100,
+        166
+      ],
+      "center_nm": [
+        214.0,
+        100.0,
+        166.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 70,
+      "historical_radius_nm": 10.082763305045743,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P070",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.799722302697,
+      "assembled_relaxation_inventory": -0.4738429291289097,
+      "canonical_particle_inventory": 4188.325879373568,
+      "center_grid": [
+        141,
+        80,
+        187
+      ],
+      "center_nm": [
+        141.0,
+        80.0,
+        187.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 71,
+      "historical_radius_nm": 10.113139431639844,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P071",
+      "placement_trial": 2,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.793480219957,
+      "assembled_relaxation_inventory": -0.4379131705880981,
+      "canonical_particle_inventory": 4188.355567049369,
+      "center_grid": [
+        159,
+        176,
+        199
+      ],
+      "center_nm": [
+        159.0,
+        176.0,
+        199.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 72,
+      "historical_radius_nm": 10.143616702624886,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P072",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.791513051051,
+      "assembled_relaxation_inventory": -0.4262219211687908,
+      "canonical_particle_inventory": 4188.365291129882,
+      "center_grid": [
+        84,
+        134,
+        13
+      ],
+      "center_nm": [
+        84.0,
+        134.0,
+        13.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 73,
+      "historical_radius_nm": 10.17419589941071,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P073",
+      "placement_trial": 3,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.793217592,
+      "assembled_relaxation_inventory": -0.4282363259541442,
+      "canonical_particle_inventory": 4188.364981266045,
+      "center_grid": [
+        114,
+        44,
+        2
+      ],
+      "center_nm": [
+        114.0,
+        44.0,
+        2.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 74,
+      "historical_radius_nm": 10.204877810799736,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P074",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4188.794986169611,
+      "assembled_relaxation_inventory": -0.4342610083289822,
+      "canonical_particle_inventory": 4188.360725161282,
+      "center_grid": [
+        151,
+        192,
+        68
+      ],
+      "center_nm": [
+        151.0,
+        192.0,
+        68.0
+      ],
+      "effective_h_volume": 4188.790204894687,
+      "historical_particle_id": 75,
+      "historical_radius_nm": 10.235663233090664,
+      "library_entry_id": "R10p0",
+      "library_entry_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P075",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+      "source_phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+      "support_radius_nm": 15.427248620541512
+    },
+    {
+      "assembled_beta_inventory": 4849.048742019273,
+      "assembled_relaxation_inventory": -0.507736251353156,
+      "canonical_particle_inventory": 4848.54100576792,
+      "center_grid": [
+        213,
+        198,
+        221
+      ],
+      "center_nm": [
+        213.0,
+        198.0,
+        221.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 76,
+      "historical_radius_nm": 10.266552970183795,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P076",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.049683707227,
+      "assembled_relaxation_inventory": -0.5059196469220902,
+      "canonical_particle_inventory": 4848.543764060305,
+      "center_grid": [
+        17,
+        234,
+        36
+      ],
+      "center_nm": [
+        17.0,
+        234.0,
+        36.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 77,
+      "historical_radius_nm": 10.297547833688073,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P077",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.055175083938,
+      "assembled_relaxation_inventory": -0.5296843160253248,
+      "canonical_particle_inventory": 4848.525490767913,
+      "center_grid": [
+        171,
+        39,
+        68
+      ],
+      "center_nm": [
+        171.0,
+        39.0,
+        68.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 78,
+      "historical_radius_nm": 10.328648643029796,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P078",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.0498935177975,
+      "assembled_relaxation_inventory": -0.5194015534049395,
+      "canonical_particle_inventory": 4848.530491964392,
+      "center_grid": [
+        178,
+        28,
+        142
+      ],
+      "center_nm": [
+        178.0,
+        28.0,
+        142.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 79,
+      "historical_radius_nm": 10.359856225563131,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P079",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.05148415394,
+      "assembled_relaxation_inventory": -0.5661797705677306,
+      "canonical_particle_inventory": 4848.485304383372,
+      "center_grid": [
+        156,
+        64,
+        131
+      ],
+      "center_nm": [
+        156.0,
+        64.0,
+        131.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 80,
+      "historical_radius_nm": 10.391171416682385,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P080",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.049344660851,
+      "assembled_relaxation_inventory": -0.538675915933201,
+      "canonical_particle_inventory": 4848.510668744918,
+      "center_grid": [
+        26,
+        197,
+        112
+      ],
+      "center_nm": [
+        26.0,
+        197.0,
+        112.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 81,
+      "historical_radius_nm": 10.422595059936098,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P081",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.051870232213,
+      "assembled_relaxation_inventory": -0.5119940019200884,
+      "canonical_particle_inventory": 4848.539876230293,
+      "center_grid": [
+        32,
+        140,
+        49
+      ],
+      "center_nm": [
+        32.0,
+        140.0,
+        49.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 82,
+      "historical_radius_nm": 10.454128007143026,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P082",
+      "placement_trial": 2,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.05023552162,
+      "assembled_relaxation_inventory": -0.5080118881525413,
+      "canonical_particle_inventory": 4848.542223633468,
+      "center_grid": [
+        114,
+        26,
+        136
+      ],
+      "center_nm": [
+        114.0,
+        26.0,
+        136.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 83,
+      "historical_radius_nm": 10.485771118509994,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P083",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.049395478256,
+      "assembled_relaxation_inventory": -0.5505666800691652,
+      "canonical_particle_inventory": 4848.498828798187,
+      "center_grid": [
+        195,
+        72,
+        221
+      ],
+      "center_nm": [
+        195.0,
+        72.0,
+        221.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 84,
+      "historical_radius_nm": 10.517525262751715,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P084",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.077548574592,
+      "assembled_relaxation_inventory": -0.46427272217542354,
+      "canonical_particle_inventory": 4848.613275852416,
+      "center_grid": [
+        5,
+        237,
+        136
+      ],
+      "center_nm": [
+        5.0,
+        237.0,
+        136.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 85,
+      "historical_radius_nm": 10.549391317212569,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P085",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.07137897635,
+      "assembled_relaxation_inventory": -0.5203583088567639,
+      "canonical_particle_inventory": 4848.5510206674935,
+      "center_grid": [
+        73,
+        212,
+        45
+      ],
+      "center_nm": [
+        73.0,
+        212.0,
+        45.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 86,
+      "historical_radius_nm": 10.581370167990414,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P086",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.085592633474,
+      "assembled_relaxation_inventory": -0.5568139495351361,
+      "canonical_particle_inventory": 4848.528778683939,
+      "center_grid": [
+        144,
+        162,
+        114
+      ],
+      "center_nm": [
+        144.0,
+        162.0,
+        114.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 87,
+      "historical_radius_nm": 10.613462710062471,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P087",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.051602087197,
+      "assembled_relaxation_inventory": -0.5407570798326817,
+      "canonical_particle_inventory": 4848.510845007365,
+      "center_grid": [
+        225,
+        60,
+        181
+      ],
+      "center_nm": [
+        225.0,
+        60.0,
+        181.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 88,
+      "historical_radius_nm": 10.645669847413286,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P088",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.074428632118,
+      "assembled_relaxation_inventory": -0.5407525140841997,
+      "canonical_particle_inventory": 4848.533676118033,
+      "center_grid": [
+        201,
+        152,
+        84
+      ],
+      "center_nm": [
+        201.0,
+        152.0,
+        84.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 89,
+      "historical_radius_nm": 10.67799249316487,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P089",
+      "placement_trial": 1,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.056245216437,
+      "assembled_relaxation_inventory": -0.5580991145157925,
+      "canonical_particle_inventory": 4848.498146101921,
+      "center_grid": [
+        189,
+        100,
+        85
+      ],
+      "center_nm": [
+        189.0,
+        100.0,
+        85.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 90,
+      "historical_radius_nm": 10.710431569709035,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P090",
+      "placement_trial": 3,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 4849.049361041727,
+      "assembled_relaxation_inventory": -0.5057545850745702,
+      "canonical_particle_inventory": 4848.543606456652,
+      "center_grid": [
+        206,
+        18,
+        11
+      ],
+      "center_nm": [
+        206.0,
+        18.0,
+        11.0
+      ],
+      "effective_h_volume": 4849.048260952037,
+      "historical_particle_id": 91,
+      "historical_radius_nm": 10.742988008841944,
+      "library_entry_id": "R10p5",
+      "library_entry_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P091",
+      "placement_trial": 2,
+      "registered_radius_nm": 10.5,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+      "source_phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+      "support_radius_nm": 16.15549442140351
+    },
+    {
+      "assembled_beta_inventory": 5575.284958660381,
+      "assembled_relaxation_inventory": -0.6253817047203916,
+      "canonical_particle_inventory": 5574.659576955661,
+      "center_grid": [
+        16,
+        78,
+        240
+      ],
+      "center_nm": [
+        16.0,
+        78.0,
+        240.0
+      ],
+      "effective_h_volume": 5575.279762734301,
+      "historical_particle_id": 92,
+      "historical_radius_nm": 10.77566275190099,
+      "library_entry_id": "R11p0",
+      "library_entry_sha256": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P092",
+      "placement_trial": 1,
+      "registered_radius_nm": 11.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "913b1f53ad791199db6f938ac656461ee1b670c91865f8c6e83f10d9a0d10920",
+      "source_phi_sha256": "36c5c17151f809139104a8e64280ddde879d56dc0e89ddba7563e5afe724a14a",
+      "support_radius_nm": 16.792855623746664
+    },
+    {
+      "assembled_beta_inventory": 5575.286926374874,
+      "assembled_relaxation_inventory": -0.59753098342754,
+      "canonical_particle_inventory": 5574.689395391447,
+      "center_grid": [
+        91,
+        162,
+        176
+      ],
+      "center_nm": [
+        91.0,
+        162.0,
+        176.0
+      ],
+      "effective_h_volume": 5575.279762734301,
+      "historical_particle_id": 93,
+      "historical_radius_nm": 10.80845674990398,
+      "library_entry_id": "R11p0",
+      "library_entry_sha256": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P093",
+      "placement_trial": 1,
+      "registered_radius_nm": 11.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "913b1f53ad791199db6f938ac656461ee1b670c91865f8c6e83f10d9a0d10920",
+      "source_phi_sha256": "36c5c17151f809139104a8e64280ddde879d56dc0e89ddba7563e5afe724a14a",
+      "support_radius_nm": 16.792855623746664
+    },
+    {
+      "assembled_beta_inventory": 5575.301967422904,
+      "assembled_relaxation_inventory": -0.6061016823059496,
+      "canonical_particle_inventory": 5574.6958657405985,
+      "center_grid": [
+        24,
+        165,
+        192
+      ],
+      "center_nm": [
+        24.0,
+        165.0,
+        192.0
+      ],
+      "effective_h_volume": 5575.279762734301,
+      "historical_particle_id": 94,
+      "historical_radius_nm": 10.841370963690732,
+      "library_entry_id": "R11p0",
+      "library_entry_sha256": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P094",
+      "placement_trial": 1,
+      "registered_radius_nm": 11.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "913b1f53ad791199db6f938ac656461ee1b670c91865f8c6e83f10d9a0d10920",
+      "source_phi_sha256": "36c5c17151f809139104a8e64280ddde879d56dc0e89ddba7563e5afe724a14a",
+      "support_radius_nm": 16.792855623746664
+    },
+    {
+      "assembled_beta_inventory": 5575.297798919899,
+      "assembled_relaxation_inventory": -0.6035849344641591,
+      "canonical_particle_inventory": 5574.6942139854345,
+      "center_grid": [
+        135,
+        205,
+        105
+      ],
+      "center_nm": [
+        135.0,
+        205.0,
+        105.0
+      ],
+      "effective_h_volume": 5575.279762734301,
+      "historical_particle_id": 95,
+      "historical_radius_nm": 10.874406364067081,
+      "library_entry_id": "R11p0",
+      "library_entry_sha256": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+      "orientation": "variant_100_identity",
+      "orientation_label": "variant_100_identity",
+      "particle_id": "P095",
+      "placement_trial": 1,
+      "registered_radius_nm": 11.0,
+      "replicate_id": "replicate_C",
+      "source_delta_C_relaxation_sha256": "913b1f53ad791199db6f938ac656461ee1b670c91865f8c6e83f10d9a0d10920",
+      "source_phi_sha256": "36c5c17151f809139104a8e64280ddde879d56dc0e89ddba7563e5afe724a14a",
+      "support_radius_nm": 16.792855623746664
+    }
+  ],
+  "particle_profiles_locked_after_t0": false,
+  "physical_contract": {
+    "GP_birth_enabled": false,
+    "GP_enabled": false,
+    "GP_release_enabled": false,
+    "eigenstrain": [
+      0.046,
+      -0.022,
+      -0.017,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elastic_boundary": "periodic_fixed_cell",
+    "elasticity_enabled": true,
+    "external_source_enabled": false,
+    "external_strain": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "external_stress": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "initial_age_h": 6.0,
+    "new_beta_nucleation_enabled": false,
+    "orientation_label": "variant_100_identity",
+    "temperature_C": 380.0
+  },
+  "placement": {
+    "center_covariance_eigenvalues_grid2": [
+      4659.269421071472,
+      4956.076601442326,
+      5699.8949862581285
+    ],
+    "center_covariance_matrix_grid2": [
+      [
+        5470.647258771928,
+        202.52236842105268,
+        -371.4865131578947
+      ],
+      [
+        202.52236842105268,
+        4854.805263157895,
+        59.79078947368421
+      ],
+      [
+        -371.4865131578947,
+        59.79078947368421,
+        4989.788486842105
+      ]
+    ],
+    "max_trials_per_particle": 200000,
+    "mean_periodic_pair_distance_nm": 118.90446459506138,
+    "method": "deterministic_periodic_hard_core_rejection_integer_grid_v1",
+    "minimum_actual_support_margin_nm": 5.2275815966669015,
+    "minimum_periodic_pair_distance_nm": 33.2264954516723,
+    "minimum_registered_separation_margin_nm": 0.22649545167229945,
+    "nearest_neighbor_cv": 0.09824379968666272,
+    "nearest_neighbor_mean_nm": 39.689862386732486,
+    "nearest_neighbor_std_nm": 3.8992828899133554,
+    "pair_direction_mean": [
+      -0.01064155817615851,
+      0.001621939652101802,
+      0.004449167642829557
+    ],
+    "periodic_image_overlap_detected": false,
+    "periodic_image_overlap_status": "PASS",
+    "periodic_separation_rule": "distance_nm > Ri_nm + Rj_nm + 4*lambda_sm_nm",
+    "physical_support_definition": "h(phi)>1.0e-04",
+    "placement_order": "descending_registered_radius_then_particle_id",
+    "regular_lattice_rejected": true,
+    "seed_material": "8ce52733e6755b23f4f7d4ba53f0414ef927bb863c3eb4ce9d43cb09d4d5de45|replicate_C",
+    "seed_material_sha256": "3a6cead58d6414f72271a1be0a6cc39f1c3720fd6c4cf9cb17ce5249eb1d4f03",
+    "seed_unsigned64": 4209997954605651191,
+    "std_periodic_pair_distance_nm": 33.158944194041396
+  },
+  "profile_library_binary_sha256": "55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1",
+  "profile_library_manifest_sha256": "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe",
+  "replicate_id": "replicate_C",
+  "schema": "PF_246CUBE_LIBRARY_HANDOFF_MANIFEST_V1",
+  "scientific_semantics": "mass-conserving, exact-profile-library-assembled conditional 6 h handoff state",
+  "selected_library": {
+    "binary_sha256": "55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1",
+    "selected_library_manifest_sha256": "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe",
+    "selection_provenance_sha256": "56c44d8f72b27bb462dffe89b59cb2fcb2ff0bf8807dec9d9cac31d2bd7fcbe3",
+    "source_tree_sha256": "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75"
+  },
+  "selection_provenance_sha256": "56c44d8f72b27bb462dffe89b59cb2fcb2ff0bf8807dec9d9cac31d2bd7fcbe3",
+  "source_psd": {
+    "discrete_mean_R3_nm3": 864.4661458333334,
+    "histogram": {
+      "10.0": 17,
+      "10.5": 16,
+      "11.0": 4,
+      "11.5": 0,
+      "8.0": 4,
+      "8.5": 19,
+      "9.0": 19,
+      "9.5": 17
+    },
+    "historical_canonical_manifest_sha256": "8ce52733e6755b23f4f7d4ba53f0414ef927bb863c3eb4ce9d43cb09d4d5de45",
+    "historical_fixture_file_sha256": "f03ca43771200490cc0ff83646a86c8041fc65427b44ec2c3e71772f5b1d3f50",
+    "historical_mean_R3_nm3": 863.4804248658662,
+    "historical_radius_max_nm": 10.874406364067081,
+    "historical_radius_min_nm": 8.167822574685072,
+    "relative_change_of_mean_R3": 0.0011415672423844539
+  },
+  "source_tree_sha256": "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75",
+  "target_global_inventory": {
+    "mean_C_B_tot": 0.03,
+    "source": "hash_pinned_manifest",
+    "total_C_B_tot_code": 446608.07999999996
+  },
+  "validation_only": true
+}

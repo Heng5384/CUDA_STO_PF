@@ -1,0 +1,2 @@
+threshold_name,h_threshold,step,experimental_age_h,merge_group_id,member_particle_ids,parent_stable_ids,child_stable_id,overlap_detail,qualified_merge,neck_classification
+low,0.0001,6656,7.832112247390064,MG_P063_P086,P063+P086,32+35,32,parent_id:overlap_voxels:parent_fraction:child_fraction=32:13037:0.99984661400414143:0.4032851795712562+35:18629:1:0.57626751631762918,1,DIFFUSE_TAIL_NECK_ONLY

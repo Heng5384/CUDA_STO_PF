@@ -1,0 +1,59 @@
+{
+  "schema": "PF_MERGE_AWARE_WINDOW_AUDIT_V1",
+  "window_age_h": [
+    14.0,
+    17.0
+  ],
+  "snapshot_count": 4,
+  "particle_h_threshold": 0.0001,
+  "unexpected_tracker_ages_h": [
+    16.0
+  ],
+  "unexplained_tracker_ages_h": [],
+  "merge_edge_count": 2,
+  "split_edge_count": 0,
+  "merge_group_count": 1,
+  "merge_edges": [
+    {
+      "parent_age_h": 15.0,
+      "child_age_h": 16.0,
+      "parent_local_id": 14,
+      "parent_canonical_id": 46,
+      "child_local_id": 14,
+      "child_canonical_id": 46,
+      "overlap_voxels": 43318,
+      "parent_overlap_fraction": 1.0,
+      "child_overlap_fraction": 0.6044259641681085,
+      "relation": "merge"
+    },
+    {
+      "parent_age_h": 15.0,
+      "child_age_h": 16.0,
+      "parent_local_id": 18,
+      "parent_canonical_id": 68,
+      "child_local_id": 14,
+      "child_canonical_id": 46,
+      "overlap_voxels": 24297,
+      "parent_overlap_fraction": 0.9544329653926229,
+      "child_overlap_fraction": 0.33902159959814704,
+      "relation": "merge"
+    }
+  ],
+  "split_edges": [],
+  "merge_groups": [
+    {
+      "merge_group_id": "MG_15h_46_68_to_46",
+      "parent_age_h": 15.0,
+      "child_age_h": 16.0,
+      "parent_ids": [
+        46,
+        68
+      ],
+      "child_id": 46,
+      "h_volume_before_nm3": 36205.81291683102,
+      "h_volume_after_nm3": 38097.23750258787,
+      "h_volume_change_fraction": 0.052240909218132354
+    }
+  ],
+  "fail_closed": false
+}

@@ -1,0 +1,3 @@
+candidate,degradation,status
+T0_original,0,PASS_BASELINE
+T3_L_required_for_xAg_0.0062,NOT_COMPUTED,NOT_JUSTIFIED_NO_ORIGINAL_FIT_COVARIANCE

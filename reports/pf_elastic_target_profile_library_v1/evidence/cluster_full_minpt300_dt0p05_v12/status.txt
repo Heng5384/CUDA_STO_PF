@@ -1,0 +1,12 @@
+runner_status=PASS_PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1
+run_label=cluster_full_minpt300_dt0p05_v12
+grid=96x96x96
+radii_nm=8.0 8.5 9.0 9.5 10.0 10.5 11.0 11.5
+minimize_dt=0.05
+min_pseudo_time=300
+elastic_enabled=true
+gp_enabled=false
+source_commit=5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d
+source_tree_sha256=f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75
+binary_sha256=55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1
+library_manifest_sha256=0fd1875f7271726d0ee383b0561669b5e4ffc3ba68aae6f623dd739d57de21c3

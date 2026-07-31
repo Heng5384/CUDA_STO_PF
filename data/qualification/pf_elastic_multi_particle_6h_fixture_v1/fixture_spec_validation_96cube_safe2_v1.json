@@ -1,0 +1,47 @@
+{
+  "fixture_id": "pf_elastic_multi_particle_validation_96cube_safe2_v1",
+  "schema": "PF_ELASTIC_MULTI_PARTICLE_6H_FIXTURE_SPEC_V1",
+  "validation_only": true,
+  "scientific_status": "NOT_AN_EXPERIMENTAL_6H_PSD_CANDIDATE",
+  "selected_library_manifest_sha256": "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe",
+  "selected_library_selection_sha256": "56c44d8f72b27bb462dffe89b59cb2fcb2ff0bf8807dec9d9cac31d2bd7fcbe3",
+  "target": {
+    "grid": [96, 96, 96],
+    "dx_nm": 1.0,
+    "lambda_sm_nm": 4.0,
+    "temperature_C": 380.0,
+    "dt_code": 0.02,
+    "mean_C_B_tot": 0.03,
+    "matrix_xB_reference": 0.006219279767278563,
+    "xB_max_safe": 0.499999,
+    "component_h_threshold": 0.0001,
+    "phase_storage_alpha_floor": 1e-10
+  },
+  "placement": {
+    "method": "deterministic_hard_core_rejection_integer_grid_v1",
+    "seed": 2026073039,
+    "max_trials_per_particle": 20000,
+    "random_non_lattice": true,
+    "periodic_separation_rule": "distance_nm > Ri_nm + Rj_nm + 4*lambda_sm_nm"
+  },
+  "particles": [
+    {
+      "particle_id": "MP001",
+      "registered_radius_nm": 8.0,
+      "center_grid": [86, 48, 33],
+      "orientation_label": "variant_100_identity",
+      "source_profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca"
+    },
+    {
+      "particle_id": "MP002",
+      "registered_radius_nm": 8.0,
+      "center_grid": [64, 48, 68],
+      "orientation_label": "variant_100_identity",
+      "source_profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+      "source_phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+      "source_delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca"
+    }
+  ]
+}

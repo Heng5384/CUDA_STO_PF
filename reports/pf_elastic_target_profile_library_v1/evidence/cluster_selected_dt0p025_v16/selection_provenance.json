@@ -1,0 +1,22 @@
+{
+  "base_run_root": "/data/home/luozhiheng/tmp/pf_elastic_target_profile_cluster_full_minpt300_dt0p025_v13_20260730",
+  "base_run_status": "NO_LIBRARY_LEVEL_PASS_PARTIAL_RUN_PRESERVED",
+  "binary_sha256": "55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1",
+  "extension_run_root": "/data/home/luozhiheng/tmp/pf_elastic_target_profile_cluster_minpt310_dt0p025_R11p5_contract_v15_20260730",
+  "extension_run_status": "runner_status=PASS_PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1\nrun_label=cluster_minpt310_dt0p025_R11p5_contract_v15\ngrid=96x96x96\nradii_nm=11.5\nminimize_dt=0.025\nmin_pseudo_time=310\nelastic_enabled=true\ngp_enabled=false\nsource_commit=5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d\nsource_tree_sha256=f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75\nbinary_sha256=55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1\nlibrary_manifest_sha256=a2e4b1d2da1f9bd3116181d08c9e6c300a61214cd50b6e6b99d9bec113ad9301",
+  "library_manifest_sha256": "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe",
+  "profile_manifest_sha256": {
+    "10.0": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+    "10.5": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+    "11.0": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+    "11.5": "d6593810c9b2463ed67cd34f4d798d5e8662b8edd1dfc9993f9a25a7329fd770",
+    "8.0": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+    "8.5": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+    "9.0": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+    "9.5": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f"
+  },
+  "schema": "PF_ELASTIC_TARGET_PROFILE_SELECTION_PROVENANCE_V1",
+  "selection_status": "PASS_REUSE_ONLY_INDIVIDUALLY_QUALIFIED_PROFILES",
+  "source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+  "source_tree_sha256": "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75"
+}

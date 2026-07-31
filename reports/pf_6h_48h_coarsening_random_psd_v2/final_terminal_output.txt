@@ -1,0 +1,9 @@
+source_commit=6b69895af2d1b86b99c57c5479ff767349c61efe
+fixture_domain=246^3
+fixture_effective_particle_count=96
+preflight_6h_12h_status=PASS_PF_RANDOM_PSD_6H12H_PREFLIGHT_V2
+restart_status=PASS_BYTEWISE_PREFLIGHT
+zero_mode_status=PASS_PREFLIGHT
+official_12h_48h_job=72915
+official_12h_48h_status=PENDING_RESOURCES
+final_status=PENDING_12H48H_RUN
