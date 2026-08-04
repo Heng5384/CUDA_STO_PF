@@ -1,0 +1,18 @@
+{
+  "Nx": 96,
+  "Ny": 96,
+  "Nz": 96,
+  "dt_recommended": 0.02,
+  "dtype": "float64",
+  "dx_nm": 1.0,
+  "interface_width_nm": 4.0,
+  "mean_xBtot": 0.008716753711886956,
+  "order": "C",
+  "phi_path": "phi.raw.f64",
+  "phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+  "schema": "PF_RAW_INIT_META_V1",
+  "source_profile_schema": "PF_ELASTIC_TARGET_PROFILE_V1",
+  "xB_max_safe": 0.499999,
+  "xB_path": "xB_alpha.raw.f64",
+  "xB_sha256": "a5b29d959fc56a26f1f42f08f2c8d74ec11d19ae0b2f886f2654c3b177dec3be"
+}

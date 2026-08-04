@@ -1,0 +1,44 @@
+{
+  "A_N": 1.5,
+  "MS_MIS_status": "NOT_COMPUTED_NO_ACCEPTED_FIELD_STRAIN_REPLAY",
+  "S11_rate": 0.0,
+  "S13_rate": 0.0,
+  "absolute_experimental_kappa_claim": false,
+  "background_member_count": 18,
+  "input_sha256": {
+    "data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0",
+    "data/qualification/yu2024_transport_v1/yu_48h_parameters.json": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f",
+    "reports/pf_400cube_v2_case_pair_audit_v1/input_case001_endpoint/ensemble_observables.csv": "420ab60f826744c38421035b67aa9b179377e131305d985da549a029849ec7a3",
+    "reports/pf_400cube_v2_case_pair_audit_v1/input_case001_endpoint/particle_lineage.csv": "af404c5571ef6b55bea3ef941b6174c0779ac2725e15cdd89b7d505733b3e53b",
+    "reports/pf_400cube_v2_case_pair_audit_v1/input_case002_endpoint/ensemble_observables.csv": "3c181d90890e34d0bdb1ee955c0f31a91ee3d99162d8315d5b9e68e072ce422f",
+    "reports/pf_400cube_v2_case_pair_audit_v1/input_case002_endpoint/particle_lineage.csv": "23e6bd416d3334f127611ce0768b9f9b2f5213ca6df2b5c24b854f973e2d68f3",
+    "reports/sheskin_pf_interface_strain_blind_prediction_v1/interface_model_6h_calibration.csv": "251fe3c9c4c83931431514472111e18198d332eedbf1e9efe8bdacf4f0768063",
+    "scripts/pf_full_psd_no_dislocation_transport_v1.py": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66"
+  },
+  "models": [
+    "M0",
+    "MI"
+  ],
+  "schema": "PF_400CUBE_V2_CASE_PAIR_ENDPOINT_AUDIT_V1",
+  "source_cases": {
+    "001": {
+      "checkpoint_sha256": "cd0059cd672d1c593f41c384394b44344ef67dc1897179a3c9e12b8987188c59",
+      "endpoint_lineage_status": "BLOCKED_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1"
+    },
+    "002": {
+      "checkpoint_sha256": "78a727b71e2bba4d5c34c5745c83666034dc9ddbe086c179718f298f68ed9093",
+      "endpoint_lineage_status": "BLOCKED_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1"
+    }
+  },
+  "status": "CONDITIONAL_V2_M0_MI_ENDPOINT_AUDIT_V1",
+  "temperature_grid_K": [
+    303.15,
+    323.15,
+    373.15,
+    423.15,
+    473.15,
+    523.15,
+    573.15
+  ],
+  "yu_refit_scale_0p1172768_used": false
+}

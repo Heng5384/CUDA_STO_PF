@@ -1,0 +1,488 @@
+=== LOCAL ENVIRONMENT ===
+Tue Aug  4 19:37:47 UTC 2026
+ZhihengdeMacBook-Air.local
+/Users/heng/Documents/GitHub/CUDA_STO_PF
+CUDA_STO_PF-transport-v3-polarization-anisotropic
+1c08f9ee011b31e0cd4d82749e58a8f69ebd2204
+## CUDA_STO_PF-transport-v3-polarization-anisotropic
+ M PROJECT_CORE_MEMORY.md
+ M README.md
+ M docs/current_model_status.md
+ M jobs/assemble_pf_elastic_target_profile_selected_v1.sh
+ M jobs/run_pf_246cube_6h48h_production_v1.sh
+ M jobs/run_pf_246cube_short_restart_v1.sh
+ M jobs/run_pf_production_dt_selection_v1.sh
+ M main_cuda.cu
+ M scripts/assemble_pf_elastic_target_profile_library_v1.py
+ M scripts/audit_pf_246cube_6h48h_production_v1.py
+ M scripts/audit_pf_246cube_short_restart_v1.py
+ M scripts/audit_pf_246cube_three_seed_fixtures_v1.py
+ M scripts/materialize_pf_246cube_library_handoff_v1.py
+ M scripts/materialize_pf_elastic_multi_particle_6h_fixture_v1.py
+ M scripts/qualify_pf_production_dt_observables_v1.py
+?? data/qualification/pf_246cube_library_inventory_selection_v1.json
+?? data/qualification/pf_400cube_fixed_xb03_elastic_psd_sign_pilot_v1/
+?? data/qualification/pf_elastic_target_profile_quarter_nm_v2/
+?? data/qualification/pf_full_psd_no_dislocation_transport_v1/
+?? data/qualification/resolved_seed_thermal_feasibility_v1/
+?? jobs/audit_pf_246cube_hourly_lineage_v1.sh
+?? jobs/audit_pf_400cube_v2_interim_24h_lineage_cpu_v1.sbatch
+?? jobs/audit_pf_400cube_v2_interim_24h_v1.sbatch
+?? jobs/finalize_pf_246cube_hourly_lineage_v1.sh
+?? jobs/materialize_pf_246cube_quarter_nm_handoff_v1.sh
+?? jobs/materialize_pf_400cube_psd_campaign_integer_gate_v2.sbatch
+?? jobs/prepare_pf_400cube_fixed_xb03_elastic_psd_sign_pilot_v1.sbatch
+?? jobs/prepare_pf_400cube_psd_ladder_params_v1.sh
+?? jobs/replay_pf_400cube_v2_interim_24h_gpu_v1.sbatch
+?? jobs/run_historical_mechanics_accepted_field_replay_v1.sh
+?? jobs/run_mechanics_only_accepted_field_replay_qualification_v1.sh
+?? jobs/run_pf_400cube_fixed_xb03_elastic_psd_sign_pilot_v1.sh
+?? jobs/run_pf_400cube_psd_ladder_production_v1.sh
+?? jobs/run_pf_elastic_target_profile_extension_6to15_v1.sh
+?? jobs/submit_pf_400cube_fixed_xb03_elastic_psd_sign_pilot_v1.sbatch
+?? jobs/submit_pf_400cube_psd_ladder_production_v1.sbatch
+?? jobs/submit_pf_400cube_psd_ladder_uvip_array_v1.sbatch
+?? jobs/submit_pf_400cube_psd_ladder_vip24h_reverse_array_v1.sbatch
+?? jobs/submit_pf_elastic_target_profile_extension_6to15_workstation_v1.sbatch
+?? jobs/tail_pf_400cube_fixed_xb03_elastic_psd_sign_pilot_v1.sbatch
+?? jobs/test_pf_400cube_psd_ladder_workstation_smoke_v1.sbatch
+?? jobs/watch_pf_400cube_psd_ladder_submission_v1.sh
+?? jobs/watch_pf_400cube_psd_ladder_vip_reverse_v1.sh
+?? reports/aq_to_6h_equivalent_radius_v1/
+?? reports/aq_to_6h_equivalent_radius_v1_incomplete_root_search_20260802/
+?? reports/aq_to_6h_equivalent_radius_v1_pre_source_crop_20260802/
+?? reports/global_resolved_psd_strain_audit_v1/
+?? reports/pf_246cube_experiment_matrix_handoff_v1/
+?? reports/pf_246cube_hourly_merge_dissolution_ABC_v1/
+?? reports/pf_246cube_hourly_merge_dissolution_AB_v1/
+?? reports/pf_246cube_hourly_merge_dissolution_B_v1/
+?? reports/pf_246cube_hourly_merge_dissolution_C_v1/
+?? reports/pf_246cube_hourly_merge_dissolution_v1/
+?? reports/pf_246cube_method1_production_authority_v1/
+?? reports/pf_246cube_quarter_nm_method1_v1/
+?? reports/pf_400cube_fixed_xb03_elastic_psd_sign_pilot_v1/
+?? reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/
+?? reports/pf_400cube_psd_spatial_density_ladder_production_v1/
+?? reports/pf_400cube_v2_case_pair_audit_v1/
+?? reports/pf_400cube_v2_interim_24h_audit_v1/
+?? reports/pf_abc_6h8h_descriptor_sufficiency_v1/
+?? reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/
+?? reports/pf_full_psd_no_dislocation_transport_v1/
+?? reports/pf_method1_abc_hourly_no_dislocation_transport_v1/
+?? reports/resolved_seed_thermal_feasibility_v1/
+?? reports/resolved_seed_thermal_feasibility_v1_aborted_python_zip_20260802/
+?? reports/sheskin_pf_interface_strain_blind_prediction_v1/
+?? reports/sheskin_pf_interface_strain_comprehensive_summary_v1/
+?? reports/v3_absolute_endpoint_feasibility_audit_v1/
+?? scripts/analyze_global_resolved_psd_density_v1.py
+?? scripts/analyze_non_pf_mathematical_pairs_v1.py
+?? scripts/analyze_pf_400cube_fixed_xb03_elastic_psd_sign_transport_v1.py
+?? scripts/analyze_pf_400cube_psd_ladder_transport_v1.py
+?? scripts/analyze_pf_400cube_v2_interim_24h_transport_v1.py
+?? scripts/analyze_pf_abc_6h8h_descriptor_sufficiency_v1.py
+?? scripts/analyze_pf_blocked_a_hourly_psd_no_dislocation_diagnostic_v1.py
+?? scripts/analyze_pf_interface_strain_fields_v1.py
+?? scripts/analyze_pf_method1_abc_hourly_no_dislocation_transport_v1.py
+?? scripts/analyze_resolved_seed_thermal_feasibility_v1.py
+?? scripts/analyze_sheskin_pf_dynamic_transport_v1.py
+?? scripts/assemble_historical_mechanics_replay_manifest_v1.py
+?? scripts/assemble_pf_246cube_hourly_merge_production_authority_v1.py
+?? scripts/assemble_pf_full_psd_no_dislocation_transport_ensemble_v1.py
+?? scripts/audit_aq_to_6h_scattering_equivalent_radius_v1.py
+?? scripts/audit_global_density_determinism_v1.py
+?? scripts/audit_method1_checkpoint_strain_recoverability_v1.py
+?? scripts/audit_pf_246cube_hourly_merge_dissolution_v1.py
+?? scripts/audit_pf_400cube_fixed_xb03_elastic_psd_sign_fixture_v1.py
+?? scripts/audit_pf_400cube_fixed_xb03_elastic_psd_sign_pilot_v1.py
+?? scripts/audit_pf_400cube_psd_campaign_integer_gate_v2.py
+?? scripts/audit_pf_400cube_psd_ladder_production_v1.py
+?? scripts/audit_pf_400cube_psd_spatial_density_ladder_integer_feasibility_v1.py
+?? scripts/audit_pf_400cube_v2_interim_24h_cluster_v1.py
+?? scripts/audit_sheskin_dynamic_channel_leverage_v1.py
+?? scripts/audit_v3_absolute_endpoint_feasibility_v1.py
+?? scripts/build_pf_246cube_no_dislocation_transport_authority_v1.py
+?? scripts/build_pf_400cube_fixed_xb03_elastic_psd_sign_fixture_v1.py
+?? scripts/build_pf_400cube_initial_component_anchors_v1.py
+?? scripts/compare_pf_246cube_hourly_lineage_ABC_v1.py
+?? scripts/compare_pf_246cube_hourly_lineage_AB_v1.py
+?? scripts/extract_sheskin_experimental_data_v1.py
+?? scripts/finalize_global_resolved_psd_strain_audit_v1.py
+?? scripts/finalize_sheskin_pf_interface_strain_blind_prediction_v1.py
+?? scripts/fit_sheskin_aq_background_v1.py
+?? scripts/materialize_pf_246cube_resolved_seed_cases_v1.py
+?? scripts/materialize_pf_400cube_psd_campaign_integer_gate_resolution_v2.py
+?? scripts/optimize_pf_246cube_library_inventory_v1.py
+?? scripts/optimize_pf_246cube_resolved_seed_cases_v1.py
+?? scripts/pf_full_psd_no_dislocation_transport_v1.py
+?? scripts/plan_pf_400cube_psd_campaign_integer_gate_resolution_v2.py
+?? scripts/qualify_mechanics_only_accepted_field_replay_v1.py
+?? scripts/qualify_pf_246cube_no_dislocation_transport_authority_v1.py
+?? scripts/qualify_pf_full_psd_no_dislocation_transport_v1.py
+?? scripts/rebase_pf_246cube_library_handoff_far_field_v1.py
+?? scripts/reproduce_sheskin_pf_density_baseline_v1.py
+?? scripts/submit_pf_400cube_psd_ladder_dual_queue_v1.py
+?? scripts/test_pf_246cube_hourly_merge_dissolution_v1.py
+?? scripts/test_pf_246cube_library_inventory_selection_v1.py
+?? thermodynamic_contract_freeze_v1/
+origin	git@github.com:Heng5384/CUDA_STO_PF.git (fetch)
+origin	git@github.com:Heng5384/CUDA_STO_PF.git (push)
+git: 'lfs' is not a git command. See 'git --help'.
+
+The most similar command is
+	refs
+=== GITHUB REMOTE HEADS ===
+6ad932ee67185503e92241c0bf7e75a82371573b	refs/heads/codex/jichen-gp-trend-v1
+4525d45ad0a379cebb9b285c9d8f630f1d73cc87	refs/heads/codex/jichen-real-s-eta-production-runtime-v1
+0a3573ebf73bf2f03b4fa4c91cf6ef5fb6ca697f	refs/heads/codex/pf-ctot-production
+2ff12e6d6aa2117cfa3d004746a81b520b0818fc	refs/heads/codex/pf-ctot-production-candidate
+1c08f9ee011b31e0cd4d82749e58a8f69ebd2204	refs/heads/codex/pf-dynamic-microstructure-audit-v1
+6b69895af2d1b86b99c57c5479ff767349c61efe	refs/heads/codex/pf-zero-mode-restart-provenance-v1
+d8e836566829eb3458641346cdaca6a2ddf3ed60	refs/heads/main
+=== GITHUB TAGS RELATED ===
+=== GITHUB CLI ===
+GH_NOT_INSTALLED
+=== WORKSTATION READ-ONLY ===
+fuxin
+Tue Aug  4 19:38:01 UTC 2026
+--PATH /home/zhiheng/PF/CUDA_STO_PF
+/home/zhiheng/PF/CUDA_STO_PF
+main
+a9f4b6ef91d6974f8395c6fe3169bf53c6422891
+## main...origin/main
+ D .gitignore
+ D MIGRATION_NOTES.md
+ D README.md
+ D __pycache__/elastic_anisotropy_three_cases.cpython-312.pyc
+ D __pycache__/plot_kirsch_comparison.cpython-312.pyc
+ D analysis/README_analysis_tools.md
+ D analysis/compute_explicit_nucleation_rates.py
+ D analysis/energy_component_barrier_audit.py
+ D analysis/postprocess_phi_eta_rhs_attribution.py
+ D analysis/postprocess_phi_eta_step_delta.py
+ D analysis/postprocess_step33_gp_profiles.py
+ D analysis/postprocess_step35_active_eta_growth.py
+ D analysis/postprocess_step36_mechanical_muGP0.py
+ D analysis/postprocess_step37_eta_rhs_audit.py
+ D analysis/postprocess_step38d_gp_L_eta_scan.py
+ D analysis/postprocess_step38j_eta_S218b_Mratio_scan.py
+ D analysis/postprocess_step39S_gp_interface_stability_audit.py
+ D analysis/postprocess_step39_gp_interface_only_scan.py
+ D analysis/step34_gp_interface_balance.py
+ D archive/cleanup_20260517/Results_workflow_T400_xB0p050_cnt_scan_sync/current_results_master_table_fitted.csv
+ D archive/cleanup_20260517/Results_workflow_T400_xB0p050_cnt_scan_sync/reference_energy.csv
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v1/energy_component_barrier_audit.csv
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v1/energy_component_barrier_metadata.json
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v1/energy_profile_excess_by_case.csv
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v1/plots/DeltaG_chem_vs_r_eff_nm.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v1/plots/DeltaG_el_vs_mode.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v1/plots/DeltaG_total_vs_r_eff_nm.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v1/plots/barrier_components_stacked.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v2/energy_component_barrier_audit.csv
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v2/energy_component_barrier_metadata.json
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v2/energy_profile_excess_by_case.csv
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v2/plots/DeltaG_chem_vs_r_eff_nm.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v2/plots/DeltaG_el_vs_mode.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v2/plots/DeltaG_total_vs_r_eff_nm.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v2/plots/barrier_components_stacked.png
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v3/energy_component_barrier_audit.csv
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v3/energy_component_barrier_metadata.json
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v3/energy_profile_excess_by_case.csv
+ D archive/cleanup_20260517/energy_component_audit_T400_xB0p050_v3/plots/DeltaG_chem_vs_r_eff_nm.png
+5257598d8bc54f4d6b401a538eb187d044965fec014bad6de44f308f99b97cea  thermo_utils.h
+b666627e906544bdaad1f233065f541fcdfe88571b1173498635cc87770c1a43  Unit_Psedobinary.py
+c96bb6f8c0a08c8ccfb155f02db4eae21ce1a103b607bd4b39d6569c36f2b58a  main_cuda
+--PATH /home/zhiheng/tmp/codex_equilibrium_audit_v1_branch_20260729
+/home/zhiheng/tmp/codex_equilibrium_audit_v1_branch_20260729
+main
+fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+HEAD
+## No commits yet on main
+?? ../../.MATLABConnector/
+?? ../../.MathWorks/
+?? ../../.Xauthority
+?? ../../.bash_history
+?? ../../.bash_logout
+?? ../../.bashrc
+?? ../../.cache/
+?? ../../.codex/
+?? ../../.conda/
+?? ../../.config/
+?? ../../.cursor-server/
+?? ../../.cursor/
+?? ../../.dmrc
+?? ../../.dotnet/
+?? ../../.gnupg/
+?? ../../.java/
+?? ../../.keras/
+?? ../../.lesshst
+?? ../../.local/
+?? ../../.mamba/
+?? ../../.matlab/
+?? ../../.micromamba/
+?? ../../.nv/
+?? ../../.pki/
+?? ../../.profile
+?? ../../.ssh/
+?? ../../.sudo_as_admin_successful
+?? ../../.viminfo
+?? ../../.vscode/
+?? ../../.xsession-errors
+?? ../../.xsession-errors.old
+?? ../../0001-Ignore-and-remove-.DS_Store.patch
+?? ../../0001-Remove-leftover-root-log-files.patch
+?? ../../0001-Update.patch
+?? ../../0002-Ignore-.DS_Store.patch
+?? ../../0002-Update.patch
+?? ../../CP2K_DFTU_KPOINT_TEST/
+?? ../../CP2K_Module4_Stage1/
+?? ../../Dewetting/
+5257598d8bc54f4d6b401a538eb187d044965fec014bad6de44f308f99b97cea  thermo_utils.h
+b666627e906544bdaad1f233065f541fcdfe88571b1173498635cc87770c1a43  Unit_Psedobinary.py
+11d073a272a0b7fa668e40037bc1f96b8389909f95c74d6ad9a5db11236e01af  main_cuda
+--PATH /home/zhiheng/tmp/pf_246cube_6h48h_C_exp_matrix_xAg0p0062_v1_20260731
+/home/zhiheng/tmp/pf_246cube_6h48h_C_exp_matrix_xAg0p0062_v1_20260731
+main
+fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+HEAD
+## No commits yet on main
+?? ../../.MATLABConnector/
+?? ../../.MathWorks/
+?? ../../.Xauthority
+?? ../../.bash_history
+?? ../../.bash_logout
+?? ../../.bashrc
+?? ../../.cache/
+?? ../../.codex/
+?? ../../.conda/
+?? ../../.config/
+?? ../../.cursor-server/
+?? ../../.cursor/
+?? ../../.dmrc
+?? ../../.dotnet/
+?? ../../.gnupg/
+?? ../../.java/
+?? ../../.keras/
+?? ../../.lesshst
+?? ../../.local/
+?? ../../.mamba/
+?? ../../.matlab/
+?? ../../.micromamba/
+?? ../../.nv/
+?? ../../.pki/
+?? ../../.profile
+?? ../../.ssh/
+?? ../../.sudo_as_admin_successful
+?? ../../.viminfo
+?? ../../.vscode/
+?? ../../.xsession-errors
+?? ../../.xsession-errors.old
+?? ../../0001-Ignore-and-remove-.DS_Store.patch
+?? ../../0001-Remove-leftover-root-log-files.patch
+?? ../../0001-Update.patch
+?? ../../0002-Ignore-.DS_Store.patch
+?? ../../0002-Update.patch
+?? ../../CP2K_DFTU_KPOINT_TEST/
+?? ../../CP2K_Module4_Stage1/
+?? ../../Dewetting/
+685790 /usr/sbin/tailscaled be-child ssh --login-shell=/bin/bash --uid=1001 --gid=1001 --groups=1001,27,100 --local-user=zhiheng --home-dir=/home/zhiheng --remote-user=zhiheng.luo5384@gmail.com --remote-ip=100.66.187.32 --has-tty=false --tty-name= --force-v1-behavior --cmd=set +e; hostname; date -u; for d in /home/zhiheng/PF/CUDA_STO_PF /home/zhiheng/tmp/codex_equilibrium_audit_v1_branch_20260729 /home/zhiheng/tmp/pf_246cube_6h48h_C_exp_matrix_xAg0p0062_v1_20260731; do echo "--PATH $d"; if [ -d "$d" ]; then cd "$d"; pwd; git branch --show-current 2>&1; git rev-parse HEAD 2>&1; git status --short --branch 2>&1 | head -40; for f in thermo_utils.h Unit_Psedobinary.py main_cuda; do [ -e "$f" ] && sha256sum "$f"; done; else echo MISSING; fi; done; pgrep -af "main_cuda|cuda" || true; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>&1 || true
+685799 /bin/bash -c set +e; hostname; date -u; for d in /home/zhiheng/PF/CUDA_STO_PF /home/zhiheng/tmp/codex_equilibrium_audit_v1_branch_20260729 /home/zhiheng/tmp/pf_246cube_6h48h_C_exp_matrix_xAg0p0062_v1_20260731; do echo "--PATH $d"; if [ -d "$d" ]; then cd "$d"; pwd; git branch --show-current 2>&1; git rev-parse HEAD 2>&1; git status --short --branch 2>&1 | head -40; for f in thermo_utils.h Unit_Psedobinary.py main_cuda; do [ -e "$f" ] && sha256sum "$f"; done; else echo MISSING; fi; done; pgrep -af "main_cuda|cuda" || true; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>&1 || true
+=== CLUSTER READ-ONLY ===
+login1
+Tue Aug  4 19:38:02 UTC 2026
+             JOBID  PARTITION                                NAME      STATE         TIME   TIME_LIMIT NODELIST(REASON)
+    74232_[4-21%1]   gpu_uvip                pf400_psd_uvip_array    PENDING         0:00   1-00:00:00 (JobArra
+           74232_3   gpu_uvip                pf400_psd_uvip_array    RUNNING      5:51:49   1-00:00:00     gpu1
+             74021 gpu_vip_24                    pf400_psd_ladder    PENDING         0:00   1-00:00:00 (QOSMaxJ
+             74020 gpu_vip_24                    pf400_psd_ladder    PENDING         0:00   1-00:00:00 (QOSMaxJ
+             74019 gpu_vip_24                    pf400_psd_ladder    PENDING         0:00   1-00:00:00 (QOSMaxJ
+             74017 gpu_vip_24                    pf400_psd_ladder    RUNNING     14:49:28   1-00:00:00     gpu1
+--PATH /data/home/luozhiheng/CUDA_STO_PF
+/data/home/luozhiheng/CUDA_STO_PF
+main
+9db5fb4572523b126e49b7152c1272f745bdd2aa
+## main...origin/main
+ M Unit_Psedobinary.py
+ M cuda_kernels.cu
+ M cuda_kernels.h
+ M jobs/README.md
+ M jobs/_site_env.sh
+ M jobs/submit_cnt_guide_serial.sbatch
+ M main_cuda.cu
+ M pf_params.h
+ M phase_functions.h
+ M physical_inputs.example.json
+ M thermo_utils.h
+ M tools/analysis/generate_cnt_geometry_summaries.py
+ M tools/analysis/generate_continue_dynamic_geometry_summaries.py
+ M tools/analysis/prepare_continue_dynamic_guide.py
+ M tools/analysis/setup_cnt_workflow.py
+ M tools/analysis/summarize_cnt_scan_from_guide.py
+ M tools/analysis/workflow_utils.py
+?? ._cuda_kernels.cu
+?? ._cuda_kernels.h
+?? ._main_cuda.cu
+?? ._pf_params.h
+?? ._thermo_utils.h
+?? CLUSTER_UVIP_QUEUE_POLICY.md
+?? STEP30_LONG_TIME_MATURE_GP_STABILITY_REPORT.md
+?? __pycache__/Unit_Psedobinary.cpython-313.pyc
+?? __pycache__/compute_explicit_nucleation_rates.cpython-313.pyc
+?? _site_env.sh
+?? analysis/
+?? analyze_gp_required_supply_informed_rsmd.py
+?? analyze_mass_drift_dt_scaling.py
+?? analyze_picard_speed_drift_scan.py
+?? archive/
+?? build_massdiag.log
+?? build_y_rhs_picard.log
+?? build_y_rhs_prev_time_level.log
+?? build_y_rhs_source_diag.log
+?? configs/
+?? cuda_kernels.h.pre_fix_20260623_012500
+?? cuda_runtime_fix_report.md
+5257598d8bc54f4d6b401a538eb187d044965fec014bad6de44f308f99b97cea  thermo_utils.h
+b666627e906544bdaad1f233065f541fcdfe88571b1173498635cc87770c1a43  Unit_Psedobinary.py
+d8f27009964df4cbe306bb9471463c02b33b80767fc8516849cb9d2c31a38f90  main_cuda
+--PATH /data/home/luozhiheng/tmp/codex_pf_400cube_psd_ladder_production_v1_20260803
+/data/home/luozhiheng/tmp/codex_pf_400cube_psd_ladder_production_v1_20260803
+codex/pf-dynamic-microstructure-audit-v1
+1c08f9ee011b31e0cd4d82749e58a8f69ebd2204
+## codex/pf-dynamic-microstructure-audit-v1...origin/codex/pf-dynamic-microstructure-audit-v1
+ M PROJECT_CORE_MEMORY.md
+ D configs/multi_embed_rescaled_single_exx_s0p0025.json
+ D configs/scheduled_nucleation_test_400dx1_lambda4.json
+ D data/qualification/pf_elastic_multi_particle_6h_fixture_v1/fixture_spec_validation_96cube_safe2_v1.json
+ D data/qualification/pf_elastic_multi_particle_6h_fixture_v1/fixture_spec_validation_96cube_v1.json
+ D data/qualification/pf_elastic_multi_particle_6h_fixture_v2/fixture_spec_six_particle_96cube_v2.json
+ D data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json
+ D data/qualification/yu2024_transport_refit_v1/fitted_parameter_contract.json
+ D data/qualification/yu2024_transport_refit_v1/yu_AQ_refitted_parameters.json
+ D data/qualification/yu2024_transport_refit_v1/yu_Annealed_refitted_parameters.json
+ D data/qualification/yu2024_transport_v1/figure6b_digitization_contract.json
+ D data/qualification/yu2024_transport_v1/figure6b_model_curve_pixels.csv
+ D data/qualification/yu2024_transport_v1/yu_48h_kappaL_digitized.csv
+ D data/qualification/yu2024_transport_v1/yu_48h_model_digitized.csv
+ D data/qualification/yu2024_transport_v1/yu_48h_parameters.json
+ D data/qualification/yu2024_transport_v1/yu_AQ_kappaL_digitized.csv
+ D data/qualification/yu2024_transport_v1/yu_AQ_model_digitized.csv
+ D data/qualification/yu2024_transport_v1/yu_AQ_parameters.json
+ D docs/current_model_status.md
+ D docs/project_structure.md
+ M jobs/assemble_pf_elastic_target_profile_selected_v1.sh
+ M jobs/run_pf_246cube_6h48h_production_v1.sh
+ M jobs/run_pf_246cube_short_restart_v1.sh
+ M jobs/run_pf_production_dt_selection_v1.sh
+ D nucleus_generator/cuda_nucleus_builder.h
+ D nucleus_generator/nucleus_generation_report.md
+ D nucleus_generator/nucleus_generator.cpp
+ D nucleus_generator/nucleus_resampler.py
+ D nucleus_parametric_generator/acceptance_summary.json
+ D nucleus_parametric_generator/cuda_nucleus_eval.cu
+ D nucleus_parametric_generator/dynamic_continue_parser.cpp
+ D nucleus_parametric_generator/parametric_nucleus_builder.cu
+ D nucleus_parametric_generator/validation_report.md
+ D nucleus_parametric_generator/workstation_test_runner.sh
+ D reports/DIAGNOSTIC_SWITCHES_RETIREMENT_TRIAGE.md
+ D reports/GP_ZONE_ETA_DYNAMICS_REPORT.md
+ D reports/NEXT_WORKORDER_RECOMMENDATION.md
+ D reports/PHI_ETA_ITERATION_CONSISTENCY_AUDIT.md
+ D reports/audit_STO_SM_vs_cuda_Y_equation.md
+5257598d8bc54f4d6b401a538eb187d044965fec014bad6de44f308f99b97cea  thermo_utils.h
+3273144cda4bba02912e82fd3007c1940482d55e54499876d656e3063710e1c1  Unit_Psedobinary.py
+759956a89780db9a19ccd51b4115319de47463a3fd7b8d446a022a74c9beeb3b  main_cuda
+--PATH /data/home/luozhiheng/tmp/pf_400cube_psd_spatial_density_ladder_production_v1_20260803
+/data/home/luozhiheng/tmp/pf_400cube_psd_spatial_density_ladder_production_v1_20260803
+fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+fatal: not a git repository (or any parent up to mount point /)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+001.SHORT_QUALIFICATION_PASS
+002.SHORT_QUALIFICATION_PASS
+003.SHORT_QUALIFICATION_PASS
+004.SHORT_QUALIFICATION_PASS
+005.SHORT_QUALIFICATION_PASS
+006.SHORT_QUALIFICATION_PASS
+007.SHORT_QUALIFICATION_PASS
+008.SHORT_QUALIFICATION_PASS
+009.SHORT_QUALIFICATION_PASS
+021.SHORT_QUALIFICATION_PASS
+3437981 bash -c set +e; hostname; date -u; squeue -u "$USER" -o "%.18i %.10P %.35j %.10T %.12M %.12l %.8R" 2>&1; for d in /data/home/luozhiheng/CUDA_STO_PF /data/home/luozhiheng/tmp/codex_pf_400cube_psd_ladder_production_v1_20260803 /data/home/luozhiheng/tmp/pf_400cube_psd_spatial_density_ladder_production_v1_20260803; do echo "--PATH $d"; if [ -d "$d" ]; then cd "$d"; pwd; git branch --show-current 2>&1; git rev-parse HEAD 2>&1; git status --short --branch 2>&1 | head -40; for f in thermo_utils.h Unit_Psedobinary.py main_cuda; do [ -e "$f" ] && sha256sum "$f"; done; else echo MISSING; fi; done; find /data/home/luozhiheng/tmp/pf_400cube_psd_spatial_density_ladder_production_v1_20260803/statuses -maxdepth 1 -type f -printf "%f\n" 2>/dev/null | sort | head -40; pgrep -af "main_cuda|cuda" || true
+
+=== CONTRACT FREEZE SUMMARY ===
+LOCAL_REPO_FOUND=YES
+GITHUB_REMOTE_FOUND=YES
+WORKSTATION_FOUND=YES
+CLUSTER_FOUND=YES
+AUTHORITATIVE_CONTRACT=CONFLICTED
+CONTRACT_VERSION=exact_v1
+CONTRACT_HASH=NONE_BLOCKED
+T_380C_K=653.15
+XB_EQ_380C=0.004664951821454188_LEGACY_ONLY
+THERMODYNAMIC_CODE_PATHS_FOUND=18_KEY_PATHS_IN_AUDIT
+LEGACY_LITERAL_PATHS_FOUND=17
+LEGACY_LITERAL_PATHS_RESOLVED=0
+HIDDEN_DEFAULTS_FOUND=YES
+HIDDEN_DEFAULTS_RESOLVED=0
+LOCAL_TESTS_PASS=NO_EXACT_TESTS_NOT_RUN
+WORKSTATION_TESTS_PASS=NOT_RUN
+CLUSTER_TESTS_PASS=NOT_RUN
+CROSS_ENVIRONMENT_HASH_MATCH=NO
+LEGACY_RESULTS_CLASSIFIED=10_REGISTERED_GROUPS
+LEGACY_RESULTS_REQUIRE_RERUN=INCONCLUSIVE
+CHECKPOINT_COMPATIBILITY_VERIFIED=NO
+READY_FOR_400_PRODUCTION=NO
+GIT_BRANCH=CUDA_STO_PF-transport-v3-polarization-anisotropic
+GIT_COMMIT=1c08f9ee011b31e0cd4d82749e58a8f69ebd2204
+GIT_TAG=NONE
+GITHUB_PUSHED=NO
+WORKSTATION_DEPLOYED=NO
+CLUSTER_DEPLOYED=NO
+FINAL_STATUS=BLOCKED_AUTHORITATIVE_CONTRACT_CONFLICT
+
+=== LOCAL PATCH VALIDATION ===
+PYTHON_COMPILE_CHECK=PASS_12_FILES
+EXACT_ROOT_CHECK=PASS
+AUDIT_HASH_CHECK=PASS
+GIT_DIFF_CHECK=PASS
+
+=== USER-AUTHORIZED LOCAL EXACT PARAMETER PATCH ===
+LOCAL_PARAMETER_PATCH=APPLIED
+THERMO_DELTA_H_J_PER_MOL=41504.29119633958
+THERMO_DELTA_S_J_PER_MOL_K=18.469276826409214
+THERMO_L_653_15K_J_PER_MOL=29441.083037170407
+THERMO_XB_EQ_653_15K=0.004649261005504821
+LOCAL_THERMO_SOURCE_HASH=d4c3c22d53fed451f6c4877d0d87f32b2dd956f3e85a1e40ef71b9af6f55b9e5
+LOCAL_CUDA_BINARY=NOT_REBUILT_NVCC_UNAVAILABLE
+PYTHON_COMPILE_CHECK=PASS_12_FILES
+EXACT_ROOT_CHECK=PASS
+REMOTE_DEPLOYMENT=NOT_PERFORMED
+RUNNING_JOBS=UNTOUCHED
+CALIBRATION_AUDIT_ARTIFACT_VALIDATION=PASS_YAML_JSON_CSV_HASH_DIFF
+
+=== FINAL LOCAL ARTIFACT VALIDATION ===
+CSV_SCHEMA_VALIDATION=PASS_04_05_06_15
+JSON_VALIDATION=PASS_08_09
+YAML_VALIDATION=PASS_07
+AUDIT_ARTIFACT_SHA256_VALIDATION=PASS
+GIT_DIFF_CHECK=PASS
+CORE_MEMORY_UPDATE=RECORDED_IN_PROJECT_CORE_MEMORY_SECTION_13_42
+
+=== AUDIT REVISION 2: EXTERNAL CALIBRATION PATH ===
+CALIBRATION_PATH=/Users/heng/Desktop/1_Solubility_Calibration
+CALIBRATION_EXACT_SOURCE_FOUND=YES
+CALIBRATION_RAW_DATA_SHA256=ce19c61dc2771a94905caa78e68fcd7caf0cd1a721306791572f908d4158d93d
+CALIBRATION_FIT_SCRIPT_SHA256=92d929431ee4545c253686d6b6a47975797135f1ad16772f69d79594e031db6a
+CALIBRATION_EXACT_FIT_REPRODUCTION=PASS
+CALIBRATION_DELTA_H_J_PER_MOL=41504.29119633958
+CALIBRATION_DELTA_S_J_PER_MOL_K=18.469276826409214
+CALIBRATION_XB_EQ_653_15K=0.004649261005504821
+CALIBRATION_POINTWISE_RESIDUAL_CSV=ABSENT
+CALIBRATION_DOWNSTREAM_PF_SENSITIVITY=NOT_RUN
+AUTHORITATIVE_CONTRACT=CONFLICTED_EXACT_CANDIDATE_VS_LEGACY_RUNTIME
+FINAL_STATUS=BLOCKED_AUTHORITATIVE_CONTRACT_CONFLICT

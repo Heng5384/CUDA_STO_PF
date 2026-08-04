@@ -1,0 +1,94 @@
+contract:
+  name: THERMODYNAMIC_CONTRACT_FREEZE_V1
+  version: exact_v1
+  status: BLOCKED_CONTRACT_CONFLICT
+  created_utc: "2026-08-05T00:00:00Z"
+  source_commit: 1c08f9ee011b31e0cd4d82749e58a8f69ebd2204
+  source_reports:
+    - reports/equilibrium_audit_v1/thermodynamic_fit_reconstruction.md
+    - reports/equilibrium_audit_v1/thermodynamic_fit_residuals.csv
+    - /Users/heng/Desktop/1_Solubility_Calibration/outputs_exact_4pt_final/exact_4pt_final_fit_report.md
+    - /Users/heng/Desktop/1_Solubility_Calibration/outputs_exact_4pt_final/exact_4pt_final_parameters.csv
+    - /Users/heng/Desktop/1_Solubility_Calibration/outputs_exact_4pt_final/exact_4pt_final_terminal_output.txt
+  supersedes: null
+  contract_hash: null
+  blocking_reason: exact_candidate_found_but_contract_selection_residuals_and_cross_environment_identity_incomplete
+  candidate_exact_source_root: /Users/heng/Desktop/1_Solubility_Calibration
+
+system:
+  representation: PbTe-Ag2Te pseudo-binary
+  endmember_A: PbTe
+  endmember_B: Ag2Te
+  beta_endpoint_xB: 1.0
+  temperature_unit: K_internal_C_input_allowed
+  energy_basis: J_per_mol
+
+composition:
+  experimental_variable: xAg_total_atomic_fraction
+  phase_field_variable: xB
+  exact_forward_conversion: "xAg = 2*xB/(2+xB)"
+  exact_inverse_conversion: "xB = 2*xAg/(2-xAg)"
+  approximate_conversion: "xB approximately equals xAg_total only in the dilute limit"
+  approximate_conversion_allowed_for:
+    - labeled_legacy_diagnostic_only
+  composition_units: dimensionless_mole_fraction
+
+solvus:
+  data_points:
+    - {T_C: 650.3054101, xAg_total_at_percent: 6.939094429}
+    - {T_C: 550.4363002, xAg_total_at_percent: 2.024191092}
+    - {T_C: 450.2617801, xAg_total_at_percent: 1.098171165}
+    - {T_C: 375.4363002, xAg_total_at_percent: 0.445243724}
+  source_reference: "Bergum et al. (2011), attribution in calibration workspace; complete citation and digitization uncertainty unresolved"
+  digitization_method: "local digitization recorded in Previous/Solubility_extract.csv; uncertainty artifact absent"
+  fit_variable: xB
+  fit_expression: "Y=ln(xB)/(1-xB)^2; X=1000/T_K; Y=slope*X+intercept"
+  coefficient_A: 41504.29119633958
+  coefficient_B: 18.469276826409214
+  coefficient_units: {coefficient_A: J_per_mol, coefficient_B: J_per_mol_K}
+  residual_units: "Ag atomic-percentage points for direct-composition diagnostic"
+  rmse: 0.626465
+  max_abs_residual: 1.115503
+  residual_artifact_status: ABSENT_POINTWISE_CSV
+
+thermodynamics:
+  delta_H_J_per_mol: 41504.29119633958
+  delta_S_J_per_mol_K: 18.469276826409214
+  interaction_parameter_expression: "CANDIDATE_EXACT_ONLY: L(T)=41504.29119633958-18.469276826409214*T"
+  matrix_free_energy_expression: "G0_PbTe + R*T*ln(1-xB) + L(T)*xB^2"
+  beta_free_energy_expression: "G0_Ag2Te + R*T*ln(xB) + L(T)*(1-xB)^2"
+  chemical_potential_expression: "mu_A=G0_PbTe+R*T*ln(1-xB)+L(T)*xB^2; mu_B=G0_Ag2Te+R*T*ln(xB)+L(T)*(1-xB)^2"
+  driving_force_expression: "Delta_mu=R*T*ln(xB)+L(T)*(1-xB)^2"
+  molar_volume: null
+  energy_density_conversion: null
+
+reference_states:
+  T_380C_K: 653.15
+  xB_eq_380C: 0.004649261005504821
+  xAg_eq_380C: 0.004638478257461173
+  legacy_xB_eq_380C: 0.004664951821454188
+  legacy_xAg_eq_380C: 0.004654096254055399
+  numeric_tolerance: 1.0e-12
+  root_solver: brentq_low_concentration_root_reproduction
+  root_solver_tolerance: 1.0e-14
+
+runtime:
+  parameter_source: external_candidate_exact_fit_not_deployed
+  config_key_names: []
+  allow_legacy_override: false
+  legacy_mode_name: legacy_246_v1
+  contract_hash: null
+
+provenance:
+  raw_data_hashes:
+    - /Users/heng/Desktop/1_Solubility_Calibration/Previous/Solubility_extract.csv: ce19c61dc2771a94905caa78e68fcd7caf0cd1a721306791572f908d4158d93d
+    - /Users/heng/Desktop/1_Solubility_Calibration/Previous/Solubility.png: ed4428dc92d1b99eff19aa76ae10a6a58041f181df0624d9e1ed48ad1c52d26d
+  fit_output_hashes:
+    - /Users/heng/Desktop/1_Solubility_Calibration/Exchange_expression_Fit_exact_4pt_final.py: 92d929431ee4545c253686d6b6a47975797135f1ad16772f69d79594e031db6a
+    - /Users/heng/Desktop/1_Solubility_Calibration/outputs_exact_4pt_final/exact_4pt_final_fit_report.md: 151ba40f0c8190afdb11fd849ff91702b80a7873963cc3a7f3dca88db03d5080
+    - /Users/heng/Desktop/1_Solubility_Calibration/outputs_exact_4pt_final/exact_4pt_final_parameters.csv: ffd5d4de8c01ee6b3d7b8699454e0b069ebb2b303aebdce026f97aabacd32da0
+    - /Users/heng/Desktop/1_Solubility_Calibration/outputs_exact_4pt_final/exact_4pt_final_terminal_output.txt: 56ffcdaf4643ccb451d00c106c0bdb6c840059a65f9d3058dfae5d08a5d5e8c4
+  implementation_file_hashes:
+    - thermo_utils.h: 5257598d8bc54f4d6b401a538eb187d044965fec014bad6de44f308f99b97cea
+    - Unit_Psedobinary.py: 3273144cda4bba02912e82fd3007c1940482d55e54499876d656e3063710e1c1
+  validation_hashes: []

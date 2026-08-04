@@ -1,0 +1,4 @@
+hostname=fuxin
+slurm_job_id=UNSCHEDULED
+cuda_visible_devices=UNSET
+0, NVIDIA GeForce RTX 5080, GPU-87b3cc84-2483-ef19-7093-e580b81634d3, 16303

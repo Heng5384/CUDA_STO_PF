@@ -1,0 +1,208 @@
+{
+  "gates": {
+    "frozen_transport_contract": true,
+    "full_psd_direct_sum": true,
+    "lognormal_closure": true,
+    "prediction_grid_complete": true,
+    "production_pf_untouched": true,
+    "raw_psd_descriptor_closure": true,
+    "raw_psd_snapshot_count": true,
+    "source_is_explicitly_non_authority": true
+  },
+  "numerics": {
+    "full_psd_vector_direct_sum_max_relative": 3.0963095254558003e-16,
+    "lognormal_CV_max_absolute": 9.159339953157541e-16,
+    "lognormal_mean_max_relative": 2.827185780555021e-15
+  },
+  "schema": "PF_BLOCKED_A_HOURLY_PSD_NO_DISLOCATION_DIAGNOSTIC_V1",
+  "source": {
+    "descriptor_closure_max": {
+      "M6": 8.944943409969666e-16,
+      "Sv": 7.0078803833692e-16,
+      "count": 0.0,
+      "mean_R": 3.723390369556189e-16
+    },
+    "snapshot_count": 45,
+    "source_files": {
+      "analysis_binary": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/source_A_raw/analysis_binary.sha256",
+        "sha256": "d7afce39d7ce2be8a0a1d86df84dac72f41959b2a1829525a2563eab5e64df41"
+      },
+      "campaign": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/source_A_raw/campaign_manifest.json",
+        "sha256": "5f745ea8806f5a17ff36791a0a5b2a6dff0c4670aba0092a812126a13b7d380b"
+      },
+      "descriptor_module": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/analyze_pf_abc_6h8h_descriptor_sufficiency_v1.py",
+        "sha256": "209bd08c1a3935d91d7ddca63e4b3f37097b39866bc96d32119be9dc3d114c99"
+      },
+      "diagnostic_script": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/analyze_pf_blocked_a_hourly_psd_no_dislocation_diagnostic_v1.py",
+        "sha256": "3abdd37303eb733db8260311931b4e8b8e81f2e22525a199549f0467285c71b2"
+      },
+      "input_hashes": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/source_A_raw/input_hashes.sha256",
+        "sha256": "634395dbd449bf709a1d4e8c08cddde7e473a9d6925db67db0aa82fa87776866"
+      },
+      "lineage_summary": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/source_A_raw/lineage_summary.txt",
+        "sha256": "6c96fa963c954434985b851603eae2b35a2b961433e51a9c57259a9632d8a546"
+      },
+      "observables": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/source_A_raw/ensemble_observables.csv",
+        "sha256": "3040aff901cfd11d989cf6d0ce09a46fcca18597422eb6904fdfa4f5b5b281af"
+      },
+      "particles": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/source_A_raw/particle_lineage.csv",
+        "sha256": "0d57c0284064ac10089aa992baaa06eef4165c592863a6dbfd33269ebc3fcb0d"
+      },
+      "root_status": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/source_A_raw/production_root_status.txt",
+        "sha256": "520da6fa56f8d75d468dd2f652208c1e1ed0ec190bf99beb15c4969b182114a8"
+      },
+      "transport_contract": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json",
+        "sha256": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0"
+      },
+      "transport_core": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/pf_full_psd_no_dislocation_transport_v1.py",
+        "sha256": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66"
+      },
+      "yu_config": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/yu2024_transport_v1/yu_48h_parameters.json",
+        "sha256": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f"
+      }
+    },
+    "source_is_production_authority": false,
+    "source_lineage_status": "BLOCKED_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1",
+    "source_root_status": "BLOCKED_246CUBE_6H48H_PRODUCTION_DRIVER_V1"
+  },
+  "status": "PASS_PF_BLOCKED_A_HOURLY_PSD_NO_DISLOCATION_DIAGNOSTIC_V1",
+  "summary": [
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.01883292033682249,
+      "delta_kappa_signal_NRMSE_percent": 265.4776943996111,
+      "descriptor_model": "Nv_plus_mean_R",
+      "kappa_MAPE_percent": 0.33625705611773743,
+      "kappa_RMS_relative_percent": 0.38276523989237987,
+      "kappa_max_relative_percent": 0.9156820710772559,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.003950866229979866,
+      "delta_kappa_signal_NRMSE_percent": 46.11326605726308,
+      "descriptor_model": "Nv_plus_mean_R_plus_CV_lognormal",
+      "kappa_MAPE_percent": 0.04163583186791919,
+      "kappa_RMS_relative_percent": 0.05720384355286269,
+      "kappa_max_relative_percent": 0.17340896714056495,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.1324740506995159,
+      "delta_kappa_signal_NRMSE_percent": 3205.3856190414117,
+      "descriptor_model": "Sv_geometric_limit",
+      "kappa_MAPE_percent": 3.833405938999763,
+      "kappa_RMS_relative_percent": 4.0267369944334925,
+      "kappa_max_relative_percent": 8.7937530873128,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.0033695831806439536,
+      "delta_kappa_signal_NRMSE_percent": 48.74023940886089,
+      "descriptor_model": "Sv_plus_M6",
+      "kappa_MAPE_percent": 0.08264986295110778,
+      "kappa_RMS_relative_percent": 0.08994998132626265,
+      "kappa_max_relative_percent": 0.19309614205298556,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.0,
+      "delta_kappa_signal_NRMSE_percent": 0.0,
+      "descriptor_model": "full_PSD",
+      "kappa_MAPE_percent": 0.0,
+      "kappa_RMS_relative_percent": 0.0,
+      "kappa_max_relative_percent": 0.0,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.0188104821184516,
+      "delta_kappa_signal_NRMSE_percent": 50.33092232430745,
+      "descriptor_model": "Nv_plus_mean_R",
+      "kappa_MAPE_percent": 0.3375967810626205,
+      "kappa_RMS_relative_percent": 0.38445339744317547,
+      "kappa_max_relative_percent": 0.9192652382353046,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.003950942663955015,
+      "delta_kappa_signal_NRMSE_percent": 8.758878904488734,
+      "descriptor_model": "Nv_plus_mean_R_plus_CV_lognormal",
+      "kappa_MAPE_percent": 0.04185742077559081,
+      "kappa_RMS_relative_percent": 0.057504036908960346,
+      "kappa_max_relative_percent": 0.17415200513380738,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.13247528505081263,
+      "delta_kappa_signal_NRMSE_percent": 608.8752373979771,
+      "descriptor_model": "Sv_geometric_limit",
+      "kappa_MAPE_percent": 3.853257679685847,
+      "kappa_RMS_relative_percent": 4.052281201209845,
+      "kappa_max_relative_percent": 8.7937530873128,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.00335915387869834,
+      "delta_kappa_signal_NRMSE_percent": 9.238634761504565,
+      "descriptor_model": "Sv_plus_M6",
+      "kappa_MAPE_percent": 0.08302984832138159,
+      "kappa_RMS_relative_percent": 0.09044703356785934,
+      "kappa_max_relative_percent": 0.1951051905403212,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "comparison_cells": 315,
+      "delta_kappa_max_abs_error_W_mK": 0.0,
+      "delta_kappa_signal_NRMSE_percent": 0.0,
+      "descriptor_model": "full_PSD",
+      "kappa_MAPE_percent": 0.0,
+      "kappa_RMS_relative_percent": 0.0,
+      "kappa_max_relative_percent": 0.0,
+      "matrix_mode": "pf_time_varying_matrix"
+    }
+  ],
+  "transport": {
+    "A_N": 1.5,
+    "descriptor_models": [
+      "Nv_plus_mean_R",
+      "Nv_plus_mean_R_plus_CV_lognormal",
+      "Sv_geometric_limit",
+      "Sv_plus_M6",
+      "full_PSD"
+    ],
+    "dislocation_mode": "DISLOCATION_OFF",
+    "matrix_modes": [
+      "fixed_6h_matrix",
+      "pf_time_varying_matrix"
+    ],
+    "temperatures_K": [
+      300.0,
+      350.0,
+      400.0,
+      450.0,
+      500.0,
+      550.0,
+      600.0
+    ],
+    "yu_refit_scale_used": false
+  }
+}

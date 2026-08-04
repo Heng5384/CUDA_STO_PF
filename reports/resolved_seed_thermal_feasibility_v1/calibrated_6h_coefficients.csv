@@ -1,0 +1,4 @@
+model,coefficient_name,value,units,calibration_state,experimental_value_used_W_mK,physical_interval,status
+M1_resolved_interface,P_interface,,dimensionless,Method-1 A/B/C ensemble 6 h only,0.85,0 <= P_interface <= 1,REJECT_INTERFACE_MODEL_UNPHYSICAL_COEFFICIENT
+M2_resolved_strain_p2,A_strain_p2,NOT_CALIBRATED,not applicable,not run: authoritative A/B/C runtime strain/stress field or scalar trace is unavailable locally,,not applicable,INCONCLUSIVE_STRAIN_FIELD_NOT_RECOVERABLE
+M2_resolved_strain_p4,A_strain_p4,NOT_CALIBRATED,not applicable,not run: authoritative A/B/C runtime strain/stress field or scalar trace is unavailable locally,,not applicable,INCONCLUSIVE_STRAIN_FIELD_NOT_RECOVERABLE

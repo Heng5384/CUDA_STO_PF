@@ -1,0 +1,44 @@
+{
+  "replicates": [
+    {
+      "candidates": [
+        {
+          "authority_status": "PASS_COMPLETE_6H48H",
+          "candidate_id": "QUALIFICATION_A",
+          "complete_6h48h": true,
+          "selected": true,
+          "transport_manifest_sha256": "b366a656ad10adbc089c37ec560117adb448bd434ad13c43662dc9ee96e54dfd",
+          "transport_output_dir": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/qualification_hardened_v3/synthetic_abc_authority/negative_missing_production_pass"
+        }
+      ],
+      "replicate": "A"
+    },
+    {
+      "candidates": [
+        {
+          "authority_status": "PASS_COMPLETE_6H48H",
+          "candidate_id": "QUALIFICATION_B",
+          "complete_6h48h": true,
+          "selected": true,
+          "transport_manifest_sha256": "5e7143e03a2c2fce4b00744a0913e6e2e630ac8964309c38231951a9b8f964b7",
+          "transport_output_dir": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/qualification_hardened_v3/synthetic_abc_authority/B"
+        }
+      ],
+      "replicate": "B"
+    },
+    {
+      "candidates": [
+        {
+          "authority_status": "PASS_COMPLETE_6H48H",
+          "candidate_id": "QUALIFICATION_C",
+          "complete_6h48h": true,
+          "selected": true,
+          "transport_manifest_sha256": "1dacb922c08fa0b62cb3ae7981491c38aa91a043d16234ddb9f5b6a677d82ee8",
+          "transport_output_dir": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/qualification_hardened_v3/synthetic_abc_authority/C"
+        }
+      ],
+      "replicate": "C"
+    }
+  ],
+  "schema": "PF_FULL_PSD_TRANSPORT_AUTHORITY_SELECTION_V1"
+}

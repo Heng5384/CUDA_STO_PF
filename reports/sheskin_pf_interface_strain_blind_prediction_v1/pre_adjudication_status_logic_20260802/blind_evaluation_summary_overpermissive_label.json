@@ -1,0 +1,46 @@
+{
+  "absolute_experimental_lattice_reproduction_claimed": false,
+  "background_envelope_is_nonprobabilistic": true,
+  "frozen_manifest_sha256": "2793c7f7f34ff245b2e96f8a8725d07e27b57380a3d830ad51de9b5de5d2a2d3",
+  "model_gates": {
+    "M0": {
+      "all_endpoint_10pct_gates_pass": false,
+      "all_full_temperature_majority_pass": false,
+      "all_parameter_physicality_pass": true,
+      "all_registered_gates_pass": false,
+      "all_relative_change_gates_pass": false,
+      "all_trend_gates_pass": false,
+      "background_member_count": 18
+    },
+    "MI": {
+      "all_endpoint_10pct_gates_pass": false,
+      "all_full_temperature_majority_pass": true,
+      "all_parameter_physicality_pass": false,
+      "all_registered_gates_pass": false,
+      "all_relative_change_gates_pass": false,
+      "all_trend_gates_pass": true,
+      "background_member_count": 18
+    },
+    "MIS": {
+      "all_endpoint_10pct_gates_pass": false,
+      "all_full_temperature_majority_pass": true,
+      "all_parameter_physicality_pass": false,
+      "all_registered_gates_pass": false,
+      "all_relative_change_gates_pass": false,
+      "all_trend_gates_pass": true,
+      "background_member_count": 18
+    },
+    "MS": {
+      "all_endpoint_10pct_gates_pass": false,
+      "all_full_temperature_majority_pass": false,
+      "all_parameter_physicality_pass": true,
+      "all_registered_gates_pass": false,
+      "all_relative_change_gates_pass": false,
+      "all_trend_gates_pass": false,
+      "background_member_count": 18
+    }
+  },
+  "no_48h_refit": true,
+  "schema": "SHESKIN_FROZEN_48H_BLIND_EVALUATION_V1",
+  "status": "PASS_INTERFACE_OR_STRAIN_SEMIQUANTITATIVE_RECONSTRUCTION"
+}

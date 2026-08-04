@@ -74,7 +74,7 @@
 
 // // 相互作用参数 L(T)
 // DEVICE_FUNC static inline double get_L_param(double T) {
-//     return 41212.9 - 18.05 * T;
+//     return 41504.29119633958 - 18.469276826409214 * T;
 // }
 
 // // 溶剂 PbTe (Matrix) 的化学势
@@ -257,6 +257,12 @@
 // 气体常数
 #define R_GAS 8.31446261815324
 
+// External four-point exact solvus calibration (local candidate patch).
+// Cross-environment contract hash remains unset until deployment validation.
+#define THERMO_DELTA_H_J_PER_MOL 41504.29119633958
+#define THERMO_DELTA_S_J_PER_MOL_K 18.469276826409214
+#define THERMO_CONTRACT_VERSION "exact_candidate_v1_local_unfrozen"
+
 // CUDA设备函数标记
 #define DEVICE_FUNC __device__ __host__
 
@@ -355,7 +361,7 @@ DEVICE_FUNC static inline double G_Ag2Te_Solid(double T) {
 
 // 相互作用参数 L(T)
 DEVICE_FUNC static inline double get_L_param(double T) {
-    return 41212.9 - 18.05 * T;
+    return THERMO_DELTA_H_J_PER_MOL - THERMO_DELTA_S_J_PER_MOL_K * T;
 }
 
 // 辅助函数：计算未修改的 CALPHAD 化学势 (PbTe)

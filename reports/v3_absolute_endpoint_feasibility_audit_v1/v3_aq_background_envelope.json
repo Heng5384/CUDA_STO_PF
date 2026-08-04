@@ -1,0 +1,2071 @@
+{
+  "H_P1_status": "UNAVAILABLE_NOT_QUALIFIED",
+  "absolute_fit_warning": "POOR_ABSOLUTE_FIT_ALL_RETAINED_MEMBERS_CHI2_P_LT_0P01",
+  "background_is_nonprobabilistic": true,
+  "member_count": 103,
+  "members": [
+    {
+      "AICc": 76.07849703700187,
+      "AQ_MAPE_percent": 4.0463988070932775,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__lower_1sigma__zero_particle_scattering_limit__B2_omega2",
+      "parameter": 2.8228972475676483e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07828363447099,
+      "AQ_MAPE_percent": 4.046366752120529,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__lower_1sigma__all_small_at_reported_max__B2_omega2",
+      "parameter": 2.818424153902592e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07770965598526,
+      "AQ_MAPE_percent": 4.046233454351942,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__lower_1sigma__single_APT_37to6_prolate_AR10__B2_omega2",
+      "parameter": 2.810991953986547e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07601371230814,
+      "AQ_MAPE_percent": 4.0457644996132585,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__lower_1sigma__single_APT_37to6_prolate_AR5__B2_omega2",
+      "parameter": 2.7847674296129984e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.09929754351502,
+      "AQ_MAPE_percent": 4.0473671209729645,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__lower_1sigma__single_APT_37to6_prolate_AR2__B2_omega2",
+      "parameter": 2.6188428458061173e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.75902158031008,
+      "AQ_MAPE_percent": 4.0855670439295615,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B2_omega2",
+      "parameter": 2.275017424977184e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07849703700187,
+      "AQ_MAPE_percent": 4.0463988070932775,
+      "background_model": "B2_omega2",
+      "case_id": "central__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__central__zero_particle_scattering_limit__B2_omega2",
+      "parameter": 2.8228972475676483e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.0781317811278,
+      "AQ_MAPE_percent": 4.0463439483053865,
+      "background_model": "B2_omega2",
+      "case_id": "central__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__central__all_small_at_reported_max__B2_omega2",
+      "parameter": 2.8152089018871593e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07716515976956,
+      "AQ_MAPE_percent": 4.04611729279115,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__central__single_APT_37to6_prolate_AR10__B2_omega2",
+      "parameter": 2.8024439548714318e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07470500549509,
+      "AQ_MAPE_percent": 4.045385709128337,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__central__single_APT_37to6_prolate_AR5__B2_omega2",
+      "parameter": 2.7576985616050062e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.15626993236936,
+      "AQ_MAPE_percent": 4.052063937545536,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__central__single_APT_37to6_prolate_AR2__B2_omega2",
+      "parameter": 2.4936855220959886e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 77.57347134685587,
+      "AQ_MAPE_percent": 4.117860420805462,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__central__single_APT_37to6_large_Lover2_sphere_bound__B2_omega2",
+      "parameter": 2.0347933453962013e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07849703700187,
+      "AQ_MAPE_percent": 4.0463988070932775,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__upper_1sigma__zero_particle_scattering_limit__B2_omega2",
+      "parameter": 2.8228972475676483e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07798125560275,
+      "AQ_MAPE_percent": 4.046321349657106,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__upper_1sigma__all_small_at_reported_max__B2_omega2",
+      "parameter": 2.8119945828408046e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07663853179322,
+      "AQ_MAPE_percent": 4.046003414187047,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__upper_1sigma__single_APT_37to6_prolate_AR10__B2_omega2",
+      "parameter": 2.793906368906707e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.07378044924212,
+      "AQ_MAPE_percent": 4.045069858042679,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__upper_1sigma__single_APT_37to6_prolate_AR5__B2_omega2",
+      "parameter": 2.730913373820225e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 76.24709616461915,
+      "AQ_MAPE_percent": 4.058604684953672,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__upper_1sigma__single_APT_37to6_prolate_AR2__B2_omega2",
+      "parameter": 2.3815441219221366e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 78.43986151684096,
+      "AQ_MAPE_percent": 4.145704882276659,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "scalar",
+      "host_family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "host_status": "AVAILABLE_CONTROL",
+      "member_id": "H-P0_YU_SCALAR__upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B2_omega2",
+      "parameter": 1.8410661899130005e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "AICc": 65.5590723794159,
+      "AQ_MAPE_percent": 3.6571713951438345,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__zero_particle_scattering_limit__B2_omega2",
+      "parameter": 1.7487849708970718e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.56744894817449,
+      "AQ_MAPE_percent": 3.657438954813487,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__all_small_at_reported_max__B2_omega2",
+      "parameter": 1.745737944344617e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.57787825956326,
+      "AQ_MAPE_percent": 3.6577698094392943,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__single_APT_37to6_prolate_AR10__B2_omega2",
+      "parameter": 1.7393049077372347e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.61171556924477,
+      "AQ_MAPE_percent": 3.658834541563844,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__single_APT_37to6_prolate_AR5__B2_omega2",
+      "parameter": 1.7154533792228561e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.77412354190793,
+      "AQ_MAPE_percent": 3.663972793668907,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__single_APT_37to6_prolate_AR2__B2_omega2",
+      "parameter": 1.5632268285620523e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 66.40503001421287,
+      "AQ_MAPE_percent": 3.751381726778227,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.6309064723049431,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 2.3001436569054264e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.95254266574268,
+      "AQ_MAPE_percent": 3.669947178835488,
+      "background_model": "B2_omega2",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.4169947114090462,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B2_omega2",
+      "parameter": 1.2639624692610123e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.53554795433364,
+      "AQ_MAPE_percent": 3.712207485164261,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B4_omega4",
+      "parameter": 1.2896321526571353e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.5590723794159,
+      "AQ_MAPE_percent": 3.6571713951438345,
+      "background_model": "B2_omega2",
+      "case_id": "central__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__zero_particle_scattering_limit__B2_omega2",
+      "parameter": 1.7487849708970718e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.57348819335358,
+      "AQ_MAPE_percent": 3.6576309790837134,
+      "background_model": "B2_omega2",
+      "case_id": "central__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__all_small_at_reported_max__B2_omega2",
+      "parameter": 1.743548283362463e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.59140282985258,
+      "AQ_MAPE_percent": 3.6581964982703754,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__single_APT_37to6_prolate_AR10__B2_omega2",
+      "parameter": 1.732496757503953e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.64828779034325,
+      "AQ_MAPE_percent": 3.6599692085935054,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__single_APT_37to6_prolate_AR5__B2_omega2",
+      "parameter": 1.6917676002885327e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.86962475922587,
+      "AQ_MAPE_percent": 3.6670964484655144,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.20227796083919714,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__single_APT_37to6_prolate_AR2__B2_omega2",
+      "parameter": 1.4508692431737856e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.66734679838667,
+      "AQ_MAPE_percent": 3.7049565194127436,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 1.8195630002650115e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 66.14681248117157,
+      "AQ_MAPE_percent": 3.674633446991802,
+      "background_model": "B2_omega2",
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.6003014098581332,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__single_APT_37to6_large_Lover2_sphere_bound__B2_omega2",
+      "parameter": 1.0567495831245628e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.54651107131343,
+      "AQ_MAPE_percent": 3.709641453670308,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__central__single_APT_37to6_large_Lover2_sphere_bound__B4_omega4",
+      "parameter": 9.185833952747399e-42,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.5590723794159,
+      "AQ_MAPE_percent": 3.6571713951438345,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__zero_particle_scattering_limit__B2_omega2",
+      "parameter": 1.7487849708970718e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.5795408232388,
+      "AQ_MAPE_percent": 3.6578226999401657,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__all_small_at_reported_max__B2_omega2",
+      "parameter": 1.741359707365517e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.60492830043285,
+      "AQ_MAPE_percent": 3.6586202056359873,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__single_APT_37to6_prolate_AR10__B2_omega2",
+      "parameter": 1.7256956865853781e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.6837994157202,
+      "AQ_MAPE_percent": 3.66105650874864,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__single_APT_37to6_prolate_AR5__B2_omega2",
+      "parameter": 1.6683123878102865e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.93989324972561,
+      "AQ_MAPE_percent": 3.669506180169798,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.5611195140761822,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__single_APT_37to6_prolate_AR2__B2_omega2",
+      "parameter": 1.3510224827991563e-15,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.37877373564943,
+      "AQ_MAPE_percent": 3.684961997474699,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 1.5142575449457284e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 66.36690250790082,
+      "AQ_MAPE_percent": 3.6902868572928407,
+      "background_model": "B2_omega2",
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.6396828432815767,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B2_omega2",
+      "parameter": 8.89802719582212e-16,
+      "parameter_unit": "s",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 65.72721966461924,
+      "AQ_MAPE_percent": 3.715605896065303,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[100]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_100__upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B4_omega4",
+      "parameter": 6.946888916340136e-42,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "AICc": 69.25403743742434,
+      "AQ_MAPE_percent": 3.879938695160915,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__lower_1sigma__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 6.329458992247544e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 69.24038499747009,
+      "AQ_MAPE_percent": 3.8792850784674884,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__lower_1sigma__all_small_at_reported_max__B4_omega4",
+      "parameter": 6.319995411782396e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 69.1130924515849,
+      "AQ_MAPE_percent": 3.873100943418599,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__lower_1sigma__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 6.269013660635904e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 68.40180721231478,
+      "AQ_MAPE_percent": 3.8239087575940154,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__lower_1sigma__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 5.954421691092361e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 72.44948299691988,
+      "AQ_MAPE_percent": 3.789763850316837,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__lower_1sigma__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 4.1329424357203533e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 75.04294133452028,
+      "AQ_MAPE_percent": 3.8691094325285995,
+      "background_model": "B1_constant",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 173381213837.1579,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 77.00302463616012,
+      "AQ_MAPE_percent": 3.979257236935333,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 1.9600833016398411,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B4_omega4",
+      "parameter": 2.5999908857051245e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 69.25403743742434,
+      "AQ_MAPE_percent": 3.879938695160915,
+      "background_model": "B4_omega4",
+      "case_id": "central__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__central__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 6.329458992247544e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 69.2306194895548,
+      "AQ_MAPE_percent": 3.878815127129045,
+      "background_model": "B4_omega4",
+      "case_id": "central__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__central__all_small_at_reported_max__B4_omega4",
+      "parameter": 6.31319484752197e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 69.01730455226495,
+      "AQ_MAPE_percent": 3.868196365701245,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__central__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 6.22590592992559e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 68.13710995168965,
+      "AQ_MAPE_percent": 3.7858423859263204,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__central__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 5.707746946572281e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 75.10731368160789,
+      "AQ_MAPE_percent": 3.869578518244209,
+      "background_model": "B1_constant",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__central__single_APT_37to6_prolate_AR2__B1_constant",
+      "parameter": 176862416038.01712,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 75.8099044217051,
+      "AQ_MAPE_percent": 3.9307915094216677,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.7025907400972073,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__central__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 3.425535309164034e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 74.9425465272926,
+      "AQ_MAPE_percent": 3.8679274198945977,
+      "background_model": "B1_constant",
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__central__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 164549519509.63873,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 69.25403743742434,
+      "AQ_MAPE_percent": 3.879938695160915,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__upper_1sigma__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 6.329458992247544e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 69.22089675992272,
+      "AQ_MAPE_percent": 3.8783452014070234,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__upper_1sigma__all_small_at_reported_max__B4_omega4",
+      "parameter": 6.306397796453742e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 68.92608369901917,
+      "AQ_MAPE_percent": 3.863302303154035,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__upper_1sigma__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 6.183093729330273e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 68.09620228267596,
+      "AQ_MAPE_percent": 3.749675944369714,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__upper_1sigma__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 5.478311471708953e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 75.07654014584261,
+      "AQ_MAPE_percent": 3.869098986878526,
+      "background_model": "B1_constant",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__upper_1sigma__single_APT_37to6_prolate_AR2__B1_constant",
+      "parameter": 173176318066.6826,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 74.84019225851985,
+      "AQ_MAPE_percent": 3.866713954064336,
+      "background_model": "B1_constant",
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[110]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_110__upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 155731172852.02414,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "AICc": 68.09791831462171,
+      "AQ_MAPE_percent": 3.824297821376204,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__lower_1sigma__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 7.833466654959864e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.0856941275672,
+      "AQ_MAPE_percent": 3.823487082446327,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__lower_1sigma__all_small_at_reported_max__B4_omega4",
+      "parameter": 7.821619099129648e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.00015990507164,
+      "AQ_MAPE_percent": 3.81604742036628,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__lower_1sigma__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 7.761052074542548e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 67.82826819072406,
+      "AQ_MAPE_percent": 3.7642817235542756,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__lower_1sigma__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 7.413525815755968e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 77.73168941702124,
+      "AQ_MAPE_percent": 3.990478619029551,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__lower_1sigma__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 5.406060131461734e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 80.00349025959838,
+      "AQ_MAPE_percent": 4.056313642435881,
+      "background_model": "B1_constant",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 218795398332.15594,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.09791831462171,
+      "AQ_MAPE_percent": 3.824297821376204,
+      "background_model": "B4_omega4",
+      "case_id": "central__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__central__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 7.833466654959864e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.07696359822289,
+      "AQ_MAPE_percent": 3.8229040339818665,
+      "background_model": "B4_omega4",
+      "case_id": "central__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__central__all_small_at_reported_max__B4_omega4",
+      "parameter": 7.813105864480683e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 67.93775768920635,
+      "AQ_MAPE_percent": 3.810127945944618,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__central__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 7.709448104887476e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.04035888070425,
+      "AQ_MAPE_percent": 3.7348657545735504,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__central__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 7.136470662956902e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 80.03942658968758,
+      "AQ_MAPE_percent": 4.057704815340483,
+      "background_model": "B1_constant",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__central__single_APT_37to6_prolate_AR2__B1_constant",
+      "parameter": 221926345406.8746,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 79.98466874893649,
+      "AQ_MAPE_percent": 4.0556349091624355,
+      "background_model": "B1_constant",
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__central__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 210735127224.01123,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.09791831462171,
+      "AQ_MAPE_percent": 3.824297821376204,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__upper_1sigma__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 7.833466654959864e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.06828260385302,
+      "AQ_MAPE_percent": 3.822320911922098,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__upper_1sigma__all_small_at_reported_max__B4_omega4",
+      "parameter": 7.80459741783932e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 67.8818301297486,
+      "AQ_MAPE_percent": 3.8042211547696394,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__upper_1sigma__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 7.658229365833916e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 68.51443780329343,
+      "AQ_MAPE_percent": 3.751379245127753,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__upper_1sigma__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 6.878061211578815e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 80.04368734645975,
+      "AQ_MAPE_percent": 4.057898248270164,
+      "background_model": "B1_constant",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__upper_1sigma__single_APT_37to6_prolate_AR2__B1_constant",
+      "parameter": 218545847697.69238,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 79.96556665102399,
+      "AQ_MAPE_percent": 4.054946831272508,
+      "background_model": "B1_constant",
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "[111]",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_111__upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 202679040167.7465,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "AICc": 70.1292931801196,
+      "AQ_MAPE_percent": 3.9145699582053335,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__lower_1sigma__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 6.311095260251676e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 70.10632683815079,
+      "AQ_MAPE_percent": 3.9137133331978657,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__lower_1sigma__all_small_at_reported_max__B4_omega4",
+      "parameter": 6.30115857092216e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 69.97139128857448,
+      "AQ_MAPE_percent": 3.908510096467109,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__lower_1sigma__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 6.254507519381948e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 69.1608389425358,
+      "AQ_MAPE_percent": 3.870277339589224,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__lower_1sigma__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 5.969781222991132e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 69.56289110614395,
+      "AQ_MAPE_percent": 3.769278859068872,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__lower_1sigma__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 4.234310448934048e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.58227406014905,
+      "AQ_MAPE_percent": 3.8539092455490023,
+      "background_model": "B1_constant",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 1.1729035484160448,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 171221268196.82162,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 71.409370511733,
+      "AQ_MAPE_percent": 3.778400492848958,
+      "background_model": "B4_omega4",
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B4_omega4",
+      "parameter": 2.7083418197137857e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 70.1292931801196,
+      "AQ_MAPE_percent": 3.9145699582053335,
+      "background_model": "B4_omega4",
+      "case_id": "central__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 6.311095260251676e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 70.0899275407708,
+      "AQ_MAPE_percent": 3.9130977764579424,
+      "background_model": "B4_omega4",
+      "case_id": "central__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__all_small_at_reported_max__B4_omega4",
+      "parameter": 6.294020491203399e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 69.86353292507037,
+      "AQ_MAPE_percent": 3.904166528789349,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 6.214141034496194e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 68.73624053356582,
+      "AQ_MAPE_percent": 3.8402780593747465,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 5.743490482978755e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.64734669946668,
+      "AQ_MAPE_percent": 3.8546346885017466,
+      "background_model": "B1_constant",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 1.4401104842492174,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__single_APT_37to6_prolate_AR2__B1_constant",
+      "parameter": 174703728833.16763,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 71.20723621521746,
+      "AQ_MAPE_percent": 3.781553571863437,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 3.545051068632793e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.45541344139228,
+      "AQ_MAPE_percent": 3.8521264931591186,
+      "background_model": "B1_constant",
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.22682225197040395,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 162436377999.80963,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.22859118942188,
+      "AQ_MAPE_percent": 3.7878712203052536,
+      "background_model": "B4_omega4",
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__central__single_APT_37to6_large_Lover2_sphere_bound__B4_omega4",
+      "parameter": 2.1133914254733336e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 70.1292931801196,
+      "AQ_MAPE_percent": 3.9145699582053335,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__zero_particle_scattering_limit",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__zero_particle_scattering_limit__B4_omega4",
+      "parameter": 6.311095260251676e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 70.07362374414599,
+      "AQ_MAPE_percent": 3.912482552839547,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__all_small_at_reported_max",
+      "case_source_status": "SOURCE_LITERAL_BOUND",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__all_small_at_reported_max__B4_omega4",
+      "parameter": 6.286888153191253e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 69.76032490883607,
+      "AQ_MAPE_percent": 3.8998348168823616,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR10",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__single_APT_37to6_prolate_AR10__B4_omega4",
+      "parameter": 6.174042651310889e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 68.4904246748779,
+      "AQ_MAPE_percent": 3.8118325253454115,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR5",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__single_APT_37to6_prolate_AR5__B4_omega4",
+      "parameter": 5.531683857517389e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.6000490525169,
+      "AQ_MAPE_percent": 3.853913425435196,
+      "background_model": "B1_constant",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.25581448477483093,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__single_APT_37to6_prolate_AR2__B1_constant",
+      "parameter": 171038279906.1578,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.34423456774206,
+      "AQ_MAPE_percent": 3.7873071340470355,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__single_APT_37to6_prolate_AR2__B4_omega4",
+      "parameter": 3.0847654060397e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.32977928181681,
+      "AQ_MAPE_percent": 3.8503154683759186,
+      "background_model": "B1_constant",
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.0,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B1_constant",
+      "parameter": 153682141801.02228,
+      "parameter_unit": "s^-1",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    },
+    {
+      "AICc": 72.56899822052713,
+      "AQ_MAPE_percent": 3.7943003572256906,
+      "background_model": "B4_omega4",
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "case_source_status": "SINGLE_APT_COUNT_FRACTION_DIAGNOSTIC",
+      "delta_AICc_within_host_case": 0.23921893871032296,
+      "host_direction": "angular_mean",
+      "host_family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "host_status": "PROVISIONAL_HOST_ENVELOPE",
+      "member_id": "H-P2_PBTE_303K_ANGULAR_MEAN__upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound__B4_omega4",
+      "parameter": 1.744643708402716e-41,
+      "parameter_unit": "s^3",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    }
+  ],
+  "schema": "V3_AQ_BACKGROUND_ENVELOPE_V1",
+  "selection_data": "AQ measured-total seven-point curve only",
+  "status": "PASS_AQ_ONLY_BACKGROUND_SELECTION_WITH_PROVISIONAL_HOST_MEMBERS"
+}

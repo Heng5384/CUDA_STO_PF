@@ -1,0 +1,11 @@
+matrix_mode,descriptor_model,observations,MAPE_fraction_vs_full_psd,max_relative_error_vs_full_psd,RMSE_W_mK_vs_full_psd
+fixed_6h_matrix,full_psd,42,0,0,0
+fixed_6h_matrix,Nv_plus_mean_R_monodisperse,42,0.003540568530945812,0.008359983479464818,0.007608456805065142
+fixed_6h_matrix,Sv_geometric_limit,42,0.04264423937446863,0.08793740665328337,0.08162657414244248
+fixed_6h_matrix,M6_rayleigh_limit,42,0.7681148069492433,0.9202150001760069,1.349909226227596
+fixed_6h_matrix,Sv_plus_M6_moment_reconstruction,42,0.001087923290290631,0.002281361086555717,0.002228416295692548
+pf_time_varying_matrix,full_psd,42,0,0,0
+pf_time_varying_matrix,Nv_plus_mean_R_monodisperse,42,0.003552964148287438,0.00841770156680934,0.007599574460663531
+pf_time_varying_matrix,Sv_geometric_limit,42,0.04278980101229413,0.08793740665328337,0.08162032148034336
+pf_time_varying_matrix,M6_rayleigh_limit,42,0.7673907623219639,0.9201994706653733,1.34379317144146
+pf_time_varying_matrix,Sv_plus_M6_moment_reconstruction,42,0.001091879963125124,0.002299211672323205,0.002227144685542816

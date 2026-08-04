@@ -1,0 +1,44 @@
+{
+  "schema": "PF_FULL_PSD_TRANSPORT_AUTHORITY_SELECTION_V1",
+  "replicates": [
+    {
+      "replicate": "A",
+      "candidates": [
+        {
+          "candidate_id": "PENDING_A_COMPLETE_PASS_AUTHORITY",
+          "selected": false,
+          "authority_status": "PENDING",
+          "complete_6h48h": false,
+          "transport_output_dir": "PENDING",
+          "transport_manifest_sha256": "PENDING"
+        }
+      ]
+    },
+    {
+      "replicate": "B",
+      "candidates": [
+        {
+          "candidate_id": "PENDING_B_COMPLETE_PASS_AUTHORITY",
+          "selected": false,
+          "authority_status": "PENDING",
+          "complete_6h48h": false,
+          "transport_output_dir": "PENDING",
+          "transport_manifest_sha256": "PENDING"
+        }
+      ]
+    },
+    {
+      "replicate": "C",
+      "candidates": [
+        {
+          "candidate_id": "PENDING_C_COMPLETE_PASS_AUTHORITY",
+          "selected": false,
+          "authority_status": "PENDING",
+          "complete_6h48h": false,
+          "transport_output_dir": "PENDING",
+          "transport_manifest_sha256": "PENDING"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "outputs": {
+    "experimental_identity_audit.md": "fb2e70e18bc94eb1c6aff739d5be4fc1c99c236af968b285b966d9f32a86b1af",
+    "sheskin_digitization_provenance.json": "b40850b5a4de449b48a4b185ee585211d78ba7ccdefd41320d8dc00ff867b61a",
+    "sheskin_digitization_provenance.md": "d715003c49bde58881c28c52c06a2e21d6a95156a7e64764e5bc45a9a7146601",
+    "sheskin_experimental_kappa.csv": "c4c395983bd999a237d4195dafb3d110b975fd2600651011b67169a70accfe51",
+    "sheskin_figure5c_calibration.csv": "bf2d963200559e8b30e5785365ef285ba880943f879fd67622079d45ddbde93f",
+    "sheskin_figure5c_digitization_overlay.png": "225268bc562b66a7cb56abcb0db0bf9e350e422edf3cc10a620e32a1e0052e82",
+    "sheskin_figure5c_digitized_pixels.csv": "04f681e8b272fcd71305f1164837e8c0e0c20379e00fe2cc83edb5ffa0c62934",
+    "sheskin_figure5c_source_crop.png": "537d238ab5cb9a580491d9855d1616e4c91cc3452a950734b0a8f1b99477eaa8",
+    "sheskin_microstructure_source_table.csv": "f339052c50429e9d3d7961631bcb20921137e432917885efdda8666df470c1cb"
+  },
+  "schema": "SHESKIN_EXPERIMENTAL_DATA_EXTRACTION_V1"
+}

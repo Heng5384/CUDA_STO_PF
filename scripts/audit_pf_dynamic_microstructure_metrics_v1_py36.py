@@ -44,7 +44,7 @@ def read_vtk_ascii(path, n):
 
 
 def l_param(t):
-    return 41212.9 - 18.05 * t
+    return 41504.29119633958 - 18.469276826409214 * t
 
 
 def ghser_pb(t):

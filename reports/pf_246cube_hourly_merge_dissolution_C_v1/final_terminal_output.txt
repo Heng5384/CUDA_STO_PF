@@ -1,0 +1,11 @@
+hourly_lineage_status=PASS_246CUBE_HOURLY_MERGE_DISSOLUTION_AUDIT_V1
+snapshot_count=45
+dissolution_interval_count=91
+dissolved_initial_identity_count=91
+merge_group_count=2
+threshold_contact_group_count=0
+persistent_strong_core_merge_group_count=2
+unresolved_split_count=0
+new_component_count=0
+exact_event_time_claimed=false
+final_status=PASS_246CUBE_HOURLY_MERGE_DISSOLUTION_AUDIT_V1

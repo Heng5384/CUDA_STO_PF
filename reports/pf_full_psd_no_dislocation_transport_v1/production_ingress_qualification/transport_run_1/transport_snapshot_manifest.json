@@ -1,0 +1,141 @@
+{
+  "outputs": {
+    "descriptor_error_summary.csv": "4377a50eccb7ca9425f14de18fc0c6f6f9fe43a6ac324da841255da59bf55468",
+    "descriptor_predictions.csv": "f17fc9a7b065a079e91cde511778df949bd4d16ac80366ffe638d45c85bab880",
+    "full_psd_particles.csv": "1ba82aae4be39f8e1644020e8aceb90245d1bdefe06c0ec6743c2f38a113f30c",
+    "kappa_time_temperature.csv": "abfdbd7305343c9620c6c1120824ce58fba8ffba687c5a08368a2247d67c824f",
+    "transport_snapshots.csv": "cd45bd56ba8f85444e484443e51942b827278eeb64395355c6abe05094a1b813"
+  },
+  "provenance": {
+    "analysis_binary_sha256": "26ab5b26651b8835d6eab969499a63279abb97dda37e702438cfc22e24999985",
+    "campaign_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/production_ingress_qualification/synthetic_production_fixture/campaign_manifest.json",
+    "campaign_manifest_sha256": "95568a50c4bd0fa1e083ec683c30570406c39c243f3647fd2f94e41d85228939",
+    "fixture_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/production_ingress_qualification/synthetic_production_fixture/fixture_manifest.json",
+    "fixture_manifest_sha256": "b79c4117aae1cec10d12ed1ae0e223632b3ffc0b27eeebe34d7f213553252c7d",
+    "identity_use_contract": "overall registered snapshot PSD under exact merge-aware production PASS",
+    "input_hash_ledger": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/production_ingress_qualification/synthetic_production_fixture/input_hashes.sha256",
+    "input_hash_ledger_sha256": "83366b76abd243cefeb303e73c3f9996b52a79e2bce0890bf319c1b48a799897",
+    "microstructure_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/production_ingress_qualification/synthetic_production_fixture/production_audit/registered_observables.csv",
+    "microstructure_csv_sha256": "ed7fa41c17907eef80c18765293446c3afaadad8e2ed4788547e80ad09ecfa70",
+    "particle_psd_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/production_ingress_qualification/synthetic_production_fixture/production_audit/registered_particle_psd.csv",
+    "particle_psd_csv_sha256": "68c386395c1f5b2bcd3c1701ad4e80c2f3d140c2b2ae6640af4e0be4dadc3b75",
+    "production_adapter_script": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/build_pf_246cube_no_dislocation_transport_authority_v1.py",
+    "production_adapter_script_sha256": "acd5fb5a112b68b00dcf85e37da39ea124820b443edf3d9314d1b4c129ad2cec",
+    "production_audit_gates": {
+      "checkpoint_provenance": true,
+      "checkpoint_sequence": true,
+      "finite_and_bounds": true,
+      "fixture_schema": true,
+      "mass_and_zero_mode": true,
+      "merge_aware_particle_lineage": true,
+      "original_6h_fixture": true,
+      "prohibited_paths": true,
+      "registered_endpoint": true,
+      "stderr_empty": true
+    },
+    "production_audit_status": "PASS_246CUBE_6H48H_CONDITIONAL_PRODUCTION_V1",
+    "production_checkpoint_hashes": {
+      "108989": "02c51537c2fd298660c397abc117d047304e691dc51454ba95d60dce3541271d",
+      "152585": "ff09345f953f0818945b32670beb7011b0028d3ac4a8ae3fac3eba43785c073a",
+      "21798": "966f61478bb150403626010ed7f821b980a5532b5ad169be00ed4ba684bab926",
+      "43596": "79142b8f9594e4d0062071d4494c8cd961f446dff559160448c82e7290ed3e0f",
+      "65393": "2abc0e14d4d330c8ad331a275a7bc8049a85539e896668eaae17076e5819ab5a"
+    },
+    "registered_snapshot_timing": [
+      {
+        "elapsed_physical_time_s": 0.0,
+        "registered_age_h": 6.0,
+        "source_experimental_age_h": 6.0,
+        "step": 0
+      },
+      {
+        "elapsed_physical_time_s": 21600.0,
+        "registered_age_h": 12.0,
+        "source_experimental_age_h": 12.0,
+        "step": 21798
+      },
+      {
+        "elapsed_physical_time_s": 43200.0,
+        "registered_age_h": 18.0,
+        "source_experimental_age_h": 18.0,
+        "step": 43596
+      },
+      {
+        "elapsed_physical_time_s": 64800.0,
+        "registered_age_h": 24.0,
+        "source_experimental_age_h": 24.0,
+        "step": 65393
+      },
+      {
+        "elapsed_physical_time_s": 108000.0,
+        "registered_age_h": 36.0,
+        "source_experimental_age_h": 36.0,
+        "step": 108989
+      },
+      {
+        "elapsed_physical_time_s": 151200.0,
+        "registered_age_h": 48.0,
+        "source_experimental_age_h": 48.0,
+        "step": 152585
+      }
+    ],
+    "replicate": "A",
+    "source_binary_sha256": "4db49531137ee83ded300da789934ee984f803053a0058313e454c3f41f5bb09",
+    "source_commit": "dddddddddddddddddddddddddddddddddddddddd",
+    "source_parameter_sha256": "e6de8cb4bea6487a2da957fbac3ccd4ed574ca4f8a2dfdb3fff464c26a3c19ed",
+    "supplemental_provenance": [],
+    "trajectory_class": "QUALIFICATION_EXPERIMENT_MATRIX_ANCHORED",
+    "transport_interface_script": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/pf_full_psd_no_dislocation_transport_v1.py",
+    "transport_interface_script_sha256": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66",
+    "transport_parameter_contract": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json",
+    "transport_parameter_contract_sha256": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0",
+    "upstream_analysis_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/production_ingress_qualification/synthetic_production_fixture/analysis_binary.sha256",
+    "upstream_analysis_manifest_sha256": "ee9585d7c493e206cc47a5df371006ed7e132b52fff73d2de35899d401dc6b07",
+    "upstream_audit_json": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/production_ingress_qualification/synthetic_production_fixture/production_audit/audit.json",
+    "upstream_audit_json_sha256": "035eabdec70d87cd450f73b3d215c6b86c3004db3ce4f2e7f95e94bc4e28e20b",
+    "yu_public_parameter_config": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/yu2024_transport_v1/yu_48h_parameters.json",
+    "yu_public_parameter_config_sha256": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f"
+  },
+  "schema": "PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_V1",
+  "scientific_claim": "conditional resolved-PF-PSD no-dislocation lattice transport; not absolute experimental kappa reproduction",
+  "snapshot_contract": {
+    "box_volume_nm3": 14886936.0,
+    "count": 6,
+    "descriptor_closure_max_relative": {
+      "M6": 8.790736184043864e-16,
+      "Nv": 1.9512604753920003e-16,
+      "Sv": 3.237532383480613e-16,
+      "mean_R": 2.8138546933549715e-16
+    },
+    "first_age_h": 6.0,
+    "full_psd_particle_rows": 164,
+    "last_age_h": 48.0
+  },
+  "status": "PASS_PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_INTERFACE_V1",
+  "transport_contract": {
+    "A_N": 1.5,
+    "S11_rate": 0.0,
+    "S13_rate": 0.0,
+    "descriptor_models": [
+      "full_psd",
+      "Nv_plus_mean_R_monodisperse",
+      "Sv_geometric_limit",
+      "M6_rayleigh_limit",
+      "Sv_plus_M6_moment_reconstruction"
+    ],
+    "dislocation_mode": "DISLOCATION_OFF",
+    "fixed_matrix_xAg": 0.006200715773943168,
+    "full_psd_equation": "tau_Pre^-1 = v/V_box * sum_i (sigma_S^-1 + sigma_l^-1)^-1",
+    "matrix_coupling": "PF far-field xAg changes point-defect Gamma only; lattice, grain, sound, Debye and all other material parameters remain frozen",
+    "matrix_modes": [
+      "fixed_6h_matrix",
+      "pf_time_varying_matrix"
+    ],
+    "temperature_grid_K": [
+      300.0,
+      450.0,
+      600.0
+    ],
+    "yu_refit_scale_used": false
+  }
+}

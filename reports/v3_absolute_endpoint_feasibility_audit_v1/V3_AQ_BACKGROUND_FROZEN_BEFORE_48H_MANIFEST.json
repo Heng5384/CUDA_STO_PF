@@ -1,0 +1,93 @@
+{
+  "A_N": 1.5,
+  "PF_6h_48h_authority_loaded": false,
+  "V2_A2_copied": false,
+  "candidate_models": [
+    "B0_none",
+    "B1_constant",
+    "B2_omega2",
+    "B4_omega4",
+    "BU_host_scale"
+  ],
+  "experimental_48h_loaded": false,
+  "experimental_6h_loaded": false,
+  "host_members": [
+    {
+      "direction_label": "scalar",
+      "family": "H-P0",
+      "host_id": "H-P0_YU_SCALAR",
+      "qualification": "FROZEN_YU_HOST_WITHOUT_V2_BACKGROUND",
+      "status": "AVAILABLE_CONTROL",
+      "velocities_m_s": [
+        1770.0,
+        1770.0,
+        1770.0
+      ]
+    },
+    {
+      "direction_label": "[100]",
+      "family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_100",
+      "qualification": "303P2K_TENSOR_EXTRAPOLATED_OVER_TRANSPORT_RANGE",
+      "status": "PROVISIONAL_HOST_ENVELOPE",
+      "velocities_m_s": [
+        1266.1929796897386,
+        1266.1929796897386,
+        3588.4887599907215
+      ]
+    },
+    {
+      "direction_label": "[110]",
+      "family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_110",
+      "qualification": "303P2K_TENSOR_EXTRAPOLATED_OVER_TRANSPORT_RANGE",
+      "status": "PROVISIONAL_HOST_ENVELOPE",
+      "velocities_m_s": [
+        1266.1929796897386,
+        2446.1271661235087,
+        2914.95422426286
+      ]
+    },
+    {
+      "direction_label": "[111]",
+      "family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_111",
+      "qualification": "303P2K_TENSOR_EXTRAPOLATED_OVER_TRANSPORT_RANGE",
+      "status": "PROVISIONAL_HOST_ENVELOPE",
+      "velocities_m_s": [
+        2126.838098172217,
+        2126.8380981722175,
+        2652.708109185268
+      ]
+    },
+    {
+      "direction_label": "angular_mean",
+      "family": "H-P2",
+      "host_id": "H-P2_PBTE_303K_ANGULAR_MEAN",
+      "qualification": "303P2K_TENSOR_DIRECTION_AVERAGE_EXTRAPOLATED_OVER_TRANSPORT_RANGE",
+      "status": "PROVISIONAL_HOST_ENVELOPE",
+      "velocities_m_s": [
+        1478.5134464914709,
+        1969.7777045797184,
+        3131.5709393794345
+      ]
+    }
+  ],
+  "input_sha256": {
+    "AQ_case_generator": "4a55e0bd5950b9a9b6ba160125092b86eb9f58b027e0dc4c4a86f7f11e747e72",
+    "V3_PbTe_material_contract": "fa7892d4495818f3a330e0c8c5a90abacc5ea0a586c863fd7109fef3d0f97e6a",
+    "Yu_parameter_contract": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f",
+    "experimental_AQ_source_csv": "c4c395983bd999a237d4195dafb3d110b975fd2600651011b67169a70accfe51"
+  },
+  "negative_scattering_allowed": false,
+  "output_sha256": {
+    "v3_aq_background_candidate_fits.csv": "32cc0c4ace3059c642fb72cc276bd48cadcb6bbea597dce3c93083d57ccebeda",
+    "v3_aq_background_cross_validation.csv": "f7112455f5d398a2b4131deab8c5dbb8f6fff734900942a849a9f66fca0a11b2",
+    "v3_aq_background_envelope.json": "63c4d42fe7b0f8943bb76ed0497bade1af2df133f02d2ac4839768bbb062b1cd",
+    "v3_aq_background_selection.md": "fe4f9e5e50976729621f53fbbea5ca90663cdfa93d8c38315351d236c0a1e342"
+  },
+  "retained_member_count": 103,
+  "schema": "V3_AQ_BACKGROUND_FROZEN_BEFORE_48H_MANIFEST_V1",
+  "status": "PASS_V3_AQ_BACKGROUND_FROZEN_BEFORE_48H",
+  "yu_dislocation_scale_used": false
+}

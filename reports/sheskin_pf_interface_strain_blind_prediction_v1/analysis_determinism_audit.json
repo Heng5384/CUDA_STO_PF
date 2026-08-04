@@ -1,0 +1,36 @@
+{
+  "schema": "SHESKIN_PF_INTERFACE_STRAIN_ANALYSIS_DETERMINISM_AUDIT_V1",
+  "status": "PASS_TWO_INDEPENDENT_COMPLETE_ANALYSES_BYTE_IDENTICAL",
+  "historical_replay_manifest": {
+    "comparison": "recursive file comparison of run1 and run2",
+    "ledger_sha256": "3b108ce309e7428b0f297963d4658682da6f7f3ea47f57dded48fd70c37dbde1",
+    "status": "BYTE_IDENTICAL"
+  },
+  "periodic_interface_strain_descriptors": {
+    "comparison": "recursive file comparison of run1 and run2",
+    "ledger_sha256": "9586330966144aab7c87b4d2fff4d443e39bb586daeccd3ed844d07f02463aba",
+    "status": "BYTE_IDENTICAL"
+  },
+  "AQ_6h_calibration_and_freeze": {
+    "comparison": "recursive file comparison of final run1 and run2",
+    "ledger_sha256": "28e5e4c56842ae6b3bf184bb33a56dbd4f90fd2b292b5becd885874276f48c58",
+    "status": "BYTE_IDENTICAL"
+  },
+  "frozen_48h_blind_evaluation": {
+    "comparison": "recursive file comparison of final run1 and run2",
+    "ledger_sha256": "3064c91a7229d873b62feb24d603850b5134614faaafd43a0ea6b73ddaf5ed98",
+    "status": "BYTE_IDENTICAL"
+  },
+  "execution_controls": {
+    "PYTHONHASHSEED": 0,
+    "OMP_NUM_THREADS": 1,
+    "OPENBLAS_NUM_THREADS": 1,
+    "MKL_NUM_THREADS": 1
+  },
+  "status_logic_correction": {
+    "reason": "The first blind-evaluation label admitted a trend-only semiquantitative PASS despite failure of the preregistered 10-30 percent magnitude gate.",
+    "scientific_content_before_after": "All calibration tables, coefficients, six-hour predictions, and plots were byte-identical; only the analysis-script hash and fail-closed terminal-label logic changed.",
+    "preserved_evidence_directory": "pre_adjudication_status_logic_20260802",
+    "parameters_or_models_changed_after_48h": false
+  }
+}

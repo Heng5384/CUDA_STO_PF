@@ -1,0 +1,60 @@
+{
+  "outputs": {
+    "descriptor_error_summary.csv": "18bd747b19de53e36d90d865d5520b5c12df7a1cd7996a459232da0ebbf1fa71",
+    "descriptor_predictions.csv": "67715f391f85df6f06174e834554f5e512e94c9a1687c74b37cd872f07f18d19",
+    "full_psd_particles.csv": "d752f89b56d04cdcd95899699cdd5c6a92c75562accbcebb585ecf1323f216de",
+    "kappa_time_temperature.csv": "f0ffec0b85800ccd09b6fd24b97e206ed45e35b37602a791a2af336ec03b6f70",
+    "transport_snapshots.csv": "0591b17aaad977b5805cb5132d9b944829a8d6577eb838b06771af8ace2db7c0"
+  },
+  "provenance": {
+    "fixture_manifest_sha256": "b495715e4152d12d5aa3a35ca604c22fc2542c8404ab0ac1c821fd1d1ef8688b",
+    "particle_psd_csv_sha256": "ecf46e5bd6ca4b55a0ad6b27331c630f4c1b95a7b46c13eec4346139a1d72243",
+    "replicate": "B",
+    "source_binary_sha256": "82bb2be376d12344a67c189316326cca9ff3b60b9d5ef5ae88d64291ad285c94",
+    "source_commit": "f4336e9bb514752114bd8692b2097835ba5706103669b045f76c0ba5d61de320",
+    "source_parameter_sha256": "a324cf6da1239aa2e2300ff5c4e2ebe078c4af5f7cd7a277d1245760732a0df8",
+    "trajectory_class": "QUALIFICATION_SYNTHETIC_EXPERIMENT_MATRIX_ANCHORED"
+  },
+  "schema": "PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_V1",
+  "scientific_claim": "conditional resolved-PF-PSD no-dislocation lattice transport; not absolute experimental kappa reproduction",
+  "snapshot_contract": {
+    "box_volume_nm3": 14886936.0,
+    "count": 6,
+    "descriptor_closure_max_relative": {
+      "M6": 8.490224733760293e-16,
+      "Nv": 2.1680671948800003e-16,
+      "Sv": 4.613314712266281e-16,
+      "mean_R": 3.5385739530033416e-16
+    },
+    "first_age_h": 6.0,
+    "full_psd_particle_rows": 164,
+    "last_age_h": 48.0
+  },
+  "status": "PASS_PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_INTERFACE_V1",
+  "transport_contract": {
+    "A_N": 1.5,
+    "S11_rate": 0.0,
+    "S13_rate": 0.0,
+    "descriptor_models": [
+      "full_psd",
+      "Nv_plus_mean_R_monodisperse",
+      "Sv_geometric_limit",
+      "M6_rayleigh_limit",
+      "Sv_plus_M6_moment_reconstruction"
+    ],
+    "dislocation_mode": "DISLOCATION_OFF",
+    "fixed_matrix_xAg": 0.006200715773943168,
+    "full_psd_equation": "tau_Pre^-1 = v/V_box * sum_i (sigma_S^-1 + sigma_l^-1)^-1",
+    "matrix_coupling": "PF far-field xAg changes point-defect Gamma only; lattice, grain, sound, Debye and all other material parameters remain frozen",
+    "matrix_modes": [
+      "fixed_6h_matrix",
+      "pf_time_varying_matrix"
+    ],
+    "temperature_grid_K": [
+      300.0,
+      450.0,
+      600.0
+    ],
+    "yu_refit_scale_used": false
+  }
+}

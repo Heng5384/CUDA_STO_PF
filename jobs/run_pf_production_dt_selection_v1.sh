@@ -13,7 +13,9 @@ FIXTURE_ROOT="${FIXTURE_ROOT:?FIXTURE_ROOT is required}"
 RUN_ROOT="${RUN_ROOT:?RUN_ROOT is required}"
 DYNAMIC_OVERRIDE_FILE="${DYNAMIC_OVERRIDE_FILE:-${SOURCE_ROOT}/data/qualification/pf_elastic_target_profile_v1/physical_override_T380_dx1nm_lambda4nm_dynamic_dt0p02.json}"
 INITIAL_STATE_CLASS="MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1"
-LIBRARY_SHA256="58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
+LIBRARY_SHA256="${LIBRARY_SHA256:-58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe}"
+EXPECTED_FIXTURE_SCHEMA="${EXPECTED_FIXTURE_SCHEMA:-PF_MASS_CONSERVING_LIBRARY_HANDOFF_MANIFEST_V1}"
+EXPECTED_OPTIMIZER_INVOKED="${EXPECTED_OPTIMIZER_INVOKED:-false}"
 
 [[ ! -e "${RUN_ROOT}" ]] || {
   echo "[fatal] refusing to overwrite RUN_ROOT: ${RUN_ROOT}" >&2
@@ -42,15 +44,19 @@ assert g["Nx"]==g["Ny"]==g["Nz"]
 print(g["Nx"])
 PY
 )"
-python3 - "${FIXTURE_ROOT}/fixture_manifest.json" "${RUN_ROOT}/provenance/fixture_preflight.json" <<'PY'
+python3 - "${FIXTURE_ROOT}/fixture_manifest.json" \
+  "${RUN_ROOT}/provenance/fixture_preflight.json" "${LIBRARY_SHA256}" \
+  "${EXPECTED_FIXTURE_SCHEMA}" "${EXPECTED_OPTIMIZER_INVOKED}" <<'PY'
 import hashlib,json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); m=json.loads(p.read_text())
-if m.get("schema")!="PF_MASS_CONSERVING_LIBRARY_HANDOFF_MANIFEST_V1": raise SystemExit("wrong fixture schema")
+if m.get("schema")!=sys.argv[4]: raise SystemExit("wrong fixture schema")
 if m.get("initial_state_class")!="MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1": raise SystemExit("wrong initial-state class")
 if m.get("validation_only") is not True: raise SystemExit("fixture is not validation-only")
-if m.get("profile_library_manifest_sha256")!="58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe": raise SystemExit("wrong profile library")
+if m.get("profile_library_manifest_sha256")!=sys.argv[3]: raise SystemExit("wrong profile library")
 if m.get("full_field_xB_dt_MAE_blocking") is not False: raise SystemExit("wrong dt policy")
 if any(m["physical_contract"].get(k) for k in ("GP_enabled","GP_birth_enabled","GP_release_enabled","external_source_enabled","new_beta_nucleation_enabled")): raise SystemExit("forbidden path enabled")
+expected_optimizer = sys.argv[5].lower() == "true"
+if m.get("assembly_contract",{}).get("optimizer_invoked") is not expected_optimizer: raise SystemExit("unexpected optimizer provenance")
 pathlib.Path(sys.argv[2]).write_text(json.dumps({
  "fixture_manifest_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
  "initial_state_class":m["initial_state_class"],
@@ -173,6 +179,7 @@ CASE_ARGS=(
 
 python3 "${SOURCE_ROOT}/scripts/qualify_pf_production_dt_observables_v1.py" \
   --fixture-manifest "${FIXTURE_ROOT}/fixture_manifest.json" \
+  --fixture-schema "${EXPECTED_FIXTURE_SCHEMA}" \
   "${CASE_ARGS[@]}" --t-real-unit-s "${T_REAL_UNIT_S}" \
   --out "${RUN_ROOT}/preliminary" \
   >"${RUN_ROOT}/preliminary.stdout" 2>"${RUN_ROOT}/preliminary.stderr"
@@ -222,6 +229,7 @@ grep -q '^PF_ZERO_MODE_FINAL_AUDIT status=PASS ' \
 
 python3 "${SOURCE_ROOT}/scripts/qualify_pf_production_dt_observables_v1.py" \
   --fixture-manifest "${FIXTURE_ROOT}/fixture_manifest.json" \
+  --fixture-schema "${EXPECTED_FIXTURE_SCHEMA}" \
   "${CASE_ARGS[@]}" --t-real-unit-s "${T_REAL_UNIT_S}" \
   --restart-checkpoint "${RUN_ROOT}/restart_second_half/final.chk" \
   --out "${RUN_ROOT}/final_audit" \

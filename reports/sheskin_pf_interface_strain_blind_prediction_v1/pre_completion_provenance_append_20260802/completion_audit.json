@@ -1,0 +1,18 @@
+{
+  "absolute_experimental_lattice_reproduction_claimed": false,
+  "baseline_gate": "PASS",
+  "blind_evaluation_sha256": "8ca51fe7ba623896ed10ffafbcbc56dff166cd5efd8b336ce1fffcb945bdc023",
+  "descriptor_determinism": "PASS_TWO_INDEPENDENT_BYTE_IDENTICAL_RUNS",
+  "finalizer_script_sha256": "6c43050fcf89c820084720c5978c440c1650bcecea83f233df6cf6406310529a",
+  "frozen_manifest_sha256": "8e7dfa0259830ab73c81ef10410c3505b85a0cf81d7d3e27ab42c94562716234",
+  "mechanics_replay_gate": "PASS_CHECKPOINT_WARM_ONLY_ZERO_REJECTED",
+  "no_48h_refit": true,
+  "no_PF_production_modification": true,
+  "no_commit": true,
+  "no_push": true,
+  "required_output_count": 50,
+  "required_outputs_present": true,
+  "schema": "SHESKIN_PF_INTERFACE_STRAIN_BLIND_PREDICTION_COMPLETION_AUDIT_V1",
+  "status": "FAIL_RESOLVED_ONLY_AFTER_INTERFACE_AND_STRAIN_TEST",
+  "transport_determinism": "PASS_TWO_INDEPENDENT_BYTE_IDENTICAL_CALIBRATION_AND_BLIND_RUNS"
+}

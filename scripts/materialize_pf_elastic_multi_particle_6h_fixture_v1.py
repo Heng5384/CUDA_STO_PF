@@ -175,6 +175,8 @@ def check_field(manifest: Dict[str, Any], manifest_path: Path, name: str, shape:
 def verify_library(
     library_root: Path, expected_library_sha: str, selection_provenance: Optional[Path],
     expected_selection_sha: Optional[str],
+    expected_radii_nm: Optional[Sequence[float]] = None,
+    expected_native_shape: Optional[Tuple[int, int, int]] = None,
 ) -> Tuple[Path, Dict[str, Any], Dict[float, Tuple[Path, Dict[str, Any]]], Dict[str, Any]]:
     library_manifest_path, _profiles_root = native_library_paths(library_root)
     if sha256(library_manifest_path) != expected_library_sha:
@@ -182,11 +184,23 @@ def verify_library(
     library = load_json(library_manifest_path)
     if library.get("schema") != LIBRARY_SCHEMA:
         raise ValueError("wrong selected library schema")
-    if int(library.get("profile_count", -1)) != 8:
-        raise ValueError("selected library must contain all eight registered profiles")
+    frozen_v1_ladder = [8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5]
+    expected_ladder = sorted(
+        float(value)
+        for value in (
+            frozen_v1_ladder
+            if expected_radii_nm is None
+            else expected_radii_nm
+        )
+    )
+    if int(library.get("profile_count", -1)) != len(expected_ladder):
+        raise ValueError("selected library profile count differs from expected ladder")
     shape_data = library.get("grid", {})
     shape = (int(shape_data.get("Nx", 0)), int(shape_data.get("Ny", 0)), int(shape_data.get("Nz", 0)))
-    if shape != (96, 96, 96):
+    required_shape = (96, 96, 96) if expected_native_shape is None else tuple(int(value) for value in expected_native_shape)
+    if len(required_shape) != 3 or any(value <= 0 for value in required_shape):
+        raise ValueError("expected native shape must contain three positive dimensions")
+    if shape != required_shape:
         raise ValueError(f"unexpected selected library native shape {shape}")
     profiles: Dict[float, Tuple[Path, Dict[str, Any]]] = {}
     selected_profile_rows: List[Dict[str, Any]] = []
@@ -213,8 +227,8 @@ def verify_library(
             "profile_manifest_sha256": sha256(manifest_path),
             **{f"{name}_sha256": manifest["fields"][name]["sha256"] for name in manifest["fields"]},
         })
-    if sorted(profiles) != [8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5]:
-        raise ValueError("selected library radius ladder differs from the frozen V1 ladder")
+    if sorted(profiles) != expected_ladder:
+        raise ValueError("selected library radius ladder differs from expected ladder")
     selection: Dict[str, Any] = {}
     if selection_provenance is not None:
         if not selection_provenance.is_file():

@@ -1,0 +1,11 @@
+gate,status
+frozen_transport_contract,PASS
+production_schema_positive_path,PASS
+raw_descriptor_closure,PASS
+source_timing_preserved,PASS
+deterministic_transport_outputs,PASS
+non_experiment_matrix_class_fail_closed,PASS
+merge_aware_failure_fail_closed,PASS
+incomplete_checkpoint_chain_fail_closed,PASS
+incomplete_psd_fail_closed,PASS
+fixture_hash_mismatch_fail_closed,PASS

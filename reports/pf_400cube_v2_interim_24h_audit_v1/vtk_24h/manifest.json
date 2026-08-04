@@ -1,0 +1,32 @@
+{
+  "accepted_step": 65393,
+  "grid": [
+    400,
+    400,
+    400
+  ],
+  "interface_file": {
+    "level": 0.5,
+    "path": "pf400_phi0p5_interface_24h_step65393.vtp",
+    "periodic_contract": "N+1 wrapped endpoint lattice over exactly N cells",
+    "points": 345221,
+    "sha256": "834743e6e7f5f56d4934adce13940cd8fa36b303f90243e9a13ee0320cbdc642",
+    "size_bytes": 12889235,
+    "triangles": 685714
+  },
+  "nominal_age_h": 24,
+  "phi_dtype_export": "float32",
+  "source_checkpoint": "/home/zhiheng/tmp/pf_400cube_v2_interim_24h_audit_v1_20260802/inputs/checkpoints/step_65393.chk",
+  "source_checkpoint_sha256": "217f1b0130e136f70b02e154723752bff6987ec91e28c8abcebdf1821a244760",
+  "spacing_nm": [
+    1,
+    1,
+    1
+  ],
+  "status": "PASS_PF400_24H_VTK_EXPORT_V1",
+  "volume_file": {
+    "path": "pf400_phi_24h_step65393.vti",
+    "sha256": "e28938f35204f68886371133628c12fb677fef7e5073454a332a7ef39e57c460",
+    "size_bytes": 283125538
+  }
+}

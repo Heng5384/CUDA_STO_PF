@@ -1,0 +1,210 @@
+[pf-param-file] loaded 93 override(s) from /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/provenance/production_physics.params
+
+========== Run Configuration ==========
+  mode                     : dynamics
+  model_mode               : two_phase
+  init_mode                : standard
+  pf_param_file            : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/provenance/production_physics.params
+  grid                     : 32x32x32
+  dx / dy / dz (grid)      : 1.000000 / 1.000000 / 1.000000
+  cell_size_phys_nm        : 1.000000 / 1.000000 / 1.000000
+  system_size_phys_nm      : 32.000000 / 32.000000 / 32.000000
+  system_size_phys_m       : 3.200000e-08 / 3.200000e-08 / 3.200000e-08
+  t_real_unit_s            : 4.954630e+01
+  lambda_sm_nm             : 4.000000
+  lambda_sm/dx             : 4.000000
+  steps                    : 2
+  dt                       : 2.000000e-02
+  out_every                : 2
+  csv_out_every            : 1
+  elastic                  : 启用
+  external_strain(E0)      : xx=0.000000e+00 yy=0.000000e+00 zz=0.000000e+00 yz=0.000000e+00 xz=0.000000e+00 xy=0.000000e+00
+  diag_vtk                 : 禁用
+  diag_elastic_bulk        : 禁用
+  scheduled_nucleation_test : disabled
+  dynamics_mass_diagnostics : disabled (interval=1)
+  Y_rhs_previous_time_level : disabled
+[RUN PARAM] Nx Ny Nz = 32 32 32, dx_nm = 1.000000, interface_width_nm / lambda_sm = 4.000000, dt = 2.000000e-02, init_mode = standard, scheduled nucleation test = disabled
+
+========== Thermodynamics ==========
+  T_C                      : 380.000000
+  T_K                      : 653.150000
+  thermo_convex_extrapolation_enabled : 0
+  xB_eq                    : 4.66495182e-03
+  mu0_compound_hat         : -7.50528003e+00
+  mu_reference_scale       : 2.06685360e+04
+
+========== Dynamics Controls ==========
+  xB safety cap            : not applied in dynamics mode
+
+========== Interface-Width Consistency (Diagnostics) ==========
+  dx_internal              : 1
+  dx_phys_nm(inferred)     : 1.000000
+  unit_to_nm(internal->phys) : 1.000000e+00
+  ic_phi_iface_w(grids_halfwidth) : 2.000000
+  interface_width_grids(2*ic) : 4.000000
+  interface_width_nm(2*ic*dx_phys) : 4.000000
+  kappa_phi_loaded         : 2.00000000e+00
+  kappa_phi_expected_from_ic(0.5*(ic*dx)^2) : 2.00000000e+00
+  kappa_phi_rel_error      : 0.000e+00
+  seed_R_internal          : 10
+  seed_w_init_internal(ic*dx) : 2
+  seed_R_over_w            : 5
+  seed_phi_center_ideal(0.5*(1+tanh(R/w))) : 0.999955
+
+========== Output Layout ==========
+  output_root              : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030
+  output_pf_input          : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/pf_input.params
+  init_case_tag            : mechanics_warm_replay_v1
+  case_output_dir          : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/mechanics_warm_replay_v1
+  pf_zero_mode             : PF_CONSERVED_Y_ZERO_MODE_V1
+  pf_zero_mode_backend     : HOST_NEWTON_BISECTION_V1
+  pf_sm_explicit_context   : SM_EXPLICIT_CONTEXT_N_V1
+  pf_reaction_discretization : SM_TANGENT_N_V1
+  pf_initial_state_class   : LEGACY_UNSPECIFIED
+  pf_fixture_manifest_sha256 : LEGACY_UNSPECIFIED
+  pf_profile_library_manifest_sha256 : LEGACY_UNSPECIFIED
+  pf_zero_mode_tolerance_relative : 9.99999999999999980e-13
+  pf_zero_mode_max_iterations : 24
+  pf_zero_mode_parameter_fingerprint : 45365d9493aec769
+  pf_checkpoint_every      : 0
+  pf_restart_from          : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/accepted_step_1.chk
+  gp_paths_enabled         : false
+  case_pf_input            : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/mechanics_warm_replay_v1/pf_input.params
+
+[Unit Conversion Summary]
+  Reference scales:
+    w_ref (J/m^3)      = 5.04000000e+08
+    dx_ref (m)         = 1.00000000e-09
+    t0_diff (s)        = 4.95463048e+01
+    mu_reference_scale = 2.06685360e+04
+
+                       physical            code               kernel_used        ratio(kernel/expected)
+  W_phi              5.04000000e+08     1.00000000e+00     1.00000000e+00     1.00000000e+00    
+  kappa_phi          1.00800000e-09     2.00000000e+00     2.00000000e+00     1.00000000e+00    
+  L_phi              2.59208260e-10     6.47277697e+00     6.47277697e+00     1.00000000e+00    
+  W_eta              6.00000000e+08     1.19047619e+00     1.19047619e+00     1.00000000e+00    
+  kappa_eta          7.50000000e-11     1.48809524e-01     1.48809524e-01     1.00000000e+00    
+  L_eta              4.10626947e-11     1.02539041e+00     1.02539041e+00     1.00000000e+00    
+
+  Stability indicators (S_W = L·dt·W; S_grad = L·dt·κ·k_max²):
+    S_phi_W    = 1.29455539e-01     S_phi_grad = 7.66604977e+00     S_phi_total = 7.79550531e+00
+    S_eta_W    = 2.44140574e-02     S_eta_grad = 9.03589082e-02     S_eta_total = 1.14772966e-01
+    CFL_diff   = 8.00000000e+00
+    Note: semi-implicit denom damps S_grad; instability risk comes from explicit source term S_W. Production-safe envelope: S_W < 1.
+  vtk_mode                 : dynamic (no case suffix)
+  pf_zero_mode_trace       : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/mechanics_warm_replay_v1/pf_zero_mode_trace.csv
+  elastic_solver_mode      : ELASTIC_WARM_START_RESIDUAL_V1
+  elastic_solver_fingerprint : a77693c6959db46e
+  elastic_iter_min         : 2
+  elastic_iter_max         : 32
+  elastic_residual_tolerance : 9.99999999999999955e-07
+  elastic_solver_trace     : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/mechanics_warm_replay_v1/elastic_solver_trace.csv
+
+========== Initialization ==========
+  path                     : mass-conserving phi/xB/Y
+
+========== Initialization Geometry ==========
+  shape                    : legacy
+  R_input                  : 10.000000
+  Rx / Ry / Rz             : 10.000000 / 10.000000 / 10.000000
+  R_equiv                  : 10.000000
+  tilt(theta,phi) [deg]    : 0.000 / 0.000
+  rotation                 : disabled
+  center_shift             : (0.000000, 0.000000, 0.000000)
+  phi_noise_amp            : 0.000e+00
+  phi_noise_seed           : 0
+  init_test_id             : -1
+  first_seed_center        : (16.000000, 16.000000, 16.000000)
+
+========== Initialization Composition ==========
+  vf_init(set)             : 0.000000
+  vf_init_eff=<h>          : 0.130861
+  <h^2>                    : 0.111643
+  vf_target                : 0.127832
+  vf_target_source         : seed radius 10.000000
+  vB_frac                  : 1.000000
+  xB_eq                    : 0.004665
+  xB_out                   : 3.000000e-02 (ic_23d_xB_out=3.000000e-02)
+  <xB>                     : 0.026685
+  <xB_tot>                 : 0.156448
+  theory_target            : 0.15693499
+  mass_balance_diff        : -4.87e-04
+
+========== PF Zero-Mode Restart ==========
+  checkpoint               : /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/accepted_step_1.chk
+  accepted_step            : 1
+  zero_mode                : PF_CONSERVED_Y_ZERO_MODE_V1
+  backend                  : HOST_NEWTON_BISECTION_V1
+  initial_state_class      : LEGACY_UNSPECIFIED
+  fixture_manifest_sha256  : LEGACY_UNSPECIFIED
+  profile_library_manifest_sha256 : LEGACY_UNSPECIFIED
+  parameter_fingerprint    : 45365d9493aec769
+  target_mass_code         : 5.12649166969537782e+03
+VTK_OUTPUT_SUPPRESSED field=xB_tot step=0 path=/home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/xBtot_0.vtk
+VTK_OUTPUT_SUPPRESSED field=phi step=0 path=/home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/phi_init.vtk
+写出初始化 vtk: /home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/phi_init.vtk
+VTK_OUTPUT_SUPPRESSED field=xB step=0 path=/home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay_results/chel_T380_cuda_32x32x32_dt0.02_steps2_xB0.030/xB_0.vtk
+分配GPU内存...
+[gpu mem] before main cudaMallocs: free=14.78 GB / total=15.46 GB (used=0.68 GB)
+[mem-opt] two_phase mode: GP/eta device buffers are aliases, not resident allocations.
+分配弹性计算GPU内存（float精度）...
+[gpu mem] before elastic cudaMallocs: free=14.78 GB / total=15.46 GB (used=0.68 GB)
+PF_ELASTIC_WARM_STATE_RESTORED accepted_step=1 source_field_step=0 iterations=24 residual=7.55384844708119942e-07
+弹性计算GPU内存分配完成
+[gpu mem] after elastic cudaMallocs: free=14.78 GB / total=15.46 GB (used=0.69 GB)
+[gpu mem] after main cudaMallocs: free=14.78 GB / total=15.46 GB (used=0.69 GB)
+
+=== Memory Ledger (resident arrays) ===
+  d_phi_r                           32768 elem        262144 bytes
+  d_eta_r                           alias       0 bytes
+  d_Y_r                             32768 elem        262144 bytes
+  d_xB_r                            32768 elem        262144 bytes
+  d_phi_rhs_r(=d_lapY_r)            32768 elem        262144 bytes
+  d_eta_prev_r                      alias       0 bytes
+  d_eta_rhs_r                       alias       0 bytes
+  d_phi_n_saved                     32768 elem        262144 bytes
+  d_Y_n_saved                       32768 elem        262144 bytes
+  d_dY_dt_prev_r                    32768 elem        262144 bytes
+  d_mu_x_r(=d_Y_rhs_r)              32768 elem        262144 bytes
+  d_divJ_r(=d_xB_prev_r)            32768 elem        262144 bytes
+  d_phi_k                           17408 elem        278528 bytes
+  d_eta_k                           alias       0 bytes
+  d_eta_rhs_k                       alias       0 bytes
+  d_phi_rhs_k(=d_mu_x_k=d_Y_rhs_k)          17408 elem        278528 bytes
+  d_Y_k                             17408 elem        278528 bytes
+  d_divJ_k                          17408 elem        278528 bytes
+  d_scratch_k_double                17408 elem        278528 bytes
+  d_scratch_r_double                65536 elem        524288 bytes
+  d_uxx_r..d_uyz_r (6)             196608 elem        786432 bytes
+  d_sigma_*_r (6)                  196608 elem        786432 bytes
+  d_ux_k,d_uy_k,d_uz_k              52224 elem        417792 bytes
+  d_uxx_k..d_uyz_k (6)             104448 elem        835584 bytes
+  ----------------------------------------
+  Total resident (est.)                 7102464 bytes (6.77 MB)
+  Peak estimate (resident+transient) ~ same (scratch reused)
+=== End Memory Ledger ===
+
+PF_ZERO_MODE_INITIALIZED mode=PF_CONSERVED_Y_ZERO_MODE_V1 backend=HOST_NEWTON_BISECTION_V1 restart_loaded=1 accepted_step=1 target_mass_code=5.12649166969537782e+03 parameter_fingerprint=45365d9493aec769 gp_paths_enabled=false
+创建cuFFT计划...
+  网格: 32x32x32
+弹性FFT计划创建成功（float精度）
+cuFFT计划创建成功（复用计划，减少内存使用）
+构建k空间...
+[gpu mem] before minimize work buffers: free=14.76 GB / total=15.46 GB (used=0.70 GB)
+
+========================================
+初始化完成后的显存使用情况:
+  网格大小: 32x32x32
+  已使用: 0.70 GB (4.51%)
+  空闲: 14.76 GB
+  总计: 15.46 GB
+  弹性功能: 已启用
+========================================
+
+[3D] step=00000 t=0.000000 t_real=0.000000e+00 s <x_B_tot>=1.564481e-01 vf_precip=1.356385e-01 R_avg_internal=9.828166e+00 R_avg_nm=9.828166e+00 xB_range=[0.0037, 0.0248] Meff_range=[5.8207e-02, 5.0004e+01] t_wall=2026-08-02 14:48:09
+
+开始时间推进...
+========================================
+MECHANICS_ONLY_ACCEPTED_FIELD_REPLAY_V1_WRITTEN role=offline_accepted_field_replay accepted_field_step=1 solver_step=2 iterations=14 residual=7.90911897233087352e-07 total_energy_J=1.49405094822153371e-16 output=/home/zhiheng/tmp/sheskin_mechanics_replay_qualification_v2_20260802/warm_replay
+MECHANICS_DIAGNOSTIC_STOP_BEFORE_PF_UPDATE accepted_field_step=1 solver_step=2 time_advanced=false phi_advanced=false xB_advanced=false checkpoint_written=false

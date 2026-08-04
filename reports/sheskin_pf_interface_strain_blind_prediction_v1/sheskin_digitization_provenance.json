@@ -1,0 +1,32 @@
+{
+  "analysis_script": {
+    "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/extract_sheskin_experimental_data_v1.py",
+    "sha256": "f83efec4de454e2788e6efa2d4b8cc3e289bddc1e73dd934bd8f3ae8ea2ab22e"
+  },
+  "axis_calibration": "least squares over retained tick pixels",
+  "digitization_uncertainty_W_mK": 0.015,
+  "figure": "Figure 5c measured total thermal conductivity",
+  "marker_detection": "state-specific RGB masks in frozen local windows",
+  "paper_pdf": {
+    "path": "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/tailoring-thermoelectric-transport-properties-of-ag-alloyed-pbte-effects-of-microstructure-evolution.pdf",
+    "sha256": "fa159ef4b24568bc168bfe6859f496122a3d599de8c822664f635fa4cd62d0c4"
+  },
+  "rendered_page": {
+    "dpi": 600,
+    "page": 5,
+    "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/tmp/pdfs/sheskin/page5_600dpi.png",
+    "pixel_dimensions": [
+      5212,
+      6820
+    ],
+    "sha256": "026fa2602a056fb27663e954da82b4f53cb0f2fcb5d2883d3e97e6213de94a5b"
+  },
+  "schema": "SHESKIN_EXPERIMENTAL_DATA_EXTRACTION_V1",
+  "status": "PASS_SHESKIN_MAIN_TEXT_DIGITIZATION",
+  "supporting_information": {
+    "contents_stated_by_main_text": "raw thermal diffusivity Figure S1 and heat capacity Figure S2",
+    "expected_filename": "am8b15204_si_001.pdf",
+    "local_status": "NOT_AVAILABLE",
+    "public_search_status": "NO_ACCESSIBLE_COPY_FOUND_2026-08-02"
+  }
+}

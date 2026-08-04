@@ -1,0 +1,52 @@
+{
+  "all_gates_pass": true,
+  "gates": {
+    "deterministic_transport_outputs": true,
+    "fixture_hash_mismatch_fail_closed": true,
+    "frozen_transport_contract": true,
+    "incomplete_checkpoint_chain_fail_closed": true,
+    "incomplete_psd_fail_closed": true,
+    "merge_aware_failure_fail_closed": true,
+    "non_experiment_matrix_class_fail_closed": true,
+    "production_schema_positive_path": true,
+    "raw_descriptor_closure": true,
+    "source_timing_preserved": true
+  },
+  "metrics": {
+    "descriptor_closure_max_relative": {
+      "M6": 8.790736184043864e-16,
+      "Nv": 1.9512604753920003e-16,
+      "Sv": 3.237532383480613e-16,
+      "mean_R": 2.8138546933549715e-16
+    },
+    "determinism_run_1_hashes": {
+      "descriptor_error_summary.csv": "4377a50eccb7ca9425f14de18fc0c6f6f9fe43a6ac324da841255da59bf55468",
+      "descriptor_predictions.csv": "f17fc9a7b065a079e91cde511778df949bd4d16ac80366ffe638d45c85bab880",
+      "full_psd_particles.csv": "1ba82aae4be39f8e1644020e8aceb90245d1bdefe06c0ec6743c2f38a113f30c",
+      "kappa_time_temperature.csv": "abfdbd7305343c9620c6c1120824ce58fba8ffba687c5a08368a2247d67c824f",
+      "transport_snapshot_manifest.json": "a3971e629388412288d435e0ccffd2a21f451ed21f7899c47a3fd96317270346",
+      "transport_snapshots.csv": "cd45bd56ba8f85444e484443e51942b827278eeb64395355c6abe05094a1b813"
+    },
+    "determinism_run_2_hashes": {
+      "descriptor_error_summary.csv": "4377a50eccb7ca9425f14de18fc0c6f6f9fe43a6ac324da841255da59bf55468",
+      "descriptor_predictions.csv": "f17fc9a7b065a079e91cde511778df949bd4d16ac80366ffe638d45c85bab880",
+      "full_psd_particles.csv": "1ba82aae4be39f8e1644020e8aceb90245d1bdefe06c0ec6743c2f38a113f30c",
+      "kappa_time_temperature.csv": "abfdbd7305343c9620c6c1120824ce58fba8ffba687c5a08368a2247d67c824f",
+      "transport_snapshot_manifest.json": "a3971e629388412288d435e0ccffd2a21f451ed21f7899c47a3fd96317270346",
+      "transport_snapshots.csv": "cd45bd56ba8f85444e484443e51942b827278eeb64395355c6abe05094a1b813"
+    }
+  },
+  "production_A_B_C_data_used": false,
+  "provenance": {
+    "historical_smoke_manifest_sha256": "9ad2b0081832b073f84ad7404d4b2b0f77d56a194f495a3593aab95991d32179",
+    "production_adapter_script_sha256": "6e85ecb29f767fe96fe2ff4e9262ddf547629a6d538cc880d4d6d829a021104d",
+    "qualification_script_sha256": "35a1a391d7a46cef63b68f1e09c6c440ab7c4682192728f2850e156f19a2f148",
+    "transport_interface_script_sha256": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66",
+    "transport_parameter_contract_sha256": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0",
+    "yu_public_parameter_sha256": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f"
+  },
+  "running_PF_jobs_modified": false,
+  "schema": "PF_246CUBE_NO_DISLOCATION_TRANSPORT_AUTHORITY_ADAPTER_QUALIFICATION_V1",
+  "scientific_claim": "production-ingress and transport-interface qualification only; not absolute experimental lattice-conductivity reproduction",
+  "status": "PASS_PF_246CUBE_NO_DISLOCATION_TRANSPORT_AUTHORITY_ADAPTER_V1"
+}

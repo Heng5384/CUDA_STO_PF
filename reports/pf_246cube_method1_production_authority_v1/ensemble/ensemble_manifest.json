@@ -1,0 +1,41 @@
+{
+  "analysis_script_sha256": "84763345be6726b419e0cccf093880f328f1854f91ba5a6ecf3c127692728ce0",
+  "outputs": {
+    "ensemble_descriptor_error_summary.csv": "0168864bb47db3d0fe9a2ca549710a0813f47f75d5e3f47f282c738eb19f6e45",
+    "ensemble_kappa_time_temperature.csv": "3d3df325569ba8886d15e37802afd9c1b93a6a5c873a41eabc75ff3376e14f62"
+  },
+  "replicates": [
+    {
+      "candidate_id": "QUARTER_NM_METHOD1_A_JOB_73364_HOURLY_MERGE_AUTHORITY_V1",
+      "replicate": "A",
+      "trajectory_identity_sha256": "d00f6669ca8e5d9b88075a75fad74ed28928faf717fa98b5f9d6bf05b315c894",
+      "transport_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/transport/A/transport_snapshot_manifest.json",
+      "transport_manifest_sha256": "c0eabf62ba31c60c0ca0ccbfe16813b534a122d2e8e1ee28d99ce98fdc576197"
+    },
+    {
+      "candidate_id": "QUARTER_NM_METHOD1_B_JOB_73365_HOURLY_MERGE_AUTHORITY_V1",
+      "replicate": "B",
+      "trajectory_identity_sha256": "6d3484246c1c3a052d907f21c922a36a2bdf0d269d99fe172a1639a5e76df7ef",
+      "transport_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/transport/B/transport_snapshot_manifest.json",
+      "transport_manifest_sha256": "9b2f4e19fdd085115e1ff0768bd3d7a814a330631c19f43f37cf2f1346888707"
+    },
+    {
+      "candidate_id": "QUARTER_NM_METHOD1_C_JOB_73366_HOURLY_MERGE_AUTHORITY_V1",
+      "replicate": "C",
+      "trajectory_identity_sha256": "7e52b222ff7ad1a64c5378d84e39af31b9f328aa666498d43f73ff100cd6573b",
+      "transport_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/transport/C/transport_snapshot_manifest.json",
+      "transport_manifest_sha256": "74107cf0ff8fadfe6bdb1a74ffcbbcb85fd787ba809027f838dbd2c8d0e9163e"
+    }
+  ],
+  "required_science_ages_h": [
+    6.0,
+    12.0,
+    18.0,
+    24.0,
+    36.0,
+    48.0
+  ],
+  "schema": "PF_FULL_PSD_NO_DISLOCATION_ENSEMBLE_V1",
+  "scientific_claim": "conditional A/B/C resolved-PF-PSD no-dislocation ensemble; not absolute experimental kappa reproduction",
+  "status": "PASS_PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_ENSEMBLE_V1"
+}

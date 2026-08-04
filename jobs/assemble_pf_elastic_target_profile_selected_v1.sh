@@ -16,6 +16,8 @@ OUT_ROOT="${OUT_ROOT:?OUT_ROOT is required}"
 BASE_RADII_NM="${BASE_RADII_NM:-8.0 8.5 9.0 9.5 10.0 10.5 11.0}"
 EXTENSION_RADII_NM="${EXTENSION_RADII_NM:-11.5}"
 EXPECTED_RADII_NM="${EXPECTED_RADII_NM:-8.0 8.5 9.0 9.5 10.0 10.5 11.0 11.5}"
+PROFILE_COUNT="$(wc -w <<<"${EXPECTED_RADII_NM}" | tr -d ' ')"
+ALLOW_MIXED_BINARY_SAME_SOURCE="${ALLOW_MIXED_BINARY_SAME_SOURCE:-0}"
 
 if [[ -e "${OUT_ROOT}" ]]; then
   echo "[fatal] refusing to overwrite OUT_ROOT: ${OUT_ROOT}" >&2
@@ -60,10 +62,16 @@ for radius in ${EXTENSION_RADII_NM}; do
   copy_profile "${EXTENSION_RUN_ROOT}" "${radius}"
 done
 
+assembler_args=(
+  --profiles "${profile_dirs[@]}"
+  --expected-radii-nm ${EXPECTED_RADII_NM}
+  --out "${OUT_ROOT}/library"
+)
+if [[ "${ALLOW_MIXED_BINARY_SAME_SOURCE}" == "1" ]]; then
+  assembler_args+=(--allow-mixed-binary-same-source)
+fi
 python3 "${SOURCE_ROOT}/scripts/assemble_pf_elastic_target_profile_library_v1.py" \
-  --profiles "${profile_dirs[@]}" \
-  --expected-radii-nm ${EXPECTED_RADII_NM} \
-  --out "${OUT_ROOT}/library" \
+  "${assembler_args[@]}" \
   >"${OUT_ROOT}/library_assembly.stdout" \
   2>"${OUT_ROOT}/library_assembly.stderr"
 if [[ -s "${OUT_ROOT}/library_assembly.stderr" ]]; then
@@ -106,8 +114,13 @@ payload = {
     "extension_run_status": (extension / "status.txt").read_text().strip(),
     "library_manifest_sha256": sha256(library_path),
     "source_commit": library["source_commit"],
+    "source_commit_set": library.get("source_commit_set", [library["source_commit"]]),
+    "mixed_source_labels": library.get("mixed_source_labels", False),
     "source_tree_sha256": library["source_tree_sha256"],
     "binary_sha256": library["binary_sha256"],
+    "binary_sha256_set": library.get("binary_sha256_set", [library["binary_sha256"]]),
+    "mixed_binary_profiles": library.get("mixed_binary_profiles", False),
+    "mixed_binary_contract": library.get("mixed_binary_contract", "SINGLE_BINARY"),
     "profile_manifest_sha256": {
         str(row["target_radius_nm"]): row["profile_manifest_sha256"]
         for row in library["profiles"]
@@ -126,7 +139,9 @@ selection_sha="$(
 {
   printf 'runner_status=PASS_PF_ELASTIC_TARGET_PROFILE_LIBRARY_V1\n'
   printf 'assembly_mode=REUSE_QUALIFIED_PROFILES_WITH_EXTENDED_ITERATION_BUDGET\n'
-  printf 'profile_count=8\n'
+  printf 'profile_count=%s\n' "${PROFILE_COUNT}"
+  printf 'mixed_binary_same_source_allowed=%s\n' \
+    "${ALLOW_MIXED_BINARY_SAME_SOURCE}"
   printf 'radii_nm=%s\n' "${EXPECTED_RADII_NM}"
   printf 'elastic_enabled=true\n'
   printf 'gp_enabled=false\n'

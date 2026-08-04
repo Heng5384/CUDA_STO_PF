@@ -122,7 +122,7 @@ def get_principal_eigenstrain(inputs: dict) -> np.ndarray:
 
 
 def L_pseudobinary(T: float) -> float:
-    return 41212.9 - 18.05 * T
+    return 41504.29119633958 - 18.469276826409214 * T
 
 
 def mu_Ag2Te_matrix(T: float, x: float) -> float:

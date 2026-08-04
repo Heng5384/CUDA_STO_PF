@@ -1,0 +1,70 @@
+{
+  "schema": "PF_400CUBE_FIXED_XB03_ELASTIC_PSD_SIGN_FIXTURE_SPEC_V1",
+  "fixture_id": "pf_400cube_6h_fixed_xb03_elastic_psd_sign_pilot_v1",
+  "scientific_role": "conditional_positive_kappa_increment_feasibility_pilot_not_experimental_psd_fit",
+  "grid": {
+    "Nx": 400,
+    "Ny": 400,
+    "Nz": 400,
+    "dx_nm": 1.0,
+    "lambda_sm_nm": 4.0
+  },
+  "physical_contract": {
+    "temperature_C": 380.0,
+    "elasticity_enabled": true,
+    "elastic_boundary": "periodic_fixed_cell",
+    "orientation_label": "variant_100_identity",
+    "eigenstrain": [0.046, -0.022, -0.017, 0.0, 0.0, 0.0],
+    "GP_enabled": false,
+    "GP_birth_enabled": false,
+    "GP_release_enabled": false,
+    "external_source_enabled": false,
+    "new_beta_nucleation_enabled": false
+  },
+  "inventory_contract": {
+    "mean_C_B_tot": 0.03,
+    "matrix_xAg_target": 0.0062,
+    "matrix_xB_target": 0.006219279767278563,
+    "matrix_xAg_allowed_interval": [0.0058, 0.0066],
+    "effective_beta_volume_fraction_target": 0.02392954476632684,
+    "target_beta_inventory_nm3": 1531490.8650449177
+  },
+  "profile_library_contract": {
+    "expected_radii_nm": [17.0, 17.5, 18.0, 18.5, 19.0, 19.5, 20.0],
+    "native_grid": [96, 96, 96],
+    "profile_scaling_used": false,
+    "profile_interpolation_used": false,
+    "profile_rotation_used": false,
+    "analytic_profile_used": false
+  },
+  "placement_contract": {
+    "seed_algorithm": "PCG64",
+    "seed_unsigned64": 11293042195091745263,
+    "periodic_separation_rule": "distance_nm > Ri_nm + Rj_nm + 4*lambda_sm_nm",
+    "h_threshold": 0.0001,
+    "max_trials_per_particle": 200000
+  },
+  "discrete_psd": {
+    "target_particle_count": 64,
+    "registered_radius_histogram": {
+      "17.0": 2,
+      "17.5": 26,
+      "18.0": 23,
+      "18.5": 13,
+      "19.0": 0,
+      "19.5": 0,
+      "20.0": 0
+    },
+    "selection_policy": "FROZEN_NEAREST_64_PARTICLE_DISCRETE_CUBIC_MOMENT_MATCH_V1",
+    "geometric_beta_inventory_error_nm3": -1.6219329610695432,
+    "target_radius_range_nm": [17.0, 20.0]
+  },
+  "time_contract": {
+    "initial_age_h": 6.0,
+    "dt_code": 0.02,
+    "dt_physical_s": 0.9909260953431841,
+    "final_step": 152585,
+    "checkpoint_cadence_steps": 3633,
+    "registered_science_steps": [0, 21798, 43596, 65393, 108989, 152585]
+  }
+}

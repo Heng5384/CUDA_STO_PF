@@ -1,0 +1,235 @@
+{
+  "density_rows": [
+    {
+      "absolute_h_volume_tolerance_nm3": 0.00015314909025410345,
+      "integer_histogram_can_meet_requested_tolerance": false,
+      "lower_bound_relative_h_volume_error": 1.510411352663942e-08,
+      "maximum_profile_correction_nm3": 5.109165795147419e-05,
+      "minimum_profile_correction_nm3": 4.9694208428263664e-06,
+      "nearest_ideal_lattice_distance_nm3": 0.023182904114946723,
+      "nearest_ideal_lattice_q3_sum": 23399457,
+      "particle_count": 256,
+      "relative_h_volume_tolerance": 1e-10,
+      "rigorous_lower_bound_absolute_h_volume_error_nm3": 0.02313181245699525,
+      "status": "BLOCKED_INTEGER_LATTICE_MISMATCH",
+      "target_fractional_lattice_coordinate": 0.35420868173241615,
+      "target_h_volume_nm3": 1531490.9025410344
+    },
+    {
+      "absolute_h_volume_tolerance_nm3": 0.00015314909025410345,
+      "integer_histogram_can_meet_requested_tolerance": false,
+      "lower_bound_relative_h_volume_error": 1.5070752794383874e-08,
+      "maximum_profile_correction_nm3": 0.00010218331590294838,
+      "minimum_profile_correction_nm3": 9.938841685652733e-06,
+      "nearest_ideal_lattice_distance_nm3": 0.023182904114946723,
+      "nearest_ideal_lattice_q3_sum": 23399457,
+      "particle_count": 512,
+      "relative_h_volume_tolerance": 1e-10,
+      "rigorous_lower_bound_absolute_h_volume_error_nm3": 0.023080720799043775,
+      "status": "BLOCKED_INTEGER_LATTICE_MISMATCH",
+      "target_fractional_lattice_coordinate": 0.35420868173241615,
+      "target_h_volume_nm3": 1531490.9025410344
+    },
+    {
+      "absolute_h_volume_tolerance_nm3": 0.00015314909025410345,
+      "integer_histogram_can_meet_requested_tolerance": false,
+      "lower_bound_relative_h_volume_error": 1.50540724282561e-08,
+      "maximum_profile_correction_nm3": 0.00012772914487868547,
+      "minimum_profile_correction_nm3": 1.2423552107065916e-05,
+      "nearest_ideal_lattice_distance_nm3": 0.023182904114946723,
+      "nearest_ideal_lattice_q3_sum": 23399457,
+      "particle_count": 640,
+      "relative_h_volume_tolerance": 1e-10,
+      "rigorous_lower_bound_absolute_h_volume_error_nm3": 0.023055174970068038,
+      "status": "BLOCKED_INTEGER_LATTICE_MISMATCH",
+      "target_fractional_lattice_coordinate": 0.35420868173241615,
+      "target_h_volume_nm3": 1531490.9025410344
+    },
+    {
+      "absolute_h_volume_tolerance_nm3": 0.00015314909025410345,
+      "integer_histogram_can_meet_requested_tolerance": false,
+      "lower_bound_relative_h_volume_error": 1.5045732245192214e-08,
+      "maximum_profile_correction_nm3": 0.00014050205936655402,
+      "minimum_profile_correction_nm3": 1.3665907317772508e-05,
+      "nearest_ideal_lattice_distance_nm3": 0.023182904114946723,
+      "nearest_ideal_lattice_q3_sum": 23399457,
+      "particle_count": 704,
+      "relative_h_volume_tolerance": 1e-10,
+      "rigorous_lower_bound_absolute_h_volume_error_nm3": 0.02304240205558017,
+      "status": "BLOCKED_INTEGER_LATTICE_MISMATCH",
+      "target_fractional_lattice_coordinate": 0.35420868173241615,
+      "target_h_volume_nm3": 1531490.9025410344
+    }
+  ],
+  "fixture_materialized": false,
+  "input_sha256": {
+    "profile_library_manifest": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+    "task_contract": "35baea5fa09e6761d19169f2e2dc53159cf6b40eada5e94d369eb0c13c85d89e"
+  },
+  "lattice_derivation": {
+    "bound_semantics": "A lower bound: if it exceeds the requested tolerance, no integer histogram can pass even before PSD-shape constraints are applied.",
+    "ideal_h_volume_nm3": "(pi/48)*q^3",
+    "ideal_lattice_spacing_nm3": 0.06544984694978735,
+    "nearest_ideal_lattice_distance_nm3": 0.023182904114946723,
+    "nearest_ideal_lattice_q3_sum": 23399457,
+    "profile_correction_max_nm3": 1.9957678887294605e-07,
+    "profile_correction_min_nm3": 1.9411800167290494e-08,
+    "profile_correction_nonnegative": true,
+    "quarter_nm_integer_q_definition": "q=4*R_registered",
+    "target_fractional_lattice_coordinate": 0.35420868173241615
+  },
+  "production_job_submitted": false,
+  "profile_rows": [
+    {
+      "ideal_quarter_nm_volume_nm3": 2144.660584850632,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p0/profile_manifest.json",
+      "profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+      "q": 32.0,
+      "radius_nm": 8.0,
+      "recorded_h_volume_nm3": 2144.6605848700437,
+      "recorded_minus_ideal_nm3": 1.9411800167290494e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 2352.071149834508,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p25/profile_manifest.json",
+      "profile_manifest_sha256": "05b2bec21dbfddda01f68c8cef5ecec116ad95f739ca246b7f578921129fef9c",
+      "q": 33.0,
+      "radius_nm": 8.25,
+      "recorded_h_volume_nm3": 2352.07114986578,
+      "recorded_minus_ideal_nm3": 3.1272065825760365e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 2572.440784514442,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p5/profile_manifest.json",
+      "profile_manifest_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+      "q": 34.0,
+      "radius_nm": 8.5,
+      "recorded_h_volume_nm3": 2572.4407845623964,
+      "recorded_minus_ideal_nm3": 4.79544723930303e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 2806.162187972133,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p75/profile_manifest.json",
+      "profile_manifest_sha256": "7b0e3e6cd509273fc1f0d9cdae76877eeb5bfeb2e5659f2cdfb60cf58ed005fe",
+      "q": 35.0,
+      "radius_nm": 8.75,
+      "recorded_h_volume_nm3": 2806.1621880415323,
+      "recorded_minus_ideal_nm3": 6.939944796613418e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 3053.6280592892786,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p0/profile_manifest.json",
+      "profile_manifest_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+      "q": 36.0,
+      "radius_nm": 9.0,
+      "recorded_h_volume_nm3": 3053.6280593591555,
+      "recorded_minus_ideal_nm3": 6.987693268456496e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 3315.231097547579,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p25/profile_manifest.json",
+      "profile_manifest_sha256": "eee044b7c348eec3c3761558036e9073889961a570b38c34afa621ad35374d48",
+      "q": 37.0,
+      "radius_nm": 9.25,
+      "recorded_h_volume_nm3": 3315.231097606091,
+      "recorded_minus_ideal_nm3": 5.851234163856134e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 3591.3640018287315,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+      "q": 38.0,
+      "radius_nm": 9.5,
+      "recorded_h_volume_nm3": 3591.3640018963897,
+      "recorded_minus_ideal_nm3": 6.76582203595899e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 3882.419471214436,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p75/profile_manifest.json",
+      "profile_manifest_sha256": "e95f3c1330fe617a0f55f1422108064c555570ca52db8a8bddd62877ffa625e0",
+      "q": 39.0,
+      "radius_nm": 9.75,
+      "recorded_h_volume_nm3": 3882.4194713057354,
+      "recorded_minus_ideal_nm3": 9.12996256374754e-08
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 4188.790204786391,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p0/profile_manifest.json",
+      "profile_manifest_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+      "q": 40.0,
+      "radius_nm": 10.0,
+      "recorded_h_volume_nm3": 4188.790204894687,
+      "recorded_minus_ideal_nm3": 1.0829626262420788e-07
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 4510.868901626294,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p25/profile_manifest.json",
+      "profile_manifest_sha256": "d39d4e35fa3872618892cd5aa57aabf200af6f360fb9bb94426bfcd519f6bad8",
+      "q": 41.0,
+      "radius_nm": 10.25,
+      "recorded_h_volume_nm3": 4510.868901748711,
+      "recorded_minus_ideal_nm3": 1.2241707736393437e-07
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 4849.048260815845,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p5/profile_manifest.json",
+      "profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+      "q": 42.0,
+      "radius_nm": 10.5,
+      "recorded_h_volume_nm3": 4849.048260952037,
+      "recorded_minus_ideal_nm3": 1.3619137462228537e-07
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 5203.720981436743,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p75/profile_manifest.json",
+      "profile_manifest_sha256": "c00f668be51d1c78bd574a4e4b9af15bfd55407f15769abb1366fe4d7935558c",
+      "q": 43.0,
+      "radius_nm": 10.75,
+      "recorded_h_volume_nm3": 5203.720981583941,
+      "recorded_minus_ideal_nm3": 1.4719717000843957e-07
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 5575.279762570686,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R11p0/profile_manifest.json",
+      "profile_manifest_sha256": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+      "q": 44.0,
+      "radius_nm": 11.0,
+      "recorded_h_volume_nm3": 5575.279762734301,
+      "recorded_minus_ideal_nm3": 1.636144588701427e-07
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 5964.117303299372,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R11p25/profile_manifest.json",
+      "profile_manifest_sha256": "245e911a9fdb9c30b1b0838aa6af1ed3e8903317cfc5c6e1eff5545d3b8e85c1",
+      "q": 45.0,
+      "radius_nm": 11.25,
+      "recorded_h_volume_nm3": 5964.117303480982,
+      "recorded_minus_ideal_nm3": 1.8160972103942186e-07
+    },
+    {
+      "ideal_quarter_nm_volume_nm3": 6370.6263027045015,
+      "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R11p5/profile_manifest.json",
+      "profile_manifest_sha256": "d6593810c9b2463ed67cd34f4d798d5e8662b8edd1dfc9993f9a25a7329fd770",
+      "q": 46.0,
+      "radius_nm": 11.5,
+      "recorded_h_volume_nm3": 6370.626302904078,
+      "recorded_minus_ideal_nm3": 1.9957678887294605e-07
+    }
+  ],
+  "schema": "PF_400CUBE_PSD_SPATIAL_DENSITY_LADDER_INTEGER_FEASIBILITY_V1",
+  "scope": "read_only_pre_materialization_integer_h_volume_feasibility",
+  "status": "BLOCKED_PROFILE_LIBRARY_RANGE",
+  "target_contract": {
+    "absolute_h_volume_tolerance_nm3": 0.00015314909025410345,
+    "allowed_profile_radius_nm": [
+      8.0,
+      11.5
+    ],
+    "analytic_profile_allowed": false,
+    "profile_interpolation_allowed": false,
+    "profile_scaling_allowed": false,
+    "relative_h_volume_tolerance": 1e-10,
+    "target_h_volume_nm3": 1531490.9025410344
+  },
+  "v5_pilot_modified": false
+}

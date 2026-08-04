@@ -1,0 +1,19 @@
+age_h,reason,replicate,status,step
+6.0,No exact prior-step phi/xB field; current-field substitution is rejected.,A,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,0
+12.0,No exact prior-step phi/xB field; current-field substitution is rejected.,A,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,21798
+18.0,No exact prior-step phi/xB field; current-field substitution is rejected.,A,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,43596
+24.0,No exact prior-step phi/xB field; current-field substitution is rejected.,A,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,65393
+36.0,No exact prior-step phi/xB field; current-field substitution is rejected.,A,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,108989
+48.0,No exact prior-step phi/xB field; current-field substitution is rejected.,A,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,152585
+6.0,No exact prior-step phi/xB field; current-field substitution is rejected.,B,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,0
+12.0,No exact prior-step phi/xB field; current-field substitution is rejected.,B,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,21798
+18.0,No exact prior-step phi/xB field; current-field substitution is rejected.,B,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,43596
+24.0,No exact prior-step phi/xB field; current-field substitution is rejected.,B,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,65393
+36.0,No exact prior-step phi/xB field; current-field substitution is rejected.,B,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,108989
+48.0,No exact prior-step phi/xB field; current-field substitution is rejected.,B,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,152585
+6.0,No exact prior-step phi/xB field; current-field substitution is rejected.,C,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,0
+12.0,No exact prior-step phi/xB field; current-field substitution is rejected.,C,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,21798
+18.0,No exact prior-step phi/xB field; current-field substitution is rejected.,C,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,43596
+24.0,No exact prior-step phi/xB field; current-field substitution is rejected.,C,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,65393
+36.0,No exact prior-step phi/xB field; current-field substitution is rejected.,C,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,108989
+48.0,No exact prior-step phi/xB field; current-field substitution is rejected.,C,NOT_COMPUTED_SOURCE_FIELD_STEP_NOT_RECOVERABLE,152585

@@ -1,0 +1,14 @@
+{
+  "outputs": {
+    "AQ_background_fit.png": "16960f6ebd0c7c52acd1e126c13d405772092d42406019e00b63133ba38cd696",
+    "sheskin_AQ_known_channel_kappa.csv": "a62192ef965a4cac3c2badeba7586cb1a71c3e8a786cacdbd89afc30761f3f05",
+    "sheskin_background_candidate_fits.csv": "c6bb44b375ad0af50c1412459af674386feac5ed430dc7b6047034226e1f4fa5",
+    "sheskin_background_cross_validation.csv": "9235d2ea25e18c9f5a3d17df9c2b4d35abae9556da5d4558dbdf6d555e5ef0be",
+    "sheskin_background_fit_predictions.csv": "8d4c40b05f6abc983c5f72311491c463059b8b8563cea0a2be86aa0dbac180ec",
+    "sheskin_background_model_selection.md": "ce4c8124de671b7076e50b7d568a6f218fbd6881cbb6291494f1cecc116dee5f",
+    "sheskin_background_model_summary.csv": "744a15d1abcd35aa11cfd736eea0961374a95005b2888ebaf7c19e17a7264b87",
+    "sheskin_background_uncertainty_manifest.json": "0ae8c0493128677c1be91f3f5f1302da8d566808fd42c8c95b822036b1b67b9f"
+  },
+  "schema": "SHESKIN_AQ_BACKGROUND_FIT_V1",
+  "status": "SHESKIN_BACKGROUND_IDENTIFIED"
+}

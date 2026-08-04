@@ -33,10 +33,10 @@ EXPECTED_HISTOGRAM = {
     "11.0": 4,
     "11.5": 0,
 }
-LIBRARY_SHA256 = (
+DEFAULT_LIBRARY_SHA256 = (
     "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
 )
-SELECTION_SHA256 = (
+DEFAULT_SELECTION_SHA256 = (
     "56c44d8f72b27bb462dffe89b59cb2fcb2ff0bf8807dec9d9cac31d2bd7fcbe3"
 )
 INITIAL_STATE_CLASS = (
@@ -98,6 +98,10 @@ def deterministic_probe(
     historical: Path,
     library_root: Path,
     selection: Path,
+    inventory_selection: Path | None,
+    library_sha256: str,
+    selection_sha256: str,
+    registered_radii_nm: List[float],
     label: str,
     manifest: Path,
     order: str,
@@ -111,6 +115,12 @@ def deterministic_probe(
         str(library_root),
         "--selection-provenance",
         str(selection),
+        "--library-manifest-sha256",
+        library_sha256,
+        "--selection-provenance-sha256",
+        selection_sha256,
+        "--registered-radii-nm",
+        *(str(value) for value in registered_radii_nm),
         "--replicate",
         label,
         "--input-order",
@@ -118,6 +128,8 @@ def deterministic_probe(
         "--compare-to-manifest",
         str(manifest),
     ]
+    if inventory_selection is not None:
+        command.extend(["--inventory-selection", str(inventory_selection)])
     result = subprocess.run(
         command,
         check=False,
@@ -139,6 +151,11 @@ def audit_fixture(
     historical: Path,
     library_root: Path,
     selection: Path,
+    inventory_selection: Path | None,
+    library_sha256: str,
+    selection_sha256: str,
+    expected_histogram: Dict[str, int],
+    registered_radii_nm: List[float],
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     manifest_path = root / "fixture_manifest.json"
     manifest = load_json(manifest_path)
@@ -154,8 +171,8 @@ def audit_fixture(
         for axis, key in enumerate(("Nx", "Ny", "Nz"))
     )
     gates["library_hash"] = (
-        manifest.get("profile_library_manifest_sha256") == LIBRARY_SHA256
-        and manifest.get("selection_provenance_sha256") == SELECTION_SHA256
+        manifest.get("profile_library_manifest_sha256") == library_sha256
+        and manifest.get("selection_provenance_sha256") == selection_sha256
     )
     placement = manifest.get("placement", {})
     gates["seed"] = (
@@ -174,11 +191,11 @@ def audit_fixture(
     particle_ids = [str(row.get("particle_id")) for row in mappings]
     centers = [tuple(row.get("center_grid", [])) for row in mappings]
     histogram = Counter(
-        f"{float(row['registered_radius_nm']):.1f}" for row in mappings
+        str(float(row["registered_radius_nm"])) for row in mappings
     )
     histogram_full = {
         radius: int(histogram.get(radius, 0))
-        for radius in EXPECTED_HISTOGRAM
+        for radius in expected_histogram
     }
     required_mapping = (
         "particle_id",
@@ -214,7 +231,7 @@ def audit_fixture(
         and len(str(row.get("source_delta_C_relaxation_sha256", ""))) == 64
         for row in mappings
     )
-    gates["histogram"] = histogram_full == EXPECTED_HISTOGRAM
+    gates["histogram"] = histogram_full == expected_histogram
 
     assembly = manifest.get("assembly_contract", {})
     gates["no_interpolation_scaling_or_minimizer"] = all(
@@ -227,10 +244,9 @@ def audit_fixture(
             "analytic_tanh_used",
             "clipping_used",
             "normalization_used",
-            "optimizer_invoked",
             "common_multi_particle_pre_relaxation_run",
         )
-    )
+    ) and assembly.get("optimizer_invoked") == (inventory_selection is not None)
     physical = manifest.get("physical_contract", {})
     gates["prohibited_paths_off"] = all(
         physical.get(key) is False
@@ -292,6 +308,10 @@ def audit_fixture(
             historical,
             library_root,
             selection,
+            inventory_selection,
+            library_sha256,
+            selection_sha256,
+            registered_radii_nm,
             label,
             manifest_path,
             order,
@@ -333,6 +353,19 @@ def main() -> None:
     parser.add_argument("--historical-manifest", type=Path, required=True)
     parser.add_argument("--library-root", type=Path, required=True)
     parser.add_argument("--selection-provenance", type=Path, required=True)
+    parser.add_argument("--inventory-selection", type=Path)
+    parser.add_argument(
+        "--library-manifest-sha256", default=DEFAULT_LIBRARY_SHA256
+    )
+    parser.add_argument(
+        "--selection-provenance-sha256", default=DEFAULT_SELECTION_SHA256
+    )
+    parser.add_argument(
+        "--registered-radii-nm",
+        type=float,
+        nargs="+",
+        default=(8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5),
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     fixtures = dict(args.fixture)
@@ -344,6 +377,14 @@ def main() -> None:
         raise SystemExit(f"refusing to overwrite output: {args.out}")
     args.out.mkdir(parents=True)
     try:
+        if args.inventory_selection is None:
+            expected_histogram = EXPECTED_HISTOGRAM
+        else:
+            selected = load_json(args.inventory_selection)
+            expected_histogram = {
+                str(float(key)): int(value)
+                for key, value in selected["selected_histogram"].items()
+            }
         audits: Dict[str, Any] = {}
         all_mappings: Dict[str, List[Dict[str, Any]]] = {}
         for label in EXPECTED_LABELS:
@@ -354,6 +395,11 @@ def main() -> None:
                 args.historical_manifest,
                 args.library_root,
                 args.selection_provenance,
+                args.inventory_selection,
+                args.library_manifest_sha256,
+                args.selection_provenance_sha256,
+                expected_histogram,
+                sorted(args.registered_radii_nm),
             )
         first_histogram = audits[EXPECTED_LABELS[0]]["histogram"]
         psd_equal = all(
@@ -390,9 +436,9 @@ def main() -> None:
             "status": "PASS_246CUBE_THREE_SEED_STATIC_QUALIFICATION_V1",
             "replicates": audits,
             "ensemble_gates": ensemble_gates,
-            "expected_histogram": EXPECTED_HISTOGRAM,
-            "profile_library_manifest_sha256": LIBRARY_SHA256,
-            "selection_provenance_sha256": SELECTION_SHA256,
+            "expected_histogram": expected_histogram,
+            "profile_library_manifest_sha256": args.library_manifest_sha256,
+            "selection_provenance_sha256": args.selection_provenance_sha256,
         }
         write_json(args.out / "static_audit.json", summary)
         with (args.out / "spatial_statistics.csv").open(

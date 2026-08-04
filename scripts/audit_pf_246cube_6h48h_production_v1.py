@@ -27,6 +27,9 @@ EXPECTED_ENDPOINTS = sorted(
 )
 EXPERIMENT_XAG_LOW = 0.0058
 EXPERIMENT_XAG_HIGH = 0.0066
+DEFAULT_LIBRARY_SHA256 = (
+    "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
+)
 
 
 def sha256(path: Path) -> str:
@@ -94,6 +97,7 @@ def gpu_metrics(path: Path) -> Dict[str, float]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture-manifest", type=Path, required=True)
+    parser.add_argument("--library-sha256", default=DEFAULT_LIBRARY_SHA256)
     parser.add_argument("--run-root", type=Path, required=True)
     parser.add_argument("--lineage-root", type=Path, required=True)
     parser.add_argument("--merge-aware-audit", type=Path, required=True)
@@ -140,7 +144,7 @@ def main() -> None:
             "MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1",
             f"fixture_manifest_sha256={fixture_sha}",
             "profile_library_manifest_sha256="
-            "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe",
+            f"{args.library_sha256}",
             "pf_sm_explicit_context=SM_EXPLICIT_CONTEXT_N_V1",
             "pf_reaction_discretization=SM_TANGENT_N_V1",
             "gp_enabled=false",

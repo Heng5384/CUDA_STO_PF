@@ -59,7 +59,7 @@ def G_Ag2Te_Solid(T):
 
 
 def get_L_param(T):
-    return 41212.9 - 18.05 * T
+    return 41504.29119633958 - 18.469276826409214 * T
 
 
 def clamp_fraction_eps(x):

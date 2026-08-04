@@ -1,0 +1,9 @@
+{
+  "analysis_script_sha256": "a201d27682917aa85e2b21c660320296834bde25199415b654c179edc58140fb",
+  "descriptor_manifest_sha256": "8d7069e6fe70284205ae1223b7052faed0b5ca073a60c00180181bbfacc24234",
+  "interface_leverage_status": "STRONG_LEVERAGE",
+  "schema": "SHESKIN_DYNAMIC_CHANNEL_LEVERAGE_AUDIT_V1",
+  "spectral_redistribution_leverage": true,
+  "status": "PASS_DYNAMIC_CHANNEL_LEVERAGE_AUDIT_V1",
+  "strain_leverage_status": "STRONG_LEVERAGE"
+}

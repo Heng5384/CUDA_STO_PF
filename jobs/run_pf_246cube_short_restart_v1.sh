@@ -18,7 +18,8 @@ STEPS=256
 HALF_STEPS=128
 GRID_N=246
 INITIAL_STATE_CLASS="MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1"
-LIBRARY_SHA256="58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
+LIBRARY_SHA256="${LIBRARY_SHA256:-58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe}"
+EXPECTED_OPTIMIZER_INVOKED="${EXPECTED_OPTIMIZER_INVOKED:-false}"
 
 [[ ! -e "${RUN_ROOT}" ]] || {
   echo "[fatal] refusing to overwrite RUN_ROOT: ${RUN_ROOT}" >&2
@@ -57,17 +58,19 @@ trap cleanup EXIT
 
 FIXTURE_SHA256="$(sha256sum "${FIXTURE_ROOT}/fixture_manifest.json" | awk '{print $1}')"
 python3 - "${FIXTURE_ROOT}/fixture_manifest.json" \
-  "${RUN_ROOT}/provenance/fixture_preflight.json" "${FIXTURE_SHA256}" <<'PY'
+  "${RUN_ROOT}/provenance/fixture_preflight.json" "${FIXTURE_SHA256}" \
+  "${LIBRARY_SHA256}" "${EXPECTED_OPTIMIZER_INVOKED}" <<'PY'
 import hashlib,json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); m=json.loads(p.read_text())
 if hashlib.sha256(p.read_bytes()).hexdigest()!=sys.argv[3]: raise SystemExit("fixture identity changed")
 if m.get("schema")!="PF_246CUBE_LIBRARY_HANDOFF_MANIFEST_V1": raise SystemExit("wrong fixture schema")
 if m.get("initial_state_class")!="MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1": raise SystemExit("wrong initial-state class")
-if m.get("profile_library_manifest_sha256")!="58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe": raise SystemExit("wrong profile library")
+if m.get("profile_library_manifest_sha256")!=sys.argv[4]: raise SystemExit("wrong profile library")
 if m.get("grid")!={"Nx":246,"Ny":246,"Nz":246,"dx_nm":1.0,"lambda_sm_nm":4.0}: raise SystemExit("wrong production grid")
 if m.get("component_contract",{}).get("actual_count")!=96: raise SystemExit("wrong particle count")
 if any(m.get("physical_contract",{}).get(k) for k in ("GP_enabled","GP_birth_enabled","GP_release_enabled","external_source_enabled","new_beta_nucleation_enabled")): raise SystemExit("forbidden path enabled")
-if m.get("assembly_contract",{}).get("optimizer_invoked") is not False: raise SystemExit("optimizer path enabled")
+expected_optimizer = sys.argv[5].lower() == "true"
+if m.get("assembly_contract",{}).get("optimizer_invoked") is not expected_optimizer: raise SystemExit("unexpected optimizer provenance")
 pathlib.Path(sys.argv[2]).write_text(json.dumps({
  "fixture_manifest_sha256":sys.argv[3],
  "replicate_id":m["replicate_id"],
@@ -207,6 +210,7 @@ cmp -s \
   --target-mean 0.03 --expected-initial-count 96
 
 python3 "${SOURCE_ROOT}/scripts/audit_pf_246cube_short_restart_v1.py" \
+  --library-sha256 "${LIBRARY_SHA256}" \
   --fixture-manifest "${FIXTURE_ROOT}/fixture_manifest.json" \
   --continuous-checkpoint "${RUN_ROOT}/continuous/final.chk" \
   --restart-checkpoint "${RUN_ROOT}/restart_second_half/final.chk" \

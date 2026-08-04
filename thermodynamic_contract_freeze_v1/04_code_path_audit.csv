@@ -1,0 +1,19 @@
+path_id,file,language,symbol_or_key,current_value,derived_or_literal,runtime_reachable,used_by_246,used_by_400,used_by_postprocessing,used_by_transport,legacy_or_exact,planned_action,test_required,notes
+CP001,thermo_utils.h,C/CUDA,get_L_param,"41212.9 - 18.05*T",literal,yes,yes,yes,yes,indirect,legacy,replace only after exact authority,yes,active CUDA/host thermodynamic source
+CP002,thermo_utils.h,C/CUDA,mu_PbTe_calphad,"G0_PbTe+RT*ln(1-xB)+L*xB^2",formula,yes,yes,yes,yes,indirect,legacy,route through contract,yes,active chemical potential
+CP003,thermo_utils.h,C/CUDA,mu_Ag2Te_calphad,"G0_Ag2Te+RT*ln(xB)+L*(1-xB)^2",formula,yes,yes,yes,yes,indirect,legacy,route through contract,yes,active chemical potential
+CP004,thermo_utils.h,C/CUDA,solve_x_eq_device,"RT*ln(x)+L*(1-x)^2=0",formula,yes,yes,yes,yes,indirect,legacy,contract-root helper,yes,device Newton solver
+CP005,Unit_Psedobinary.py,Python,L0_PseudoBinary,"41212.9 - 18.05*T",literal,yes,yes,yes,yes,indirect,legacy,remove duplicate after authority,yes,Python generator duplicate
+CP006,Unit_Psedobinary.py,Python,xAg2Te_eq_from_T,"legacy Newton root",formula,yes,yes,yes,yes,indirect,legacy,route through contract,yes,generated params
+CP007,main_cuda.cu,C/CUDA,gp_literature_L_alpha0/alpha1,"41212.9,-18.05",literal,conditional,legacy GP,legacy GP,yes,indirect,legacy,make explicit contract mode,yes,GP path; production GP gates are off
+CP008,main_cuda.cu,C/CUDA,gp_pseudobinary_xAg_from_xB,"2*xB/(2+xB)",formula,conditional,yes,yes,yes,yes,legacy-compatible,centralize exact conversion,yes,host conversion helper
+CP009,main_cuda.cu,C/CUDA,gp_pseudobinary_xB_from_xAg,"2*xAg/(2-xAg)",formula,conditional,yes,yes,yes,yes,legacy-compatible,centralize exact conversion,yes,host conversion helper
+CP010,analysis/compute_explicit_nucleation_rates.py,Python,compute_xB_eq_regular_solution,"41212.9-18.05*T",literal,yes,diagnostic,diagnostic,yes,indirect,legacy,load contract,yes,post-processing fallback
+CP011,tools/analysis/compute_schur_rc_predictions.py,Python,L_pseudobinary,"41212.9-18.05*T",literal,yes,diagnostic,diagnostic,yes,indirect,legacy,load contract,yes,CNT/Schur fallback
+CP012,scripts/generate_equilibrium_audit_v1.py,Python,L_of,"41212.9-18.05*T",literal,yes,audit,audit,yes,no,legacy,generate from contract,yes,audit generator duplicate
+CP013,plot_step41D_gp_beta_driving_forces.py,Python,get_L_param,"41212.9-18.05*T",literal,conditional,no,no,yes,no,legacy,mark legacy diagnostic,yes,GP plotting duplicate
+CP014,tools/analysis/gp_assisted_beta_nucleation.py,Python,L_param,"41212.9-18.05*T",literal,conditional,no,no,yes,no,legacy,mark legacy diagnostic,yes,GP branch outside current main study
+CP015,scripts/gp_assisted_locked_S_temperature_prediction_template.py,Python,L_param,"41212.9-18.05*T",literal,conditional,no,no,yes,no,legacy,mark legacy diagnostic,yes,template duplicate
+CP016,physical_inputs.example.json,JSON,temperature_C,"380 or user value",config,yes,yes,yes,yes,indirect,legacy,add contract identity later,yes,no L key currently
+CP017,data/qualification/pf_400cube_psd_spatial_density_ladder*,JSON,case specs,"no contract hash",config,yes,no,yes,yes,yes,mixed,block until hash added,yes,fixture/runtime identity unresolved
+CP018,reports/*/fixture_manifest.json,JSON,source/provenance,"varies",config,yes,yes,yes,yes,yes,mixed,register contract hash,yes,existing manifests lack thermodynamic identity

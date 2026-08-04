@@ -1,0 +1,93 @@
+{
+  "cases": {
+    "R1": {
+      "analytic_profile_used": false,
+      "case": "R1",
+      "h_volume_error_nm3": -0.0491522146621719,
+      "h_volume_relative_error": 1.3797592746897545e-07,
+      "histogram": {
+        "8.00": 139,
+        "8.25": 21,
+        "8.50": 2,
+        "9.50": 1
+      },
+      "mean_registered_radius_nm": 8.047546012269938,
+      "particle_count": 163,
+      "physical_parameter_retuning_used": false,
+      "placement_policy": "deterministic_periodic_hard_core_rejection_integer_grid_v1",
+      "placement_seed_unsigned64": 11807945950896733510,
+      "profile_interpolation_used": false,
+      "profile_scaling_used": false,
+      "registered_radius_cv": 0.01870648787526874,
+      "selected_h_volume_nm3": 356237.5610151387,
+      "spherical_selector_Sv_nm_inv": 0.008913967191488986,
+      "target_h_volume_nm3": 356237.61016735336
+    },
+    "R2": {
+      "analytic_profile_used": false,
+      "case": "R2",
+      "h_volume_error_nm3": 0.016299405018799007,
+      "h_volume_relative_error": 4.575430710738788e-08,
+      "histogram": {
+        "11.00": 2,
+        "11.25": 10,
+        "11.50": 3,
+        "8.00": 115,
+        "8.25": 4,
+        "8.50": 4
+      },
+      "mean_registered_radius_nm": 8.376811594202898,
+      "particle_count": 138,
+      "physical_parameter_retuning_used": false,
+      "placement_policy": "deterministic_periodic_hard_core_rejection_integer_grid_v1",
+      "placement_seed_unsigned64": 14886717532826618077,
+      "profile_interpolation_used": false,
+      "profile_scaling_used": false,
+      "registered_radius_cv": 0.12110803880129391,
+      "selected_h_volume_nm3": 356237.6264667584,
+      "spherical_selector_Sv_nm_inv": 0.008294013305875222,
+      "target_h_volume_nm3": 356237.61016735336
+    }
+  },
+  "optimizer": {
+    "R1_policy": "maximum_resolved_interface_count_with_exact_library_profiles",
+    "R2_policy": "bimodal_8_to_8p5_and_11_to_11p5_nm_with_at_least_100_small_and_15_large_particles",
+    "backend": "SCIPY_HIGHS_MILP_INTEGER_COUNTS_V1",
+    "objective": "max_particle_count_then_minimize_absolute_exact_library_h_volume_residual_then_minimize_radius_distance_from_8nm"
+  },
+  "profile_library_canonical_content_sha256": "3c8bc62d00ea1f729b926774e1044ef4fd72cf612aff2e93019c5318c4bc30d7",
+  "profile_library_manifest_sha256": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+  "registered_radius_ladder_nm": [
+    8.0,
+    8.25,
+    8.5,
+    8.75,
+    9.0,
+    9.25,
+    9.5,
+    9.75,
+    10.0,
+    10.25,
+    10.5,
+    10.75,
+    11.0,
+    11.25,
+    11.5
+  ],
+  "schema": "PF_246CUBE_RESOLVED_SEED_THERMAL_CASE_INTEGER_SELECTION_V1",
+  "status": "PASS_RESOLVED_SEED_INTEGER_PSD_SELECTION_V1",
+  "target_contract": {
+    "domain": [
+      246,
+      246,
+      246
+    ],
+    "dx_nm": 1.0,
+    "h_volume_tolerance_nm3": 0.1,
+    "lambda_sm_nm": 4.0,
+    "target_effective_h_volume_nm3": 356237.61016735336,
+    "target_matrix_xAg": 0.0062,
+    "target_mean_C_Btot": 0.03,
+    "temperature_C": 380.0
+  }
+}

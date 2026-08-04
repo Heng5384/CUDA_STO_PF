@@ -1,0 +1,219 @@
+{
+  "gates": {
+    "all_prediction_cells_present": true,
+    "full_psd_reference_present": true,
+    "lognormal_quadrature_moment_closure": true,
+    "running_pf_jobs_untouched": true,
+    "source_descriptor_closure": true,
+    "source_merge_aware_pass": true,
+    "source_short_screening_pass": true,
+    "source_snapshot_grid_identical": true,
+    "transport_contract_frozen": true
+  },
+  "input": {
+    "C_merge_aware_status": "PASS_246CUBE_RESOLVED_MERGE_AWARE_LINEAGE_V1",
+    "max_source_descriptor_closure_relative": {
+      "M6": 1.25931189395712e-15,
+      "Sv": 1.1212192362546547e-15,
+      "count": 0.0,
+      "mean_R": 5.812206241540359e-16
+    },
+    "snapshot_count": 51,
+    "snapshot_steps": [
+      0,
+      256,
+      512,
+      1024,
+      1536,
+      2048,
+      2560,
+      3072,
+      3584,
+      4096,
+      4608,
+      5120,
+      5632,
+      6144,
+      6656,
+      7168,
+      7266
+    ],
+    "source_files": {
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/yu2024_transport_v1/yu_48h_parameters.json": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/ensemble_observables_6h_8h.csv": "9f759d63dae240c302fd627e39f2c6f3e0b904a24248445ebd9dfba9c15f9f24",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/merge_aware_C_analysis_provenance.sha256": "b05423ff38135f3ac0cfa44002c9040c68e59cab74d715321f38d56df2602953",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/merge_aware_C_audit.json": "515cb1ca12dc9a975a44286ae55fd4236c7680ffc6407a3056abb134deb70125",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/particle_lineage_A.csv": "e3966dfb2564e360fef787d4716ed235fb92ac073762027391ede0a5b3f72632",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/particle_lineage_B.csv": "e0c96ab97e6c39073d8c7a6a8fbc89cd4e09c48c29f7135a88fa158724ec3a78",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/particle_lineage_C.csv": "78cc699a74cb697ac81a9c9349673d7dc7b66c504abf020d586e432850318ffa",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_A_audit.json": "aa95e10aa095897fd4fdfe700e740818592145412f880ed95ca47e5bfde83816",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_A_input_hashes.sha256": "9e5ba4cfc1fa4f4399639f3949243ebf68bc7d6962768a03e00b3aa10b5b84f5",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_B_audit.json": "77817235236cd01a3f66d9db9be0472bde15483b53d8213ed37e27f815b79c4d",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_B_input_hashes.sha256": "be4dbfa00ab05b70717157e534b78bb8878563bd6d12e4004255b6e51305ec88",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_C_audit.json": "3d506c7728b2dd4c4228cb7675ccdf5365f6d94066b58b859818d13b01c6df83",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_C_input_hashes.sha256": "e61881ab9721ccf1a03e647637d9b8f156be1b0498bec0abc2bc9b54f5058b1a",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/analyze_pf_abc_6h8h_descriptor_sufficiency_v1.py": "209bd08c1a3935d91d7ddca63e4b3f37097b39866bc96d32119be9dc3d114c99",
+      "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/pf_full_psd_no_dislocation_transport_v1.py": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66"
+    }
+  },
+  "schema": "PF_ABC_6H8H_DESCRIPTOR_SUFFICIENCY_V1",
+  "source_sha256": {
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/yu2024_transport_v1/yu_48h_parameters.json": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/ensemble_observables_6h_8h.csv": "9f759d63dae240c302fd627e39f2c6f3e0b904a24248445ebd9dfba9c15f9f24",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/merge_aware_C_analysis_provenance.sha256": "b05423ff38135f3ac0cfa44002c9040c68e59cab74d715321f38d56df2602953",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/merge_aware_C_audit.json": "515cb1ca12dc9a975a44286ae55fd4236c7680ffc6407a3056abb134deb70125",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/particle_lineage_A.csv": "e3966dfb2564e360fef787d4716ed235fb92ac073762027391ede0a5b3f72632",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/particle_lineage_B.csv": "e0c96ab97e6c39073d8c7a6a8fbc89cd4e09c48c29f7135a88fa158724ec3a78",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/particle_lineage_C.csv": "78cc699a74cb697ac81a9c9349673d7dc7b66c504abf020d586e432850318ffa",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_A_audit.json": "aa95e10aa095897fd4fdfe700e740818592145412f880ed95ca47e5bfde83816",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_A_input_hashes.sha256": "9e5ba4cfc1fa4f4399639f3949243ebf68bc7d6962768a03e00b3aa10b5b84f5",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_B_audit.json": "77817235236cd01a3f66d9db9be0472bde15483b53d8213ed37e27f815b79c4d",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_B_input_hashes.sha256": "be4dbfa00ab05b70717157e534b78bb8878563bd6d12e4004255b6e51305ec88",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_C_audit.json": "3d506c7728b2dd4c4228cb7675ccdf5365f6d94066b58b859818d13b01c6df83",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_three_seed_library_handoff_v1/short_6h_8h_C_input_hashes.sha256": "e61881ab9721ccf1a03e647637d9b8f156be1b0498bec0abc2bc9b54f5058b1a",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/analyze_pf_abc_6h8h_descriptor_sufficiency_v1.py": "209bd08c1a3935d91d7ddca63e4b3f37097b39866bc96d32119be9dc3d114c99",
+    "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/pf_full_psd_no_dislocation_transport_v1.py": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66"
+  },
+  "status": "PASS_PF_ABC_6H8H_DESCRIPTOR_SUFFICIENCY_V1",
+  "summary": [
+    {
+      "ABC_delta_order_exact_fraction": 0.3125,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.013893726703720244,
+      "delta_kappa_signal_NRMSE_percent": 349.71235707350104,
+      "descriptor_model": "Nv_plus_mean_R",
+      "kappa_MAPE_percent": 0.2871943825996903,
+      "kappa_RMS_relative_percent": 0.3234169745140414,
+      "kappa_max_relative_percent": 0.7101637227809144,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.5,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.0028035157667591903,
+      "delta_kappa_signal_NRMSE_percent": 57.42246470683926,
+      "descriptor_model": "Nv_plus_mean_R_plus_CV_lognormal",
+      "kappa_MAPE_percent": 0.03273892185502032,
+      "kappa_RMS_relative_percent": 0.04302831602666283,
+      "kappa_max_relative_percent": 0.12402772050761854,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.3125,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.03536687271978556,
+      "delta_kappa_signal_NRMSE_percent": 889.8460663715605,
+      "descriptor_model": "Sv_geometric_limit",
+      "kappa_MAPE_percent": 7.133676882381776,
+      "kappa_RMS_relative_percent": 7.175585017814291,
+      "kappa_max_relative_percent": 8.850037948359127,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.4375,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.002892219631711157,
+      "delta_kappa_signal_NRMSE_percent": 82.54261698116916,
+      "descriptor_model": "Sv_plus_M6",
+      "kappa_MAPE_percent": 0.08845745139813431,
+      "kappa_RMS_relative_percent": 0.09480890047799656,
+      "kappa_max_relative_percent": 0.17627271697848979,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 1.0,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.0,
+      "delta_kappa_signal_NRMSE_percent": 0.0,
+      "descriptor_model": "full_PSD",
+      "kappa_MAPE_percent": 0.0,
+      "kappa_RMS_relative_percent": 0.0,
+      "kappa_max_relative_percent": 0.0,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.4732142857142857,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.013819331013507519,
+      "delta_kappa_signal_NRMSE_percent": 30.172035818005504,
+      "descriptor_model": "Nv_plus_mean_R",
+      "kappa_MAPE_percent": 0.2889517140984531,
+      "kappa_RMS_relative_percent": 0.32547614869830604,
+      "kappa_max_relative_percent": 0.7158752052402929,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.625,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.0028035652041564774,
+      "delta_kappa_signal_NRMSE_percent": 4.977341500275006,
+      "descriptor_model": "Nv_plus_mean_R_plus_CV_lognormal",
+      "kappa_MAPE_percent": 0.03304663176136487,
+      "kappa_RMS_relative_percent": 0.04344545977270778,
+      "kappa_max_relative_percent": 0.12578031189989092,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.5625,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.03542686308415233,
+      "delta_kappa_signal_NRMSE_percent": 77.37999189584653,
+      "descriptor_model": "Sv_geometric_limit",
+      "kappa_MAPE_percent": 7.19502478108605,
+      "kappa_RMS_relative_percent": 7.23849105825032,
+      "kappa_max_relative_percent": 8.914712198584187,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 1.0,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.002874386105502058,
+      "delta_kappa_signal_NRMSE_percent": 7.114147695044451,
+      "descriptor_model": "Sv_plus_M6",
+      "kappa_MAPE_percent": 0.08900953775517721,
+      "kappa_RMS_relative_percent": 0.09543129963965655,
+      "kappa_max_relative_percent": 0.1777288652796521,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 1.0,
+      "comparison_cells": 357,
+      "delta_kappa_max_abs_error_W_mK": 0.0,
+      "delta_kappa_signal_NRMSE_percent": 0.0,
+      "descriptor_model": "full_PSD",
+      "kappa_MAPE_percent": 0.0,
+      "kappa_RMS_relative_percent": 0.0,
+      "kappa_max_relative_percent": 0.0,
+      "matrix_mode": "pf_time_varying_matrix"
+    }
+  ],
+  "transport": {
+    "A_N": 1.5,
+    "descriptor_models": [
+      "Nv_plus_mean_R",
+      "Nv_plus_mean_R_plus_CV_lognormal",
+      "Sv_geometric_limit",
+      "Sv_plus_M6",
+      "full_PSD"
+    ],
+    "dislocation_mode": "DISLOCATION_OFF",
+    "lognormal_quadrature_order": 64,
+    "matrix_modes": [
+      "fixed_6h_matrix",
+      "pf_time_varying_matrix"
+    ],
+    "max_lognormal_CV_absolute_error": 7.494005416219807e-16,
+    "max_lognormal_mean_relative_error": 2.706509665625206e-15,
+    "temperatures_K": [
+      300.0,
+      350.0,
+      400.0,
+      450.0,
+      500.0,
+      550.0,
+      600.0
+    ]
+  }
+}

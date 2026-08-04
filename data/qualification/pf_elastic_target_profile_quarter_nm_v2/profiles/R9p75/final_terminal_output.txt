@@ -1,0 +1,8 @@
+profile_status=PASS_ELASTIC_CONSTRAINED_TARGET_PROFILE_V1
+profile_manifest_sha256=e95f3c1330fe617a0f55f1422108064c555570ca52db8a8bddd62877ffa625e0
+target_radius_nm=9.75
+actual_radius_nm=9.750000000076426
+axis_ratio_major_minor=1.4227543170947379
+mass_error_relative=5.770943457633475e-16
+elastic_enabled=1
+gp_enabled=False

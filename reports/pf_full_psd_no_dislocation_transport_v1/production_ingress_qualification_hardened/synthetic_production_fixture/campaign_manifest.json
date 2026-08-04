@@ -1,0 +1,20 @@
+{
+  "GP_birth_enabled": false,
+  "GP_enabled": false,
+  "GP_release_enabled": false,
+  "external_source_enabled": false,
+  "final_step": 152585,
+  "fixture_manifest_sha256": "b79c4117aae1cec10d12ed1ae0e223632b3ffc0b27eeebe34d7f213553252c7d",
+  "new_beta_nucleation_enabled": false,
+  "qualification_only": true,
+  "registered_science_steps": [
+    0,
+    21798,
+    43596,
+    65393,
+    108989,
+    152585
+  ],
+  "replicate": "replicate_A",
+  "schema": "PF_246CUBE_6H48H_PRODUCTION_CAMPAIGN_V1"
+}

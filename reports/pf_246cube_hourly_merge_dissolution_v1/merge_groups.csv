@@ -1,0 +1,4 @@
+merge_group_id,member_particle_ids,threshold_name,h_threshold,previous_step,step,stable_particle_ids,child_stable_id,overlap_detail,contact_end_step,group_classification
+MG_P078_P087,P078+P087,low,0.0001,32697,36330,P078+P087,26,parent_id:overlap_voxels:parent_fraction:child_fraction=26:30946:0.99719653272323006:0.39212853848298235+37:44543:1:0.56442129805621022,,THRESHOLD_CONTACT_NOT_PHYSICAL_MERGE
+MG_P078_P087,P078+P087,medium,0.001,43596,47229,P078+P087,25,parent_id:overlap_voxels:parent_fraction:child_fraction=25:25562:0.96660994516921916:0.32765073831009023+36:48488:1:0.62151353568498768,69027,THRESHOLD_CONTACT_NOT_PHYSICAL_MERGE
+MG_P078_P087,P078+P087,strong,0.005,54495,58128,P078+P087,23,parent_id:overlap_voxels:parent_fraction:child_fraction=23:17869:0.88918192675159236:0.23313371690998996+34:54948:1:0.71689694312888963,65393,THRESHOLD_CONTACT_NOT_PHYSICAL_MERGE

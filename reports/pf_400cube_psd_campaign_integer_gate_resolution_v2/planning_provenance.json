@@ -1,0 +1,13 @@
+{
+  "h_volume_relative_tolerance": 1e-07,
+  "inventory_policy": "COMMON_INTEGER_REALIZABLE_H_VOLUME",
+  "library_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/library/library_manifest.json",
+  "library_manifest_sha256": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+  "matrix_xAg_target": 0.0062,
+  "method1_selection": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_246cube_library_inventory_selection_v1.json",
+  "method1_selection_sha256": "279e79ece7a512029638b414f90789c2e8d45008740e442aca7ebaac0acf85e6",
+  "original_target_h_volume_nm3": 1531490.9025410344,
+  "planner_script_sha256": "07b24053622f544e68c80f9acaf760946c2b13e75f7afaa3f883bc5f4a5d9067",
+  "schema": "PF_400CUBE_PSD_SPATIAL_DENSITY_INTEGER_GATE_PLAN_V2",
+  "selected_common_target_h_volume_nm3": 1531490.9025410344
+}

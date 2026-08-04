@@ -17,7 +17,7 @@ from typing import Any, Dict
 PASS = "PASS_246CUBE_SHORT_RESTART_AND_OBSERVABLES_V1"
 FAIL = "BLOCKED_246CUBE_SHORT_RESTART_AND_OBSERVABLES_V1"
 FIXTURE_SCHEMA = "PF_246CUBE_LIBRARY_HANDOFF_MANIFEST_V1"
-LIBRARY_SHA256 = (
+DEFAULT_LIBRARY_SHA256 = (
     "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
 )
 INITIAL_STATE_CLASS = (
@@ -100,6 +100,7 @@ def gpu_metrics(path: Path) -> Dict[str, float]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture-manifest", type=Path, required=True)
+    parser.add_argument("--library-sha256", default=DEFAULT_LIBRARY_SHA256)
     parser.add_argument("--continuous-checkpoint", type=Path, required=True)
     parser.add_argument("--restart-checkpoint", type=Path, required=True)
     parser.add_argument("--continuous-stdout", type=Path, required=True)
@@ -130,7 +131,7 @@ def main() -> None:
         provenance_tokens = (
             f"initial_state_class={INITIAL_STATE_CLASS}",
             f"fixture_manifest_sha256={fixture_hash}",
-            f"profile_library_manifest_sha256={LIBRARY_SHA256}",
+            f"profile_library_manifest_sha256={args.library_sha256}",
             "pf_sm_explicit_context=SM_EXPLICIT_CONTEXT_N_V1",
             "pf_reaction_discretization=SM_TANGENT_N_V1",
             "gp_enabled=false",
@@ -164,7 +165,7 @@ def main() -> None:
             ),
             "library_hash": (
                 manifest.get("profile_library_manifest_sha256")
-                == LIBRARY_SHA256
+                == args.library_sha256
             ),
             "prohibited_paths_off": all(
                 manifest.get("physical_contract", {}).get(key) is False

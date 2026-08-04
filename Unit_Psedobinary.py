@@ -466,7 +466,7 @@ def G_Ag2Te_Solid(T: float) -> float:
     return 3.0 * G_atom
 
 def L0_PseudoBinary(T: float) -> float:
-    return 41212.9 - 18.05 * T
+    return 41504.29119633958 - 18.469276826409214 * T
 
 def mu_Ag2Te(T: float, x: float) -> float:
     _validate_composition(x)
@@ -936,7 +936,7 @@ def generate_payload(inputs: PhysicalInputs) -> Dict[str, object]:
             "temperature_C": pfset.temperature_C,
             "xAg2Te_eq": pfset.xAg2Te_eq,
             "solubility_AB": {
-                "L(T)": "41212.9 - 18.05 * T",
+                "L(T)": "41504.29119633958 - 18.469276826409214 * T",
                 "form": "Pseudo-Binary Regular Solution",
                 "component": "x = x_Ag2Te",
                 "method": "fsolve (Exact)",

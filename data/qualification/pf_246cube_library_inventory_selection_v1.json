@@ -1,0 +1,49 @@
+{
+  "schema": "PF_246CUBE_LIBRARY_INVENTORY_SELECTION_V1",
+  "selection_policy": "MINIMUM_SQUARED_HALF_BIN_UPSHIFTS_TO_MATCH_HISTORICAL_EFFECTIVE_H_VOLUME_V1",
+  "source_identities": {
+    "historical_fixture_file_sha256": "f03ca43771200490cc0ff83646a86c8041fc65427b44ec2c3e71772f5b1d3f50",
+    "historical_canonical_manifest_sha256": "8ce52733e6755b23f4f7d4ba53f0414ef927bb863c3eb4ce9d43cb09d4d5de45",
+    "profile_library_manifest_sha256": "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
+  },
+  "particle_count": 96,
+  "source_histogram": {
+    "8.0": 4,
+    "8.5": 19,
+    "9.0": 19,
+    "9.5": 17,
+    "10.0": 17,
+    "10.5": 16,
+    "11.0": 4,
+    "11.5": 0
+  },
+  "selected_histogram": {
+    "8.0": 3,
+    "8.5": 17,
+    "9.0": 21,
+    "9.5": 18,
+    "10.0": 12,
+    "10.5": 17,
+    "11.0": 8,
+    "11.5": 0
+  },
+  "transitions": [
+    {"from_radius_nm": 8.0, "to_radius_nm": 8.5, "count": 1},
+    {"from_radius_nm": 8.5, "to_radius_nm": 9.0, "count": 3},
+    {"from_radius_nm": 9.0, "to_radius_nm": 9.5, "count": 1},
+    {"from_radius_nm": 10.0, "to_radius_nm": 10.5, "count": 5},
+    {"from_radius_nm": 10.5, "to_radius_nm": 11.0, "count": 4}
+  ],
+  "particle_assignment_rule": "largest_historical_h_equivalent_radius_then_particle_id_within_each_source_bin",
+  "target_effective_h_volume_nm3": 356237.61016735353,
+  "selected_effective_h_volume_nm3": 356237.757361161,
+  "effective_h_volume_tolerance_nm3": 0.2,
+  "target_mean_C_B_tot": 0.03,
+  "experimental_matrix_xAg_center": 0.0062,
+  "experimental_matrix_xAg_interval": [0.0058, 0.0066],
+  "matrix_baseline_mode": "DERIVE_FROM_EXACT_ASSEMBLED_CANONICAL_LEDGER",
+  "unresolved_inventory_used": false,
+  "profile_scaling_used": false,
+  "profile_interpolation_used": false,
+  "physical_parameter_retuning_used": false
+}

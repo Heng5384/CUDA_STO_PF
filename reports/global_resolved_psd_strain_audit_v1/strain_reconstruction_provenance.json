@@ -1,0 +1,10 @@
+{
+  "analysis_script_sha256": "b574fca57bfacdc71c88d1a052445c4787d7c767b04865d8433dd771c6045a04",
+  "git_branch": "codex/pf-dynamic-microstructure-audit-v1",
+  "git_commit": "1c08f9ee011b31e0cd4d82749e58a8f69ebd2204",
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "python": "3.9.6 (default, Apr 17 2026, 18:15:52)  [Clang 21.0.0 (clang-2100.1.1.101)]",
+  "remote_host": "uvip-cluster",
+  "schema": "METHOD1_CHECKPOINT_STRAIN_RECOVERABILITY_AUDIT_V1",
+  "status": "INCONCLUSIVE_STRAIN_FIELDS_NOT_RECOVERABLE"
+}

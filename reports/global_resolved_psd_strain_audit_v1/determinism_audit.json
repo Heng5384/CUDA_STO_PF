@@ -1,0 +1,207 @@
+{
+  "first_root": "/private/tmp/pf_global_density_determinism_three_TOvVna/result",
+  "per_file": [
+    {
+      "bytewise_equal": true,
+      "first_sha256": "4dfa22802168148257eaedc862017c49780ed62e5d470c2ab643a7edf9855e70",
+      "path": "analysis_manifest_density.json",
+      "second_sha256": "4dfa22802168148257eaedc862017c49780ed62e5d470c2ab643a7edf9855e70"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "2cddfd31f8575f102b4c3a0d30c1d684973ebbe1c9c2034e43b6aa5fe88c8551",
+      "path": "baseline_reproduction.csv",
+      "second_sha256": "2cddfd31f8575f102b4c3a0d30c1d684973ebbe1c9c2034e43b6aa5fe88c8551"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "f637467eb4fe576bd298ecd61576271e1da7ec7ed6f93e71b91fbf636b4e5299",
+      "path": "baseline_reproduction_report.md",
+      "second_sha256": "f637467eb4fe576bd298ecd61576271e1da7ec7ed6f93e71b91fbf636b4e5299"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "6dc77e8bd58cc511bf1a426e03d7b087d35bf2660f8afcada6239b90ade27667",
+      "path": "final_terminal_density_stage.txt",
+      "second_sha256": "6dc77e8bd58cc511bf1a426e03d7b087d35bf2660f8afcada6239b90ade27667"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "b37ed35ae44a83382d92ced7ea0fc8ef650f8e5778797b4851f08436fbe421ac",
+      "path": "global_1d_radius_scan.csv",
+      "second_sha256": "b37ed35ae44a83382d92ced7ea0fc8ef650f8e5778797b4851f08436fbe421ac"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "b8d54b18ab1b9c70dc4078a9918df4afd4adae9b3bdf1954d6e987f5aaf17b0b",
+      "path": "global_1d_radius_scan_summary.csv",
+      "second_sha256": "b8d54b18ab1b9c70dc4078a9918df4afd4adae9b3bdf1954d6e987f5aaf17b0b"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "ab6601f0d2a41c49ae39b70d42a6759afaf443199a2bd7f3c8e83d4a50f8451b",
+      "path": "global_2d_non_pf_mathematical_diagnostic.csv",
+      "second_sha256": "ab6601f0d2a41c49ae39b70d42a6759afaf443199a2bd7f3c8e83d4a50f8451b"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "237b418de021e7153ebb584804efe00b3d681d5d35a14b82901583f98c687633",
+      "path": "global_2d_non_pf_mathematical_diagnostic_summary.json",
+      "second_sha256": "237b418de021e7153ebb584804efe00b3d681d5d35a14b82901583f98c687633"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "00a75bc3bc47c578ecd4fe03430736b957e3d1a2fa45d2ddbb386d63eeae4c17",
+      "path": "global_2d_scan_all_cases.csv",
+      "second_sha256": "00a75bc3bc47c578ecd4fe03430736b957e3d1a2fa45d2ddbb386d63eeae4c17"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "40ed1e13f9f35c08ffbb055458a121223945e846f7a2bdb434a3908066c4be46",
+      "path": "global_2d_scan_best_absolute.csv",
+      "second_sha256": "40ed1e13f9f35c08ffbb055458a121223945e846f7a2bdb434a3908066c4be46"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "626576c35894dcbb1e271d0fa2b7ad15b5e3537f83471463c47356b695c9bff2",
+      "path": "global_2d_scan_best_delta.csv",
+      "second_sha256": "626576c35894dcbb1e271d0fa2b7ad15b5e3537f83471463c47356b695c9bff2"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "76f8fdfd7e2da11352a0081c3449fc63e68c7fb46e08363344c85772584c0983",
+      "path": "global_2d_scan_best_relative.csv",
+      "second_sha256": "76f8fdfd7e2da11352a0081c3449fc63e68c7fb46e08363344c85772584c0983"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "a42bcacf1ee85af85eb48ccbb45c20b433916b2e86406a7e59abcbc834cf9740",
+      "path": "global_bimodal_scan.csv",
+      "second_sha256": "a42bcacf1ee85af85eb48ccbb45c20b433916b2e86406a7e59abcbc834cf9740"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "e591557054abb53832820ee860a4e3f5231392eb1fe1064f672b66109746da54",
+      "path": "heatmap_J_abs.pdf",
+      "second_sha256": "e591557054abb53832820ee860a4e3f5231392eb1fe1064f672b66109746da54"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "d39aeb2aaf9f2404728034304c6d7337e9bfecbbd0230b29e5a63055e9bd67f1",
+      "path": "heatmap_J_abs.png",
+      "second_sha256": "d39aeb2aaf9f2404728034304c6d7337e9bfecbbd0230b29e5a63055e9bd67f1"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "84abdfd556790eb54a91d8bebd17f6375bbe2a85dfd8dd45c480c94146b0db65",
+      "path": "heatmap_delta_kappa.pdf",
+      "second_sha256": "84abdfd556790eb54a91d8bebd17f6375bbe2a85dfd8dd45c480c94146b0db65"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "83a58c00ab175ecd052a4d53772bcd572af107c8edc99e6262a25b6fd2e6f9a1",
+      "path": "heatmap_delta_kappa.png",
+      "second_sha256": "83a58c00ab175ecd052a4d53772bcd572af107c8edc99e6262a25b6fd2e6f9a1"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "edc637ae53003680f1fab5a76daa2a805749b18094617d47df84c7acdaaf49d1",
+      "path": "heatmap_kappa48.pdf",
+      "second_sha256": "edc637ae53003680f1fab5a76daa2a805749b18094617d47df84c7acdaaf49d1"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "2e2f54597fd0036cc6afe7daa4e05a4d4a0cf13c7043cfa451e624220d1c7386",
+      "path": "heatmap_kappa48.png",
+      "second_sha256": "2e2f54597fd0036cc6afe7daa4e05a4d4a0cf13c7043cfa451e624220d1c7386"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "080cc17122de05a5ddfd3511ab7b72a6c4dc50f0339375fa9dfe0fd71f9a2f7d",
+      "path": "heatmap_kappa6.pdf",
+      "second_sha256": "080cc17122de05a5ddfd3511ab7b72a6c4dc50f0339375fa9dfe0fd71f9a2f7d"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "b7296f6db849cde2546f99e1a91eb507a2cbaa3948140d2ebb02fc47be1c2e79",
+      "path": "heatmap_kappa6.png",
+      "second_sha256": "b7296f6db849cde2546f99e1a91eb507a2cbaa3948140d2ebb02fc47be1c2e79"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "293dbbbc9ad14680dcbd758a2ceaf55c5bed0bc69ec5e42e400f8f3b9802fe5e",
+      "path": "heatmap_relative_change.pdf",
+      "second_sha256": "293dbbbc9ad14680dcbd758a2ceaf55c5bed0bc69ec5e42e400f8f3b9802fe5e"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "2d9707e0adbaeb1f8f31062dd4cad6158eb50f554bb6b4ff716fb161fbd02745",
+      "path": "heatmap_relative_change.png",
+      "second_sha256": "2d9707e0adbaeb1f8f31062dd4cad6158eb50f554bb6b4ff716fb161fbd02745"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "41a3a29897998cd1d10c08ecf7b1e7f0e7edcaff8f74936ffc8c5da46952403e",
+      "path": "kappa_vs_radius.pdf",
+      "second_sha256": "41a3a29897998cd1d10c08ecf7b1e7f0e7edcaff8f74936ffc8c5da46952403e"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "f4161c9e0ccc3b847fdca7050d6484d40c4410e9752ff28f1f90f93034bec5ea",
+      "path": "kappa_vs_radius.png",
+      "second_sha256": "f4161c9e0ccc3b847fdca7050d6484d40c4410e9752ff28f1f90f93034bec5ea"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "09125fc0bb872ab6e8134b7f6707b5400baf095825c7d7797b784739ce66ce5d",
+      "path": "one_dimensional_global_minimum_report.md",
+      "second_sha256": "09125fc0bb872ab6e8134b7f6707b5400baf095825c7d7797b784739ce66ce5d"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "399f2960779f01607219b91fb043cfcb8466608a9c99979ed48451a5cf30db4f",
+      "path": "precipitate_rate_vs_radius.pdf",
+      "second_sha256": "399f2960779f01607219b91fb043cfcb8466608a9c99979ed48451a5cf30db4f"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "9ffe810baa7468bfbb3ba022a07354b03832ef262d576703a0281f1ebb5e6215",
+      "path": "precipitate_rate_vs_radius.png",
+      "second_sha256": "9ffe810baa7468bfbb3ba022a07354b03832ef262d576703a0281f1ebb5e6215"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "d771162ebaf1eec75caeaa6d2041c53f3ca9ea121f33381ebe2d0852cd7c9844",
+      "path": "provenance.json",
+      "second_sha256": "d771162ebaf1eec75caeaa6d2041c53f3ca9ea121f33381ebe2d0852cd7c9844"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "eb128feaf26ed7176dd9ab57fbcd41dae6dce724e9a5aca79830b5996bf8b183",
+      "path": "provenance.md",
+      "second_sha256": "eb128feaf26ed7176dd9ab57fbcd41dae6dce724e9a5aca79830b5996bf8b183"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "7ee633c65e3bf6f35431f3a0830ab3563874baab2ba29be09e0cf09ad83f992c",
+      "path": "resolved_density_contrast_global_decision.md",
+      "second_sha256": "7ee633c65e3bf6f35431f3a0830ab3563874baab2ba29be09e0cf09ad83f992c"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "6a8071c71df9ff294f73ed55788ad5dd8b8d0c3ec86f90b385032f1649ec5fde",
+      "path": "scattering_fraction_vs_radius.pdf",
+      "second_sha256": "6a8071c71df9ff294f73ed55788ad5dd8b8d0c3ec86f90b385032f1649ec5fde"
+    },
+    {
+      "bytewise_equal": true,
+      "first_sha256": "e667c2c528ba8a1a06564012e74011d14bb0d9e463cc8a959943b54630112224",
+      "path": "scattering_fraction_vs_radius.png",
+      "second_sha256": "e667c2c528ba8a1a06564012e74011d14bb0d9e463cc8a959943b54630112224"
+    }
+  ],
+  "schema": "GLOBAL_RESOLVED_PSD_NO_GO_DETERMINISM_V1",
+  "second_root": "/private/tmp/pf_global_density_determinism_four_exKuIg/result",
+  "source_date_epoch": 0,
+  "status": "PASS_BYTEWISE_DETERMINISTIC"
+}

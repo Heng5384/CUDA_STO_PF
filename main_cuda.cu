@@ -235,6 +235,34 @@ static int write_device_field_raw_f64(const char *path,
     return written == element_count && close_status == 0;
 }
 
+static int write_host_raw_bytes(const char *path, const void *data,
+                                size_t element_size, size_t element_count) {
+    if (!path || path[0] == '\0' || !data || element_size == 0U ||
+        element_count == 0U) {
+        return 0;
+    }
+    FILE *stream = fopen(path, "wb");
+    if (!stream) return 0;
+    const size_t written =
+        fwrite(data, element_size, element_count, stream);
+    const int close_status = fclose(stream);
+    return written == element_count && close_status == 0;
+}
+
+static int write_device_field_raw_f32(const char *path,
+                                      const float *d_field,
+                                      size_t element_count) {
+    if (!path || path[0] == '\0' || !d_field || element_count == 0U) {
+        return 0;
+    }
+    std::vector<float> host(element_count);
+    CUDA_CHECK(cudaMemcpy(
+        host.data(), d_field, element_count * sizeof(float),
+        cudaMemcpyDeviceToHost));
+    return write_host_raw_bytes(
+        path, host.data(), sizeof(float), element_count);
+}
+
 static int build_continue_case_pf_param_path(const char *continue_phi_vtk_path,
                                              char *out,
                                              size_t out_size) {
@@ -15922,8 +15950,8 @@ static void params_default(PFParams *P) {
     P->gp_literature_Q_J_mol = 34030.0;
     P->gp_literature_xAg_default = 0.0078;
     snprintf(P->gp_literature_xAg_mode, sizeof(P->gp_literature_xAg_mode), "fixed_param");
-    P->gp_literature_L_alpha0_J_mol = 41212.9;
-    P->gp_literature_L_alpha1_J_mol_K = -18.05;
+    P->gp_literature_L_alpha0_J_mol = THERMO_DELTA_H_J_PER_MOL;
+    P->gp_literature_L_alpha1_J_mol_K = -THERMO_DELTA_S_J_PER_MOL_K;
     P->gp_literature_a_PbTe_m = 6.46e-10;
     P->gp_literature_xeq_guard = 1.0e-6;
     snprintf(P->gp_birth_candidate_volume_model, sizeof(P->gp_birth_candidate_volume_model), "box");
@@ -16676,6 +16704,209 @@ static ElasticBulkPenaltyDiag compute_elastic_bulk_penalty(
     out.Delta_mu_el_Jmol = E_el_bulk_Jm3 * P->Vm_alpha_0_phys_m3mol;
     out.valid = 1;
     return out;
+}
+
+static int write_mechanics_accepted_field_bundle(
+    const char *output_root,
+    const char *bundle_role,
+    int accepted_field_step,
+    int solver_step,
+    int warm_start_used,
+    int solver_iterations,
+    double solver_residual,
+    const PFParams *P,
+    const double *d_phi_r,
+    const double *d_eta_r,
+    const double *d_xB_r,
+    const cufftComplex *d_ux_k,
+    const cufftComplex *d_uy_k,
+    const cufftComplex *d_uz_k,
+    float *d_uxx_r,
+    float *d_uyy_r,
+    float *d_uzz_r,
+    const float *d_uxy_r,
+    const float *d_uxz_r,
+    const float *d_uyz_r,
+    const float *d_sigma_xx_r,
+    const float *d_sigma_yy_r,
+    const float *d_sigma_zz_r,
+    const float *d_sigma_xy_r,
+    const float *d_sigma_xz_r,
+    const float *d_sigma_yz_r,
+    cufftHandle plan_c2r_elastic,
+    int total_r,
+    int total_k) {
+    if (!output_root || output_root[0] == '\0' || !P ||
+        !d_phi_r || !d_xB_r || !d_ux_k || !d_uy_k || !d_uz_k ||
+        !d_uxx_r || !d_uyy_r || !d_uzz_r || !d_uxy_r || !d_uxz_r ||
+        !d_uyz_r || !d_sigma_xx_r || !d_sigma_yy_r || !d_sigma_zz_r ||
+        !d_sigma_xy_r || !d_sigma_xz_r || !d_sigma_yz_r ||
+        total_r <= 0 || total_k <= 0) {
+        return 0;
+    }
+    struct stat st;
+    if (stat(output_root, &st) == 0) {
+        fprintf(stderr,
+                "[fatal] refusing to overwrite mechanics replay output: %s\n",
+                output_root);
+        return 0;
+    }
+    if (mkdir(output_root, 0755) != 0) {
+        fprintf(stderr, "[fatal] cannot create mechanics replay output: %s\n",
+                output_root);
+        return 0;
+    }
+    auto path_for = [output_root](const char *name) {
+        std::string value(output_root);
+        value += "/";
+        value += name;
+        return value;
+    };
+
+    const size_t real_count = static_cast<size_t>(total_r);
+    const size_t k_count = static_cast<size_t>(total_k);
+    int ok = 1;
+    ok = ok && write_device_field_raw_f64(
+        path_for("accepted_phi.raw.f64").c_str(), d_phi_r, real_count);
+    ok = ok && write_device_field_raw_f64(
+        path_for("accepted_xB.raw.f64").c_str(), d_xB_r, real_count);
+
+    const char *strain_names[6] = {
+        "strain_xx.raw.f32", "strain_yy.raw.f32", "strain_zz.raw.f32",
+        "strain_xy.raw.f32", "strain_xz.raw.f32", "strain_yz.raw.f32"};
+    const float *strain_fields[6] = {
+        d_uxx_r, d_uyy_r, d_uzz_r, d_uxy_r, d_uxz_r, d_uyz_r};
+    const char *stress_names[6] = {
+        "stress_xx.raw.f32", "stress_yy.raw.f32", "stress_zz.raw.f32",
+        "stress_xy.raw.f32", "stress_xz.raw.f32", "stress_yz.raw.f32"};
+    const float *stress_fields[6] = {
+        d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
+        d_sigma_xy_r, d_sigma_xz_r, d_sigma_yz_r};
+    for (int component = 0; component < 6; ++component) {
+        ok = ok && write_device_field_raw_f32(
+            path_for(strain_names[component]).c_str(),
+            strain_fields[component], real_count);
+        ok = ok && write_device_field_raw_f32(
+            path_for(stress_names[component]).c_str(),
+            stress_fields[component], real_count);
+    }
+
+    std::vector<float> displacement_k(6U * k_count);
+    CUDA_CHECK(cudaMemcpy(displacement_k.data(), d_ux_k,
+                          k_count * sizeof(cufftComplex),
+                          cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(displacement_k.data() + 2U * k_count, d_uy_k,
+                          k_count * sizeof(cufftComplex),
+                          cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(displacement_k.data() + 4U * k_count, d_uz_k,
+                          k_count * sizeof(cufftComplex),
+                          cudaMemcpyDeviceToHost));
+    ok = ok && write_host_raw_bytes(
+        path_for("displacement_k_packed.raw.f32").c_str(),
+        displacement_k.data(), sizeof(float), displacement_k.size());
+
+    double *d_gel = NULL;
+    CUDA_CHECK(cudaMalloc(&d_gel, real_count * sizeof(double)));
+    launch_compute_gel_density_kernel(
+        d_uxx_r, d_uyy_r, d_uzz_r,
+        d_uxy_r, d_uxz_r, d_uyz_r,
+        d_phi_r, d_eta_r, d_xB_r,
+        d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
+        d_sigma_xy_r, d_sigma_xz_r, d_sigma_yz_r,
+        (float)P->eps_xx00, (float)P->eps_yy00, (float)P->eps_zz00,
+        (float)P->eps_yz00, (float)P->eps_xz00, (float)P->eps_xy00,
+        (double)P->eps_iso_over_vB,
+        is_gp_zone_mode(P) ? 1 : 0,
+        (is_gp_zone_mode(P) && P->gp_elastic_enabled) ? 1 : 0,
+        P->gp_eps_iso,
+        d_gel,
+        total_r);
+    CUDA_CHECK(cudaDeviceSynchronize());
+    std::vector<double> gel(real_count);
+    CUDA_CHECK(cudaMemcpy(gel.data(), d_gel, real_count * sizeof(double),
+                          cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaFree(d_gel));
+    ok = ok && write_host_raw_bytes(
+        path_for("elastic_energy_density.raw.f64").c_str(),
+        gel.data(), sizeof(double), gel.size());
+    double sum_gel_hat = 0.0;
+    for (double value : gel) sum_gel_hat += value;
+    const double mean_gel_hat = sum_gel_hat / (double)total_r;
+    const double energy_scale_J_m3 =
+        P->elastic_gel_is_dimless
+            ? (12.0 * P->gamma_Jm2 / P->lambda_sm_m)
+            : 1.0;
+    const double length_scale_m = compute_eta_ref_dx_phys_m_host(P);
+    const double voxel_volume_m3 =
+        (P->dx * length_scale_m) * (P->dy * length_scale_m) *
+        (P->dz * length_scale_m);
+    const double total_elastic_energy_J =
+        sum_gel_hat * energy_scale_J_m3 * voxel_volume_m3;
+
+    // Real-space displacement is derived only after strain has been persisted,
+    // because the production solver intentionally reuses these three buffers.
+    CUFFT_CHECK(cufftExecC2R(plan_c2r_elastic,
+                            const_cast<cufftComplex *>(d_ux_k), d_uxx_r));
+    CUFFT_CHECK(cufftExecC2R(plan_c2r_elastic,
+                            const_cast<cufftComplex *>(d_uy_k), d_uyy_r));
+    CUFFT_CHECK(cufftExecC2R(plan_c2r_elastic,
+                            const_cast<cufftComplex *>(d_uz_k), d_uzz_r));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    const float inverse_grid = 1.0f / (float)total_r;
+    const float *displacement_device[3] = {d_uxx_r, d_uyy_r, d_uzz_r};
+    const char *displacement_names[3] = {
+        "displacement_x.raw.f32", "displacement_y.raw.f32",
+        "displacement_z.raw.f32"};
+    for (int component = 0; component < 3; ++component) {
+        std::vector<float> real_displacement(real_count);
+        CUDA_CHECK(cudaMemcpy(real_displacement.data(),
+                              displacement_device[component],
+                              real_count * sizeof(float),
+                              cudaMemcpyDeviceToHost));
+        for (float &value : real_displacement) value *= inverse_grid;
+        ok = ok && write_host_raw_bytes(
+            path_for(displacement_names[component]).c_str(),
+            real_displacement.data(), sizeof(float),
+            real_displacement.size());
+    }
+
+    FILE *summary = fopen(path_for("replay_summary.txt").c_str(), "wb");
+    if (!summary) return 0;
+    fprintf(summary, "schema=MECHANICS_ONLY_ACCEPTED_FIELD_REPLAY_V1\n");
+    fprintf(summary, "bundle_role=%s\n", bundle_role ? bundle_role : "unknown");
+    fprintf(summary, "accepted_field_step=%d\n", accepted_field_step);
+    fprintf(summary, "solver_step=%d\n", solver_step);
+    fprintf(summary, "grid=%d,%d,%d\n", P->Nx, P->Ny, P->Nz);
+    fprintf(summary, "dtype_real_fields=float32-le\n");
+    fprintf(summary, "dtype_source_fields=float64-le\n");
+    fprintf(summary, "warm_start_used=%d\n", warm_start_used);
+    fprintf(summary, "solver_iterations=%d\n", solver_iterations);
+    fprintf(summary, "solver_relative_residual=%.17e\n", solver_residual);
+    fprintf(summary, "solver_residual_tolerance=%.17e\n",
+            P->elastic_residual_tolerance);
+    fprintf(summary, "elastic_energy_density_mean_hat=%.17e\n", mean_gel_hat);
+    fprintf(summary, "elastic_energy_density_mean_J_m3=%.17e\n",
+            mean_gel_hat * energy_scale_J_m3);
+    fprintf(summary, "total_elastic_energy_J=%.17e\n",
+            total_elastic_energy_J);
+    fprintf(summary, "voxel_volume_m3=%.17e\n", voxel_volume_m3);
+    fprintf(summary, "time_advanced=false\n");
+    fprintf(summary, "phi_advanced=false\n");
+    fprintf(summary, "xB_advanced=false\n");
+    fprintf(summary, "checkpoint_written=false\n");
+    const int close_status = fclose(summary);
+    ok = ok && close_status == 0;
+    if (!ok) {
+        fprintf(stderr, "[fatal] mechanics accepted-field bundle write failed\n");
+        return 0;
+    }
+    printf("MECHANICS_ONLY_ACCEPTED_FIELD_REPLAY_V1_WRITTEN "
+           "role=%s accepted_field_step=%d solver_step=%d "
+           "iterations=%d residual=%.17e total_energy_J=%.17e output=%s\n",
+           bundle_role ? bundle_role : "unknown", accepted_field_step,
+           solver_step, solver_iterations, solver_residual,
+           total_elastic_energy_J, output_root);
+    return 1;
 }
 
 // ============================================================
@@ -22484,6 +22715,10 @@ int main(int argc, char **argv) {
     char pf_initial_state_class[96] = {0};
     char pf_fixture_manifest_sha256[96] = {0};
     char pf_profile_library_manifest_sha256[96] = {0};
+    char mechanics_only_replay_dir[4096] = {0};
+    char mechanics_sync_diagnostic_dir[4096] = {0};
+    int mechanics_replay_force_zero_initial = 0;
+    int mechanics_sync_diagnostic_step = 0;
     double pf_zero_mode_tolerance_relative = 1.0e-12;
     int pf_zero_mode_max_iterations = 24;
     int pf_checkpoint_every = 0;
@@ -22655,6 +22890,10 @@ int main(int argc, char **argv) {
             printf("  --pf-initial-state-class <name>      checkpoint-pinned initial-state policy\n");
             printf("  --pf-fixture-manifest-sha256 <hex>   checkpoint-pinned fixture identity\n");
             printf("  --pf-profile-library-manifest-sha256 <hex> checkpoint-pinned profile-library identity\n");
+            printf("  --mechanics-only-replay-dir <path>  solve accepted checkpoint phi/xB without advancing PF\n");
+            printf("  --mechanics-replay-initialization checkpoint_warm|zero\n");
+            printf("  --mechanics-sync-diagnostic-dir <path>  write synchronized online mechanical fields\n");
+            printf("  --mechanics-sync-diagnostic-step <n>    solver step whose accepted source field is written\n");
             printf("  --init-test-id <int>    preset index for batch tests (0..7, <0 to disable)\n");
             printf("  --continue-phi-vtk <path>  continuation: load phi from ASCII VTK and continue minimize\n");
             printf("  --continue-xB-vtk <path>   continuation(full-model): optional xB ASCII VTK; if missing, rebuild xB/Y from phi via init logic\n");
@@ -22756,6 +22995,37 @@ int main(int argc, char **argv) {
                  "--pf_profile_library_manifest_sha256")) != NULL) {
             snprintf(pf_profile_library_manifest_sha256,
                      sizeof(pf_profile_library_manifest_sha256), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--mechanics-only-replay-dir")) != NULL) {
+            snprintf(mechanics_only_replay_dir,
+                     sizeof(mechanics_only_replay_dir), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--mechanics-replay-initialization")) != NULL) {
+            if (strcmp(v, "zero") == 0) {
+                mechanics_replay_force_zero_initial = 1;
+            } else if (strcmp(v, "checkpoint_warm") == 0) {
+                mechanics_replay_force_zero_initial = 0;
+            } else {
+                fprintf(stderr,
+                        "[fatal] unsupported mechanics replay initialization: %s\n",
+                        v);
+                return 2;
+            }
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--mechanics-sync-diagnostic-dir")) != NULL) {
+            snprintf(mechanics_sync_diagnostic_dir,
+                     sizeof(mechanics_sync_diagnostic_dir), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--mechanics-sync-diagnostic-step")) != NULL) {
+            mechanics_sync_diagnostic_step = atoi(v);
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i, "--mode")) != NULL) {
@@ -24512,6 +24782,39 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
+    const int mechanics_only_replay_enabled =
+        mechanics_only_replay_dir[0] != '\0';
+    const int mechanics_sync_diagnostic_enabled =
+        mechanics_sync_diagnostic_dir[0] != '\0';
+    if (mechanics_only_replay_enabled && mechanics_sync_diagnostic_enabled) {
+        fprintf(stderr,
+                "[fatal] mechanics-only replay and online synchronized "
+                "diagnostic are mutually exclusive\n");
+        return 2;
+    }
+    if (mechanics_only_replay_enabled &&
+        (P.mode != 0 || !elastic_accelerated_solver_enabled ||
+         pf_restart_from[0] == '\0' || pf_checkpoint_every != 0)) {
+        fprintf(stderr,
+                "[fatal] mechanics-only replay requires dynamics, the "
+                "accelerated elastic solver, --pf-restart-from, and "
+                "--pf-checkpoint-every 0\n");
+        return 2;
+    }
+    if (mechanics_sync_diagnostic_enabled &&
+        (P.mode != 0 || !elastic_accelerated_solver_enabled ||
+         mechanics_sync_diagnostic_step <= 0)) {
+        fprintf(stderr,
+                "[fatal] online mechanics diagnostic requires dynamics, "
+                "the accelerated elastic solver, and a positive diagnostic step\n");
+        return 2;
+    }
+    if (!mechanics_sync_diagnostic_enabled &&
+        mechanics_sync_diagnostic_step != 0) {
+        fprintf(stderr,
+                "[fatal] --mechanics-sync-diagnostic-step requires an output directory\n");
+        return 2;
+    }
     const auto is_lowercase_sha256 = [](const char* value) -> bool {
         if (value == NULL || strlen(value) != 64U) return false;
         for (size_t i = 0; i < 64U; ++i) {
@@ -25202,6 +25505,10 @@ int main(int argc, char **argv) {
                P.scheduled_nuc_enabled ? "enabled" : "disabled");
 
         log_section_header("Thermodynamics");
+        log_kv_text("thermo_contract_version", "%s", THERMO_CONTRACT_VERSION);
+        log_kv_text("thermo_contract_hash", "%s", "UNFROZEN_LOCAL_CANDIDATE");
+        log_kv_text("thermo_delta_H_J_per_mol", "%.15g", THERMO_DELTA_H_J_PER_MOL);
+        log_kv_text("thermo_delta_S_J_per_mol_K", "%.15g", THERMO_DELTA_S_J_PER_MOL_K);
         log_kv_text("T_C", "%.6f", P.temperature_C);
         log_kv_text("T_K", "%.6f", temperature_K);
         log_kv_text("thermo_convex_extrapolation_enabled", "%d",
@@ -27376,6 +27683,15 @@ int main(int argc, char **argv) {
         pf_restart_step =
             static_cast<int>(pf_restart_checkpoint.accepted_step);
         pf_restart_loaded = 1;
+        if (mechanics_only_replay_enabled &&
+            P.nsteps != pf_restart_step + 1) {
+            fprintf(stderr,
+                    "[fatal] mechanics-only replay requires --nsteps to "
+                    "equal checkpoint accepted_step + 1 (requested=%d "
+                    "accepted_step=%d)\n",
+                    P.nsteps, pf_restart_step);
+            return 2;
+        }
         log_section_header("PF Zero-Mode Restart");
         log_kv_text("checkpoint", "%s", pf_restart_from);
         log_kv_text("accepted_step", "%d", pf_restart_step);
@@ -28030,6 +28346,18 @@ int main(int argc, char **argv) {
                    static_cast<unsigned long long>(
                        elastic_last_iterations),
                    elastic_last_relative_residual);
+            if (mechanics_only_replay_enabled &&
+                mechanics_replay_force_zero_initial) {
+                CUDA_CHECK(cudaMemset(d_ux_k, 0, size_k_float));
+                CUDA_CHECK(cudaMemset(d_uy_k, 0, size_k_float));
+                CUDA_CHECK(cudaMemset(d_uz_k, 0, size_k_float));
+                elastic_warm_state_valid = 0;
+                elastic_warm_source_field_step = 0U;
+                elastic_last_iterations = 0U;
+                elastic_last_relative_residual = NAN;
+                printf("PF_ELASTIC_REPLAY_INITIALIZATION_ZERO accepted_step=%d\n",
+                       pf_restart_step);
+            }
         }
 
         // FFT临时缓冲区（复用）
@@ -29164,6 +29492,59 @@ int main(int argc, char **argv) {
                 S_p_55_f, S_p_56_f,
                 S_p_66_f,
                 total_r);
+
+            const int mechanics_dump_online =
+                mechanics_sync_diagnostic_enabled &&
+                step == mechanics_sync_diagnostic_step;
+            const int mechanics_dump_replay =
+                mechanics_only_replay_enabled && pf_restart_loaded &&
+                step == pf_restart_step + 1;
+            if (mechanics_dump_online || mechanics_dump_replay) {
+                const char *mechanics_output_root =
+                    mechanics_dump_online ? mechanics_sync_diagnostic_dir
+                                          : mechanics_only_replay_dir;
+                const char *mechanics_bundle_role =
+                    mechanics_dump_online ? "online_synchronized_reference"
+                                          : "offline_accepted_field_replay";
+                if (!write_mechanics_accepted_field_bundle(
+                        mechanics_output_root,
+                        mechanics_bundle_role,
+                        step - 1,
+                        step,
+                        elastic_warm_start_used,
+                        elastic_iter,
+                        elastic_relative_residual,
+                        &P,
+                        d_phi_r,
+                        d_eta_r,
+                        d_xB_r,
+                        d_ux_k,
+                        d_uy_k,
+                        d_uz_k,
+                        d_uxx_r,
+                        d_uyy_r,
+                        d_uzz_r,
+                        d_uxy_r,
+                        d_uxz_r,
+                        d_uyz_r,
+                        d_sigma_xx_r,
+                        d_sigma_yy_r,
+                        d_sigma_zz_r,
+                        d_sigma_xy_r,
+                        d_sigma_xz_r,
+                        d_sigma_yz_r,
+                        plan_c2r_elastic,
+                        total_r,
+                        total_k)) {
+                    return 2;
+                }
+                printf("MECHANICS_DIAGNOSTIC_STOP_BEFORE_PF_UPDATE "
+                       "accepted_field_step=%d solver_step=%d "
+                       "time_advanced=false phi_advanced=false "
+                       "xB_advanced=false checkpoint_written=false\n",
+                       step - 1, step);
+                return 0;
+            }
 
             if (do_mass_diag && gp_elastic_solver_enabled) {
                 double gp_elastic_stats_init[GP_ELASTIC_STATS_COUNT];

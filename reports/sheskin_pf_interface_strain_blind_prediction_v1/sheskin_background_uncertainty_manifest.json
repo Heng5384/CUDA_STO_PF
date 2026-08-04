@@ -1,0 +1,171 @@
+{
+  "AQ_particle_population": "Sheskin source-literal envelope; Yu AQ populations forbidden",
+  "A_N": 1.5,
+  "S11_rate": 0.0,
+  "S13_rate": 0.0,
+  "Sheskin_AQ_matrix_xAg": 0.0078,
+  "absolute_fit_status": "POOR_ABSOLUTE_FIT_ALL_CANDIDATES_CHI2_P_LT_0P01",
+  "members": [
+    {
+      "AICc": 76.07849703700167,
+      "AQ_MAPE_percent": 4.046398807093602,
+      "case_id": "lower_1sigma__zero_particle_scattering_limit",
+      "model": "H2_omega2",
+      "parameter": 2.822897247567544e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07828363447105,
+      "AQ_MAPE_percent": 4.046366752119877,
+      "case_id": "lower_1sigma__all_small_at_reported_max",
+      "model": "H2_omega2",
+      "parameter": 2.8184241539027996e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.0777096559852,
+      "AQ_MAPE_percent": 4.046233454351795,
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR10",
+      "model": "H2_omega2",
+      "parameter": 2.810991953986593e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07601371230818,
+      "AQ_MAPE_percent": 4.045764499612434,
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR5",
+      "model": "H2_omega2",
+      "parameter": 2.7847674296132603e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.09929754351492,
+      "AQ_MAPE_percent": 4.047367120973779,
+      "case_id": "lower_1sigma__single_APT_37to6_prolate_AR2",
+      "model": "H2_omega2",
+      "parameter": 2.6188428458058605e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.75902158030995,
+      "AQ_MAPE_percent": 4.085567043927324,
+      "case_id": "lower_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "model": "H2_omega2",
+      "parameter": 2.2750174249778726e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07849703700167,
+      "AQ_MAPE_percent": 4.046398807093602,
+      "case_id": "central__zero_particle_scattering_limit",
+      "model": "H2_omega2",
+      "parameter": 2.822897247567544e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.0781317811278,
+      "AQ_MAPE_percent": 4.046343948305205,
+      "case_id": "central__all_small_at_reported_max",
+      "model": "H2_omega2",
+      "parameter": 2.815208901887217e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07716515976954,
+      "AQ_MAPE_percent": 4.046117292791042,
+      "case_id": "central__single_APT_37to6_prolate_AR10",
+      "model": "H2_omega2",
+      "parameter": 2.802443954871466e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07470500549488,
+      "AQ_MAPE_percent": 4.045385709128436,
+      "case_id": "central__single_APT_37to6_prolate_AR5",
+      "model": "H2_omega2",
+      "parameter": 2.7576985616049723e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.15626993236911,
+      "AQ_MAPE_percent": 4.0520639375458565,
+      "case_id": "central__single_APT_37to6_prolate_AR2",
+      "model": "H2_omega2",
+      "parameter": 2.4936855220958868e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 77.57347134685583,
+      "AQ_MAPE_percent": 4.117860420810969,
+      "case_id": "central__single_APT_37to6_large_Lover2_sphere_bound",
+      "model": "H2_omega2",
+      "parameter": 2.034793345394537e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07849703700167,
+      "AQ_MAPE_percent": 4.046398807093602,
+      "case_id": "upper_1sigma__zero_particle_scattering_limit",
+      "model": "H2_omega2",
+      "parameter": 2.822897247567544e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07798125560272,
+      "AQ_MAPE_percent": 4.046321349657286,
+      "case_id": "upper_1sigma__all_small_at_reported_max",
+      "model": "H2_omega2",
+      "parameter": 2.8119945828407474e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.076638531793,
+      "AQ_MAPE_percent": 4.046003414187005,
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR10",
+      "model": "H2_omega2",
+      "parameter": 2.7939063689067184e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.07378044924216,
+      "AQ_MAPE_percent": 4.045069858042293,
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR5",
+      "model": "H2_omega2",
+      "parameter": 2.7309133738203475e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 76.24709616461902,
+      "AQ_MAPE_percent": 4.058604684953355,
+      "case_id": "upper_1sigma__single_APT_37to6_prolate_AR2",
+      "model": "H2_omega2",
+      "parameter": 2.381544121922234e-15,
+      "parameter_unit": "s"
+    },
+    {
+      "AICc": 78.43986151684093,
+      "AQ_MAPE_percent": 4.145704882275604,
+      "case_id": "upper_1sigma__single_APT_37to6_large_Lover2_sphere_bound",
+      "model": "H2_omega2",
+      "parameter": 1.841066189913317e-15,
+      "parameter_unit": "s"
+    }
+  ],
+  "retained_models_delta_AICc_le_2_in_any_case": [
+    "H2_omega2"
+  ],
+  "schema": "SHESKIN_AQ_BACKGROUND_FIT_V1",
+  "selection_data": "AQ measured-total temperature curve only",
+  "source_hashes": {
+    "Yu_parameter_config": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f",
+    "analysis_script": "4a55e0bd5950b9a9b6ba160125092b86eb9f58b027e0dc4c4a86f7f11e747e72",
+    "experimental_csv": "c4c395983bd999a237d4195dafb3d110b975fd2600651011b67169a70accfe51",
+    "transport_parameter_contract": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0",
+    "transport_script": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66"
+  },
+  "status": "SHESKIN_BACKGROUND_IDENTIFIED",
+  "winning_models_by_case": [
+    "H2_omega2"
+  ],
+  "yu_refit_scale_used": false
+}

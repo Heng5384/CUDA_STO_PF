@@ -1,0 +1,340 @@
+{
+  "gates": {
+    "all_authority_and_hourly_lineage_gates_pass": true,
+    "authority_registry_pass": true,
+    "complete_A_B_C_snapshot_population": true,
+    "frozen_transport_contract": true,
+    "full_psd_direct_sum": true,
+    "full_psd_ensemble_grid_complete": true,
+    "full_psd_trajectory_grid_complete": true,
+    "hourly_snapshot_grid_identical": true,
+    "lognormal_moment_closure": true,
+    "prediction_grid_complete": true,
+    "production_pf_untouched": true,
+    "registered_six_time_psd_hash_identity": true,
+    "registered_six_time_transport_identity": true,
+    "source_commit_exact": true,
+    "source_descriptor_closure": true
+  },
+  "numerics": {
+    "full_psd_vector_direct_sum_max_relative": 4.774655242853522e-16,
+    "lognormal_CV_max_absolute": 9.159339953157541e-16,
+    "lognormal_mean_max_relative": 3.4676771732384327e-15,
+    "registered_six_time_transport_max_relative": 3.5914417859570353e-16
+  },
+  "schema": "PF_METHOD1_ABC_HOURLY_NO_DISLOCATION_TRANSPORT_V1",
+  "source": {
+    "authority_registry_status": "PASS_EXPERIMENT_MATRIX_ANCHORED_A_B_C_COMPLETE_PASS_AUTHORITIES",
+    "descriptor_closure_max": {
+      "M6": 1.1604054742260871e-15,
+      "Sv": 7.0078803833692e-16,
+      "count": 0.0,
+      "mean_R": 5.052109820315114e-16
+    },
+    "replicate_audits": {
+      "A": {
+        "authority_audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/A/audit.json",
+        "authority_audit_sha256": "dfd0ad7824fe66acd81ba0f788399a801f3055402f57d0d5f9a8ad89e9688ef4",
+        "authority_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/A/authority_manifest.sha256",
+        "authority_manifest_sha256": "34738bd80fe32a5c009d4186888925f636945b9cce8f98fa9525ed0079abb464",
+        "checkpoint_hash_count": 44,
+        "hourly_merge_audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_hourly_merge_dissolution_v1/audit.json",
+        "hourly_merge_audit_sha256": "9f487839ec75c626577e72b180ed9435bb75080022ea8cc7c5e928fa29e41d98"
+      },
+      "B": {
+        "authority_audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/B/audit.json",
+        "authority_audit_sha256": "d0fd7e947f47935dac4a0823c05b6069e74cd0f998d1b63b3c76df47c8aeac8d",
+        "authority_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/B/authority_manifest.sha256",
+        "authority_manifest_sha256": "7e5a83d9dd2ad389139d147d56445c939be24b1fb45f84386f3f2520567f247c",
+        "checkpoint_hash_count": 44,
+        "hourly_merge_audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_hourly_merge_dissolution_B_v1/audit.json",
+        "hourly_merge_audit_sha256": "10185625c90f18d2336515b90b3ac8e21ea1efbc3b464b5a9cacb4342e83c95a"
+      },
+      "C": {
+        "authority_audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/C/audit.json",
+        "authority_audit_sha256": "5b22ef813ada4131b4a5760909f528c3981c65b8aaf9268b523f9e1045d2046b",
+        "authority_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/C/authority_manifest.sha256",
+        "authority_manifest_sha256": "fb7381390030c6c55c8e18ca4fe09c40f88f55090abc84c999f07908dd0cdd33",
+        "checkpoint_hash_count": 44,
+        "hourly_merge_audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_hourly_merge_dissolution_C_v1/audit.json",
+        "hourly_merge_audit_sha256": "7e22455465f3d8c7661673286ef9cdb47d5e1cb46ee319d3513e13d66cb5f3d6"
+      }
+    },
+    "snapshot_count": 135,
+    "snapshot_steps": [
+      0,
+      3633,
+      7266,
+      10899,
+      14532,
+      18165,
+      21798,
+      25431,
+      29064,
+      32697,
+      36330,
+      39963,
+      43596,
+      47229,
+      50862,
+      54495,
+      58128,
+      61761,
+      65393,
+      65394,
+      69027,
+      72660,
+      76293,
+      79926,
+      83559,
+      87192,
+      90825,
+      94458,
+      98091,
+      101724,
+      105357,
+      108989,
+      108990,
+      112623,
+      116256,
+      119889,
+      123522,
+      127155,
+      130788,
+      134421,
+      138054,
+      141687,
+      145320,
+      148953,
+      152585
+    ],
+    "source_commit": "1c08f9ee011b31e0cd4d82749e58a8f69ebd2204",
+    "source_files": {
+      "A_authority_audit": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/A/audit.json",
+        "sha256": "dfd0ad7824fe66acd81ba0f788399a801f3055402f57d0d5f9a8ad89e9688ef4"
+      },
+      "A_authority_manifest": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/A/authority_manifest.sha256",
+        "sha256": "34738bd80fe32a5c009d4186888925f636945b9cce8f98fa9525ed0079abb464"
+      },
+      "A_hourly_merge_audit": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_hourly_merge_dissolution_v1/audit.json",
+        "sha256": "9f487839ec75c626577e72b180ed9435bb75080022ea8cc7c5e928fa29e41d98"
+      },
+      "A_observables": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/source/A/ensemble_observables.csv",
+        "sha256": "3040aff901cfd11d989cf6d0ce09a46fcca18597422eb6904fdfa4f5b5b281af"
+      },
+      "A_particles": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/source/A/particle_lineage.csv",
+        "sha256": "0d57c0284064ac10089aa992baaa06eef4165c592863a6dbfd33269ebc3fcb0d"
+      },
+      "B_authority_audit": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/B/audit.json",
+        "sha256": "d0fd7e947f47935dac4a0823c05b6069e74cd0f998d1b63b3c76df47c8aeac8d"
+      },
+      "B_authority_manifest": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/B/authority_manifest.sha256",
+        "sha256": "7e5a83d9dd2ad389139d147d56445c939be24b1fb45f84386f3f2520567f247c"
+      },
+      "B_hourly_merge_audit": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_hourly_merge_dissolution_B_v1/audit.json",
+        "sha256": "10185625c90f18d2336515b90b3ac8e21ea1efbc3b464b5a9cacb4342e83c95a"
+      },
+      "B_observables": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/source/B/ensemble_observables.csv",
+        "sha256": "78d0ed0f11aa9d14ea4f2362847e8d85ff0cc71ab73435a02aa01a45b995f327"
+      },
+      "B_particles": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/source/B/particle_lineage.csv",
+        "sha256": "3a8823277e3b1a238ab3cd0401b8e7f437773c62fc4902e7ea390ec02c7e6e0a"
+      },
+      "C_authority_audit": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/C/audit.json",
+        "sha256": "5b22ef813ada4131b4a5760909f528c3981c65b8aaf9268b523f9e1045d2046b"
+      },
+      "C_authority_manifest": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/C/authority_manifest.sha256",
+        "sha256": "fb7381390030c6c55c8e18ca4fe09c40f88f55090abc84c999f07908dd0cdd33"
+      },
+      "C_hourly_merge_audit": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_hourly_merge_dissolution_C_v1/audit.json",
+        "sha256": "7e22455465f3d8c7661673286ef9cdb47d5e1cb46ee319d3513e13d66cb5f3d6"
+      },
+      "C_observables": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/source/C/ensemble_observables.csv",
+        "sha256": "0df2f2e919ae31cf380fff8ddc3d7c06e871e7295c51f2b41c5aa9ece5f30bfc"
+      },
+      "C_particles": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/source/C/particle_lineage.csv",
+        "sha256": "f4531c2c41066007a8eabaf7637013e8fb31cb7956b15c5ebbc058a0d601a376"
+      },
+      "analysis_script": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/analyze_pf_method1_abc_hourly_no_dislocation_transport_v1.py",
+        "sha256": "3a2b38faab689b56d216e6faaf2a29cb7bd4ed9b260c45f2f3159c7e6eef5af2"
+      },
+      "authority_selection": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority_selection.json",
+        "sha256": "8574b0a0c091f936a4fdac8ab4258c9816627f690f148a74a1bdf92d2129da56"
+      },
+      "descriptor_module": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/analyze_pf_abc_6h8h_descriptor_sufficiency_v1.py",
+        "sha256": "209bd08c1a3935d91d7ddca63e4b3f37097b39866bc96d32119be9dc3d114c99"
+      },
+      "transport_contract": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json",
+        "sha256": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0"
+      },
+      "transport_core": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/pf_full_psd_no_dislocation_transport_v1.py",
+        "sha256": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66"
+      },
+      "yu_config": {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/yu2024_transport_v1/yu_48h_parameters.json",
+        "sha256": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f"
+      }
+    }
+  },
+  "status": "PASS_PF_METHOD1_ABC_HOURLY_FULL_PSD_NO_DISLOCATION_DESCRIPTOR_SUFFICIENCY_V1",
+  "summary": [
+    {
+      "ABC_delta_order_exact_fraction": 0.31493506493506496,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.02750392740439045,
+      "delta_kappa_signal_NRMSE_percent": 291.29645685303586,
+      "descriptor_model": "Nv_plus_mean_R",
+      "kappa_MAPE_percent": 0.3492796278563399,
+      "kappa_RMS_relative_percent": 0.4062246614425209,
+      "kappa_max_relative_percent": 1.2938191563343189,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.2597402597402597,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.003950866229979866,
+      "delta_kappa_signal_NRMSE_percent": 42.94169114786318,
+      "descriptor_model": "Nv_plus_mean_R_plus_CV_lognormal",
+      "kappa_MAPE_percent": 0.03711846941807739,
+      "kappa_RMS_relative_percent": 0.052305290971219866,
+      "kappa_max_relative_percent": 0.17340896714056495,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.45454545454545453,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.1458509349515249,
+      "delta_kappa_signal_NRMSE_percent": 3223.1129186761264,
+      "descriptor_model": "Sv_geometric_limit",
+      "kappa_MAPE_percent": 3.8969956313865564,
+      "kappa_RMS_relative_percent": 4.089748050062545,
+      "kappa_max_relative_percent": 8.793786468650886,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.2564935064935065,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.005445750429307505,
+      "delta_kappa_signal_NRMSE_percent": 63.220292684760395,
+      "descriptor_model": "Sv_plus_M6",
+      "kappa_MAPE_percent": 0.09511811460349828,
+      "kappa_RMS_relative_percent": 0.10573587313581477,
+      "kappa_max_relative_percent": 0.2840634637990024,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 1.0,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.0,
+      "delta_kappa_signal_NRMSE_percent": 0.0,
+      "descriptor_model": "full_PSD",
+      "kappa_MAPE_percent": 0.0,
+      "kappa_RMS_relative_percent": 0.0,
+      "kappa_max_relative_percent": 0.0,
+      "matrix_mode": "fixed_6h_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.44155844155844154,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.027488947434686217,
+      "delta_kappa_signal_NRMSE_percent": 52.63682767226465,
+      "descriptor_model": "Nv_plus_mean_R",
+      "kappa_MAPE_percent": 0.3506268168279213,
+      "kappa_RMS_relative_percent": 0.40780583837604806,
+      "kappa_max_relative_percent": 1.2966960882193428,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.7077922077922078,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.003950942663955015,
+      "delta_kappa_signal_NRMSE_percent": 7.77178055565082,
+      "descriptor_model": "Nv_plus_mean_R_plus_CV_lognormal",
+      "kappa_MAPE_percent": 0.03732372729816983,
+      "kappa_RMS_relative_percent": 0.052583661210141006,
+      "kappa_max_relative_percent": 0.17415200513380738,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.6428571428571429,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.1458510233374386,
+      "delta_kappa_signal_NRMSE_percent": 583.3713967539043,
+      "descriptor_model": "Sv_geometric_limit",
+      "kappa_MAPE_percent": 3.9180725655950237,
+      "kappa_RMS_relative_percent": 4.11612105295503,
+      "kappa_max_relative_percent": 8.793786468650886,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 0.5097402597402597,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.0054431521097351165,
+      "delta_kappa_signal_NRMSE_percent": 11.426841375477752,
+      "descriptor_model": "Sv_plus_M6",
+      "kappa_MAPE_percent": 0.09552583383181698,
+      "kappa_RMS_relative_percent": 0.10621226965119374,
+      "kappa_max_relative_percent": 0.28539821782690933,
+      "matrix_mode": "pf_time_varying_matrix"
+    },
+    {
+      "ABC_delta_order_exact_fraction": 1.0,
+      "comparison_cells": 945,
+      "delta_kappa_max_abs_error_W_mK": 0.0,
+      "delta_kappa_signal_NRMSE_percent": 0.0,
+      "descriptor_model": "full_PSD",
+      "kappa_MAPE_percent": 0.0,
+      "kappa_RMS_relative_percent": 0.0,
+      "kappa_max_relative_percent": 0.0,
+      "matrix_mode": "pf_time_varying_matrix"
+    }
+  ],
+  "transport": {
+    "A_N": 1.5,
+    "S11_rate": 0.0,
+    "S13_rate": 0.0,
+    "descriptor_models": [
+      "Nv_plus_mean_R",
+      "Nv_plus_mean_R_plus_CV_lognormal",
+      "Sv_geometric_limit",
+      "Sv_plus_M6",
+      "full_PSD"
+    ],
+    "dislocation_mode": "DISLOCATION_OFF",
+    "lognormal_quadrature_order": 64,
+    "matrix_modes": [
+      "fixed_6h_matrix",
+      "pf_time_varying_matrix"
+    ],
+    "temperatures_K": [
+      300.0,
+      350.0,
+      400.0,
+      450.0,
+      500.0,
+      550.0,
+      600.0
+    ],
+    "yu_refit_scale_used": false
+  }
+}

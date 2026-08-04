@@ -1,0 +1,17 @@
+{
+  "case_specific_parameter_adjustment": false,
+  "dislocation_mode": "OFF",
+  "final_status": "PASS_SCATTERING_EQUIVALENCE_BUT_INVENTORY_CONFLICT",
+  "pf_runs_started": false,
+  "production_results_modified": false,
+  "schema": "AQ_TO_6H_SCATTERING_EQUIVALENT_RADIUS_AUDIT_V1",
+  "source_sha256": {
+    "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/AEM Yu 2024 SM.pdf": "f60bef889c0445b790f9a93828aa40b7ca56bf40850a461b0aff019a05d37ff0",
+    "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/Advanced Energy Materials - 2024 - Yu - Ostwald Ripening of Ag2Te Precipitates in Thermoelectric PbTe  Effects of.pdf": "da838898f561a26b00b37124b18f18df627adf95bf9fe4622f3089f3aaa19eba",
+    "/Users/heng/Library/CloudStorage/OneDrive-GuangdongTechnion-IsraelInstituteofTechnology/Project/Diffusion/Paper/tailoring-thermoelectric-transport-properties-of-ag-alloyed-pbte-effects-of-microstructure-evolution.pdf": "fa159ef4b24568bc168bfe6859f496122a3d599de8c822664f635fa4cd62d0c4",
+    "data/qualification/yu2024_transport_v1/yu_AQ_parameters.json": "01f6a5d8dd8e922a4f1f210e3a7801445c9fbe2f9a812087300bbdba0ff75edb",
+    "reports/yu2024_debye_callaway_reproduction_v1/reproduction_report.md": "7080e8ea6714bc1e15db7726bc9883418062ad4905bf6556aab16b7c1a67cbc0",
+    "scripts/pf_full_psd_no_dislocation_transport_v1.py": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66",
+    "scripts/reproduce_yu2024_debye_callaway.py": "c394ec20ff97bed9f1ff7578781c9fb010b7bc1ac5a142cdf8b4003ad0b7ce4b"
+  }
+}

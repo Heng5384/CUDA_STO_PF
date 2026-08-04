@@ -18,8 +18,8 @@ DEFAULT_LIT = {
     "gp_literature_B_eff_J3_m6": 2.1187074497e-5,
     "gp_literature_D0_m2_s": 4.251e-15,
     "gp_literature_Q_J_mol": 34030.0,
-    "gp_literature_L_alpha0_J_mol": 41212.9,
-    "gp_literature_L_alpha1_J_mol_K": -18.05,
+    "gp_literature_L_alpha0_J_mol": 41504.29119633958,
+    "gp_literature_L_alpha1_J_mol_K": -18.469276826409214,
     "gp_literature_a_PbTe_m": 6.46e-10,
     "gp_literature_xeq_guard": 1.0e-6,
 }

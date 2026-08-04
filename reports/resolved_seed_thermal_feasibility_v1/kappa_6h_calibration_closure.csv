@@ -1,0 +1,2 @@
+model,replicate,status
+M1,not_run,REJECT_INTERFACE_MODEL_UNPHYSICAL_COEFFICIENT

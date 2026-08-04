@@ -43,7 +43,7 @@ def G_Ag2Te_Solid(T: float) -> float:
 
 
 def L_param(T: float) -> float:
-    return 41212.9 - 18.05 * T
+    return 41504.29119633958 - 18.469276826409214 * T
 
 
 def clamp_x(x: float) -> float:

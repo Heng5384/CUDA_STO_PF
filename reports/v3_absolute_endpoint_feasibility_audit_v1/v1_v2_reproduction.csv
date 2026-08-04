@@ -1,0 +1,7 @@
+contract,model,age_h,temperature_K,reproduced_kappa_W_mK,frozen_kappa_W_mK,absolute_difference_W_mK,reproduction_method,status
+V1_density_only,full_PSD_no_dis,6.0,573.15,1.2980916621210676,1.2980916621210676,0.0,independent_Debye_reintegration,PASS
+V1_density_only,full_PSD_no_dis,48.0,573.15,1.2948991542326225,1.2948991542326225,0.0,independent_Debye_reintegration,PASS
+V2_AQ_background_interface_scalar_strain,M0,6.0,573.15,0.8733452621717084,0.8733452621717084,0.0,immutable_manifest_verified_full_grid_aggregation,PASS
+V2_AQ_background_interface_scalar_strain,M0,48.0,573.15,0.8716818275173842,0.8716818275173842,0.0,immutable_manifest_verified_full_grid_aggregation,PASS
+V2_AQ_background_interface_scalar_strain,MIS,6.0,573.15,0.8208832450913344,0.8208832450913344,0.0,immutable_manifest_verified_full_grid_aggregation,PASS
+V2_AQ_background_interface_scalar_strain,MIS,48.0,573.15,0.8490371923264635,0.8490371923264635,0.0,immutable_manifest_verified_full_grid_aggregation,PASS

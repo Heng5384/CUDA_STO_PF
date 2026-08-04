@@ -59,6 +59,8 @@ Results_scan/
 step35_outputs/
 step36_radial_profiles/
 *.vtk
+*.vti
+*.vtp
 *.raw
 *.f64
 *.chk
@@ -68,6 +70,10 @@ step36_radial_profiles/
 artifacts/
 nohup.out
 core.*
+
+# Large reproducible audit intermediates (kept locally, not GitHub artifacts)
+reports/global_resolved_psd_strain_audit_v1/global_2d_scan_all_cases.csv
+thermodynamic_contract_freeze_v1/.stageA_*
 
 # Host-only unit-test executable
 test_pf_zero_mode_checkpoint_bin

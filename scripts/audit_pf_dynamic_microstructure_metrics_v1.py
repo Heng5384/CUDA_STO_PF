@@ -154,7 +154,7 @@ def g_ag2te_solid(t: float) -> float:
 
 
 def l_param(t: float) -> float:
-    return 41212.9 - 18.05 * t
+    return 41504.29119633958 - 18.469276826409214 * t
 
 
 def solve_x_eq(t: float) -> float:

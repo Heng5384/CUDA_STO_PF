@@ -1,0 +1,6 @@
+channel,descriptor,ratio_48h_over_6h,ensemble_min,ensemble_max,trend_sign_consistent,leverage_status
+experimental_resistance_scale,W_missing_48_over_W_missing_6,0.4890630174027608,,,,MAGNITUDE_DIAGNOSTIC_NOT_A_DEBYE_MODEL
+interface,Sv_and_I1_frequency_weighted_geometry,0.39530647550891224,0.3545526598506624,0.4358208864580603,True,STRONG_LEVERAGE
+strain,epsilon_h_mid_q,0.3062474378035795,0.27378627245562626,0.3373286928777455,True,STRONG_LEVERAGE
+strain,epsilon_h_high_q,0.4583384203816745,0.4193647057908696,0.4990659888119894,True,STRONG_LEVERAGE
+strain_diagnostic,hydrostatic_total_variance,1.283362970311322,1.2228304486797283,1.3356294143300669,True,SPECTRAL_REDISTRIBUTION_LEVERAGE

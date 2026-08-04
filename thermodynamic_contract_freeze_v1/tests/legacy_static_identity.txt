@@ -1,0 +1,9 @@
+THERMODYNAMIC_CONTRACT_FREEZE_V1 legacy static identity check
+T_K=653.15
+L_J_per_mol=29423.5425
+xB_eq=0.0046649518214541986
+xAg_eq=0.0046540962540554094
+root_residual_J_per_mol=0
+conversion_roundtrip_max_abs_error=1.110e-16
+status=PASS_LEGACY_STATIC_ONLY
+note=This does not validate the missing exact-fit contract.

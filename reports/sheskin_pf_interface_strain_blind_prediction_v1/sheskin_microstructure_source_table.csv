@@ -1,0 +1,18 @@
+sample_state,category,observation,value,uncertainty,unit,data_identity,source_location,notes
+all,nominal composition,bulk formula,(PbTe)0.97(Ag2Te)0.03,not reported,formula,SOURCE_LITERAL,Summary and Conclusions,Not a measured phase volume fraction.
+all,processing,aging temperature,380,not reported,degC,SOURCE_LITERAL,Experimental Section,AQ is the water-quenched hot-pressed state; aged states are 6 h and 48 h.
+all,grain size,grain size,not reported,not reported,,MISSING_SOURCE_QUANTITY,Main text and accessible figures,Pellet diameter is 12.5 mm and must not be substituted for grain size.
+AQ,matrix composition,Ag,0.78,0.04,atom percent,TABLE_VALUE,Table 1,Interprecipitate APT region.
+6h,matrix composition,Ag,0.62,0.04,atom percent,TABLE_VALUE,Table 1,Interprecipitate APT region.
+48h,matrix composition,Ag,0.62,0.04,atom percent,TABLE_VALUE,Table 1,Interprecipitate APT region.
+AQ,number density,TEM/APT Ag-rich objects,3.61e+21,1.51e+21,m^-3,TABLE_VALUE_DETECTION_SCALE_SPECIFIC,Table 1,Do not add to SE/FIB density; object identities may overlap across scales.
+6h,number density,TEM/APT Ag-rich objects,1.68e+24,9.2e+23,m^-3,TABLE_VALUE_DETECTION_SCALE_SPECIFIC,Table 1,Do not add to SE/FIB density.
+48h,number density,TEM/APT Ag-rich objects,1.21e+22,7.5e+21,m^-3,TABLE_VALUE_DETECTION_SCALE_SPECIFIC,Table 1,Do not add to SE/FIB density.
+AQ,number density,SE/FIB large objects,5e+17,1.5e+17,m^-3,TABLE_VALUE_DETECTION_SCALE_SPECIFIC,Table 1,Separate large-object imaging scale.
+6h,number density,SE/FIB large objects,1.07e+18,4.5e+17,m^-3,TABLE_VALUE_DETECTION_SCALE_SPECIFIC,Table 1,Separate large-object imaging scale.
+48h,number density,SE/FIB large objects,4e+17,1.5e+17,m^-3,TABLE_VALUE_DETECTION_SCALE_SPECIFIC,Table 1,Separate large-object imaging scale.
+AQ,morphology,single APT reconstruction,37 small and 6 elongated objects,single reconstruction,count,COUNT_FRACTION_DIAGNOSTIC_NOT_BULK_PSD,Figure 4 discussion,Small objects up to about 10 nm; elongated objects up to about 100 nm. No unique radii or aspect ratios.
+6h,morphology,four APT reconstructions,several dozen small spheroidal objects per volume,qualitative,,QUALITATIVE_NOT_BULK_PSD,Section 3.1,Small objects up to about 10 nm; some are connected by Ag-decorated dislocations.
+48h,morphology,three APT reconstructions,elongated and spheroidal objects larger than at 6 h,qualitative,,QUALITATIVE_NOT_BULK_PSD,Section 3.1,Attributed to coarsening; no unique full PSD is tabulated.
+all,thermal measurement,total thermal conductivity,laser-flash diffusivity x density x heat capacity,measurement uncertainty not reported,W m^-1 K^-1,MEASURED_TOTAL_KAPPA,Experimental Section and Figure 5c,Figure 5c is the source for the temperature curves.
+all,electronic thermal conductivity,Wiedemann-Franz estimate,about four orders below lattice component,qualitative,,WIEDEMANN_FRANZ_DERIVED_NOT_DIRECTLY_MEASURED,Figure 7 and Section 3.3,Lorenz number uses a Seebeck-dependent semiempirical expression; no numeric table in main text.

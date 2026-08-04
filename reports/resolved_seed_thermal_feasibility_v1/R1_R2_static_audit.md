@@ -1,0 +1,5 @@
+# R1/R2 static audit
+
+NOT_RUN_PENDING_STEP2_6H12H_QUALIFICATION
+
+The exact 15-entry library is now locally field-validated. R1/R2 materialization and the required dynamic 6--12 h qualification are a distinct next execution stage; no 48 h PF run has been started.

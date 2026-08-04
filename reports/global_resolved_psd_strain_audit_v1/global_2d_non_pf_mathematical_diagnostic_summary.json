@@ -1,0 +1,56 @@
+{
+  "all_rows": 58528,
+  "any_endpoint_pair_within_5percent": false,
+  "best_absolute": {
+    "CV48": 0.0,
+    "CV6": 0.5,
+    "J_abs": 0.34331029022461784,
+    "J_delta": 0.032776026537186115,
+    "J_relative": 0.045185146421167485,
+    "N48_equivalent": 9.871646071306786,
+    "N6_equivalent": 85.04546486006696,
+    "PF_coarsening_compatible": false,
+    "R48_nm": 20.5,
+    "R48_over_R6": 2.5625,
+    "R6_nm": 8.0,
+    "beta_inventory_h_volume_nm3": 356237.61016735336,
+    "both_endpoints_within_5percent": false,
+    "classification": "NON_PF_RESOLVED_MATHEMATICAL_DIAGNOSTIC",
+    "delta_kappa_W_mK": -0.0010415050124863434,
+    "kappa48_W_mK": 1.2960071108433275,
+    "kappa6_W_mK": 1.2970486158558139,
+    "relative_change": -0.0008029807053910168
+  },
+  "grid": {
+    "CV6_CV48": [
+      0.0,
+      0.15,
+      0.3,
+      0.5
+    ],
+    "R48_nm": "0.5--30 step 0.5; 31--60 step 1; 65--200 step 5",
+    "R6_nm": "0.5--8 step 0.25"
+  },
+  "maximum_positive_delta": {
+    "CV48": 0.5,
+    "CV6": 0.5,
+    "J_abs": 0.35423079050856476,
+    "J_delta": 0.025628755348320233,
+    "J_relative": 0.03857871033218997,
+    "N48_equivalent": 0.005442909751044292,
+    "N6_equivalent": 85.04546486006696,
+    "PF_coarsening_compatible": false,
+    "R48_nm": 200.0,
+    "R48_over_R6": 25.0,
+    "R6_nm": 8.0,
+    "beta_inventory_h_volume_nm3": 356237.61016735336,
+    "both_endpoints_within_5percent": false,
+    "classification": "NON_PF_RESOLVED_MATHEMATICAL_DIAGNOSTIC",
+    "delta_kappa_W_mK": 0.01991016475640861,
+    "kappa48_W_mK": 1.3169587806122225,
+    "kappa6_W_mK": 1.2970486158558139,
+    "relative_change": 0.015350361206986492
+  },
+  "schema": "NON_PF_MATHEMATICAL_GLOBAL_PAIR_DIAGNOSTIC_V1",
+  "scientific_role": "Mathematical diagnostic only; no R<8 nm PF fixture is authorized or recommended."
+}

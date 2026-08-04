@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "THERMODYNAMIC_CONTRACT_FREEZE_V1_SCHEMA",
+  "type": "object",
+  "required": ["contract", "system", "composition", "solvus", "thermodynamics", "reference_states", "runtime", "provenance"],
+  "properties": {
+    "contract": {"type": "object", "required": ["name", "version", "status", "created_utc", "source_commit", "source_reports", "supersedes", "contract_hash"]},
+    "system": {"type": "object", "required": ["representation", "endmember_A", "endmember_B", "beta_endpoint_xB", "temperature_unit", "energy_basis"]},
+    "composition": {"type": "object", "required": ["experimental_variable", "phase_field_variable", "exact_forward_conversion", "exact_inverse_conversion", "approximate_conversion", "approximate_conversion_allowed_for", "composition_units"]},
+    "solvus": {"type": "object", "required": ["data_points", "source_reference", "digitization_method", "fit_variable", "fit_expression", "coefficient_A", "coefficient_B", "coefficient_units", "residual_units", "rmse", "max_abs_residual"]},
+    "thermodynamics": {"type": "object", "required": ["delta_H_J_per_mol", "delta_S_J_per_mol_K", "interaction_parameter_expression", "matrix_free_energy_expression", "beta_free_energy_expression", "chemical_potential_expression", "driving_force_expression", "molar_volume", "energy_density_conversion"]},
+    "reference_states": {"type": "object", "required": ["T_380C_K", "xB_eq_380C", "xAg_eq_380C", "numeric_tolerance", "root_solver", "root_solver_tolerance"]},
+    "runtime": {"type": "object", "required": ["parameter_source", "config_key_names", "allow_legacy_override", "legacy_mode_name", "contract_hash"]},
+    "provenance": {"type": "object", "required": ["raw_data_hashes", "fit_output_hashes", "implementation_file_hashes", "validation_hashes"]}
+  }
+}

@@ -2173,7 +2173,7 @@ def compute_diagnostic_zeldovich(
 
 
 def compute_xB_eq_regular_solution(T_K: float) -> float:
-    L_val = 41212.9 - 18.05 * T_K
+    L_val = 41504.29119633958 - 18.469276826409214 * T_K
     RT = R_GAS_J_PER_MOLK * T_K
     x = math.exp(-L_val / RT)
     x = max(1.0e-9, min(0.5, x))

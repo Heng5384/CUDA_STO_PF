@@ -1,0 +1,182 @@
+{
+  "authority": {
+    "A": {
+      "audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/A/audit.json",
+      "audit_sha256": "dfd0ad7824fe66acd81ba0f788399a801f3055402f57d0d5f9a8ad89e9688ef4",
+      "authority_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/A/authority_manifest.sha256",
+      "authority_manifest_sha256": "34738bd80fe32a5c009d4186888925f636945b9cce8f98fa9525ed0079abb464",
+      "authority_source_tree_sha256": "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75",
+      "campaign_manifest_sha256": "5f745ea8806f5a17ff36791a0a5b2a6dff0c4670aba0092a812126a13b7d380b",
+      "fixture_identity_sha256": "",
+      "fixture_manifest_sha256": "f6cce1bd1abaf0e8767f52fc70009a1cce9c928a442bc3ebd38e7c8e7c26d7b2",
+      "full_psd_particles_sha256": "35b32f1098fd4552b19ad66871b8b3320f6a03b1936b7a12c915035bc588d0af",
+      "input_hashes_sha256": "634395dbd449bf709a1d4e8c08cddde7e473a9d6925db67db0aa82fa87776866",
+      "profile_library_manifest_sha256": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+      "profile_library_selection_provenance_sha256": "84348e41f9bfb3d111364c6388025bc0f2a2df342ffd8fc55a26b229cc347887",
+      "runtime_binary_sha256": "516489b3e4dbafd6ba5876beb2858df8309fbfcbd1065d455b73f1782f5fe8f5",
+      "transport_snapshot_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/transport/A/transport_snapshot_manifest.json",
+      "transport_snapshot_manifest_sha256": "c0eabf62ba31c60c0ca0ccbfe16813b534a122d2e8e1ee28d99ce98fdc576197",
+      "transport_snapshots_sha256": "a62e3c2f1f1726c57f7cfe46a519370a90c240d637fd684b03a978fcc31b5561"
+    },
+    "B": {
+      "audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/B/audit.json",
+      "audit_sha256": "d0fd7e947f47935dac4a0823c05b6069e74cd0f998d1b63b3c76df47c8aeac8d",
+      "authority_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/B/authority_manifest.sha256",
+      "authority_manifest_sha256": "7e5a83d9dd2ad389139d147d56445c939be24b1fb45f84386f3f2520567f247c",
+      "authority_source_tree_sha256": "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75",
+      "campaign_manifest_sha256": "72283897b65cdb3356a2e4b64f82019843c2d19ac5033a0b01f62641d1e4b917",
+      "fixture_identity_sha256": "",
+      "fixture_manifest_sha256": "8106091d92b2924f65a23ab5adf8e98d958dd6bac63f3fb099c4f85567c40389",
+      "full_psd_particles_sha256": "6056a870f9c7814dc52d6a497bed313160738d4dee6360d3b8cc73ade7312089",
+      "input_hashes_sha256": "79a5cadbd2449344fc6aae6bd123a16133843e47e487e8d425e534dbf2f9fc84",
+      "profile_library_manifest_sha256": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+      "profile_library_selection_provenance_sha256": "84348e41f9bfb3d111364c6388025bc0f2a2df342ffd8fc55a26b229cc347887",
+      "runtime_binary_sha256": "516489b3e4dbafd6ba5876beb2858df8309fbfcbd1065d455b73f1782f5fe8f5",
+      "transport_snapshot_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/transport/B/transport_snapshot_manifest.json",
+      "transport_snapshot_manifest_sha256": "9b2f4e19fdd085115e1ff0768bd3d7a814a330631c19f43f37cf2f1346888707",
+      "transport_snapshots_sha256": "6885a5e1efa354c94ec9bc20784d5e449f675a15612e3a4487ff2bd7479f1f64"
+    },
+    "C": {
+      "audit_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/C/audit.json",
+      "audit_sha256": "5b22ef813ada4131b4a5760909f528c3981c65b8aaf9268b523f9e1045d2046b",
+      "authority_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/authority/C/authority_manifest.sha256",
+      "authority_manifest_sha256": "fb7381390030c6c55c8e18ca4fe09c40f88f55090abc84c999f07908dd0cdd33",
+      "authority_source_tree_sha256": "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75",
+      "campaign_manifest_sha256": "e38f1db20ea772080550d815bcfcd0a06e7b046b6ed7db1364932cb3a03ef146",
+      "fixture_identity_sha256": "",
+      "fixture_manifest_sha256": "2ad665a3b58d26c29fcfdbfc2c949be979e602147283fce25bc00d992acaac64",
+      "full_psd_particles_sha256": "16355adbda820d4384527e9f300e2c4f4bda11401ce682e4302e92e83673aa49",
+      "input_hashes_sha256": "3a7d89230f112a52cc581014e284326f02ea199da445872e434045144cf1da19",
+      "profile_library_manifest_sha256": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+      "profile_library_selection_provenance_sha256": "84348e41f9bfb3d111364c6388025bc0f2a2df342ffd8fc55a26b229cc347887",
+      "runtime_binary_sha256": "516489b3e4dbafd6ba5876beb2858df8309fbfcbd1065d455b73f1782f5fe8f5",
+      "transport_snapshot_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/transport/C/transport_snapshot_manifest.json",
+      "transport_snapshot_manifest_sha256": "74107cf0ff8fadfe6bdb1a74ffcbbcb85fd787ba809027f838dbd2c8d0e9163e",
+      "transport_snapshots_sha256": "74ade2e4b1fd4fe61345e4a64cbed210fd14bb372133e60c860d9759e2c9b802"
+    }
+  },
+  "authority_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1",
+  "baseline_contract": {
+    "A_N": 1.5,
+    "S11_rate": 0,
+    "S13_rate": 0,
+    "dislocation_mode": "OFF",
+    "experimental_kappa_48h_W_mK": 1.03,
+    "experimental_kappa_6h_W_mK": 0.85,
+    "point_defect_xAg_source": "PF far-field matrix for baseline; fixed 0.0062 for inverse scan",
+    "temperature_K": 573.15,
+    "yu_refit_scale_used": false
+  },
+  "current_git_tree_listing_sha256": "a27ad86e72d92beb9adc7fbcace59789d853c823f66767ac94b1d19c8e2b082b",
+  "cwd": "/Users/heng/Documents/GitHub/CUDA_STO_PF",
+  "fixed_inventory": {
+    "box_volume_nm3": 14886936.0,
+    "scan_matrix_xAg": 0.0062,
+    "selected_effective_h_volume_nm3": 356237.62646146707,
+    "target_effective_h_volume_nm3": 356237.61016735336
+  },
+  "git_branch": "codex/pf-dynamic-microstructure-audit-v1",
+  "git_commit": "1c08f9ee011b31e0cd4d82749e58a8f69ebd2204",
+  "platform": "macOS-26.5.1-arm64-arm-64bit",
+  "profile_library_identity": {
+    "basis": "all three Method-1 fixture manifests pin this exact hash; the copied local source is field-validated before use",
+    "canonical_content_sha256": "3c8bc62d00ea1f729b926774e1044ef4fd72cf612aff2e93019c5318c4bc30d7",
+    "manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/library/library_manifest.json",
+    "manifest_sha256": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+    "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/library",
+    "profile_count": 15,
+    "profiles_validated": [
+      {
+        "profile_directory_sha256": "eae8d2c7a8197c393ba59abbebeda7e1f27cf1382b48ea7355b0007dcb9d7d3a",
+        "profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+        "target_radius_nm": 8.0
+      },
+      {
+        "profile_directory_sha256": "3fddc7b9c8428e7a408697c758407a1df8a519651f8007902d4c4a3bae20955c",
+        "profile_manifest_sha256": "05b2bec21dbfddda01f68c8cef5ecec116ad95f739ca246b7f578921129fef9c",
+        "target_radius_nm": 8.25
+      },
+      {
+        "profile_directory_sha256": "458783f1419af24531d7fd1d7ab6ff6aded21ec603f24b57bb7a81f17951d643",
+        "profile_manifest_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+        "target_radius_nm": 8.5
+      },
+      {
+        "profile_directory_sha256": "d36f6c029f82bf457314ce902feb020f3d8d5b53f587ba51a2fe48ed2373cd86",
+        "profile_manifest_sha256": "7b0e3e6cd509273fc1f0d9cdae76877eeb5bfeb2e5659f2cdfb60cf58ed005fe",
+        "target_radius_nm": 8.75
+      },
+      {
+        "profile_directory_sha256": "7ab0b356b8d21d95f7bef7f9b181d6ae89427ad373b3e2f9709dc7a346af6b8d",
+        "profile_manifest_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+        "target_radius_nm": 9.0
+      },
+      {
+        "profile_directory_sha256": "367bd0531f055a7bd5dc431bcd1ba8dca6ccf60c0e80ddb0d5b28ab1c615eb56",
+        "profile_manifest_sha256": "eee044b7c348eec3c3761558036e9073889961a570b38c34afa621ad35374d48",
+        "target_radius_nm": 9.25
+      },
+      {
+        "profile_directory_sha256": "1226a2072ac87d94d0890c4abf42fa020614a45f448c570f6b1458190ea9f222",
+        "profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+        "target_radius_nm": 9.5
+      },
+      {
+        "profile_directory_sha256": "cd5b773eb77ecbe4d8c10d5abb442970cd8b32a71d4470e60aa2ad50e04c8660",
+        "profile_manifest_sha256": "e95f3c1330fe617a0f55f1422108064c555570ca52db8a8bddd62877ffa625e0",
+        "target_radius_nm": 9.75
+      },
+      {
+        "profile_directory_sha256": "5e4543d639ed566c3ad94362eb8b5f93ca12178c96e70ec0c4f92746b7940619",
+        "profile_manifest_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+        "target_radius_nm": 10.0
+      },
+      {
+        "profile_directory_sha256": "188e1ea6705fef200e4b6e88fc87902732607bb596df1829ccfac1bd8d2ca8c3",
+        "profile_manifest_sha256": "d39d4e35fa3872618892cd5aa57aabf200af6f360fb9bb94426bfcd519f6bad8",
+        "target_radius_nm": 10.25
+      },
+      {
+        "profile_directory_sha256": "3fe1fbc620d65bbd1237d225a7f21641214e339bb2469e7d046d3fa8fb8f397b",
+        "profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+        "target_radius_nm": 10.5
+      },
+      {
+        "profile_directory_sha256": "521c15bfea6555030f1dfcf634e762830e21e805654659ac2abd016c147cb46e",
+        "profile_manifest_sha256": "c00f668be51d1c78bd574a4e4b9af15bfd55407f15769abb1366fe4d7935558c",
+        "target_radius_nm": 10.75
+      },
+      {
+        "profile_directory_sha256": "afc7db86cddfd355ebdd1f6b40794a7686ad336fdb093f96cf7af1b1fa2f85f3",
+        "profile_manifest_sha256": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+        "target_radius_nm": 11.0
+      },
+      {
+        "profile_directory_sha256": "ec0c18933e305cac1f8c6bb6a6f2742c8cd44f028c905f4f8ad12dd0e2a16840",
+        "profile_manifest_sha256": "245e911a9fdb9c30b1b0838aa6af1ed3e8903317cfc5c6e1eff5545d3b8e85c1",
+        "target_radius_nm": 11.25
+      },
+      {
+        "profile_directory_sha256": "7f84dd5a4158265894bffff6867a65ada873cac322e591fff46ebeb17cf09982",
+        "profile_manifest_sha256": "d6593810c9b2463ed67cd34f4d798d5e8662b8edd1dfc9993f9a25a7329fd770",
+        "target_radius_nm": 11.5
+      }
+    ],
+    "status": "PASS_LOCAL_15_ENTRY_LIBRARY_HASH_AND_FIELD_VALIDATION"
+  },
+  "python": "3.9.6 (default, Apr 17 2026, 18:15:52)  [Clang 21.0.0 (clang-2100.1.1.101)]",
+  "schema": "RESOLVED_SEED_ONLY_6H48H_THERMAL_TREND_FEASIBILITY_V1",
+  "transport_contract": {
+    "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json",
+    "sha256": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0"
+  },
+  "transport_script": {
+    "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/pf_full_psd_no_dislocation_transport_v1.py",
+    "sha256": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66"
+  },
+  "working_tree_porcelain": "M PROJECT_CORE_MEMORY.md\n M jobs/assemble_pf_elastic_target_profile_selected_v1.sh\n M jobs/run_pf_246cube_6h48h_production_v1.sh\n M jobs/run_pf_246cube_short_restart_v1.sh\n M jobs/run_pf_production_dt_selection_v1.sh\n M scripts/assemble_pf_elastic_target_profile_library_v1.py\n M scripts/audit_pf_246cube_6h48h_production_v1.py\n M scripts/audit_pf_246cube_short_restart_v1.py\n M scripts/audit_pf_246cube_three_seed_fixtures_v1.py\n M scripts/materialize_pf_246cube_library_handoff_v1.py\n M scripts/materialize_pf_elastic_multi_particle_6h_fixture_v1.py\n M scripts/qualify_pf_production_dt_observables_v1.py\n?? data/qualification/pf_246cube_library_inventory_selection_v1.json\n?? data/qualification/pf_elastic_target_profile_quarter_nm_v2/\n?? data/qualification/pf_full_psd_no_dislocation_transport_v1/\n?? jobs/audit_pf_246cube_hourly_lineage_v1.sh\n?? jobs/finalize_pf_246cube_hourly_lineage_v1.sh\n?? jobs/materialize_pf_246cube_quarter_nm_handoff_v1.sh\n?? reports/pf_246cube_experiment_matrix_handoff_v1/\n?? reports/pf_246cube_hourly_merge_dissolution_ABC_v1/\n?? reports/pf_246cube_hourly_merge_dissolution_AB_v1/\n?? reports/pf_246cube_hourly_merge_dissolution_B_v1/\n?? reports/pf_246cube_hourly_merge_dissolution_C_v1/\n?? reports/pf_246cube_hourly_merge_dissolution_v1/\n?? reports/pf_246cube_method1_production_authority_v1/\n?? reports/pf_246cube_quarter_nm_method1_v1/\n?? reports/pf_abc_6h8h_descriptor_sufficiency_v1/\n?? reports/pf_blocked_A_hourly_psd_no_dislocation_diagnostic_v1/\n?? reports/pf_full_psd_no_dislocation_transport_v1/\n?? reports/pf_method1_abc_hourly_no_dislocation_transport_v1/\n?? reports/resolved_seed_thermal_feasibility_v1/\n?? reports/resolved_seed_thermal_feasibility_v1_aborted_python_zip_20260802/\n?? scripts/analyze_pf_abc_6h8h_descriptor_sufficiency_v1.py\n?? scripts/analyze_pf_blocked_a_hourly_psd_no_dislocation_diagnostic_v1.py\n?? scripts/analyze_pf_method1_abc_hourly_no_dislocation_transport_v1.py\n?? scripts/analyze_resolved_seed_thermal_feasibility_v1.py\n?? scripts/assemble_pf_246cube_hourly_merge_production_authority_v1.py\n?? scripts/assemble_pf_full_psd_no_dislocation_transport_ensemble_v1.py\n?? scripts/audit_pf_246cube_hourly_merge_dissolution_v1.py\n?? scripts/build_pf_246cube_no_dislocation_transport_authority_v1.py\n?? scripts/compare_pf_246cube_hourly_lineage_ABC_v1.py\n?? scripts/compare_pf_246cube_hourly_lineage_AB_v1.py\n?? scripts/optimize_pf_246cube_library_inventory_v1.py\n?? scripts/pf_full_psd_no_dislocation_transport_v1.py\n?? scripts/qualify_pf_246cube_no_dislocation_transport_authority_v1.py\n?? scripts/qualify_pf_full_psd_no_dislocation_transport_v1.py\n?? scripts/rebase_pf_246cube_library_handoff_far_field_v1.py\n?? scripts/test_pf_246cube_hourly_merge_dissolution_v1.py\n?? scripts/test_pf_246cube_library_inventory_selection_v1.py",
+  "yu_public_parameter_config": {
+    "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/yu2024_transport_v1/yu_48h_parameters.json",
+    "sha256": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f"
+  }
+}

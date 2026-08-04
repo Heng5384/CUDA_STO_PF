@@ -1,0 +1,36 @@
+{
+  "accepted_replay_initialization": "checkpoint_warm",
+  "comparisons": [
+    {
+      "comparison": "online_vs_checkpoint_warm_replay",
+      "energy_relative_error": 0.0,
+      "max_displacement_normalized_l2": 0.0,
+      "max_strain_normalized_l2": 0.0,
+      "max_stress_normalized_l2": 0.0,
+      "no_source_or_time_advance": true,
+      "same_accepted_field_step": true,
+      "source_fields_byte_identical": true,
+      "status": "PASS"
+    },
+    {
+      "comparison": "online_vs_zero_initialized_replay",
+      "energy_relative_error": 1.4938200759189184e-09,
+      "max_displacement_normalized_l2": 4.616982186323188e-06,
+      "max_strain_normalized_l2": 4.8969737188401765e-05,
+      "max_stress_normalized_l2": 1.4159317099683879e-05,
+      "no_source_or_time_advance": true,
+      "same_accepted_field_step": true,
+      "source_fields_byte_identical": true,
+      "status": "FAIL"
+    }
+  ],
+  "schema": "MECHANICS_ONLY_ACCEPTED_FIELD_REPLAY_QUALIFICATION_V1",
+  "status": "PASS_MECHANICS_ONLY_ACCEPTED_FIELD_REPLAY_V1",
+  "thresholds": {
+    "energy_relative_error_max": 1e-06,
+    "strain_normalized_l2_max": 1e-05,
+    "stress_normalized_l2_max": 1e-05
+  },
+  "zero_initialized_replay_permitted_for_authority": false,
+  "zero_initialized_replay_status": "REJECTED_NOT_QUALIFIED"
+}

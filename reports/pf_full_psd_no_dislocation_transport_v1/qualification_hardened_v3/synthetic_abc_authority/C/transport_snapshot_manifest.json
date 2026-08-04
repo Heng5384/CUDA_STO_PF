@@ -1,0 +1,123 @@
+{
+  "outputs": {
+    "descriptor_error_summary.csv": "18bd747b19de53e36d90d865d5520b5c12df7a1cd7996a459232da0ebbf1fa71",
+    "descriptor_predictions.csv": "de1933dac44aa84ab0e4d311bc9417b432bb25b716b7ceb8c04b98be660448a9",
+    "full_psd_particles.csv": "df5cc634c4f38806416789d1cd086fc0767688a6140254cd4e5efb99090be473",
+    "kappa_time_temperature.csv": "ccfb9d44ec1f542bd7a48a002f83ddef86dd065666746320808da138745b382b",
+    "transport_snapshots.csv": "ce66428484e75fe6e74290fdd273b0f5412c95aac4553338526bb5838ba0091b"
+  },
+  "provenance": {
+    "analysis_binary_sha256": "c98d94faa4542eb75418399884244cd8fe3b27fe2ff359895b23e3cb26161b1e",
+    "campaign_manifest_sha256": "a75857493e20d0f077dbf1f6aa46f9d46de1775294fba8c408422c33bbf4ff39",
+    "fixture_manifest_sha256": "f47b00d52778d60a8e2a14935e4cfaef37624ee2b28b8fcf3e527030424c4c5b",
+    "input_hash_ledger_sha256": "13772c6100688b0750b243d06b4c0b7838af9bcedb9e163ab77843d2e3c79b9d",
+    "microstructure_csv_sha256": "f89f0b172eef426083d02526a4d543f11aac1f12954cd05c5d4a36db7a186690",
+    "particle_psd_csv_sha256": "7af8130423a09ad7934f571b541e21489db3533eb88f132aaf24957ecb21b7f5",
+    "production_adapter_script_sha256": "6e85ecb29f767fe96fe2ff4e9262ddf547629a6d538cc880d4d6d829a021104d",
+    "production_audit_gates": {
+      "checkpoint_provenance": true,
+      "checkpoint_sequence": true,
+      "fixture_schema": true,
+      "mass_and_zero_mode": true,
+      "merge_aware_particle_lineage": true,
+      "prohibited_paths": true,
+      "registered_endpoint": true
+    },
+    "production_audit_status": "PASS_246CUBE_6H48H_CONDITIONAL_PRODUCTION_V1",
+    "production_checkpoint_hashes": {
+      "0": "c244630c21c4cfa72656985080e5d073a4002bde485c77a0ab5ca53047e5ccda",
+      "1": "0274419cdfb5126ea60ee79389a63b4a3f5f8156ae371e6f29577acd370eafb2",
+      "10": "b1411b293341ad8c4703d3c9f2fbe5be18ef3aac93e0cb9c75254abb96c2daf6",
+      "11": "deb9136429384a7abdb6e12ca8d7bdbc882ba6ca985f3260055155b67674702e",
+      "12": "e1b8d01d6b44698101c63db09877911917bbec5de6b88cc0680f7844988bddfd",
+      "13": "d4e5d9dc131c35b1396df9551d40e001c0b09f2347bbadd0f8f10eaf9b4a0a84",
+      "14": "894262d35c1934edf8fd1b940bb6e0764f14bd04febfe5151739cf5050286c07",
+      "15": "d6dbe90b309b2bf39ddfd017b5d16a456b1c839d518e0e6154ca7828f215f740",
+      "16": "92e3476541ba6917aaf16dc9ed7e9c4f6a74aa1b7dc05cc06b6dd972039d0738",
+      "17": "a7fe9f0a1c2c8ada6daa4b50c958e54a15443106de652c023538a5ab19739b06",
+      "18": "cdc90a5d4b91d3951e1800904b0aa13c472a1fec3d9134d88ab198ab52359bd4",
+      "19": "450b0d6a674059a6d157b2fcfef281e3c173d47fef1fc623e2a6165ed4fd81a3",
+      "2": "fb154fa9d938072437cb268cef7592f1248b5ecbdc2e0416b9683d58c5e96ebf",
+      "20": "54ee5f7a6fd2002bbdd540eee01a149f821fe15ccdd6813632fe0039308a18b6",
+      "21": "67dc05c4d2d57d525787c8292bd4a08d89453cc7fd280c5a2d8c2f56b0ef092d",
+      "22": "75ce15654d48827c1e96328d5b6b24c972d4032049d463f33368009c33021b4d",
+      "23": "f4b1d54e0d9f35588e76f292642e60fc348a6f433d91327dc71ee31c88a5bb17",
+      "24": "83bd160c81e6267c887f9393fb0549ab8a3bbe4df5d4fea0b67a22851d742631",
+      "25": "af190bac834a4de3b83b63c710839dee03ef4fc32c52952682b9907c8ca33655",
+      "26": "ac881444ce965ca52784b66229f593fd41dfe1ba6f43d1092a8d9d25fd3ac11c",
+      "27": "3a0b1cd097bd0493733045bf13c5ee04cd263f5442f58074bcf86da0ee750dc3",
+      "28": "56368b9a17208683c530289bb41910cea6ba99e6f42a41017fe96abf994eadde",
+      "29": "54277573755b404258179f5ca38e657e081995d613f615725358af81d26f38f5",
+      "3": "58c796f121b1095a31c43b98141669a89288938c06314cb185f6c7c497e16c87",
+      "30": "dda24322183770ad11aa6ba1181b7f4920d38d5eae226a7a0f8390f53173fccf",
+      "31": "1c0da20eb5bb24ffe808f93d32994cea555e0ed195a1a37769e58acfbd290f24",
+      "32": "f78d9c4a11e6edea9445bce31247d5aa229a5e026cd00c245534119479cb6dfe",
+      "33": "6e3058e29a21c74fe95964329b884b239c742ceeb96a80a5f9f512240a6ef738",
+      "34": "5d3b8392a8ac844f3dc7ba250d097f31dd4d78923df9e8977c3c995c43b2296c",
+      "35": "594a3f37ca57a83113021f88acf7e20cfeb7ba7d6ae28f7af8556fd3d787f1de",
+      "36": "07d96008aa101c955dc60ac34986537cb262622a43e827932e9af4eaeef54b1a",
+      "37": "9c47e2d97ed8c9438d3d93d6840eee3d09f8ccda264fdbb7af00ac8d1e94be5c",
+      "38": "9e4bf6127a15295ab6867569a9bccdcb4b19e50edc8cbcba6ffdec4fce4b0b1d",
+      "39": "57dbc6ac3258779dcb89ac70b0d9356477b7217019590a438554794c0f843e6b",
+      "4": "7b3567db9aebb8e2b1790392cdb46214bf658b36ab8a369eac1b2070b971e9d2",
+      "40": "a79d1b2cec349d6e0282db43ee5aaa4fc7ebb0ff610b6fe25ed08d74b9eca9cf",
+      "41": "b0db4fc27ebf28e141ed8791108bfd30e5678c8343afaf58ab6e151cc6ad0dfa",
+      "42": "6f906bcbf28d90cdf13e19ffbc1c8053dddad51a4a53ec1a286ba57aa8a0d850",
+      "43": "e156fb9975aec9c28433db40959ec6eb41ccbd7202ee5a9c9ab008e7b521097e",
+      "5": "8e002ade0593439e8947c8774fb53ec8a8f7c9c38ba99928f1ab9ed6fe924718",
+      "6": "7543d10180ad917fad76f2b5c99179dab36aa1971e3259313f0bd962126ad027",
+      "7": "96d06266fa3fb413a2628309cdc849734f2c2a598bb7f0bc5f5cd59fa9053320",
+      "8": "780be7bea76097f562bdfe75c1fbe6565346b69720d5999575db38c79acaf0c5",
+      "9": "5d2866e52686b54881252114e7472171647c8034c458906692f3ceb07aa68ca1"
+    },
+    "replicate": "C",
+    "source_binary_sha256": "38259793e4858f6427d3782c66eb073487ee742670313891cad5beddc0ee327d",
+    "source_commit": "c6dd412aa5bd4bd64d7833a21ffd0c69c84a8efd",
+    "source_parameter_sha256": "f9c9b1ad4c4511d4fd70df2fd2dc91bab22d8f4ac281565169ec71389c09222c",
+    "trajectory_class": "QUALIFICATION_SYNTHETIC_EXPERIMENT_MATRIX_ANCHORED",
+    "upstream_analysis_manifest_sha256": "3714969d7d215174cb2324b89b9315523b6dc5390e22a8cdf54e97db65732506",
+    "upstream_audit_json_sha256": "ad5bd011fbbc77eb35401a299f89f557593bf6d518c601d9a33592417b0b2652"
+  },
+  "schema": "PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_V1",
+  "scientific_claim": "conditional resolved-PF-PSD no-dislocation lattice transport; not absolute experimental kappa reproduction",
+  "snapshot_contract": {
+    "box_volume_nm3": 14886936.0,
+    "count": 6,
+    "descriptor_closure_max_relative": {
+      "M6": 8.490224733760293e-16,
+      "Nv": 2.1680671948800003e-16,
+      "Sv": 4.613314712266281e-16,
+      "mean_R": 3.5385739530033416e-16
+    },
+    "first_age_h": 6.0,
+    "full_psd_particle_rows": 164,
+    "last_age_h": 48.0
+  },
+  "status": "PASS_PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_INTERFACE_V1",
+  "transport_contract": {
+    "A_N": 1.5,
+    "S11_rate": 0.0,
+    "S13_rate": 0.0,
+    "descriptor_models": [
+      "full_psd",
+      "Nv_plus_mean_R_monodisperse",
+      "Sv_geometric_limit",
+      "M6_rayleigh_limit",
+      "Sv_plus_M6_moment_reconstruction"
+    ],
+    "dislocation_mode": "DISLOCATION_OFF",
+    "fixed_matrix_xAg": 0.006200715773943168,
+    "full_psd_equation": "tau_Pre^-1 = v/V_box * sum_i (sigma_S^-1 + sigma_l^-1)^-1",
+    "matrix_coupling": "PF far-field xAg changes point-defect Gamma only; lattice, grain, sound, Debye and all other material parameters remain frozen",
+    "matrix_modes": [
+      "fixed_6h_matrix",
+      "pf_time_varying_matrix"
+    ],
+    "temperature_grid_K": [
+      300.0,
+      450.0,
+      600.0
+    ],
+    "yu_refit_scale_used": false
+  }
+}

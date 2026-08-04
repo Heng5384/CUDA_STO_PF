@@ -18,7 +18,7 @@
 - `reports/NEXT_*.md`: 下一工单候选
 - `reports/{validation,nucleation,cnt,gp,data}/`: 规范化的报告与数据输出目录
 - `docs/project_structure.md`: 目录职责、保留策略与生成物边界
-- `docs/current_model_status.md`: 当前 Mode L/X/Q 与 S3/RSMD 验收状态
+- `docs/current_model_status.md`: 由核心记忆同步的当前模型、生产、输运与阻塞状态摘要
 - `jobs/`: 本地运行脚本与 Slurm 提交脚本
 - `Results/`: 模拟结果输出目录（已被 Git 忽略）
 

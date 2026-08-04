@@ -1,0 +1,46 @@
+{
+  "schema": "PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_PARAMETER_CONTRACT_V1",
+  "status": "FROZEN",
+  "yu_public_parameter_config": "data/qualification/yu2024_transport_v1/yu_48h_parameters.json",
+  "yu_public_parameter_config_sha256": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f",
+  "host_baseline": "YU_48H_NON_PARTICLE_HOST_BASE",
+  "frozen_parameters": {
+    "A_N": 1.5,
+    "solid_solution_lattice_constant_angstrom": 6.445,
+    "grain_size_m": 1.21e-05,
+    "average_sound_velocity_m_s": 1770.0,
+    "debye_temperature_K": 136.0,
+    "gruneisen_gamma": 1.96
+  },
+  "disabled_inputs": {
+    "S11_dislocation_core": true,
+    "S13_dislocation_strain": true,
+    "yu_refit_scale_0p1172768": true,
+    "yu_small_precipitate_population": true,
+    "yu_big_precipitate_population": true
+  },
+  "pf_replacements": {
+    "precipitate_population": "full resolved PF PSD with one V_box^-1 weight per particle",
+    "matrix_point_defect_fraction": "PF snapshot matrix xAg"
+  },
+  "matrix_modes": {
+    "fixed_6h_matrix": "freeze each trajectory at its registered 6 h matrix xAg",
+    "pf_time_varying_matrix": "use the PF matrix xAg at each snapshot"
+  },
+  "matrix_coupling_scope": "matrix xAg changes point-defect Gamma only",
+  "temperature_grid_K": [
+    300.0,
+    350.0,
+    400.0,
+    450.0,
+    500.0,
+    550.0,
+    600.0
+  ],
+  "scientific_outputs": {
+    "kappa_L_no_dis": "conditional resolved-PF-PSD no-dislocation conductivity",
+    "delta_kappa_PSD": "fixed-matrix full-PSD kappa(t) minus registered-6h reference",
+    "delta_kappa_PSD_plus_matrix": "time-varying-matrix full-PSD kappa(t) minus registered-6h reference"
+  },
+  "forbidden_claim": "absolute experimental lattice-thermal-conductivity reproduction"
+}

@@ -1,0 +1,7 @@
+{
+  "compared_file_count": 28,
+  "mismatches": [],
+  "reference_output_ledger_sha256": "f7f4f52df5c8fc7ff459c6142fa4f52c539ebdf81f06708bb82ee94841e14e64",
+  "schema": "V3_ENDPOINT_AUDIT_DETERMINISM_V1",
+  "status": "PASS_BYTE_IDENTICAL_INDEPENDENT_REGENERATION"
+}

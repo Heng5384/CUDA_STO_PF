@@ -1,0 +1,92 @@
+{
+  "outputs": {
+    "descriptor_error_summary.csv": "116946bdd69720ca45469693395489b5d65f9aab3b6ff7de3611f6e61e3c944d",
+    "descriptor_predictions.csv": "0128e2e1927f26de0e392d47f079a85f541b31340218d02b6b05be8dc5a9819d",
+    "full_psd_particles.csv": "d01d729216e03cda9add7654f44f2931c3c99983975e673bec778e658ecab5cb",
+    "kappa_time_temperature.csv": "046544008b2bf46fa0a0e3913eb45a7adea571a25c48be765ee76e4b60b319db",
+    "transport_snapshots.csv": "5e5aba07197b501b95e37ecbf742366d4b7c3b62b25c7410932107b05a93d841"
+  },
+  "provenance": {
+    "fixture_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_6h_48h_coarsening_random_psd_v2/fixture_manifest.json",
+    "fixture_manifest_sha256": "f03ca43771200490cc0ff83646a86c8041fc65427b44ec2c3e71772f5b1d3f50",
+    "identity_use_contract": "overall snapshot PSD only; no independent post-merge particle lineage claim",
+    "microstructure_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_dynamic_microstructure_metrics_v1/elastic_72848_audit_20260730_final/microstructure_time_series.csv",
+    "microstructure_csv_sha256": "35feef2a925b8736615779b03cf285d3ec38029aa4fa2da23a8f27c22acded5d",
+    "particle_psd_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_dynamic_microstructure_metrics_v1/elastic_72848_audit_20260730_final/particle_psd_samples.csv",
+    "particle_psd_csv_sha256": "293c9df624ce0b98651dd0d3135c345713dc3c099bff294a9c28ec6e18fc8f60",
+    "replicate": "historical_elastic_72848",
+    "source_binary_sha256": "e5b6adcb489c821529e1a606b9bcff624e6b30565f72c07bce1ba8c30c23c1a3",
+    "source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+    "source_parameter_sha256": "e00a17194fd08c8a3d8db286272667c009a9ef908a951c2a9eb1e820f6236178",
+    "supplemental_provenance": [
+      {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_dynamic_microstructure_metrics_v1/incremental_merge_morphology_energy_v1_20260730/incremental_report.md",
+        "sha256": "8dddf8ce18dabbf2e037128a7327cae33999b55a775df49632978496e9f48294"
+      },
+      {
+        "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_dynamic_microstructure_metrics_v1/incremental_merge_morphology_energy_v1_20260730/analysis_manifest.sha256",
+        "sha256": "3bf3114a82fc87c343a6a36b5b1ec1041a4d62958f6e0960995caa30f2536c8f"
+      }
+    ],
+    "trajectory_class": "HISTORICAL_6H48H_INTERFACE_SMOKE_ONLY",
+    "transport_interface_script": "/Users/heng/Documents/GitHub/CUDA_STO_PF/scripts/pf_full_psd_no_dislocation_transport_v1.py",
+    "transport_interface_script_sha256": "a42f933c43d0adbd4fc9a4d86a7b74bc08d4efe64517cc3fbf1ba177b62dcf66",
+    "transport_parameter_contract": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_full_psd_no_dislocation_transport_v1/transport_parameter_contract.json",
+    "transport_parameter_contract_sha256": "d16e948dd34403129b2deecb90efbea937251e23ae9c128c353b6f66bbee1ae0",
+    "upstream_analysis_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_dynamic_microstructure_metrics_v1/elastic_72848_audit_20260730_final/analysis_manifest.txt",
+    "upstream_analysis_manifest_sha256": "25447243e48e12d5490c577165c73916b4405632bcc1a1e3086a2d3077f145b1",
+    "upstream_audit_json": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_dynamic_microstructure_metrics_v1/elastic_72848_audit_20260730_final/audit_summary.json",
+    "upstream_audit_json_sha256": "45ff1bbda603a69aa4d7278731eb87a08de5f7baf19126dfe4af43ef50d6163a",
+    "upstream_audit_status": "BLOCKED_UNEXPECTED_PARTICLE_MERGE_SPLIT_AND_EXACT_ELASTIC_ENERGY_TRACE",
+    "upstream_observational_metrics_status": "PASS",
+    "upstream_particle_identity_status": "BLOCKED_UNEXPECTED_MERGE_SPLIT",
+    "yu_public_parameter_config": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/yu2024_transport_v1/yu_48h_parameters.json",
+    "yu_public_parameter_config_sha256": "163562fa19f0cbcf3731f181ecae6c1d34f4b5952cdab9a81a5aa3eabd9f1c8f"
+  },
+  "schema": "PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_V1",
+  "scientific_claim": "conditional resolved-PF-PSD no-dislocation lattice transport; not absolute experimental kappa reproduction",
+  "snapshot_contract": {
+    "box_volume_nm3": 14886936.0,
+    "count": 43,
+    "descriptor_closure_max_relative": {
+      "M6": 8.490224733760293e-16,
+      "Nv": 2.1680671948800003e-16,
+      "Sv": 4.613314712266281e-16,
+      "mean_R": 3.5385739530033416e-16
+    },
+    "first_age_h": 6.0,
+    "full_psd_particle_rows": 777,
+    "last_age_h": 48.0
+  },
+  "status": "PASS_PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_INTERFACE_V1",
+  "transport_contract": {
+    "A_N": 1.5,
+    "S11_rate": 0.0,
+    "S13_rate": 0.0,
+    "descriptor_models": [
+      "full_psd",
+      "Nv_plus_mean_R_monodisperse",
+      "Sv_geometric_limit",
+      "M6_rayleigh_limit",
+      "Sv_plus_M6_moment_reconstruction"
+    ],
+    "dislocation_mode": "DISLOCATION_OFF",
+    "fixed_matrix_xAg": 0.006200715773943168,
+    "full_psd_equation": "tau_Pre^-1 = v/V_box * sum_i (sigma_S^-1 + sigma_l^-1)^-1",
+    "matrix_coupling": "PF far-field xAg changes point-defect Gamma only; lattice, grain, sound, Debye and all other material parameters remain frozen",
+    "matrix_modes": [
+      "fixed_6h_matrix",
+      "pf_time_varying_matrix"
+    ],
+    "temperature_grid_K": [
+      300.0,
+      350.0,
+      400.0,
+      450.0,
+      500.0,
+      550.0,
+      600.0
+    ],
+    "yu_refit_scale_used": false
+  }
+}

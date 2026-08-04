@@ -1,0 +1,32 @@
+{
+  "output_sha256": {
+    "R0_R1_R2_comparison.md": "b78d9708d712d0daa92732cfd7f2703b2f4e9bfb6eef1f8063cc8bd0d7adb82b",
+    "R1_R2_6h12h_observables.csv": "92daf800a23829e8def6a3a27912b686c5a36d96fbb22062305e2d14041dd0af",
+    "R1_R2_6h12h_transport.csv": "92daf800a23829e8def6a3a27912b686c5a36d96fbb22062305e2d14041dd0af",
+    "R1_R2_static_audit.md": "abbeeaaf498b78d3ac3833d7db3289e1e223e433395d71250f7bf6849688b4e7",
+    "R1_fixture_manifest.json": "a89f3e2912591d32e23067bf903935d653821690e31a8ad745da0667eb4fe6c3",
+    "R2_fixture_manifest.json": "eec3a5ce23b9a280e36195b1ea6655c45e36c4d63bf3407c1bd52c44f4014665",
+    "baseline_reproduction.csv": "818f5e1bc73a01600bf8886d4a2e1f1d0ad0401bf70ad6d0df092c986fddc6c2",
+    "baseline_reproduction_report.md": "7cca5e8dc6349af297bcc25cc430b602a589089ae877d77421ff880941da0eea",
+    "blind_48h_prediction_report.md": "d742fd05a8152dcb0dbd69f1d03785df0ee7458e287e020f0c56e7ad589a2352",
+    "blind_48h_predictions.csv": "e95611733fc0b4f3dcc69bfa0a7ef5e8a9cea56a3d6b15daa6545efe20b43b5d",
+    "calibrated_6h_coefficients.csv": "f498ab0a1e92a4c649b170c7c0d0886e1276a33f7ddec58bd32ad08777d146de",
+    "coefficient_physicality_audit.md": "d4df10ee1cca6418e481dac74523c7895f231069ee6dbb5f19f1a6aafc885f7f",
+    "density_only_no_go_or_feasibility_report.md": "c4fce5c322db51e6607134e256247b55db0c7430d823ebc0b3717fd063f1abc9",
+    "final_resolved_seed_only_decision.md": "c04ffb58c07ae1fc514ecc5bca10ad6b319f2dd13d58791f869eccfa65f5a3e9",
+    "final_terminal_output.txt": "bca12db42a0d013f365ab510c2b8555c8bd06e9d9a3280e55dc2a316daad6d57",
+    "interface_model_contract.md": "2ea5c136048447873afe73059cb57d7dfb96c93197e09d9017eb44e0664d9069",
+    "inverse_scan_all_cases.csv": "6268f2296af2baf7156d3fa8d2042c4ea17b3bf2c5e8c0a9b29b8cb601f1021b",
+    "inverse_scan_best_cases.csv": "9703cda6866decf84f19d47f7f7769c314f53fdc94cf1c3ffbd0a027e7bda2c7",
+    "inverse_scan_heatmap_delta_kappa.png": "a36bc7a0f78af10cadda811a0d803e87c608b66ad5e89b703134fa49f1bfcb3a",
+    "inverse_scan_heatmap_kappa48.png": "6d4ec9d864fc5e605e17ad8253cd273fa7d71d54dda10e4ccb0048b281ec983a",
+    "inverse_scan_heatmap_kappa6.png": "a8365ea18d96cfbb63b7faf81dbf7cea0cc17f7ec5e5d5a9ad9eb257b60e3f16",
+    "inverse_scan_heatmap_objective.png": "1fc2e904b292f2489cc566a80977a71ab3dcf5f44175110171394cdb9686f798",
+    "kappa_6h_calibration_closure.csv": "b305dd4cb19bbb9c66341c060961e9608ff75c15597e8ca1ff0051a7716383c9",
+    "provenance.json": "52a38cffa477a1690d6145b0e308de041c5817d9fe0d70093cb7242658c52d0f",
+    "provenance.md": "47cd3545de004cb991f686dcf20459b3715c7d66215406f6f0c3394a5e8bb6b9",
+    "strain_model_contract.md": "c02171e9bb255c3f641d2e1b02ce2a9c1cb6f472ef04f2af72bf4e1c3c75d13a"
+  },
+  "provenance_sha256": "52a38cffa477a1690d6145b0e308de041c5817d9fe0d70093cb7242658c52d0f",
+  "schema": "RESOLVED_SEED_ONLY_6H48H_THERMAL_TREND_FEASIBILITY_V1"
+}

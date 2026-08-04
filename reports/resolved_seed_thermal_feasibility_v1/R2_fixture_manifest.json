@@ -1,0 +1,7 @@
+{
+  "case": "R2",
+  "reason": "The exact 15-entry library is now locally field-validated. R1/R2 materialization and the required dynamic 6--12 h qualification are a distinct next execution stage; no 48 h PF run has been started.",
+  "required_identity": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+  "schema": "RESOLVED_SEED_ONLY_6H48H_THERMAL_TREND_FEASIBILITY_V1",
+  "status": "NOT_RUN_PENDING_STEP2_6H12H_QUALIFICATION"
+}

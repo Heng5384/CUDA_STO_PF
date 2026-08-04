@@ -36,19 +36,17 @@ HISTORICAL_FILE_SHA256 = (
 HISTORICAL_CANONICAL_SHA256 = (
     "8ce52733e6755b23f4f7d4ba53f0414ef927bb863c3eb4ce9d43cb09d4d5de45"
 )
-LIBRARY_SHA256 = (
+DEFAULT_LIBRARY_SHA256 = (
     "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
 )
-SELECTION_SHA256 = (
+DEFAULT_SELECTION_SHA256 = (
     "56c44d8f72b27bb462dffe89b59cb2fcb2ff0bf8807dec9d9cac31d2bd7fcbe3"
 )
 LIBRARY_SOURCE_TREE_SHA256 = (
     "f7855699addf98f9d5aed03af876d851d524fb62c98f5a48df78d1fe561a2a75"
 )
-LIBRARY_BINARY_SHA256 = (
-    "55cf917df94fcf01373d62f54f9ab99715975863ad5dcfb95baa8a517460cda1"
-)
-REGISTERED_RADII_NM = (8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5)
+DEFAULT_REGISTERED_RADII_NM = (8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5)
+INVENTORY_SELECTION_SCHEMA = "PF_246CUBE_LIBRARY_INVENTORY_SELECTION_V1"
 EXPECTED_HISTOGRAM = {
     "8.0": 4,
     "8.5": 19,
@@ -95,9 +93,15 @@ def write_raw(path: Path, value: np.ndarray) -> None:
     np.asarray(value, dtype="<f8").ravel(order="C").tofile(path)
 
 
-def quantize_radius(radius_nm: float) -> float:
+def radius_key(radius_nm: float) -> str:
+    return str(float(radius_nm))
+
+
+def quantize_radius(
+    radius_nm: float, registered_radii_nm: Sequence[float]
+) -> float:
     return min(
-        REGISTERED_RADII_NM,
+        registered_radii_nm,
         key=lambda candidate: (abs(radius_nm - candidate), candidate),
     )
 
@@ -122,7 +126,9 @@ def replicate_seed(label: str) -> Tuple[str, str, int]:
     return material, digest, int(digest[:16], 16)
 
 
-def load_historical(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]:
+def load_historical(
+    path: Path, registered_radii_nm: Sequence[float]
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], Dict[str, Any]]:
     if sha256(path) != HISTORICAL_FILE_SHA256:
         raise ValueError("historical fixture file SHA-256 mismatch")
     manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -139,9 +145,12 @@ def load_historical(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]], D
     quantized_r3 = 0.0
     for index, row in enumerate(source):
         radius = float(row["radius_nm"])
+        h_volume = float(row["h_volume_nm3"])
         if not math.isfinite(radius):
             raise ValueError("historical PSD contains a non-finite radius")
-        registered = quantize_radius(radius)
+        if not math.isfinite(h_volume) or h_volume <= 0.0:
+            raise ValueError("historical PSD contains an invalid h-volume")
+        registered = quantize_radius(radius, registered_radii_nm)
         original_r3 += radius**3
         quantized_r3 += registered**3
         particles.append(
@@ -149,16 +158,24 @@ def load_historical(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]], D
                 "particle_id": f"P{index:03d}",
                 "historical_particle_id": int(row["particle_id"]),
                 "historical_radius_nm": radius,
+                "historical_h_volume_nm3": h_volume,
+                "historical_effective_h_radius_nm": (
+                    3.0 * h_volume / (4.0 * math.pi)
+                ) ** (1.0 / 3.0),
+                "nearest_registered_radius_nm": registered,
                 "registered_radius_nm": registered,
                 "orientation_label": "variant_100_identity",
             }
         )
-    histogram = Counter(f"{row['registered_radius_nm']:.1f}" for row in particles)
+    histogram = Counter(radius_key(row["registered_radius_nm"]) for row in particles)
     full_histogram = {
-        f"{radius:.1f}": int(histogram.get(f"{radius:.1f}", 0))
-        for radius in REGISTERED_RADII_NM
+        radius_key(radius): int(histogram.get(radius_key(radius), 0))
+        for radius in registered_radii_nm
     }
-    if full_histogram != EXPECTED_HISTOGRAM:
+    if (
+        tuple(registered_radii_nm) == DEFAULT_REGISTERED_RADII_NM
+        and full_histogram != EXPECTED_HISTOGRAM
+    ):
         raise ValueError(
             f"quantized PSD histogram mismatch: {full_histogram}"
         )
@@ -175,6 +192,175 @@ def load_historical(path: Path) -> Tuple[Dict[str, Any], List[Dict[str, Any]], D
         "histogram": full_histogram,
     }
     return manifest, particles, audit
+
+
+def apply_inventory_selection(
+    particles: List[Dict[str, Any]],
+    psd_audit: Dict[str, Any],
+    path: Path | None,
+    registered_radii_nm: Sequence[float],
+    library_sha256: str,
+    selection_sha256: str,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any] | None]:
+    """Apply a hash-pinned integer radius-bin selection without profile scaling.
+
+    Transitions are applied to the particles with the largest historical
+    h-equivalent radius in each source bin.  This makes the particle-level
+    assignment deterministic and minimizes the radius mismatch within the
+    frozen histogram transition plan.
+    """
+    if path is None:
+        return particles, psd_audit, None
+    selection = json.loads(path.read_text(encoding="utf-8"))
+    if selection.get("schema") != INVENTORY_SELECTION_SCHEMA:
+        raise ValueError("inventory-selection schema mismatch")
+    identities = selection.get("source_identities", {})
+    expected_identities = {
+        "historical_fixture_file_sha256": HISTORICAL_FILE_SHA256,
+        "historical_canonical_manifest_sha256": HISTORICAL_CANONICAL_SHA256,
+        "profile_library_manifest_sha256": library_sha256,
+    }
+    if "profile_library_selection_provenance_sha256" in identities:
+        expected_identities[
+            "profile_library_selection_provenance_sha256"
+        ] = selection_sha256
+    for key, expected in expected_identities.items():
+        if identities.get(key) != expected:
+            raise ValueError(
+                f"inventory-selection source identity mismatch for {key}"
+            )
+    if selection.get("particle_count") != len(particles):
+        raise ValueError("inventory-selection particle count mismatch")
+    declared_radii = tuple(
+        float(value)
+        for value in selection.get("registered_radii_nm", registered_radii_nm)
+    )
+    if declared_radii != tuple(registered_radii_nm):
+        raise ValueError("inventory-selection registered radius ladder mismatch")
+    declared_histogram = {
+        radius_key(float(key)): int(value)
+        for key, value in selection["selected_histogram"].items()
+    }
+    if sum(declared_histogram.values()) != len(particles):
+        raise ValueError("inventory-selection histogram particle count mismatch")
+    if set(declared_histogram) != {radius_key(value) for value in registered_radii_nm}:
+        raise ValueError("inventory-selection histogram radius set mismatch")
+
+    applied: List[Dict[str, Any]] = []
+    if selection.get("transitions"):
+        source_histogram = {
+            radius_key(float(key)): int(value)
+            for key, value in selection.get("source_histogram", {}).items()
+        }
+        if source_histogram != psd_audit["histogram"]:
+            raise ValueError("inventory-selection source histogram mismatch")
+        selected = [dict(row) for row in particles]
+        moved: set[str] = set()
+        for transition in selection["transitions"]:
+            source = float(transition["from_radius_nm"])
+            target = float(transition["to_radius_nm"])
+            count = int(transition["count"])
+            if (
+                source not in registered_radii_nm
+                or target not in registered_radii_nm
+                or count <= 0
+            ):
+                raise ValueError("invalid inventory-selection transition")
+            candidates = sorted(
+                (
+                    row
+                    for row in selected
+                    if float(row["nearest_registered_radius_nm"]) == source
+                    and row["particle_id"] not in moved
+                ),
+                key=lambda row: (
+                    -float(row["historical_effective_h_radius_nm"]),
+                    row["particle_id"],
+                ),
+            )
+            if len(candidates) < count:
+                raise ValueError(
+                    "inventory-selection transition exceeds source bin"
+                )
+            chosen = candidates[:count]
+            for row in chosen:
+                row["registered_radius_nm"] = target
+                moved.add(str(row["particle_id"]))
+            applied.append(
+                {
+                    "from_radius_nm": source,
+                    "to_radius_nm": target,
+                    "count": count,
+                    "selected_particle_ids": [
+                        row["particle_id"] for row in chosen
+                    ],
+                }
+            )
+    else:
+        selected = sorted(
+            (dict(row) for row in particles),
+            key=lambda row: (
+                float(row["historical_effective_h_radius_nm"]),
+                row["particle_id"],
+            ),
+        )
+        cursor = 0
+        for radius in registered_radii_nm:
+            count = declared_histogram[radius_key(radius)]
+            for row in selected[cursor : cursor + count]:
+                row["registered_radius_nm"] = float(radius)
+            cursor += count
+        if cursor != len(selected):
+            raise ValueError(
+                "inventory-selection histogram assignment is incomplete"
+            )
+        selected.sort(key=lambda row: row["particle_id"])
+
+    histogram = Counter(radius_key(row["registered_radius_nm"]) for row in selected)
+    full_histogram = {
+        radius_key(radius): int(histogram.get(radius_key(radius), 0))
+        for radius in registered_radii_nm
+    }
+    if full_histogram != declared_histogram:
+        raise ValueError("inventory-selection selected histogram mismatch")
+    selected_r3 = sum(float(row["registered_radius_nm"]) ** 3 for row in selected)
+    selected_h_volume = 4.0 * math.pi * selected_r3 / 3.0
+    target_h_volume = float(selection["target_effective_h_volume_nm3"])
+    declared_selected_h_volume = float(selection["selected_effective_h_volume_nm3"])
+    if abs(selected_h_volume - declared_selected_h_volume) > 1.0e-6:
+        raise ValueError("inventory-selection selected h-volume identity mismatch")
+    updated_audit = {
+        **psd_audit,
+        "nearest_radius_histogram": psd_audit["histogram"],
+        "histogram": full_histogram,
+        "inventory_selection_applied": True,
+        "inventory_selection_sha256": sha256(path),
+        "inventory_selection_policy": selection["selection_policy"],
+        "inventory_selection_assignment_rule": selection[
+            "particle_assignment_rule"
+        ],
+        "inventory_selection_transitions": applied,
+        "selected_discrete_mean_R3_nm3": selected_r3 / len(selected),
+        "selected_effective_h_volume_nm3": selected_h_volume,
+        "target_effective_h_volume_nm3": target_h_volume,
+        "effective_h_volume_error_nm3": selected_h_volume - target_h_volume,
+    }
+    identity = {
+        "path": str(path.resolve()),
+        "sha256": sha256(path),
+        "schema": selection["schema"],
+        "selection_policy": selection["selection_policy"],
+        "target_mean_C_B_tot": float(selection["target_mean_C_B_tot"]),
+        "experimental_matrix_xAg_center": float(
+            selection["experimental_matrix_xAg_center"]
+        ),
+        "experimental_matrix_xAg_interval": selection[
+            "experimental_matrix_xAg_interval"
+        ],
+        "profile_scaling_used": False,
+        "interpolation_used": False,
+    }
+    return selected, updated_audit, identity
 
 
 def source_window_indices(center: Sequence[int]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -408,17 +594,20 @@ def component_metrics(
 def load_library_profiles(
     library_root: Path,
     selection_provenance: Path,
+    library_sha256: str,
+    selection_sha256: str,
+    registered_radii_nm: Sequence[float],
+    expected_source_tree_sha256: str,
 ) -> Tuple[Dict[float, Dict[str, Any]], Dict[str, Any]]:
     _library_path, library, profiles, freeze = library_tools.verify_library(
         library_root,
-        LIBRARY_SHA256,
+        library_sha256,
         selection_provenance,
-        SELECTION_SHA256,
+        selection_sha256,
+        registered_radii_nm,
     )
-    if freeze.get("source_tree_sha256") != LIBRARY_SOURCE_TREE_SHA256:
+    if freeze.get("source_tree_sha256") != expected_source_tree_sha256:
         raise ValueError("frozen library source-tree mismatch")
-    if freeze.get("binary_sha256") != LIBRARY_BINARY_SHA256:
-        raise ValueError("frozen library binary mismatch")
     cache: Dict[float, Dict[str, Any]] = {}
     native_coords = np.indices(NATIVE_GRID).transpose(1, 2, 3, 0)
     native_center = np.asarray([48, 48, 48])
@@ -466,10 +655,17 @@ def load_library_profiles(
             ]["sha256"],
         }
     return cache, {
-        "selected_library_manifest_sha256": LIBRARY_SHA256,
-        "selection_provenance_sha256": SELECTION_SHA256,
+        "selected_library_manifest_sha256": library_sha256,
+        "selection_provenance_sha256": selection_sha256,
         "source_tree_sha256": library["source_tree_sha256"],
         "binary_sha256": library["binary_sha256"],
+        "binary_sha256_set": library.get(
+            "binary_sha256_set", [library["binary_sha256"]]
+        ),
+        "mixed_binary_profiles": library.get("mixed_binary_profiles", False),
+        "mixed_binary_contract": library.get(
+            "mixed_binary_contract", "SINGLE_BINARY"
+        ),
     }
 
 
@@ -492,14 +688,34 @@ def assemble(
     selection_provenance: Path,
     replicate: str,
     input_order: str,
+    inventory_selection: Path | None = None,
+    library_sha256: str = DEFAULT_LIBRARY_SHA256,
+    selection_sha256: str = DEFAULT_SELECTION_SHA256,
+    registered_radii_nm: Sequence[float] = DEFAULT_REGISTERED_RADII_NM,
+    expected_source_tree_sha256: str = LIBRARY_SOURCE_TREE_SHA256,
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
     if replicate not in REPLICATES:
         raise ValueError(f"unknown replicate: {replicate}")
     _history, source_particles, psd_audit = load_historical(
-        historical_manifest
+        historical_manifest, registered_radii_nm
+    )
+    source_particles, psd_audit, inventory_selection_identity = (
+        apply_inventory_selection(
+            source_particles,
+            psd_audit,
+            inventory_selection,
+            registered_radii_nm,
+            library_sha256,
+            selection_sha256,
+        )
     )
     profiles, library_identity = load_library_profiles(
-        library_root, selection_provenance
+        library_root,
+        selection_provenance,
+        library_sha256,
+        selection_sha256,
+        registered_radii_nm,
+        expected_source_tree_sha256,
     )
     support_radii = {
         radius: float(row["support_radius_nm"])
@@ -609,7 +825,7 @@ def assemble(
                     for value in particle["center_grid"]
                 ],
                 "orientation": particle["orientation_label"],
-                "library_entry_id": f"R{radius:.1f}".replace(".", "p"),
+                "library_entry_id": f"R{radius_key(radius)}".replace(".", "p"),
                 "library_entry_sha256": profile[
                     "profile_manifest_sha256"
                 ],
@@ -675,7 +891,11 @@ def assemble(
     manifest = {
         "schema": SCHEMA,
         "initial_state_class": INITIAL_STATE_CLASS,
-        "fixture_id": f"pf_246cube_library_handoff_{replicate}_v1",
+        "fixture_id": (
+            f"pf_246cube_library_handoff_{replicate}_inventory_selected_v1"
+            if inventory_selection_identity is not None
+            else f"pf_246cube_library_handoff_{replicate}_v1"
+        ),
         "replicate_id": replicate,
         "validation_only": True,
         "scientific_semantics": (
@@ -683,10 +903,17 @@ def assemble(
             "6 h handoff state"
         ),
         "source_psd": psd_audit,
-        "profile_library_manifest_sha256": LIBRARY_SHA256,
-        "selection_provenance_sha256": SELECTION_SHA256,
-        "source_tree_sha256": LIBRARY_SOURCE_TREE_SHA256,
-        "profile_library_binary_sha256": LIBRARY_BINARY_SHA256,
+        "inventory_selection": inventory_selection_identity,
+        "profile_library_manifest_sha256": library_sha256,
+        "selection_provenance_sha256": selection_sha256,
+        "source_tree_sha256": expected_source_tree_sha256,
+        "profile_library_binary_sha256": library_identity["binary_sha256"],
+        "profile_library_binary_sha256_set": library_identity[
+            "binary_sha256_set"
+        ],
+        "profile_library_mixed_binary_contract": library_identity[
+            "mixed_binary_contract"
+        ],
         "canonical_particle_order": [
             row["particle_id"] for row in mapping_rows
         ],
@@ -784,7 +1011,7 @@ def assemble(
             "analytic_tanh_used": False,
             "clipping_used": False,
             "normalization_used": False,
-            "optimizer_invoked": False,
+            "optimizer_invoked": inventory_selection_identity is not None,
             "common_multi_particle_pre_relaxation_run": False,
             "input_manifest_order": input_order,
             "canonical_assembly_order_enforced": True,
@@ -943,6 +1170,22 @@ def main() -> None:
     parser.add_argument("--historical-manifest", type=Path, required=True)
     parser.add_argument("--library-root", type=Path, required=True)
     parser.add_argument("--selection-provenance", type=Path, required=True)
+    parser.add_argument("--inventory-selection", type=Path)
+    parser.add_argument(
+        "--library-manifest-sha256", default=DEFAULT_LIBRARY_SHA256
+    )
+    parser.add_argument(
+        "--selection-provenance-sha256", default=DEFAULT_SELECTION_SHA256
+    )
+    parser.add_argument(
+        "--registered-radii-nm",
+        type=float,
+        nargs="+",
+        default=DEFAULT_REGISTERED_RADII_NM,
+    )
+    parser.add_argument(
+        "--expected-source-tree-sha256", default=LIBRARY_SOURCE_TREE_SHA256
+    )
     parser.add_argument("--replicate", choices=REPLICATES, required=True)
     parser.add_argument(
         "--input-order", choices=("canonical", "reverse"), default="canonical"
@@ -958,6 +1201,11 @@ def main() -> None:
             args.selection_provenance,
             args.replicate,
             args.input_order,
+            args.inventory_selection,
+            args.library_manifest_sha256,
+            args.selection_provenance_sha256,
+            tuple(sorted(args.registered_radii_nm)),
+            args.expected_source_tree_sha256,
         )
         if args.out is not None:
             identity = write_fixture(

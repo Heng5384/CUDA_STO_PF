@@ -53,7 +53,7 @@ def ghs_te(T):
     return 9160.595 - 129.265373*T + 13.004*T*math.log(T) - 0.0362361*T*T + 5.006367e-6*T**3 - 1.28681e30*T**-9
 def g0_a(T): return -76063.2138 + 9.67716633*T + ghs_pb(T) + ghs_te(T)
 def g0_b(T): return 3.0*((-10128.93 - 12.645115*T) + (2.0/3.0)*ghs_ag(T) + (1.0/3.0)*ghs_te(T))
-def L_of(T): return 41212.9 - 18.05*T
+def L_of(T): return 41504.29119633958 - 18.469276826409214*T
 def mu_a(x): return g0_a(T) + R*T*math.log(1.0-clamp(x)) + L_of(T)*x*x
 def mu_b(x): return g0_b(T) + R*T*math.log(clamp(x)) + L_of(T)*(1.0-x)*(1.0-x)
 def g_mix(x):

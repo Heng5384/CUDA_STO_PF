@@ -30,27 +30,29 @@ DT_PHYSICAL_S="0.9909260953431841"
 FINAL_STEP=152585
 CHECKPOINT_CADENCE=3633
 INITIAL_STATE_CLASS="MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1"
-LIBRARY_SHA256="58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
+LIBRARY_SHA256="${LIBRARY_SHA256:-58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe}"
 CLUSTER_BINARY_SHA256="efb99c707acf7f22899425b8742c7dc06bb3231b9f21604cb5d75cf4565d8c94"
 EXPECTED_BINARY_SHA256="${EXPECTED_BINARY_SHA256:-${CLUSTER_BINARY_SHA256}}"
-PARAM_SHA256="ecbdd0ac070bdf5e5d214322b5248a08f5ca5dd4e0670427513f5ef977ea977a"
+PARAM_SHA256="${EXPECTED_PARAM_SHA256:-ecbdd0ac070bdf5e5d214322b5248a08f5ca5dd4e0670427513f5ef977ea977a}"
+EXPECTED_OPTIMIZER_INVOKED="${EXPECTED_OPTIMIZER_INVOKED:-false}"
 REGISTERED_STEPS=(21798 43596 65393 108989 152585)
 
 case "${REPLICATE}" in
   A)
-    EXPECTED_FIXTURE_SHA256="63a5080b01962bf19f72a37541ffde4302fec3a0e4dc9e519b0f759f30367de6"
+    DEFAULT_FIXTURE_SHA256="63a5080b01962bf19f72a37541ffde4302fec3a0e4dc9e519b0f759f30367de6"
     ;;
   B)
-    EXPECTED_FIXTURE_SHA256="b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c"
+    DEFAULT_FIXTURE_SHA256="b37682e5aea7cc294a675ce562a34fb0d306181990d40090df1d20779a93980c"
     ;;
   C)
-    EXPECTED_FIXTURE_SHA256="12c265be4e352392385e689c87ecaea1d18dc364428c111fab5bceb1eac0f981"
+    DEFAULT_FIXTURE_SHA256="12c265be4e352392385e689c87ecaea1d18dc364428c111fab5bceb1eac0f981"
     ;;
   *)
     echo "[fatal] REPLICATE must be A, B, or C" >&2
     exit 2
     ;;
 esac
+EXPECTED_FIXTURE_SHA256="${EXPECTED_FIXTURE_SHA256:-${DEFAULT_FIXTURE_SHA256}}"
 
 ENDPOINTS=()
 for ((step=CHECKPOINT_CADENCE; step<FINAL_STEP; step+=CHECKPOINT_CADENCE)); do
@@ -113,7 +115,9 @@ python3 - \
   "${FIXTURE_ROOT}/fixture_manifest.json" \
   "${REPLICATE}" \
   "${EXPECTED_FIXTURE_SHA256}" \
-  "${FIXTURE_ROOT}" <<'PY'
+  "${FIXTURE_ROOT}" \
+  "${LIBRARY_SHA256}" \
+  "${EXPECTED_OPTIMIZER_INVOKED}" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -134,10 +138,13 @@ if manifest.get("initial_state_class") != (
     "MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1"
 ):
     raise SystemExit("wrong initial-state class")
-if manifest.get("profile_library_manifest_sha256") != (
-    "58803a8bc6679b823e45e7a7b85df16ae68efa55338d52d4c4151b414a5ef0fe"
-):
+if manifest.get("profile_library_manifest_sha256") != sys.argv[5]:
     raise SystemExit("wrong profile library")
+expected_optimizer = sys.argv[6].lower() == "true"
+if manifest.get("assembly_contract", {}).get("optimizer_invoked") is not expected_optimizer:
+    raise SystemExit("unexpected optimizer provenance")
+if expected_optimizer and not manifest.get("inventory_selection"):
+    raise SystemExit("optimized fixture does not pin inventory selection")
 if manifest.get("grid") != {
     "Nx": 246,
     "Ny": 246,
@@ -191,6 +198,20 @@ for entry_name in ("init_meta", "initial_components", "initial_particles"):
     if actual != entry.get("sha256"):
         raise SystemExit(f"fixture auxiliary hash mismatch: {entry_name}")
 PY
+
+TARGET_MEAN_C_BTOT="$(
+  python3 - "${FIXTURE_ROOT}/fixture_manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = float(manifest["target_global_inventory"]["mean_C_B_tot"])
+if not 0.0 < value < 1.0:
+    raise SystemExit("invalid target mean C_B_tot")
+print(f"{value:.17g}")
+PY
+)"
 
 if [[ "${VALIDATE_ONLY}" -eq 1 ]]; then
   available_bytes="$(df -PB1 "$(dirname "${RUN_ROOT}")" | awk 'NR==2 {print $4}')"
@@ -411,7 +432,7 @@ run_tracker() {
     --out "${output}" \
     --grid "${GRID_N}" --dx-nm 1 --threshold "${threshold}" \
     --physical-dt-s "${DT_PHYSICAL_S}" --start-age-h 6 \
-    --target-mean 0.03 --expected-initial-count 96 \
+    --target-mean "${TARGET_MEAN_C_BTOT}" --expected-initial-count 96 \
     --allow-dissolution --allow-merge-groups
   grep -qx "PASS_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1" \
     "${output}/status.txt"
@@ -431,6 +452,7 @@ grep -qx "PASS_246CUBE_RESOLVED_MERGE_AWARE_LINEAGE_V1" \
   "${RUN_ROOT}/merge_aware/status.txt"
 
 python3 "${SOURCE_ROOT}/scripts/audit_pf_246cube_6h48h_production_v1.py" \
+  --library-sha256 "${LIBRARY_SHA256}" \
   --fixture-manifest "${FIXTURE_ROOT}/fixture_manifest.json" \
   --run-root "${RUN_ROOT}" \
   --lineage-root "${RUN_ROOT}/lineage_h1e-4" \

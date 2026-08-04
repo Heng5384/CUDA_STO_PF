@@ -1,0 +1,4 @@
+threshold_name,h_threshold,step,member_particle_ids,member_count,child_count,maximum_anchor_delta_nm,assignment_margin_nm
+low,0.0001,94458,P077+P086,2,2,2.559290717380832,81.33178936994217
+low,0.0001,98091,P077+P086,2,2,0.7213380947284225,80.99802281184313
+strong,0.005,50862,P078+P079,2,2,1.0334885233310902,71.41348758030328

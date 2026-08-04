@@ -1,0 +1,7 @@
+library_status=PASS_ELASTIC_TARGET_PROFILE_LIBRARY_ASSEMBLY_V1
+profile_count=15
+radius_ladder_nm=8,8.25,8.5,8.75,9,9.25,9.5,9.75,10,10.25,10.5,10.75,11,11.25,11.5
+library_manifest_sha256=de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b
+canonical_content_sha256=3c8bc62d00ea1f729b926774e1044ef4fd72cf612aff2e93019c5318c4bc30d7
+interpolation_status=NOT_YET_QUALIFIED
+mixed_binary_profiles=true

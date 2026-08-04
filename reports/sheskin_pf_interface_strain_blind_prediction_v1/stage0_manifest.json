@@ -1,0 +1,9 @@
+{
+  "outputs": {
+    "baseline_reproduction.csv": "fbe6fefbfa8aaf1bc3bfef65d3d1a3506459e23379b157ed3a437f3ff7a3f948",
+    "baseline_reproduction_report.md": "cbc8e8fdaceeaf7cd49a8c5b87521df4d0fe1af47ced4adf19fa1713ddcf4fe4",
+    "provenance.json": "a4b9dfea5aec8eb2dab54b58619b2d3372b9970ce1ee7c9f5bc364ca7b5f14fa",
+    "provenance.md": "69249b24f4d7bb134f5c58be8ec44116b4f96bf7c1e4df3c6940b55aff5eac5f"
+  },
+  "schema": "SHESKIN_PF_DENSITY_BASELINE_REPRODUCTION_V1"
+}

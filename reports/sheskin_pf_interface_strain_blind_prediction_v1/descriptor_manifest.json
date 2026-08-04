@@ -1,0 +1,45 @@
+{
+  "analysis_script_sha256": "725a4ced52a1852f74578c21a40662cd00db386b8b39e68577a1c4898b0614c5",
+  "core_region_contract": {
+    "beta": "phi>=0.9",
+    "matrix": "phi<=0.1"
+  },
+  "dx_nm": 1.0,
+  "fft_normalization": "rfftn(field-mean)/Nvox with Hermitian multiplicity and Parseval audit",
+  "grid": [
+    246,
+    246,
+    246
+  ],
+  "lambda_nm": 4.0,
+  "marching_cubes_level": 0.5,
+  "parameter_file": "/home/zhiheng/tmp/codex_sheskin_mechanics_replay_v1_20260802/qualification_inputs/production_physics.params",
+  "parameter_sha256": "ecbdd0ac070bdf5e5d214322b5248a08f5ca5dd4e0670427513f5ef977ea977a",
+  "periodic_marching_cubes_contract": "N+1 wrapped endpoint lattice over exactly N cells",
+  "q_bands_nm_inv": {
+    "high": [
+      0.7853981633974483,
+      3.141592653589793
+    ],
+    "low": [
+      0.0,
+      0.19634954084936207
+    ],
+    "mid": [
+      0.19634954084936207,
+      0.7853981633974483
+    ]
+  },
+  "q_bin_width_nm_inv": 0.025541403687721894,
+  "q_max_nm_inv": 3.141592653589793,
+  "schema": "PF_PERIODIC_INTERFACE_STRAIN_DESCRIPTOR_AUDIT_V1",
+  "shell_contract_nm": [
+    0.0,
+    4.0,
+    8.0,
+    16.0
+  ],
+  "status": "PASS_PF_PERIODIC_INTERFACE_STRAIN_DESCRIPTOR_AUDIT_V1",
+  "stress_scale_Pa_per_code": 504000000.0,
+  "zero_mode_removed": true
+}

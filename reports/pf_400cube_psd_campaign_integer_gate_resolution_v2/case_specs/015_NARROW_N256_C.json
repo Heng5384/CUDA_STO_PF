@@ -1,0 +1,262 @@
+{
+  "case": {
+    "case_id": "015",
+    "case_label": "NARROW_N256_C",
+    "particle_count": 256,
+    "psd_family": "NARROW",
+    "replicate": "C"
+  },
+  "discrete_psd": {
+    "canonical_radius_assignment": "SHA256(profile_assignment_v2, case family, replicate, particle_id); entries only",
+    "family": "NARROW",
+    "particle_count": 256,
+    "registered_radius_histogram": {
+      "10.50": 4,
+      "10.75": 1,
+      "11.00": 8,
+      "11.25": 211,
+      "11.50": 32
+    },
+    "solver": {
+      "family": "NARROW",
+      "integer_optimizer": "SCIPY_HIGHS_MILP_V2",
+      "narrow_reference_radius_nm": 11.261475134450889
+    },
+    "statistics": {
+      "CV": 0.012381486331131255,
+      "M3_number_nm3": 1428.1895751953125,
+      "M6_number_nm6": 2042388.9621925354,
+      "Q10_nm": 11.25,
+      "Q50_nm": 11.25,
+      "Q90_nm": 11.5,
+      "count": 256,
+      "kurtosis": 15.959701298488683,
+      "mean_radius_nm": 11.259765625,
+      "skewness": -2.2828310456054535,
+      "std_radius_nm": 0.13941263417767907
+    }
+  },
+  "fixture_id": "pf_400cube_psd_campaign_v2_015_narrow_n256_c",
+  "grid": {
+    "Nx": 400,
+    "Ny": 400,
+    "Nz": 400,
+    "dx_nm": 1.0,
+    "lambda_sm_nm": 4.0
+  },
+  "inventory_contract": {
+    "experimental_matrix_xAg_interval": [
+      0.0058,
+      0.0066
+    ],
+    "h_volume_relative_tolerance": 1e-07,
+    "inventory_policy": "COMMON_INTEGER_REALIZABLE_H_VOLUME",
+    "matrix_xAg_absolute_tolerance": 1e-05,
+    "matrix_xAg_target": 0.0062,
+    "mean_C_B_tot": 0.03,
+    "original_target_h_volume_nm3": 1531490.9025410344,
+    "planned_profile_h_volume_nm3": 1531490.944854684,
+    "selected_common_target_h_volume_nm3": 1531490.9025410344
+  },
+  "physical_contract": {
+    "GP_birth_enabled": false,
+    "GP_enabled": false,
+    "GP_release_enabled": false,
+    "common_multi_particle_equilibrium_claim": false,
+    "eigenstrain": [
+      0.046,
+      -0.022,
+      -0.017,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "elastic_boundary": "periodic_fixed_cell",
+    "elasticity_enabled": true,
+    "external_source_enabled": false,
+    "initial_relaxation_is_physical_evolution": true,
+    "new_beta_nucleation_enabled": false,
+    "orientation_label": "variant_100_identity",
+    "temperature_C": 380.0
+  },
+  "placement_contract": {
+    "algorithm": "PCG64_PERIODIC_HARD_CORE_V2",
+    "assignment_seed_unsigned64": 17561685877338805002,
+    "center_seed_unsigned64": 15414552066830118648,
+    "density_center_sets_nested": false,
+    "h_threshold": 0.0001,
+    "max_trials_per_particle": 2000000,
+    "minimum_declared_center_distance_nm": 39.0,
+    "periodic_separation_rule": "distance > max(Ri+Rj+4lambda, support_i+support_j)",
+    "placement_key": "N256_C"
+  },
+  "profile_library_contract": {
+    "analytic_profile_used": false,
+    "entries": [
+      {
+        "delta_C_relaxation_sha256": "5397a505e30c9e8fada72017c3e3981e6e462e3a1911ae294919d905cb68e0ca",
+        "h_volume_nm3": 2144.6605848700437,
+        "phi_sha256": "6edc7252399f2f0da2e029977e8f435192d9d56379fd779e037581488fa8b1af",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p0/profile_manifest.json",
+        "profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+        "radius_nm": 8.0
+      },
+      {
+        "delta_C_relaxation_sha256": "521d1120bd5f7a8e338692e888834012fb7edf48c720c050a03e4e5a597eec9d",
+        "h_volume_nm3": 2352.07114986578,
+        "phi_sha256": "fc7babe398eca30f4b71ec75433a10766dcd5d9cadd8a1943e5a3e546fadd3f8",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p25/profile_manifest.json",
+        "profile_manifest_sha256": "05b2bec21dbfddda01f68c8cef5ecec116ad95f739ca246b7f578921129fef9c",
+        "radius_nm": 8.25
+      },
+      {
+        "delta_C_relaxation_sha256": "7afd6b47cd6641bcdb8daa125b15961a5117519aa2cb77100208e7cbd3250b24",
+        "h_volume_nm3": 2572.4407845623964,
+        "phi_sha256": "2e681789c542c6a3ecb6a1c37741864f36c0add8fff7ecbdb3620b50c1246454",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p5/profile_manifest.json",
+        "profile_manifest_sha256": "e843ea99518192a993c8c72448c969bf9fb3050495fe5fe595bda482fa13db2b",
+        "radius_nm": 8.5
+      },
+      {
+        "delta_C_relaxation_sha256": "0a74243d875aa08acee49e7d6f4cd13d424d3362a2d5c2f17c214d9bdf6c73e4",
+        "h_volume_nm3": 2806.1621880415323,
+        "phi_sha256": "782bf977bd9dfa2d210bf7539f2fcdc9b4ee7421e5d1cd3b66e03d46ad1282d1",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R8p75/profile_manifest.json",
+        "profile_manifest_sha256": "7b0e3e6cd509273fc1f0d9cdae76877eeb5bfeb2e5659f2cdfb60cf58ed005fe",
+        "radius_nm": 8.75
+      },
+      {
+        "delta_C_relaxation_sha256": "4efdae5e7650ade38aa92b37747ebfbaf1eca9777bab2609df414788c5f2623f",
+        "h_volume_nm3": 3053.6280593591555,
+        "phi_sha256": "dfefdc9581399afc857cb4917bc2f499870388c7ae02a3bfc7418ba1fe2dcd32",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p0/profile_manifest.json",
+        "profile_manifest_sha256": "4c6db217f3628b5f523ef044cdb3fa4d807b28eac970c68c6dd09f0f4f6eabd7",
+        "radius_nm": 9.0
+      },
+      {
+        "delta_C_relaxation_sha256": "75e33d22720d85b5ef698410146f74331b7580ce8f44abe705be63851669860d",
+        "h_volume_nm3": 3315.231097606091,
+        "phi_sha256": "9d247de9ec2e4d8721e18c066899fb4bbc902a243a8f546de334388e20456f35",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p25/profile_manifest.json",
+        "profile_manifest_sha256": "eee044b7c348eec3c3761558036e9073889961a570b38c34afa621ad35374d48",
+        "radius_nm": 9.25
+      },
+      {
+        "delta_C_relaxation_sha256": "10a2fe5c4c1e5d6dfe33f186eb4fd2035ddb43acfcc99a63bcac7706ae2313c2",
+        "h_volume_nm3": 3591.3640018963897,
+        "phi_sha256": "46a47ad44d3a01416f32ccd77f9000840b4c4b010afc3ff26a4730c632de83b0",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+        "profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+        "radius_nm": 9.5
+      },
+      {
+        "delta_C_relaxation_sha256": "43d9576859dbdd70ad0cbb9d3313978664b178ac55de95c9e14506e869a7b5a0",
+        "h_volume_nm3": 3882.4194713057354,
+        "phi_sha256": "003d2cd02718b4f7732fe5e4e37a4304589cce3a3a72314ac39ed686a24f520a",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p75/profile_manifest.json",
+        "profile_manifest_sha256": "e95f3c1330fe617a0f55f1422108064c555570ca52db8a8bddd62877ffa625e0",
+        "radius_nm": 9.75
+      },
+      {
+        "delta_C_relaxation_sha256": "6bca7e6380c87349b04c9f288f2a096bd549dcb31db425df791b5cc04add0915",
+        "h_volume_nm3": 4188.790204894687,
+        "phi_sha256": "c2d185c678df38b6e4a02da8a4adaf2034f5878078586a08a9c132dff0382ab5",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p0/profile_manifest.json",
+        "profile_manifest_sha256": "9268965465b8bed9c188f8b12b477beb77d79f76ebdb2676e348b9ee929c0164",
+        "radius_nm": 10.0
+      },
+      {
+        "delta_C_relaxation_sha256": "b479b28c781bf20b82be7a682e99f508f2a1198cd8cc675412beb2599bed7fef",
+        "h_volume_nm3": 4510.868901748711,
+        "phi_sha256": "705b482b46fa08d8048e43bcb7b14d98679db8439d43b40875c876a4de59b6f4",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p25/profile_manifest.json",
+        "profile_manifest_sha256": "d39d4e35fa3872618892cd5aa57aabf200af6f360fb9bb94426bfcd519f6bad8",
+        "radius_nm": 10.25
+      },
+      {
+        "delta_C_relaxation_sha256": "9d63bbd0ccc561cfd28f2dc9800b4c4237cd54c1543827ddc7bf037aca9442e4",
+        "h_volume_nm3": 4849.048260952037,
+        "phi_sha256": "0d128ffc979558496104e465cb1e1d32c4fccea17ffbca5c81fd600a60207497",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p5/profile_manifest.json",
+        "profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+        "radius_nm": 10.5
+      },
+      {
+        "delta_C_relaxation_sha256": "447ac556c5fe7e58a4d7a22099532daff2404837703d8020cd529cf33f4297b6",
+        "h_volume_nm3": 5203.720981583941,
+        "phi_sha256": "88688a6614d44a9549f528e36be94fe9d667090a34564ddb490a472b16ee9a51",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R10p75/profile_manifest.json",
+        "profile_manifest_sha256": "c00f668be51d1c78bd574a4e4b9af15bfd55407f15769abb1366fe4d7935558c",
+        "radius_nm": 10.75
+      },
+      {
+        "delta_C_relaxation_sha256": "913b1f53ad791199db6f938ac656461ee1b670c91865f8c6e83f10d9a0d10920",
+        "h_volume_nm3": 5575.279762734301,
+        "phi_sha256": "36c5c17151f809139104a8e64280ddde879d56dc0e89ddba7563e5afe724a14a",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R11p0/profile_manifest.json",
+        "profile_manifest_sha256": "24569b86675506feeba1fa9139dff2ad6509892be8725e852e005eb9ce570069",
+        "radius_nm": 11.0
+      },
+      {
+        "delta_C_relaxation_sha256": "769b2332d23315b59bbebf19e3f311d793c110cf6d0378afda34619f673663a1",
+        "h_volume_nm3": 5964.117303480982,
+        "phi_sha256": "548bab806260a47b4184ca971e009bb52b8a94dee0265dfe04e71348579adc63",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R11p25/profile_manifest.json",
+        "profile_manifest_sha256": "245e911a9fdb9c30b1b0838aa6af1ed3e8903317cfc5c6e1eff5545d3b8e85c1",
+        "radius_nm": 11.25
+      },
+      {
+        "delta_C_relaxation_sha256": "639b1aac82b60767bf8257c9e500f5c9ac1722361fafe20ed423135d7eb68a83",
+        "h_volume_nm3": 6370.626302904078,
+        "phi_sha256": "c5de87379ef233cf0595ebef3b558beb74971421a90cece2cb9dc1e2d39980ed",
+        "profile_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R11p5/profile_manifest.json",
+        "profile_manifest_sha256": "d6593810c9b2463ed67cd34f4d798d5e8662b8edd1dfc9993f9a25a7329fd770",
+        "radius_nm": 11.5
+      }
+    ],
+    "expected_radii_nm": [
+      8.0,
+      8.25,
+      8.5,
+      8.75,
+      9.0,
+      9.25,
+      9.5,
+      9.75,
+      10.0,
+      10.25,
+      10.5,
+      10.75,
+      11.0,
+      11.25,
+      11.5
+    ],
+    "library_manifest_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/library/library_manifest.json",
+    "library_manifest_sha256": "de4142e0268e379f70fd1c860aab9e004421d07df4f8d872f4eaeb3dbef7af5b",
+    "native_grid": [
+      96,
+      96,
+      96
+    ],
+    "profile_interpolation_used": false,
+    "profile_rotation_used": false,
+    "profile_scaling_used": false
+  },
+  "schema": "PF_400CUBE_PSD_SPATIAL_DENSITY_INTEGER_GATE_PLAN_V2",
+  "spec_sha256": "e46205d8c63ac2f441745f2afe204e11c46a9802ca8fd227ade8d5e8f6f99511",
+  "time_contract": {
+    "checkpoint_cadence_steps": 3633,
+    "dt_code": 0.02,
+    "dt_physical_s": 0.9909260953431841,
+    "final_step": 152585,
+    "initial_age_h": 6.0,
+    "registered_science_steps": [
+      0,
+      21798,
+      43596,
+      65393,
+      108989,
+      152585
+    ]
+  }
+}

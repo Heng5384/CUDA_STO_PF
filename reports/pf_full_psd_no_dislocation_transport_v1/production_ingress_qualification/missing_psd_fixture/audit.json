@@ -1,0 +1,26 @@
+{
+  "checkpoint_hashes": {
+    "108989": "02c51537c2fd298660c397abc117d047304e691dc51454ba95d60dce3541271d",
+    "152585": "ff09345f953f0818945b32670beb7011b0028d3ac4a8ae3fac3eba43785c073a",
+    "21798": "966f61478bb150403626010ed7f821b980a5532b5ad169be00ed4ba684bab926",
+    "43596": "79142b8f9594e4d0062071d4494c8cd961f446dff559160448c82e7290ed3e0f",
+    "65393": "2abc0e14d4d330c8ad331a275a7bc8049a85539e896668eaae17076e5819ab5a"
+  },
+  "fixture_manifest_sha256": "b79c4117aae1cec10d12ed1ae0e223632b3ffc0b27eeebe34d7f213553252c7d",
+  "gates": {
+    "checkpoint_provenance": true,
+    "checkpoint_sequence": true,
+    "finite_and_bounds": true,
+    "fixture_schema": true,
+    "mass_and_zero_mode": true,
+    "merge_aware_particle_lineage": true,
+    "original_6h_fixture": true,
+    "prohibited_paths": true,
+    "registered_endpoint": true,
+    "stderr_empty": true
+  },
+  "numerical_status": "PASS_246CUBE_6H48H_CONDITIONAL_PRODUCTION_V1",
+  "qualification_only": true,
+  "replicate": "replicate_A",
+  "schema": "PF_246CUBE_6H48H_PRODUCTION_AUDIT_V1"
+}

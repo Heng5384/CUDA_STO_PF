@@ -59,7 +59,7 @@ def g_ref_ag2te(T):
 
 
 def xeq(T):
-    L = 41212.9 - 18.05*T
+    L = 41504.29119633958 - 18.469276826409214*T
     x = max(math.exp(-L/(R_GAS*T)), 1e-9)
     for _ in range(20):
         f = R_GAS*T*math.log(x)+L*(1-x)**2
@@ -70,7 +70,7 @@ def xeq(T):
 
 def energy_proxy(phi, xb, T, scale, W=1.0, kappa=0.045):
     x = np.clip(xb, 1e-12, 1-1e-12)
-    L = 41212.9-18.05*T
+    L = 41504.29119633958-18.469276826409214*T
     ga = ((1-x)*g_ref_pb(T)+x*g_ref_ag2te(T)+
           R_GAS*T*((1-x)*np.log(1-x)+x*np.log(x))+L*x*(1-x))/scale
     xe = xeq(T)

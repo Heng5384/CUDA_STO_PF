@@ -1,0 +1,217 @@
+{
+  "cases": [
+    {
+      "case_id": "001",
+      "case_label": "REF_BROAD_N512_A",
+      "particle_count": 512,
+      "placement_key": "N512_A",
+      "psd_family": "REF_BROAD_METHOD1LIKE",
+      "replicate": "A",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/001_REF_BROAD_N512_A.json",
+      "spec_sha256": "a34b3a8ff4506b26439188841fad1b2dd07bf4ee78a65045568aa5850c98a107"
+    },
+    {
+      "case_id": "002",
+      "case_label": "REF_BROAD_N512_B",
+      "particle_count": 512,
+      "placement_key": "N512_B",
+      "psd_family": "REF_BROAD_METHOD1LIKE",
+      "replicate": "B",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/002_REF_BROAD_N512_B.json",
+      "spec_sha256": "a4029b8395912ace655935fee26364e174cdbf2aa9ddc4148ce3f78e96c95e1b"
+    },
+    {
+      "case_id": "003",
+      "case_label": "REF_BROAD_N512_C",
+      "particle_count": 512,
+      "placement_key": "N512_C",
+      "psd_family": "REF_BROAD_METHOD1LIKE",
+      "replicate": "C",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/003_REF_BROAD_N512_C.json",
+      "spec_sha256": "e1e318ce1e56765596b1b26bf14f4db30f9e02b13c0e1b425952d16658aec776"
+    },
+    {
+      "case_id": "004",
+      "case_label": "NARROW_N512_A",
+      "particle_count": 512,
+      "placement_key": "N512_A",
+      "psd_family": "NARROW",
+      "replicate": "A",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/004_NARROW_N512_A.json",
+      "spec_sha256": "d23653f6b3fe42f2353f9c251835d1be673f9c9d425e130f7d83662e5db9f6d9"
+    },
+    {
+      "case_id": "005",
+      "case_label": "NARROW_N512_B",
+      "particle_count": 512,
+      "placement_key": "N512_B",
+      "psd_family": "NARROW",
+      "replicate": "B",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/005_NARROW_N512_B.json",
+      "spec_sha256": "828dbc4e3ea287578e0c2e21e1081553711e82ce5e76a6581b69aa8e4a6ce118"
+    },
+    {
+      "case_id": "006",
+      "case_label": "NARROW_N512_C",
+      "particle_count": 512,
+      "placement_key": "N512_C",
+      "psd_family": "NARROW",
+      "replicate": "C",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/006_NARROW_N512_C.json",
+      "spec_sha256": "055f22050a74953f68616615dcdcce3d5ced08269cb58082770ace58a3b3f747"
+    },
+    {
+      "case_id": "007",
+      "case_label": "LONGTAIL_N512_A",
+      "particle_count": 512,
+      "placement_key": "N512_A",
+      "psd_family": "SMALL_RICH_LONGTAIL",
+      "replicate": "A",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/007_LONGTAIL_N512_A.json",
+      "spec_sha256": "fe0d1b69f2d234ecae56643c9d48e78fd4f770e0c9ccdf17147889daadeab0e5"
+    },
+    {
+      "case_id": "008",
+      "case_label": "LONGTAIL_N512_B",
+      "particle_count": 512,
+      "placement_key": "N512_B",
+      "psd_family": "SMALL_RICH_LONGTAIL",
+      "replicate": "B",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/008_LONGTAIL_N512_B.json",
+      "spec_sha256": "62ff6da9122b8b021164c677bb0f62a488e00957636e42f3c811fa995209d9cb"
+    },
+    {
+      "case_id": "009",
+      "case_label": "LONGTAIL_N512_C",
+      "particle_count": 512,
+      "placement_key": "N512_C",
+      "psd_family": "SMALL_RICH_LONGTAIL",
+      "replicate": "C",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/009_LONGTAIL_N512_C.json",
+      "spec_sha256": "0ccc8a3c52760a4ad8ac85f8cd82a9f0762b68c8dde52a842886bd46704a4d79"
+    },
+    {
+      "case_id": "010",
+      "case_label": "BIMODAL_N512_A",
+      "particle_count": 512,
+      "placement_key": "N512_A",
+      "psd_family": "BIMODAL",
+      "replicate": "A",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/010_BIMODAL_N512_A.json",
+      "spec_sha256": "ce91823602501f318f823c1442bbbe93fdb71e9c7a439cd9a96ef4c5680a1f1c"
+    },
+    {
+      "case_id": "011",
+      "case_label": "BIMODAL_N512_B",
+      "particle_count": 512,
+      "placement_key": "N512_B",
+      "psd_family": "BIMODAL",
+      "replicate": "B",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/011_BIMODAL_N512_B.json",
+      "spec_sha256": "e2c84a9098cf7d472f7615c334f4e7213b205bb7366921fcce6fd23436d2aba7"
+    },
+    {
+      "case_id": "012",
+      "case_label": "BIMODAL_N512_C",
+      "particle_count": 512,
+      "placement_key": "N512_C",
+      "psd_family": "BIMODAL",
+      "replicate": "C",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/012_BIMODAL_N512_C.json",
+      "spec_sha256": "60e69efb14ea82b13869aa67a64742ad1868db8502914ebdfa729a77723e5c47"
+    },
+    {
+      "case_id": "013",
+      "case_label": "NARROW_N256_A",
+      "particle_count": 256,
+      "placement_key": "N256_A",
+      "psd_family": "NARROW",
+      "replicate": "A",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/013_NARROW_N256_A.json",
+      "spec_sha256": "864c2d496f701fbd9ace632288ed368f83f297b7876252315a0a7b6cd0667ac0"
+    },
+    {
+      "case_id": "014",
+      "case_label": "NARROW_N256_B",
+      "particle_count": 256,
+      "placement_key": "N256_B",
+      "psd_family": "NARROW",
+      "replicate": "B",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/014_NARROW_N256_B.json",
+      "spec_sha256": "73f2a53623952ca4af807287bf10fd03cd79f4c015cb5b104185660cb70ca669"
+    },
+    {
+      "case_id": "015",
+      "case_label": "NARROW_N256_C",
+      "particle_count": 256,
+      "placement_key": "N256_C",
+      "psd_family": "NARROW",
+      "replicate": "C",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/015_NARROW_N256_C.json",
+      "spec_sha256": "74d22a5b168acadefcbc06d7313bf67023ecbbac96e400134c25c87e22d2cc1f"
+    },
+    {
+      "case_id": "016",
+      "case_label": "NARROW_N640_A",
+      "particle_count": 640,
+      "placement_key": "N640_A",
+      "psd_family": "NARROW",
+      "replicate": "A",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/016_NARROW_N640_A.json",
+      "spec_sha256": "9063cd405695a54f276b1d84ac53ba42d5d81304887228e5b7df32f63f6fa899"
+    },
+    {
+      "case_id": "017",
+      "case_label": "NARROW_N640_B",
+      "particle_count": 640,
+      "placement_key": "N640_B",
+      "psd_family": "NARROW",
+      "replicate": "B",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/017_NARROW_N640_B.json",
+      "spec_sha256": "b9809acf65d78613467bd98223f922dfbd93c5b0e88ae92c34893de2f79e3c29"
+    },
+    {
+      "case_id": "018",
+      "case_label": "NARROW_N640_C",
+      "particle_count": 640,
+      "placement_key": "N640_C",
+      "psd_family": "NARROW",
+      "replicate": "C",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/018_NARROW_N640_C.json",
+      "spec_sha256": "a72f66c384accb3d024c80189525c3dbf06bf18123840d88148634a9dc9f6342"
+    },
+    {
+      "case_id": "019",
+      "case_label": "NARROW_N704_A",
+      "particle_count": 704,
+      "placement_key": "N704_A",
+      "psd_family": "NARROW",
+      "replicate": "A",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/019_NARROW_N704_A.json",
+      "spec_sha256": "74cdf54ff934e926a5f4c10b30bccc9b67a88d3acd9c9516456e7b401875199d"
+    },
+    {
+      "case_id": "020",
+      "case_label": "NARROW_N704_B",
+      "particle_count": 704,
+      "placement_key": "N704_B",
+      "psd_family": "NARROW",
+      "replicate": "B",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/020_NARROW_N704_B.json",
+      "spec_sha256": "8151ca2e02d029ceb9828a59f158ec3032e0e6599765e392e7abfc021cfcb105"
+    },
+    {
+      "case_id": "021",
+      "case_label": "NARROW_N704_C",
+      "particle_count": 704,
+      "placement_key": "N704_C",
+      "psd_family": "NARROW",
+      "replicate": "C",
+      "spec_path": "reports/pf_400cube_psd_campaign_integer_gate_resolution_v2/case_specs/021_NARROW_N704_C.json",
+      "spec_sha256": "dcdbb5fbbf2cad7eb49c5a36e86cf04471b46eb9f51dd2f3001ea6882b2a653f"
+    }
+  ],
+  "logical_case_count": 24,
+  "schema": "PF_400CUBE_PSD_SPATIAL_DENSITY_INTEGER_GATE_PLAN_V2",
+  "unique_scientific_cases": 21
+}

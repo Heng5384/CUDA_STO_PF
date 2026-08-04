@@ -1,0 +1,2 @@
+step,target_mass_code,lambda,residual_code,derivative_code,iterations,newton_steps,bisection_steps,Y_star_min,Y_star_max,lambda_lower,lambda_upper,accepted_zero_mode_steps
+1,5.12649166969537782e+03,-2.03999956546328548e-01,0.00000000000000000e+00,6.65352113385941266e+02,4,4,0,-5.39637978896427928e+00,-3.46609579381372113e+00,-1.46036202110357216e+01,-2.03999944230176061e-01,1

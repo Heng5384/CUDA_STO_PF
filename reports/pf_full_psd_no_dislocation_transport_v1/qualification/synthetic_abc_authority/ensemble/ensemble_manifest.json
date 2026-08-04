@@ -1,0 +1,41 @@
+{
+  "analysis_script_sha256": "a2a861722d065123f62fba46e1da663c56f34b67fa9832d9797670b53091b9a2",
+  "outputs": {
+    "ensemble_descriptor_error_summary.csv": "bdc2faf99f5a8eb91f4566cbb3b759fa3a18276d6b1f57a93b983b3996d742be",
+    "ensemble_kappa_time_temperature.csv": "a28660548995227f27ce45ef0043b4a9f454e6d6bb85016e7bcf87e0c63357ad"
+  },
+  "replicates": [
+    {
+      "candidate_id": "QUALIFICATION_A",
+      "replicate": "A",
+      "trajectory_identity_sha256": "9903d89e8cf4a06824a9b49fe57307231e21a15dd3e6ce28586d8113d8859adc",
+      "transport_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/qualification/synthetic_abc_authority/A/transport_snapshot_manifest.json",
+      "transport_manifest_sha256": "c5e850deca2260cc25345ea3624fbeeab81a2bb657b5bcbbb7e7d7dd39693b74"
+    },
+    {
+      "candidate_id": "QUALIFICATION_B",
+      "replicate": "B",
+      "trajectory_identity_sha256": "df450575912e9b68e09853be25c7b3521fdee1ed18628e6edbf228505a24b208",
+      "transport_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/qualification/synthetic_abc_authority/B/transport_snapshot_manifest.json",
+      "transport_manifest_sha256": "75f791f7a6b2a8c55385d1171896fe0aa99d3cce27e2be057fd038039b9f3335"
+    },
+    {
+      "candidate_id": "QUALIFICATION_C",
+      "replicate": "C",
+      "trajectory_identity_sha256": "cccd1e4395797f50bc8566847f40a1c7698ad2bf6fecaff07f76182761cd0b1c",
+      "transport_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_full_psd_no_dislocation_transport_v1/qualification/synthetic_abc_authority/C/transport_snapshot_manifest.json",
+      "transport_manifest_sha256": "b90d34930e663223a705e217af2accf3346b636788eedfab1ea5c08514cee8f3"
+    }
+  ],
+  "required_science_ages_h": [
+    6.0,
+    12.0,
+    18.0,
+    24.0,
+    36.0,
+    48.0
+  ],
+  "schema": "PF_FULL_PSD_NO_DISLOCATION_ENSEMBLE_V1",
+  "scientific_claim": "conditional A/B/C resolved-PF-PSD no-dislocation ensemble; not absolute experimental kappa reproduction",
+  "status": "PASS_PF_FULL_PSD_NO_DISLOCATION_TRANSPORT_ENSEMBLE_V1"
+}

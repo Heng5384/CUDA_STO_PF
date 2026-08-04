@@ -17,7 +17,7 @@ import qualify_pf_elastic_multi_particle_6h_dynamics_v1 as base
 
 
 SCHEMA = "PF_PRODUCTION_DT_OBSERVABLE_CONVERGENCE_V1"
-FIXTURE_SCHEMA = "PF_MASS_CONSERVING_LIBRARY_HANDOFF_MANIFEST_V1"
+DEFAULT_FIXTURE_SCHEMA = "PF_MASS_CONSERVING_LIBRARY_HANDOFF_MANIFEST_V1"
 PASS = "PASS_PRODUCTION_DT_OBSERVABLE_CONVERGENCE_V1"
 FAIL = "BLOCKED_PRODUCTION_DT_OBSERVABLE_CONVERGENCE_V1"
 
@@ -177,6 +177,7 @@ def state_metrics(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture-manifest", type=Path, required=True)
+    parser.add_argument("--fixture-schema", default=DEFAULT_FIXTURE_SCHEMA)
     parser.add_argument("--case", action="append", nargs=5, metavar=(
         "LABEL", "CHECKPOINT", "STDOUT", "STDERR", "MASS_CSV"
     ), required=True)
@@ -190,7 +191,7 @@ def main() -> None:
     manifest = json.loads(
         args.fixture_manifest.read_text(encoding="utf-8")
     )
-    if manifest.get("schema") != FIXTURE_SCHEMA:
+    if manifest.get("schema") != args.fixture_schema:
         raise SystemExit("wrong conditional-handoff fixture schema")
     if manifest.get("full_field_xB_dt_MAE_blocking") is not False:
         raise SystemExit("fixture has the wrong full-field xB dt policy")

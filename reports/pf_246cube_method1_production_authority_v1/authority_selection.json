@@ -1,0 +1,47 @@
+{
+  "schema": "PF_FULL_PSD_TRANSPORT_AUTHORITY_SELECTION_V1",
+  "registry_status": "PASS_EXPERIMENT_MATRIX_ANCHORED_A_B_C_COMPLETE_PASS_AUTHORITIES",
+  "source_commit": "1c08f9ee011b31e0cd4d82749e58a8f69ebd2204",
+  "selection_contract": "exactly one hourly-merge-aware production authority overlay per replicate; immutable original PF roots remain unmodified",
+  "replicates": [
+    {
+      "replicate": "A",
+      "candidates": [
+        {
+          "candidate_id": "QUARTER_NM_METHOD1_A_JOB_73364_HOURLY_MERGE_AUTHORITY_V1",
+          "selected": true,
+          "authority_status": "PASS_COMPLETE_6H48H",
+          "complete_6h48h": true,
+          "transport_output_dir": "reports/pf_246cube_method1_production_authority_v1/transport/A",
+          "transport_manifest_sha256": "c0eabf62ba31c60c0ca0ccbfe16813b534a122d2e8e1ee28d99ce98fdc576197"
+        }
+      ]
+    },
+    {
+      "replicate": "B",
+      "candidates": [
+        {
+          "candidate_id": "QUARTER_NM_METHOD1_B_JOB_73365_HOURLY_MERGE_AUTHORITY_V1",
+          "selected": true,
+          "authority_status": "PASS_COMPLETE_6H48H",
+          "complete_6h48h": true,
+          "transport_output_dir": "reports/pf_246cube_method1_production_authority_v1/transport/B",
+          "transport_manifest_sha256": "9b2f4e19fdd085115e1ff0768bd3d7a814a330631c19f43f37cf2f1346888707"
+        }
+      ]
+    },
+    {
+      "replicate": "C",
+      "candidates": [
+        {
+          "candidate_id": "QUARTER_NM_METHOD1_C_JOB_73366_HOURLY_MERGE_AUTHORITY_V1",
+          "selected": true,
+          "authority_status": "PASS_COMPLETE_6H48H",
+          "complete_6h48h": true,
+          "transport_output_dir": "reports/pf_246cube_method1_production_authority_v1/transport/C",
+          "transport_manifest_sha256": "74107cf0ff8fadfe6bdb1a74ffcbbcb85fd787ba809027f838dbd2c8d0e9163e"
+        }
+      ]
+    }
+  ]
+}

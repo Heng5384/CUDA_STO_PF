@@ -1,0 +1,19 @@
+{
+  "assembly_script_sha256": "78ed4c65603e62c5f959f05f089a4c491a968ab3b70f2d5dfaeb45174c502513",
+  "hourly_audit_dir": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_hourly_merge_dissolution_v1",
+  "hourly_audit_sha256": "9f487839ec75c626577e72b180ed9435bb75080022ea8cc7c5e928fa29e41d98",
+  "legacy_driver_status": "BLOCKED_246CUBE_6H48H_PRODUCTION_DRIVER_V1",
+  "note": "Separate authority overlay; the immutable PF production root was not edited.",
+  "remote_host": "uvip-cluster",
+  "remote_production_root": "/data/home/luozhiheng/tmp/pf_246cube_6h48h_quarter_nm_method1_A_v1_20260801",
+  "replicate": "A",
+  "schema": "PF_246CUBE_HOURLY_MERGE_PRODUCTION_AUTHORITY_ASSEMBLY_V1",
+  "source_files": {
+    "analysis_binary.sha256": "d7afce39d7ce2be8a0a1d86df84dac72f41959b2a1829525a2563eab5e64df41",
+    "campaign_manifest.json": "5f745ea8806f5a17ff36791a0a5b2a6dff0c4670aba0092a812126a13b7d380b",
+    "checkpoint_steps.txt": "fc593341b62d806d069066261baf8d18cbb58ce97538b6c8cad1ba29d2e7081d",
+    "fixture_manifest.json": "f6cce1bd1abaf0e8767f52fc70009a1cce9c928a442bc3ebd38e7c8e7c26d7b2",
+    "input_hashes.sha256": "634395dbd449bf709a1d4e8c08cddde7e473a9d6925db67db0aa82fa87776866"
+  },
+  "source_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF/reports/pf_246cube_method1_production_authority_v1/source/A"
+}

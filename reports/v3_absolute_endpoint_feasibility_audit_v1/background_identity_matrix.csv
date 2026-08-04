@@ -1,0 +1,6 @@
+background_treatment,allowed_as_formal_V3_contract,role,parameter_identity,48h_used,risk
+inherit frozen V2 A2 unchanged,False,negative_control_only,MODEL_DEPENDENT_RESIDUAL,False,host error and omitted-interface residual can be double counted
+refit with AQ under each V3 host,True,primary_AQ_only_candidate,HOST_CONTRACT_SPECIFIC_EMPIRICAL_BACKGROUND,False,poor absolute AQ fit must remain explicit
+no background,True,upper_control,B0_ZERO,False,not a calibrated description
+independently experimental constrained background,True,future_authority,INDEPENDENT,False,currently unavailable
+adjust background with 48h,False,forbidden,ENDPOINT_FIT,True,destroys blind endpoint test

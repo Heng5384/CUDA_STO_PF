@@ -1,0 +1,12 @@
+status=BLOCKED_PERIODIC_OVERLAP_PARTICLE_LINEAGE_V1
+initial_particle_count=512
+final_particle_count=19
+snapshot_count=2
+dissolution_count=468
+unqualified_dissolution_count=468
+merge_count=14
+qualified_merge_count=0
+unqualified_merge_count=14
+split_count=0
+new_component_count=0
+max_mass_relative_error=1.8073478713631631e-12

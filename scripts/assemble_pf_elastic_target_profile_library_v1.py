@@ -43,6 +43,15 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--expected-radii-nm", type=float, nargs="+", required=True)
     parser.add_argument("--radius-absolute-tolerance-nm", type=float, default=1.0e-6)
+    parser.add_argument(
+        "--allow-mixed-binary-same-source",
+        action="store_true",
+        help=(
+            "permit individually qualified profiles built for different GPU "
+            "architectures only when source commit/tree and all physical "
+            "invariants are identical"
+        ),
+    )
     args = parser.parse_args()
 
     if args.out.exists() and any(args.out.iterdir()):
@@ -77,6 +86,7 @@ def main() -> None:
                 "mass_error_relative": float(
                     manifest["constraint_contract"]["mass_error_relative"]
                 ),
+                "profile_binary_sha256": str(manifest["binary_sha256"]),
                 "profile_manifest_path": os.path.relpath(
                     manifest_path.resolve(), args.out.resolve()
                 ),
@@ -110,9 +120,7 @@ def main() -> None:
         "lambda_sm_nm",
         "v_B",
         "orientation_label",
-        "source_commit",
         "source_tree_sha256",
-        "binary_sha256",
     )
     reference = entries[0]["manifest"]
     for entry in entries[1:]:
@@ -120,6 +128,22 @@ def main() -> None:
         for key in invariant_keys:
             if manifest[key] != reference[key]:
                 raise SystemExit(f"library invariant differs for key {key}")
+    binary_hashes = sorted(
+        {str(entry["manifest"]["binary_sha256"]) for entry in entries}
+    )
+    source_commits = sorted(
+        {str(entry["manifest"].get("source_commit", "UNKNOWN")) for entry in entries}
+    )
+    if len(source_commits) != 1 and not args.allow_mixed_binary_same_source:
+        raise SystemExit(
+            "library source labels differ; use the explicit same-source mode "
+            "only when the source-tree SHA-256 is identical"
+        )
+    if len(binary_hashes) != 1 and not args.allow_mixed_binary_same_source:
+        raise SystemExit(
+            "library invariant differs for key binary_sha256; use the explicit "
+            "same-source mixed-binary mode only for a device-qualified extension"
+        )
 
     compact_entries = []
     for entry in entries:
@@ -135,9 +159,26 @@ def main() -> None:
         "grid": reference["grid"],
         "lambda_sm_nm": reference["lambda_sm_nm"],
         "v_B": reference["v_B"],
-        "source_commit": reference["source_commit"],
+        "source_commit": (
+            source_commits[0]
+            if len(source_commits) == 1
+            else "MIXED_SOURCE_LABELS_IDENTICAL_TREE"
+        ),
+        "source_commit_set": source_commits,
+        "mixed_source_labels": len(source_commits) != 1,
         "source_tree_sha256": reference["source_tree_sha256"],
-        "binary_sha256": reference["binary_sha256"],
+        "binary_sha256": (
+            binary_hashes[0]
+            if len(binary_hashes) == 1
+            else "MIXED_PROFILE_BINARIES"
+        ),
+        "binary_sha256_set": binary_hashes,
+        "mixed_binary_profiles": len(binary_hashes) != 1,
+        "mixed_binary_contract": (
+            "IDENTICAL_SOURCE_COMMIT_TREE_AND_PHYSICS_PER_PROFILE_HASH_PINNED"
+            if len(binary_hashes) != 1
+            else "SINGLE_BINARY"
+        ),
         "radius_ladder_nm": actual_ladder,
         "profile_count": len(entries),
         "profiles": compact_entries,
@@ -158,6 +199,7 @@ def main() -> None:
             "mass_error_relative",
             "profile_manifest_sha256",
             "profile_directory_sha256",
+            "profile_binary_sha256",
             "profile_manifest_path",
         ]
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -171,6 +213,7 @@ def main() -> None:
         "library_manifest_sha256": sha256(manifest_path),
         "canonical_content_sha256": library["canonical_content_sha256"],
         "interpolation_status": library["interpolation_status"],
+        "mixed_binary_profiles": str(library["mixed_binary_profiles"]).lower(),
     }
     (args.out / "final_terminal_output.txt").write_text(
         "\n".join(f"{key}={value}" for key, value in terminal.items()) + "\n",
