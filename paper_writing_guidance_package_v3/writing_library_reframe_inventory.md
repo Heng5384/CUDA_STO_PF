@@ -73,6 +73,7 @@ All V3 core files were absent at branch creation; their pre-edit hash is therefo
 | `final_status.txt` | `228f2fbcfd826cace33dfd69400952e57e5d201db636580ff79f7cd67a686b4c` | new/status |
 | `frozen_story_v3_acceptance_report.md` | `fae25b3824179bdd84ca07cffd8e5f02873b89159930080e32dff019b7b277a1` | new/deliverable |
 | `latest_writing_library_executive_summary.md` | `7932f697904f9d40668501fa44552b2bace356e5a30cc89b6c9f241a66406d24` | new/deliverable |
+| `complete_writing_library_summary_v3.md` | `9713901d403476ca0e88e5c40b2b650ac668f371ae2575444496ad60c2af5cfa` | new/complete summary |
 | `writing_library_logic_diff.md` | `64039f116fc045f0090ddcfc5a11c604feb043ab03243cb2863072088dce5cb1` | new/deliverable |
 
 The inventory and manifest are self-documenting files generated after this table; their Git blob identities are recorded in `updated_writing_library_manifest.csv` where non-self-referential.
