@@ -1,0 +1,27 @@
+{
+  "descriptor_compression_error.csv": {
+    "byte_identical": true,
+    "run_1_sha256": "93178eacd47b5968eaefb95b1ffc158ad13b21616be56aeeb3237d65fcc5fb7c",
+    "run_2_sha256": "93178eacd47b5968eaefb95b1ffc158ad13b21616be56aeeb3237d65fcc5fb7c"
+  },
+  "snapshot_descriptors.csv": {
+    "byte_identical": true,
+    "run_1_sha256": "07e759c1c4c08d1f31fa76242a08258b5b6663de419f9ac8460efb8033dc15e0",
+    "run_2_sha256": "07e759c1c4c08d1f31fa76242a08258b5b6663de419f9ac8460efb8033dc15e0"
+  },
+  "transport_member_predictions.csv": {
+    "byte_identical": true,
+    "run_1_sha256": "2d028bebb341e920286bc2553fbf8828e3000fb094c0bd477a3c3ae7576e0f1d",
+    "run_2_sha256": "2d028bebb341e920286bc2553fbf8828e3000fb094c0bd477a3c3ae7576e0f1d"
+  },
+  "transport_model_comparison.csv": {
+    "byte_identical": true,
+    "run_1_sha256": "135e26de92dc6e412d808c6b62631b96f50154346df49d8b68f821336b6def23",
+    "run_2_sha256": "135e26de92dc6e412d808c6b62631b96f50154346df49d8b68f821336b6def23"
+  },
+  "transport_qualification.json": {
+    "byte_identical": true,
+    "run_1_sha256": "655968ade29122fa4e479c3e0e49d453f71b36a82551a091131ca91e04f26fdf",
+    "run_2_sha256": "655968ade29122fa4e479c3e0e49d453f71b36a82551a091131ca91e04f26fdf"
+  }
+}
