@@ -1,0 +1,63 @@
+{
+  "simulation": {
+    "temperature_K": 653.15,
+    "max_dt_s": 900.0,
+    "min_dt_s": 1e-12,
+    "size_cfl": 0.35,
+    "rmax_outflow_relative_tolerance": 1e-10,
+    "random_seed": 20260831
+  },
+  "matrix": {
+    "molar_volume_m3_mol": 4.1009e-05,
+    "initial_xB": 0.007830537,
+    "total_b_mol_m3": null,
+    "total_inventory_mode": "DERIVED_FROM_EXPLICIT_INITIAL_STATE",
+    "inventory_tolerance_relative": 1e-10
+  },
+  "radius_grid": {
+    "minimum_m": 1e-09,
+    "maximum_m": 1.28e-07,
+    "bins": 140,
+    "lower_boundary_policy": "UNRESOLVED_SUB_1NM_DISSOLUTION_NUMERICAL_BOUNDARY_GP_OBSERVATION_SCOPE_1_TO_3_NM",
+    "handoff_radius_m": 8e-09,
+    "handoff_radius_alignment": "EXACT_LOG_GRID_EDGE_INDEX_60_OF_140"
+  },
+  "thermodynamics": {
+    "mode": "approximate_dilute",
+    "status_label": "APPROXIMATE_BETA_THERMO_FOR_EFFECTIVE_MVP",
+    "planar_reference_xB": null
+  },
+  "populations": {
+    "g": {
+      "xB": 0.02,
+      "xB_status": "UNCERTAIN_EFFECTIVE_PARAMETER_NOT_INFERRED_FROM_AG_TE_RATIO",
+      "molar_volume_m3_mol": 4.1009e-05,
+      "Vm_assumption": "Vm_g_equals_Vm_alpha_explicit_sensitivity_parameter",
+      "diffusivity_m2_s": 8.073255954803963e-20,
+      "gamma_j_m2": 0.004,
+      "xeq_infinity": 0.0057,
+      "shape_factor": 1.0,
+      "elastic_penalty_j_m3": 0.0,
+      "initial": {"kind": "empty"},
+      "nucleation": {
+        "mode": "prescribed_source",
+        "peak_rate_m3_s": 2.4e20,
+        "centre_time_s": 14400.0,
+        "width_s": 7200.0,
+        "radius_m": 1.5e-09,
+        "statement": "PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION"
+      }
+    },
+    "beta": {
+      "xB": 1.0,
+      "molar_volume_m3_mol": 4.1009e-05,
+      "diffusivity_m2_s": 8.073255954803963e-18,
+      "gamma_j_m2": 0.168,
+      "xeq_infinity": 0.00465,
+      "shape_factor": 1.0,
+      "elastic_penalty_j_m3": 0.0,
+      "initial": {"kind": "empty"},
+      "nucleation": {"mode": "off"}
+    }
+  }
+}

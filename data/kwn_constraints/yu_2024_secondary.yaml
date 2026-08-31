@@ -1,0 +1,27 @@
+{
+  "dataset": "Yu et al. 2024 Supporting Information",
+  "role": "secondary_independent_plausibility_holdout",
+  "source": "Yu_et_al_Advanced_Energy_Materials_2024_DOI_10.1002/aenm.202304442",
+  "sample_condition": "independent PbTe-Ag2Te study",
+  "observation_method": "Supporting Information microstructure inputs",
+  "observation_class": "small and big scattering populations; not jointly fit with Sheskin",
+  "small_population": {
+    "representative_radius_nm": 2.0,
+    "number_density_AQ_m3": 7.5e24,
+    "number_density_48h_m3": 2.5e19
+  },
+  "big_population": {
+    "representative_radius_AQ_nm": 30.0,
+    "representative_radius_48h_nm": 50.0,
+    "number_density_AQ_m3": 1.9e21,
+    "number_density_48h_m3": 9.2e18
+  },
+  "beta_matrix_interface_energy": {
+    "lowest_specific_registry_range_J_m2": [0.168, 0.169],
+    "usage": "beta/PbTe plausibility upper-background only; never GP/PbTe gamma"
+  },
+  "notes": [
+    "These values do not participate in a joint exact fit to the Sheskin trajectory.",
+    "They are an independent plausibility envelope only."
+  ]
+}

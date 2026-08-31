@@ -1,0 +1,11 @@
+{
+  "handoff": {
+    "schema_version": "kwn_pf_handoff_v1",
+    "mode": "sampled_beta_geometry",
+    "handoff_radius_m": 8e-09,
+    "handoff_radius_status": "NUMERICAL_PROFILE_SUPPORT_THRESHOLD_NOT_PHYSICAL_GP_TO_BETA_TRANSFORMATION_RADIUS",
+    "pf_box_dimensions_m": [9.6e-08, 9.6e-08, 9.6e-08],
+    "random_seeds": [18278234711707939752, 6256128897973916905, 4209997954605651191],
+    "unsupported_operations": ["radius_scaling", "profile_interpolation", "sharp_sphere_initialization", "superparticles"]
+  }
+}

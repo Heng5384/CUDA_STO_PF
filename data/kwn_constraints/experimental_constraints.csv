@@ -1,0 +1,7 @@
+dataset,role,state,time_h,observation_method,observation_class,number_density_m3,number_density_uncertainty_m3,matrix_Ag_at_fraction,matrix_Ag_at_fraction_uncertainty,calibration_conditioning_holdout_context
+Sheskin_2018,primary,AQ,0,TEM/APT,Ag-rich objects not automatically beta,3.61e21,1.51e21,0.0078,0.0004,calibration
+Sheskin_2018,primary,6h,6,TEM/APT,Ag-rich objects not automatically beta,1.68e24,9.2e23,0.0062,0.0004,calibration
+Sheskin_2018,primary,48h,48,TEM/APT,Ag-rich objects not automatically beta,1.21e22,7.5e21,0.0062,0.0004,calibration
+Yu_2024_SI,secondary,AQ,0,SI microstructure input,independent small population,7.5e24,,,holdout
+Yu_2024_SI,secondary,48h,48,SI microstructure input,independent small population,2.5e19,,,holdout
+Grossfeld_2017,context,peak_near_6h,6,SEM-scale,qualitative trend only,,,,,context

@@ -1,0 +1,47 @@
+{
+  "simulation": {
+    "temperature_K": 653.15,
+    "max_dt_s": 900.0,
+    "min_dt_s": 1e-12,
+    "size_cfl": 0.35,
+    "rmax_outflow_relative_tolerance": 1e-10,
+    "random_seed": 20260831
+  },
+  "matrix": {
+    "molar_volume_m3_mol": 4.1009e-05,
+    "initial_xB": 0.0070099989987237677,
+    "total_b_mol_m3": null,
+    "inventory_tolerance_relative": 1e-10
+  },
+  "radius_grid": {"minimum_m": 2.5e-10, "maximum_m": 1e-7, "bins": 200},
+  "thermodynamics": {
+    "mode": "pf_contract",
+    "pf_contract_status": "BLOCKED_CONTRACT_CONFLICT",
+    "blocking_source": "thermodynamic_contract_freeze_v1/02_authoritative_contract_decision.md"
+  },
+  "pf_snapshot_routes": {
+    "reference_A_12h": "reports/pf_246cube_method1_production_authority_v1/authority/A/registered_particle_psd.csv",
+    "reference_B_12h": "reports/pf_246cube_method1_production_authority_v1/authority/B/registered_particle_psd.csv",
+    "broad_narrow_requirement_status": "BLOCKED_FULL_400_BROAD_NARROW_PSD_NOT_LOCAL"
+  },
+  "populations": {
+    "g": {
+      "xB": 0.02,
+      "molar_volume_m3_mol": 4.1009e-05,
+      "diffusivity_m2_s": 8.073255954803963e-18,
+      "gamma_j_m2": 0.004,
+      "xeq_infinity": 0.0057,
+      "initial": {"kind": "empty"},
+      "nucleation": {"mode": "off"}
+    },
+    "beta": {
+      "xB": 1.0,
+      "molar_volume_m3_mol": 4.1009e-05,
+      "diffusivity_m2_s": 8.073255954803963e-18,
+      "gamma_j_m2": 0.168,
+      "xeq_infinity": 0.00465,
+      "initial": {"kind": "empty"},
+      "nucleation": {"mode": "off"}
+    }
+  }
+}

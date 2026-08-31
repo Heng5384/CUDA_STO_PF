@@ -1,0 +1,39 @@
+{
+  "dataset": "Sheskin et al. 2018",
+  "role": "primary_experimental_constraints",
+  "source": "Sheskin_et_al_ACS_AMI_2018_DOI_10.1021/acsami.8b15204",
+  "sample_condition": "PbTe-Ag2Te; 380 degC ageing",
+  "observation_method": "TEM/APT",
+  "observation_class": "Ag-rich objects; not automatically stoichiometric beta",
+  "observations": [
+    {
+      "state": "AQ",
+      "time_h": 0.0,
+      "number_density_m3": 3.61e21,
+      "number_density_uncertainty_m3": 1.51e21,
+      "matrix_Ag_at_fraction": 0.0078,
+      "matrix_Ag_at_fraction_uncertainty": 0.0004
+    },
+    {
+      "state": "6h",
+      "time_h": 6.0,
+      "number_density_m3": 1.68e24,
+      "number_density_uncertainty_m3": 9.2e23,
+      "matrix_Ag_at_fraction": 0.0062,
+      "matrix_Ag_at_fraction_uncertainty": 0.0004
+    },
+    {
+      "state": "48h",
+      "time_h": 48.0,
+      "number_density_m3": 1.21e22,
+      "number_density_uncertainty_m3": 7.5e21,
+      "matrix_Ag_at_fraction": 0.0062,
+      "matrix_Ag_at_fraction_uncertainty": 0.0004
+    }
+  ],
+  "notes": [
+    "AQ large objects are approximately 10-100 nm with Ag/Te near 2:1.",
+    "AQ small objects are approximately 1-10 nm with Ag/Te near 1:1.",
+    "Matrix Ag is converted to pseudo-binary xB only through the documented observation operator."
+  ]
+}
