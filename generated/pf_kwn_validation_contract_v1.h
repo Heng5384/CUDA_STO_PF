@@ -12,7 +12,7 @@
 #define PF_KWN_HD
 #endif
 
-#define PF_KWN_VALIDATION_CONTRACT_HASH "71359665955cf45531e2b1b22fec8a4fd47cdcf3f207e0336f75a6b02e7405e5"
+#define PF_KWN_VALIDATION_CONTRACT_HASH "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
 #define PF_KWN_VALIDATION_CONTRACT_SCHEMA "PF_KWN_VALIDATION_CONTRACT_V1"
 
 static constexpr double PF_KWN_R_GAS = 8.3144626181532395;
@@ -24,6 +24,9 @@ static constexpr double PF_KWN_GAMMA_J_PER_M2 = 0.16800000000000001;
 static constexpr double PF_KWN_VM_ALPHA_M3_PER_MOL = 4.1009e-05;
 static constexpr double PF_KWN_VM_BETA_M3_PER_MOL = 4.1009e-05;
 static constexpr double PF_KWN_V_B = 1;
+static constexpr int PF_KWN_CONVEX_EXTRAPOLATION_ENABLED = 0;
+static constexpr double PF_KWN_CONVEX_EXTRAPOLATION_XB_LIMIT = 0.089999999999999997;
+static constexpr double PF_KWN_CONVEX_EXTRAPOLATION_PENALTY_J_PER_MOL = 5000;
 
 PF_KWN_HD static inline double pf_kwn_clamp_fraction(double x) {
     return x < 1.0e-12 ? 1.0e-12 : (x > 1.0 - 1.0e-12 ? 1.0 - 1.0e-12 : x);

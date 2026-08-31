@@ -97,8 +97,12 @@ struct AuxPopulationState {
     std::string state = kLegacyZeroAux;
     // SHA-256 of the canonical validation thermodynamic/kinetic contract.
     std::string validation_contract_hash;
-    // SHA-256 of the package that prescribed this auxiliary population.
+    // SHA-256 of the prescribed-source inventory allocation that this
+    // fixture-conditioned handoff was built from.
     std::string source_handoff_hash;
+    // SHA-256 of the complete, compact handoff package.  This is distinct
+    // from source_handoff_hash: restart provenance must bind both identities.
+    std::string package_handoff_hash;
     std::string units = kAuxiliaryInventoryUnitsMolB;
     double Q_B_GP_mol = 0.0;
     double Q_B_beta_subgrid_mol = 0.0;

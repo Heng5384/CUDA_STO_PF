@@ -46,6 +46,10 @@ X_VALUES = (
     0.02,
     0.035,
     0.05,
+    0.08,
+    0.09,
+    0.1,
+    0.2,
 )
 RADII_NM = (2.0, 5.0, 10.0, 20.0, 50.0)
 RELATIVE_TOLERANCE = 1.0e-10
@@ -121,6 +125,7 @@ def main() -> int:
     output_rows: list[dict[str, object]] = []
     maximum_relative_error = 0.0
     maximum_solvus_absolute_error = 0.0
+    convex_enabled = int(contract.value("thermodynamics.convex_extrapolation")["enabled"])
     fields = (
         ("G_alpha_J_mol", contract.g_alpha_j_mol),
         ("mu_A_J_mol", contract.chemical_potential_a_j_mol),
@@ -132,6 +137,8 @@ def main() -> int:
     for row in rows:
         if row["contract_hash"] != contract.sha256:
             raise RuntimeError("generated C++ probe emitted a different contract hash")
+        if int(row["convex_extrapolation_enabled"]) != convex_enabled:
+            raise RuntimeError("PF wrapper convex-extrapolation switch differs from contract")
         temperature = float(row["temperature_K"])
         x_b = float(row["xB"])
         radius_m = float(row["radius_m"])
@@ -205,6 +212,8 @@ def main() -> int:
         "dissolution_driving_force_J_mol": dissolution_drive,
         "growth_driving_force_J_mol": growth_drive,
         "direction_pass": direction_pass,
+        "convex_extrapolation_enabled": bool(convex_enabled),
+        "xB_grid_max": max(X_VALUES),
         "probe": "tools/pf_thermo_probe.cpp compiled host-only through thermo_utils.h and generated/pf_kwn_validation_contract_v1.h",
     }
     SUMMARY_JSON.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")

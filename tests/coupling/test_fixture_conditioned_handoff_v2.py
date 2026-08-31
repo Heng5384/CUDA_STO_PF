@@ -10,6 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from coupling.fixture_conditioned_handoff_v2 import (
+    AUXILIARY_SIDECAR_FILENAME,
+    AUXILIARY_SIDECAR_SCHEMA_VERSION,
+    AUXILIARY_SIDECAR_SEMANTICS,
     FixtureConditionedHandoffError,
     InfeasibleFixtureConditionedHandoff,
     build_fixture_conditioned_handoff_v2,
@@ -18,6 +21,7 @@ from coupling.fixture_conditioned_handoff_v2 import (
     make_synthetic_fixture_control,
     map_matrix_inventory_preserving_fixture,
     read_fixture_conditioned_handoff_v2,
+    render_auxiliary_population_sidecar_v1,
     validate_fixture_conditioned_handoff_v2,
     write_fixture_conditioned_handoff_v2,
 )
@@ -121,6 +125,34 @@ class FixtureConditionedHandoffV2Tests(unittest.TestCase):
         self.assertEqual(report["double_count_check"]["status"], "PASS_NO_DOUBLE_COUNT")
         for name, value in arrays.items():
             self.assertTrue(np.array_equal(value, restored_arrays[name]), name)
+
+    def test_package_emits_compact_deterministic_auxiliary_sidecar(self) -> None:
+        metadata, arrays, _ = build_fixture_conditioned_handoff_v2(
+            self.fixture, self.contract
+        )
+        with tempfile.TemporaryDirectory(prefix="fixture_conditioned_sidecar_") as raw:
+            root = Path(raw) / "package"
+            paths = write_fixture_conditioned_handoff_v2(
+                root, metadata, arrays, self.fixture, self.contract
+            )
+            restored, restored_arrays, _ = read_fixture_conditioned_handoff_v2(
+                root, self.fixture, self.contract
+            )
+            text = paths["auxiliary_sidecar"].read_text(encoding="utf-8")
+        self.assertEqual(paths["auxiliary_sidecar"].name, AUXILIARY_SIDECAR_FILENAME)
+        self.assertEqual(
+            text,
+            render_auxiliary_population_sidecar_v1(restored, restored_arrays),
+        )
+        self.assertIn(f"schema_version={AUXILIARY_SIDECAR_SCHEMA_VERSION}", text)
+        self.assertIn(f"validation_contract_hash={self.contract.contract_hash}", text)
+        self.assertIn("gp_bin=", text)
+        self.assertIn("beta_subgrid_bin=", text)
+        self.assertNotIn("matrix_baseline_xB", text)
+        self.assertEqual(
+            restored["auxiliary_sidecar"]["semantics"],
+            AUXILIARY_SIDECAR_SEMANTICS,
+        )
 
     def test_infeasible_target_fails_without_clamping(self) -> None:
         impossible = (

@@ -272,9 +272,11 @@
 
 #ifdef THERMO_UTILS_DEFINE_GLOBALS
 #ifdef __CUDACC__
-__device__ __constant__ int d_thermo_convex_extrapolation_enabled = 1;
+__device__ __constant__ int d_thermo_convex_extrapolation_enabled =
+    PF_KWN_CONVEX_EXTRAPOLATION_ENABLED;
 #endif
-int h_thermo_convex_extrapolation_enabled = 1;
+int h_thermo_convex_extrapolation_enabled =
+    PF_KWN_CONVEX_EXTRAPOLATION_ENABLED;
 #else
 #ifdef __CUDACC__
 extern __device__ __constant__ int d_thermo_convex_extrapolation_enabled;
@@ -295,10 +297,12 @@ DEVICE_FUNC static inline double D_Ag_in_PbTe_m2_per_s(double T_K) {
     return pf_kwn_D_alpha_m2_s(T_K);
 }
 
-// 定义凸化外推的临界浓度
-// 当 xB 超过此值时，启用二次惩罚以保证热力学稳定性
-// 0.15 通常是一个安全的选择 (大于溶解度 ~0.016，且小于 Spinodal点)
-#define X_LIMIT_CONVEX 0.09
+// The validation contract owns this optional stabilization branch.  It is
+// currently disabled, but its latent threshold and penalty remain generated
+// rather than hand-maintained PF-side literals.
+#define X_LIMIT_CONVEX PF_KWN_CONVEX_EXTRAPOLATION_XB_LIMIT
+#define THERMO_CONVEX_PENALTY_J_PER_MOL \
+    PF_KWN_CONVEX_EXTRAPOLATION_PENALTY_J_PER_MOL
 
 // 将数值限制在 [0,1] 内
 DEVICE_FUNC static inline double clamp01(double value){
@@ -376,6 +380,24 @@ DEVICE_FUNC static inline double dmu_Ag2Te_calphad_dx(double T, double xB) {
     return PF_KWN_R_GAS * T / x - 2.0 * pf_kwn_L(T) * (1.0 - x);
 }
 
+DEVICE_FUNC static inline double dmu_PbTe_raw_dx(double T, double xB) {
+    if (!thermo_convex_extrapolation_enabled_runtime() ||
+        xB <= X_LIMIT_CONVEX) {
+        return dmu_PbTe_calphad_dx(T, xB);
+    }
+    return dmu_PbTe_calphad_dx(T, X_LIMIT_CONVEX) +
+           2.0 * THERMO_CONVEX_PENALTY_J_PER_MOL * (xB - X_LIMIT_CONVEX);
+}
+
+DEVICE_FUNC static inline double dmu_Ag2Te_raw_dx(double T, double xB) {
+    if (!thermo_convex_extrapolation_enabled_runtime() ||
+        xB <= X_LIMIT_CONVEX) {
+        return dmu_Ag2Te_calphad_dx(T, xB);
+    }
+    return dmu_Ag2Te_calphad_dx(T, X_LIMIT_CONVEX) +
+           2.0 * THERMO_CONVEX_PENALTY_J_PER_MOL * (xB - X_LIMIT_CONVEX);
+}
+
 // --- [核心修改] 安全的化学势函数 (带凸化外推) ---
 
 // 溶剂 PbTe (Matrix) 的化学势
@@ -389,10 +411,9 @@ DEVICE_FUNC static inline double mu_PbTe_raw(double T, double xB) {
         double xc = X_LIMIT_CONVEX;
         double mu_c = mu_PbTe_calphad(T, xc);
         double slope_c = dmu_PbTe_calphad_dx(T, xc);
-        double K_penalty = 5000.0; // 强惩罚系数，确保能量迅速升高
-        
         double delta_x = xB - xc;
-        return mu_c + slope_c * delta_x + K_penalty * delta_x * delta_x;
+        return mu_c + slope_c * delta_x +
+               THERMO_CONVEX_PENALTY_J_PER_MOL * delta_x * delta_x;
     }
 }
 
@@ -406,10 +427,9 @@ DEVICE_FUNC static inline double mu_Ag2Te_raw(double T, double xB) {
         double xc = X_LIMIT_CONVEX;
         double mu_c = mu_Ag2Te_calphad(T, xc);
         double slope_c = dmu_Ag2Te_calphad_dx(T, xc);
-        double K_penalty = 5000.0; // 强惩罚系数
-        
         double delta_x = xB - xc;
-        return mu_c + slope_c * delta_x + K_penalty * delta_x * delta_x;
+        return mu_c + slope_c * delta_x +
+               THERMO_CONVEX_PENALTY_J_PER_MOL * delta_x * delta_x;
     }
 }
 
@@ -513,12 +533,12 @@ DEVICE_FUNC static inline double gamma_thermo_nonlinear(double xB, double h,
                                             double Vm_alpha_0, double dVm_alpha_dxB,
                                             double Vm_compound,
                                             double temperature_K, double energy_scale){
-    // Restore the legacy high-composition driving-force limiter behind the
-    // existing thermodynamic stabilization switch. Above xB=0.08, Gamma is
-    // evaluated at the cutoff and therefore remains constant.
+    // Any high-composition limiter is owned by the same generated validation
+    // contract as the chemical-potential branch.
     double xB_calc = xB;
-    if (thermo_convex_extrapolation_enabled_runtime() && xB_calc > 0.08) {
-        xB_calc = 0.08;
+    if (thermo_convex_extrapolation_enabled_runtime() &&
+        xB_calc > X_LIMIT_CONVEX) {
+        xB_calc = X_LIMIT_CONVEX;
     }
 
     double c_bulk = c_xB_phi(xB_calc, Vm_alpha_0, dVm_alpha_dxB, Vm_compound, h);

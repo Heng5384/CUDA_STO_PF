@@ -37,7 +37,7 @@ class FourBucketStorageControlsTests(unittest.TestCase):
             gp_fraction=0.01,
             subgrid_fraction=0.005,
             transfer_fraction=0.01,
-            run_cpp_v5_test=False,
+            run_cpp_v6_test=False,
         )
         self.assertEqual(
             summary["status"], "PASS_FOUR_BUCKET_HOST_STORAGE_CONTROL_NOT_CUDA"
@@ -77,7 +77,7 @@ class FourBucketStorageControlsTests(unittest.TestCase):
             ],
             1.0e-12,
         )
-        self.assertEqual(summary["S4_cpp_V5_checkpoint_dependency"]["cuda_pf_dynamics"], "NOT_RUN")
+        self.assertEqual(summary["S4_cpp_V6_checkpoint_dependency"]["cuda_pf_dynamics"], "NOT_RUN")
         self.assertEqual(len(rows), 21)
 
 

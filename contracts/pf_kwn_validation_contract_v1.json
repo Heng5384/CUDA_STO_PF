@@ -329,6 +329,26 @@
       "used_by_kwn": false,
       "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
     },
+    "C_alpha_voigt_GPa": {
+      "value": [[108.0, 6.0, 6.0, 0.0, 0.0, 0.0], [6.0, 71.0, 43.0, 0.0, 0.0, 0.0], [6.0, 43.0, 71.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 51.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 14.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0, 14.0]],
+      "unit": "GPa; 6x6 Voigt stiffness in the validation fixture basis",
+      "source_file": "physical_inputs.example.json",
+      "source_line_or_symbol": "C_tensor_PbTe_GPa",
+      "authority_role": "validation_fixture_matrix_elastic_constants",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "C_beta_voigt_GPa": {
+      "value": [[64.53932315, 42.71742108, 40.48003361, 2.17554086, -0.06871424, 1.43079278], [42.71742108, 90.0, 46.28257892, 2.50650732, 4.13187759, 1.64846021], [40.48003361, 46.28257892, 68.50060964, 2.83747377, 4.65968934, 1.86612765], [2.17554086, 2.50650732, 2.83747377, 11.50967838, 0.76715418, -2.29548755], [-0.06871424, 4.13187759, 4.65968934, 0.76715418, 17.48003361, 0.50453599], [1.43079278, 1.64846021, 1.86612765, -2.29548755, 0.50453599, 13.49032162]],
+      "unit": "GPa; 6x6 Voigt stiffness in the validation fixture basis",
+      "source_file": "physical_inputs.example.json",
+      "source_line_or_symbol": "C_tensor_Ag2Te_GPa",
+      "authority_role": "validation_fixture_beta_elastic_constants",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
     "eigenstrain_voigt": {
       "value": [0.046, -0.022, -0.017, 0.0, 0.0, 0.0],
       "unit": "dimensionless",

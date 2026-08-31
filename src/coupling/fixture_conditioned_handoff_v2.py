@@ -38,6 +38,11 @@ METADATA_FILENAME = "metadata.json"
 ARRAYS_FILENAME = "arrays.npz"
 LEDGER_FILENAME = "ledger.csv"
 VALIDATION_REPORT_FILENAME = "validation_report.json"
+AUXILIARY_SIDECAR_FILENAME = "auxiliary_population_state_v1.txt"
+AUXILIARY_SIDECAR_SCHEMA_VERSION = "PF_AUXILIARY_HANDOFF_V2_SIDECAR_V1"
+AUXILIARY_SIDECAR_SEMANTICS = (
+    "COMPACT_FROZEN_STORAGE_REQUIRES_SEPARATE_RAW_FIELDS"
+)
 DEFAULT_RELATIVE_TOLERANCE = 1.0e-10
 FIXTURE_CONDITIONED_DISCLAIMER = (
     "FIXTURE_CONDITIONED_PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION"
@@ -754,6 +759,203 @@ def _array_manifest(arrays: Mapping[str, np.ndarray]) -> Dict[str, Any]:
     }
 
 
+def _sidecar_value(value: Any, label: str) -> str:
+    """Return one deliberately unescaped sidecar token.
+
+    The sidecar grammar is ``key=value`` with comma-separated numeric bins.
+    It is intentionally smaller than a JSON reader for the host-only C++
+    materializer, so every string field must remain a single unambiguous line.
+    """
+
+    text = str(value)
+    if not text or any(character in text for character in ("\n", "\r", "=")):
+        raise FixtureConditionedHandoffError(
+            f"{label} cannot be represented by the auxiliary sidecar"
+        )
+    return text
+
+
+def _sidecar_float(value: Any, label: str) -> str:
+    return format(_finite(value, label), ".17e")
+
+
+def _sidecar_bin_inventory_mol(
+    lower_m: float,
+    upper_m: float,
+    number_density_per_m4: float,
+    box_volume_m3: float,
+    x_b: float,
+    vm_m3_mol: float,
+) -> float:
+    width_m = upper_m - lower_m
+    centre_m = 0.5 * (lower_m + upper_m)
+    particle_volume_m3 = 4.0 * math.pi / 3.0 * centre_m**3
+    return (
+        number_density_per_m4
+        * width_m
+        * particle_volume_m3
+        * box_volume_m3
+        * x_b
+        / vm_m3_mol
+    )
+
+
+def _sidecar_population_provenance(
+    auxiliary: Mapping[str, Any], population_name: str
+) -> Tuple[str, str]:
+    population = _require_mapping(auxiliary.get(population_name), population_name)
+    provenance = _require_mapping(
+        population.get("provenance"), f"{population_name} provenance"
+    )
+    kind = _sidecar_value(provenance.get("kind"), f"{population_name} provenance kind")
+    backend = _sidecar_value(
+        provenance.get("backend"), f"{population_name} provenance backend"
+    )
+    disclaimer = _sidecar_value(
+        provenance.get("disclaimer"), f"{population_name} provenance disclaimer"
+    )
+    # The compact label fits the V5 checkpoint identity field.  The separate
+    # disclaimer line preserves the full non-predictive scope in the sidecar.
+    return _sidecar_value(f"{kind}|{backend}", f"{population_name} provenance"), disclaimer
+
+
+def render_auxiliary_population_sidecar_v1(
+    metadata: Mapping[str, Any], arrays: Mapping[str, np.ndarray]
+) -> str:
+    """Materialize the deterministic, compact C++ auxiliary-state sidecar.
+
+    Dense ``phi``/``xB`` fields never appear here.  A C++ reader converts each
+    continuum ``n(R)`` density from ``m^-4`` to its bin-integrated ``m^-3``
+    value and independently recomputes every listed bin inventory.
+    """
+
+    data = _require_mapping(metadata, "metadata")
+    auxiliary = _require_mapping(data.get("auxiliary_state"), "auxiliary state")
+    ledger = _require_mapping(data.get("ledger"), "ledger")
+    box = _require_mapping(data.get("box"), "box")
+    gp = _require_mapping(auxiliary.get("GP"), "GP auxiliary state")
+    subgrid = _require_mapping(
+        auxiliary.get("beta_subgrid"), "beta-subgrid auxiliary state"
+    )
+    gp_edges = np.asarray(arrays.get("gp_radius_bin_edges_m"), dtype=np.float64)
+    gp_density = np.asarray(arrays.get("gp_number_density_per_m4"), dtype=np.float64)
+    subgrid_edges = np.asarray(
+        arrays.get("beta_subgrid_radius_bin_edges_m"), dtype=np.float64
+    )
+    subgrid_density = np.asarray(
+        arrays.get("beta_subgrid_number_density_per_m4"), dtype=np.float64
+    )
+    if (
+        gp_edges.ndim != 1
+        or subgrid_edges.ndim != 1
+        or gp_density.ndim != 1
+        or subgrid_density.ndim != 1
+        or gp_edges.size != gp_density.size + 1
+        or subgrid_edges.size != subgrid_density.size + 1
+    ):
+        raise FixtureConditionedHandoffError("auxiliary sidecar PSD arrays are invalid")
+    if any(
+        not np.all(np.isfinite(value))
+        for value in (gp_edges, gp_density, subgrid_edges, subgrid_density)
+    ):
+        raise FixtureConditionedHandoffError("auxiliary sidecar PSD arrays are non-finite")
+    gp_provenance, gp_disclaimer = _sidecar_population_provenance(auxiliary, "GP")
+    subgrid_provenance, subgrid_disclaimer = _sidecar_population_provenance(
+        auxiliary, "beta_subgrid"
+    )
+    if gp_disclaimer != FIXTURE_CONDITIONED_DISCLAIMER or subgrid_disclaimer != FIXTURE_CONDITIONED_DISCLAIMER:
+        raise FixtureConditionedHandoffError("auxiliary sidecar lacks the prescribed-source disclaimer")
+    required_hashes = (
+        ("contract_hash", data.get("contract_hash")),
+        ("source_handoff_hash", data.get("source_handoff_hash")),
+        ("package_hash", data.get("package_hash")),
+        ("fixture_hash", data.get("fixture_hash")),
+    )
+    for label, value in required_hashes:
+        text = _sidecar_value(value, label)
+        if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+            raise FixtureConditionedHandoffError(f"{label} must be a lowercase SHA-256")
+
+    box_volume_m3 = _finite(box.get("box_volume_m3"), "box volume")
+    gp_x_b = _finite(gp.get("xB_g"), "GP xB")
+    gp_vm = _finite(gp.get("Vm_m3_mol"), "GP Vm")
+    subgrid_x_b = _finite(subgrid.get("xB_beta"), "subgrid xB")
+    subgrid_vm = _finite(subgrid.get("Vm_m3_mol"), "subgrid Vm")
+
+    lines = [
+        f"schema_version={AUXILIARY_SIDECAR_SCHEMA_VERSION}",
+        f"validation_contract_hash={data['contract_hash']}",
+        f"source_handoff_hash={data['source_handoff_hash']}",
+        f"package_hash={data['package_hash']}",
+        f"fixture_hash={data['fixture_hash']}",
+        "state=AUXILIARY_POPULATION_STORAGE_ONLY_V1",
+        "frozen=true",
+        "units=mol_B",
+        "dynamics=STORAGE_ONLY_NO_PF_FIELD_MUTATION",
+        f"box_volume_m3={_sidecar_float(box_volume_m3, 'box volume')}",
+        f"Q_B_total_mol={_sidecar_float(ledger.get('Q_B_total_mol'), 'total ledger')}",
+        f"Q_B_matrix_mol={_sidecar_float(ledger.get('Q_B_matrix_mol'), 'matrix ledger')}",
+        f"Q_B_beta_resolved_fixed_mol={_sidecar_float(ledger.get('Q_B_beta_resolved_fixed_mol'), 'resolved ledger')}",
+        f"Q_B_GP_mol={_sidecar_float(ledger.get('Q_B_GP_mol'), 'GP ledger')}",
+        f"Q_B_beta_subgrid_mol={_sidecar_float(ledger.get('Q_B_beta_subgrid_mol'), 'subgrid ledger')}",
+        f"Q_B_bucket_sum_mol={_sidecar_float(ledger.get('Q_B_bucket_sum_mol'), 'bucket ledger')}",
+        f"residual_mol={_sidecar_float(ledger.get('residual_mol'), 'ledger residual')}",
+        f"relative_residual={_sidecar_float(ledger.get('relative_residual'), 'ledger relative residual')}",
+        f"gp_population_provenance={gp_provenance}",
+        f"gp_population_disclaimer={gp_disclaimer}",
+        f"gp_xB={_sidecar_float(gp_x_b, 'GP xB')}",
+        f"gp_Vm_m3_mol={_sidecar_float(gp_vm, 'GP Vm')}",
+        f"gp_bin_count={gp_density.size}",
+    ]
+    for lower, upper, density in zip(gp_edges[:-1], gp_edges[1:], gp_density):
+        inventory = _sidecar_bin_inventory_mol(
+            float(lower), float(upper), float(density), box_volume_m3, gp_x_b, gp_vm
+        )
+        lines.append(
+            "gp_bin="
+            + ",".join(
+                (
+                    _sidecar_float(lower, "GP radius lower"),
+                    _sidecar_float(upper, "GP radius upper"),
+                    _sidecar_float(density, "GP n_per_m4"),
+                    _sidecar_float(inventory, "GP bin inventory"),
+                )
+            )
+        )
+    lines.extend(
+        [
+            f"beta_subgrid_population_provenance={subgrid_provenance}",
+            f"beta_subgrid_population_disclaimer={subgrid_disclaimer}",
+            f"beta_subgrid_xB={_sidecar_float(subgrid_x_b, 'subgrid xB')}",
+            f"beta_subgrid_Vm_m3_mol={_sidecar_float(subgrid_vm, 'subgrid Vm')}",
+            f"beta_subgrid_bin_count={subgrid_density.size}",
+        ]
+    )
+    for lower, upper, density in zip(
+        subgrid_edges[:-1], subgrid_edges[1:], subgrid_density
+    ):
+        inventory = _sidecar_bin_inventory_mol(
+            float(lower),
+            float(upper),
+            float(density),
+            box_volume_m3,
+            subgrid_x_b,
+            subgrid_vm,
+        )
+        lines.append(
+            "beta_subgrid_bin="
+            + ",".join(
+                (
+                    _sidecar_float(lower, "subgrid radius lower"),
+                    _sidecar_float(upper, "subgrid radius upper"),
+                    _sidecar_float(density, "subgrid n_per_m4"),
+                    _sidecar_float(inventory, "subgrid bin inventory"),
+                )
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _source_handoff_hash(fixture: FixtureState, contract: ValidationContract) -> str:
     return canonical_sha256(
         {
@@ -947,6 +1149,11 @@ def build_fixture_conditioned_handoff_v2(
         },
         "pf_raw_initialization_emitted": False,
         "pf_raw_initialization_allowed": False,
+        "auxiliary_sidecar": {
+            "schema_version": AUXILIARY_SIDECAR_SCHEMA_VERSION,
+            "filename": AUXILIARY_SIDECAR_FILENAME,
+            "semantics": AUXILIARY_SIDECAR_SEMANTICS,
+        },
         "array_manifest": _array_manifest(arrays),
     }
     return metadata, arrays, {"ledger": ledger, "matrix_audit": matrix_audit}
@@ -994,6 +1201,13 @@ def validate_fixture_conditioned_handoff_v2(
         raise FixtureConditionedHandoffError("fixture hash mismatch")
     if data.get("prescribed_source_disclaimer") != FIXTURE_CONDITIONED_DISCLAIMER:
         raise FixtureConditionedHandoffError("missing prescribed-source disclaimer")
+    sidecar = _require_mapping(data.get("auxiliary_sidecar"), "auxiliary sidecar")
+    if (
+        sidecar.get("schema_version") != AUXILIARY_SIDECAR_SCHEMA_VERSION
+        or sidecar.get("filename") != AUXILIARY_SIDECAR_FILENAME
+        or sidecar.get("semantics") != AUXILIARY_SIDECAR_SEMANTICS
+    ):
+        raise FixtureConditionedHandoffError("auxiliary sidecar schema is invalid")
     expected = {
         "matrix_baseline_xB",
         "gp_radius_bin_edges_m",
@@ -1107,6 +1321,9 @@ def _package_hash_payload(metadata: Mapping[str, Any], arrays_sha256: str) -> Di
     payload = dict(metadata)
     payload.pop("package_hash", None)
     payload.pop("metadata_canonical_sha256", None)
+    # This file-level integrity value is written only after the package hash
+    # exists, because the deterministic sidecar embeds that package identity.
+    payload.pop("auxiliary_sidecar_sha256", None)
     # The canonical package identity is based on the exact numeric array
     # manifest, not ZIP-container metadata such as a creation timestamp.  The
     # file hash is still recorded separately and checked on read.
@@ -1136,6 +1353,12 @@ def write_fixture_conditioned_handoff_v2(
     document["arrays_file_sha256"] = arrays_hash
     document["pf_raw_initialization_allowed"] = bool(report["pf_raw_initialization_allowed"])
     document["package_hash"] = canonical_sha256(_package_hash_payload(document, arrays_hash))
+    sidecar_path = output / AUXILIARY_SIDECAR_FILENAME
+    sidecar_path.write_text(
+        render_auxiliary_population_sidecar_v1(document, arrays),
+        encoding="utf-8",
+    )
+    document["auxiliary_sidecar_sha256"] = sha256_file(sidecar_path)
     document["metadata_canonical_sha256"] = canonical_sha256(
         _package_hash_payload(document, arrays_hash)
     )
@@ -1168,6 +1391,7 @@ def write_fixture_conditioned_handoff_v2(
         "metadata": metadata_path,
         "arrays": array_path,
         "ledger": ledger_path,
+        "auxiliary_sidecar": sidecar_path,
         "validation_report": validation_path,
     }
 
@@ -1192,6 +1416,15 @@ def read_fixture_conditioned_handoff_v2(
     manifest = metadata.get("array_manifest")
     if _array_manifest(arrays) != manifest:
         raise FixtureConditionedHandoffError("array manifest mismatch")
+    sidecar_path = root / AUXILIARY_SIDECAR_FILENAME
+    try:
+        sidecar_text = sidecar_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise FixtureConditionedHandoffError("cannot read auxiliary sidecar") from error
+    if metadata.get("auxiliary_sidecar_sha256") != sha256_file(sidecar_path):
+        raise FixtureConditionedHandoffError("auxiliary sidecar SHA-256 mismatch")
+    if sidecar_text != render_auxiliary_population_sidecar_v1(metadata, arrays):
+        raise FixtureConditionedHandoffError("auxiliary sidecar does not match package state")
     expected_hash = canonical_sha256(_package_hash_payload(metadata, metadata["arrays_file_sha256"]))
     if metadata.get("package_hash") != expected_hash:
         raise FixtureConditionedHandoffError("package hash mismatch")

@@ -102,6 +102,20 @@ def render_header(contract: Mapping[str, Any]) -> str:
     vm_alpha = finite_float(contract, "volumes.Vm_alpha_m3_mol")
     vm_beta = finite_float(contract, "volumes.Vm_beta_m3_mol")
     v_b = finite_float(contract, "composition.v_B")
+    convex = value(contract, "thermodynamics.convex_extrapolation")
+    if not isinstance(convex, Mapping):
+        raise ContractGenerationError("convex extrapolation settings must be an object")
+    convex_enabled = convex.get("enabled")
+    if not isinstance(convex_enabled, bool):
+        raise ContractGenerationError("convex extrapolation enabled flag must be boolean")
+    convex_limit = convex.get("xB_limit")
+    convex_penalty = convex.get("penalty_J_mol")
+    if (not isinstance(convex_limit, (int, float)) or isinstance(convex_limit, bool) or
+            not math.isfinite(float(convex_limit)) or not 0.0 < float(convex_limit) < 1.0):
+        raise ContractGenerationError("convex extrapolation xB_limit must lie in (0, 1)")
+    if (not isinstance(convex_penalty, (int, float)) or isinstance(convex_penalty, bool) or
+            not math.isfinite(float(convex_penalty)) or float(convex_penalty) < 0.0):
+        raise ContractGenerationError("convex extrapolation penalty must be non-negative")
     coeffs = value(contract, "thermodynamics.standard_state_coefficients")
     if not isinstance(coeffs, Mapping):
         raise ContractGenerationError("standard-state coefficients must be an object")
@@ -158,6 +172,9 @@ static constexpr double PF_KWN_GAMMA_J_PER_M2 = {cpp_number(gamma)};
 static constexpr double PF_KWN_VM_ALPHA_M3_PER_MOL = {cpp_number(vm_alpha)};
 static constexpr double PF_KWN_VM_BETA_M3_PER_MOL = {cpp_number(vm_beta)};
 static constexpr double PF_KWN_V_B = {cpp_number(v_b)};
+static constexpr int PF_KWN_CONVEX_EXTRAPOLATION_ENABLED = {1 if convex_enabled else 0};
+static constexpr double PF_KWN_CONVEX_EXTRAPOLATION_XB_LIMIT = {cpp_number(float(convex_limit))};
+static constexpr double PF_KWN_CONVEX_EXTRAPOLATION_PENALTY_J_PER_MOL = {cpp_number(float(convex_penalty))};
 
 PF_KWN_HD static inline double pf_kwn_clamp_fraction(double x) {{
     return x < 1.0e-12 ? 1.0e-12 : (x > 1.0 - 1.0e-12 ? 1.0 - 1.0e-12 : x);

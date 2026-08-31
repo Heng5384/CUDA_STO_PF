@@ -9,7 +9,7 @@ bookkeeping populations here: they do not enter chemical potentials, eta,
 seeding, release, or an online KWN call.
 
 The optional C++ checkpoint invocation is also host-only.  It detects a
-failure to serialize/recover V5 auxiliary storage provenance (or to keep
+failure to serialize/recover V6 auxiliary storage provenance (or to keep
 V2--V4 backward reads), rather than proving a CUDA PF restart.
 """
 
@@ -232,7 +232,7 @@ def _matrix_inventory_bounds(fixture: Any, contract: Any) -> Dict[str, float]:
     }
 
 
-def _run_cpp_v5_checkpoint_test() -> Dict[str, Any]:
+def _run_cpp_v6_checkpoint_test() -> Dict[str, Any]:
     """Run the host C++ persistence target; it is explicitly not a CUDA run."""
 
     command: Sequence[str] = ("make", "test_pf_zero_mode_checkpoint")
@@ -244,11 +244,11 @@ def _run_cpp_v5_checkpoint_test() -> Dict[str, Any]:
         stderr=subprocess.PIPE,
         check=False,
     )
-    marker = "PASS_PF_ZERO_MODE_CHECKPOINT_PROVENANCE_V2_TO_V5_AUX"
+    marker = "PASS_PF_ZERO_MODE_CHECKPOINT_PROVENANCE_V2_TO_V6_AUX"
     output = completed.stdout + completed.stderr
     if completed.returncode != 0 or marker not in output:
         raise StorageControlError(
-            "C++ V5 checkpoint host test failed; do not claim auxiliary persistence"
+            "C++ V6 checkpoint host test failed; do not claim auxiliary persistence"
         )
     return {
         "status": marker,
@@ -258,7 +258,8 @@ def _run_cpp_v5_checkpoint_test() -> Dict[str, Any]:
         "output_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
         "cuda_pf_dynamics": "NOT_RUN",
         "meaning": (
-            "V5 host checkpoint serialization/recovery and V2-V4 backward reads; "
+            "V6 host checkpoint serialization/recovery with package identity and "
+            "V2-V5 backward reads; "
             "this is not a CUDA PF restart smoke"
         ),
     }
@@ -272,7 +273,7 @@ def run_controls(
     gp_fraction: float,
     subgrid_fraction: float,
     transfer_fraction: float,
-    run_cpp_v5_test: bool,
+    run_cpp_v6_test: bool,
 ) -> tuple[Dict[str, Any], list[Dict[str, Any]]]:
     """Execute all static controls without changing the source fixture arrays."""
 
@@ -515,10 +516,10 @@ def run_controls(
     )
 
     s4 = (
-        _run_cpp_v5_checkpoint_test()
-        if run_cpp_v5_test
+        _run_cpp_v6_checkpoint_test()
+        if run_cpp_v6_test
         else {
-            "status": "NOT_RUN_CPP_V5_HOST_TEST",
+            "status": "NOT_RUN_CPP_V6_HOST_TEST",
             "execution_scope": "HOST_CHECKPOINT_PERSISTENCE_NOT_CUDA",
             "cuda_pf_dynamics": "NOT_RUN",
             "meaning": "persistence claim remains dependent on make test_pf_zero_mode_checkpoint",
@@ -526,7 +527,7 @@ def run_controls(
     )
     records.append(
         {
-            "scenario": "S4_CPP_V5_CHECKPOINT_DEPENDENCY",
+            "scenario": "S4_CPP_V6_CHECKPOINT_DEPENDENCY",
             "bucket": "checkpoint_host_persistence",
             "Q_B_mol": "",
             "C_B_mol_m3": "",
@@ -612,7 +613,7 @@ def run_controls(
             "matrix_capacity_and_bounds": bounds,
             "source_field_preservation": source_after_s3,
         },
-        "S4_cpp_V5_checkpoint_dependency": s4,
+        "S4_cpp_V6_checkpoint_dependency": s4,
         "interpretation": (
             "This proves only hash-validated host storage closure and the separately invoked "
             "host C++ checkpoint contract.  It does not run CUDA, PF dynamics, GP release, "
@@ -678,7 +679,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subgrid-fraction", type=float, default=0.005)
     parser.add_argument("--transfer-fraction", type=float, default=0.01)
     parser.add_argument(
-        "--skip-cpp-v5-test",
+        "--skip-cpp-v6-test",
         action="store_true",
         help="record the host C++ persistence dependency without executing its target",
     )
@@ -697,7 +698,7 @@ def main() -> int:
             gp_fraction=args.gp_fraction,
             subgrid_fraction=args.subgrid_fraction,
             transfer_fraction=args.transfer_fraction,
-            run_cpp_v5_test=not args.skip_cpp_v5_test,
+            run_cpp_v6_test=not args.skip_cpp_v6_test,
         )
         paths = _write_outputs(args.out_dir, summary, records)
     except (FixtureConditionedHandoffError, StorageControlError) as error:
@@ -714,7 +715,7 @@ def main() -> int:
                 "S2E_rebalanced_four_bucket_relative_residual": summary["S2E_fixture_conditioned_rebalanced_aux"]["ledger"]["relative_residual"],
                 "S3_roundtrip_xB_max_error": summary["S3_exact_matrix_to_GP_inverse_transfer_and_reverse"]["max_xB_roundtrip_error"],
                 "S3_transfer_relative_residual": summary["S3_exact_matrix_to_GP_inverse_transfer_and_reverse"]["transfer_relative_residual"],
-                "S4_checkpoint_host_status": summary["S4_cpp_V5_checkpoint_dependency"]["status"],
+                "S4_checkpoint_host_status": summary["S4_cpp_V6_checkpoint_dependency"]["status"],
                 "outputs": {name: str(path) for name, path in paths.items()},
             },
             indent=2,

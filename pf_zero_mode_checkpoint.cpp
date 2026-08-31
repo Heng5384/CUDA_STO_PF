@@ -14,10 +14,12 @@ constexpr std::uint32_t kVersionV2 = 2U;
 constexpr std::uint32_t kVersionV3 = 3U;
 constexpr std::uint32_t kVersionV4 = 4U;
 constexpr std::uint32_t kVersionV5 = 5U;
+constexpr std::uint32_t kVersionV6 = 6U;
 constexpr char kMagicV2[8] = {'P', 'F', 'Z', 'M', 'C', 'H', 'K', '2'};
 constexpr char kMagicV3[8] = {'P', 'F', 'Z', 'M', 'C', 'H', 'K', '3'};
 constexpr char kMagicV4[8] = {'P', 'F', 'Z', 'M', 'C', 'H', 'K', '4'};
 constexpr char kMagicV5[8] = {'P', 'F', 'Z', 'M', 'C', 'H', 'K', '5'};
+constexpr char kMagicV6[8] = {'P', 'F', 'Z', 'M', 'C', 'H', 'K', '6'};
 constexpr std::size_t kSelectorBytes = 64U;
 constexpr std::size_t kIdentityBytes = 96U;
 
@@ -134,10 +136,10 @@ struct DiskPopulationBinV1 {
     double inventory_mol;
 };
 
-// V5 is the sole write format.  It retains all V4 elastic restart state and
-// adds a compact host-side auxiliary-population payload.  The auxiliary bins
-// are serialized after the field/elastic payload so their complete PSD is
-// covered by the same payload checksum.
+// Historical V5 layout retained for read compatibility.  It adds a compact
+// host-side auxiliary-population payload to V4, but has no package identity.
+// The auxiliary bins are serialized after the field/elastic payload so their
+// complete PSD is covered by the same payload checksum.
 struct DiskHeaderV5 {
     char magic[8];
     std::uint32_t version;
@@ -186,6 +188,62 @@ struct DiskHeaderV5 {
     // to bind to this same hash, rather than carrying a divergent copy.
     char validation_contract_hash[kIdentityBytes];
     char source_handoff_hash[kIdentityBytes];
+    char gp_population_provenance[kIdentityBytes];
+    char beta_subgrid_population_provenance[kIdentityBytes];
+    std::uint64_t payload_checksum;
+};
+
+// V6 is the sole write format.  It retains the V5 compact auxiliary payload
+// and adds the canonical package hash required to prove a restart still refers
+// to the exact fixture-conditioned handoff package.  V5 remains readable as
+// a legacy auxiliary format whose missing package identity cannot be reissued.
+struct DiskHeaderV6 {
+    char magic[8];
+    std::uint32_t version;
+    std::uint32_t header_bytes;
+    std::uint64_t element_count;
+    std::uint64_t k_element_count;
+    std::uint64_t accepted_step;
+    std::int32_t nx;
+    std::int32_t ny;
+    std::int32_t nz;
+    std::int32_t elastic_state_present;
+    std::uint32_t aux_state_present;
+    std::uint32_t aux_schema_version;
+    std::uint32_t aux_frozen;
+    std::uint32_t reserved;
+    double dt_code;
+    double temperature_K;
+    double target_mass_code;
+    double last_lambda;
+    double last_residual_code;
+    double last_derivative_code;
+    std::uint64_t last_iterations;
+    std::uint64_t accepted_zero_mode_steps;
+    std::uint64_t parameter_fingerprint;
+    std::uint64_t elastic_solver_fingerprint;
+    std::uint64_t elastic_source_field_step;
+    std::uint64_t elastic_last_iterations;
+    double elastic_last_relative_residual;
+    std::uint64_t gp_bin_count;
+    std::uint64_t beta_subgrid_bin_count;
+    double Q_B_GP_mol;
+    double Q_B_beta_subgrid_mol;
+    char zero_mode[kSelectorBytes];
+    char backend[kSelectorBytes];
+    char composition_mode[kSelectorBytes];
+    char y_update_mode[kSelectorBytes];
+    char explicit_context[kSelectorBytes];
+    char reaction_discretization[kSelectorBytes];
+    char elastic_solver_mode[kSelectorBytes];
+    char auxiliary_state[kSelectorBytes];
+    char auxiliary_units[kSelectorBytes];
+    char initial_state_class[kIdentityBytes];
+    char fixture_manifest_sha256[kIdentityBytes];
+    char profile_library_manifest_sha256[kIdentityBytes];
+    char validation_contract_hash[kIdentityBytes];
+    char source_handoff_hash[kIdentityBytes];
+    char package_handoff_hash[kIdentityBytes];
     char gp_population_provenance[kIdentityBytes];
     char beta_subgrid_population_provenance[kIdentityBytes];
     std::uint64_t payload_checksum;
@@ -307,6 +365,7 @@ bool legacy_zero_aux(const AuxPopulationState& aux) {
            aux.state == kLegacyZeroAux &&
            aux.validation_contract_hash.empty() &&
            aux.source_handoff_hash.empty() &&
+           aux.package_handoff_hash.empty() &&
            aux.units == kAuxiliaryInventoryUnitsMolB &&
            aux.Q_B_GP_mol == 0.0 && aux.Q_B_beta_subgrid_mol == 0.0 &&
            aux.gp_population_provenance.empty() &&
@@ -500,12 +559,12 @@ bool write_checkpoint(const std::string& path, const Checkpoint& checkpoint,
         kLegacyUnboundValidationContractHash) {
         return set_error(
             error,
-            "V5 checkpoint requires a bound validation contract hash");
+            "V6 checkpoint requires a bound validation contract hash");
     }
-    DiskHeaderV5 header = {};
-    std::memcpy(header.magic, kMagicV5, sizeof(kMagicV5));
-    header.version = kVersionV5;
-    header.header_bytes = sizeof(DiskHeaderV5);
+    DiskHeaderV6 header = {};
+    std::memcpy(header.magic, kMagicV6, sizeof(kMagicV6));
+    header.version = kVersionV6;
+    header.header_bytes = sizeof(DiskHeaderV6);
     header.element_count = checkpoint.phi.size();
     header.k_element_count = checkpoint.elastic.present
                                  ? checkpoint.elastic.displacement_k.size() / 6U
@@ -581,6 +640,9 @@ bool write_checkpoint(const std::string& path, const Checkpoint& checkpoint,
          !copy_identity(header.source_handoff_hash,
                         checkpoint.aux.source_handoff_hash,
                         "source_handoff_hash", error) ||
+         !copy_identity(header.package_handoff_hash,
+                        checkpoint.aux.package_handoff_hash,
+                        "package_handoff_hash", error) ||
          !copy_identity(header.gp_population_provenance,
                         checkpoint.aux.gp_population_provenance,
                         "gp_population_provenance", error) ||
@@ -632,13 +694,13 @@ bool write_checkpoint(const std::string& path, const Checkpoint& checkpoint,
     if (std::fclose(fp) != 0) ok = false;
     if (!ok) {
         std::remove(temporary.c_str());
-        return set_error(error, "checkpoint V5 serialization failed");
+        return set_error(error, "checkpoint V6 serialization failed");
     }
     if (std::rename(temporary.c_str(), path.c_str()) != 0) {
         const std::string detail = std::strerror(errno);
         std::remove(temporary.c_str());
         return set_error(error,
-                         "checkpoint V5 atomic rename failed: " + detail);
+                         "checkpoint V6 atomic rename failed: " + detail);
     }
     return true;
 }
@@ -680,9 +742,110 @@ bool read_checkpoint(const std::string& path,
     std::uint64_t expected_checksum = 0U;
     std::uint64_t checksum = 0U;
 
-    if (std::memcmp(prefix.magic, kMagicV5, sizeof(kMagicV5)) == 0 &&
-        prefix.version == kVersionV5 &&
-        prefix.header_bytes == sizeof(DiskHeaderV5)) {
+    if (std::memcmp(prefix.magic, kMagicV6, sizeof(kMagicV6)) == 0 &&
+        prefix.version == kVersionV6 &&
+        prefix.header_bytes == sizeof(DiskHeaderV6)) {
+        DiskHeaderV6 header = {};
+        ok = read_exact(fp, &header, sizeof(header));
+        const bool header_has_elastic = header.elastic_state_present == 1;
+        const bool header_has_auxiliary = header.aux_state_present == 1U;
+        if (!ok || (header.elastic_state_present != 0 &&
+                    header.elastic_state_present != 1) ||
+            header.aux_state_present > 1U || header.aux_frozen > 1U ||
+            elastic_state_expected(expected_provenance) !=
+                header_has_elastic ||
+            !selector_equal(header.zero_mode,
+                            expected_provenance.zero_mode) ||
+            !selector_equal(header.backend,
+                            expected_provenance.backend) ||
+            !selector_equal(header.composition_mode,
+                            expected_provenance.composition_mode) ||
+            !selector_equal(header.y_update_mode,
+                            expected_provenance.y_update_mode) ||
+            !selector_equal(header.explicit_context,
+                            expected_provenance.explicit_context) ||
+            !selector_equal(header.reaction_discretization,
+                            expected_provenance.reaction_discretization) ||
+            !selector_equal(header.elastic_solver_mode,
+                            expected_provenance.elastic_solver_mode) ||
+            !identity_equal(header.initial_state_class,
+                            expected_provenance.initial_state_class) ||
+            !identity_equal(header.fixture_manifest_sha256,
+                            expected_provenance.fixture_manifest_sha256) ||
+            !identity_equal(
+                header.profile_library_manifest_sha256,
+                expected_provenance.profile_library_manifest_sha256) ||
+            !identity_equal(header.validation_contract_hash,
+                            expected_provenance.validation_contract_hash) ||
+            header.parameter_fingerprint !=
+                expected_provenance.parameter_fingerprint ||
+            header.elastic_solver_fingerprint !=
+                expected_provenance.elastic_solver_fingerprint) {
+            std::fclose(fp);
+            return set_error(error,
+                             "checkpoint V6 elastic/zero-mode provenance mismatch");
+        }
+        if (header_has_auxiliary) {
+            AuxPopulationState aux;
+            aux.schema_version = header.aux_schema_version;
+            aux.present = true;
+            aux.frozen = header.aux_frozen == 1U;
+            aux.validation_contract_hash =
+                expected_provenance.validation_contract_hash;
+            aux.Q_B_GP_mol = header.Q_B_GP_mol;
+            aux.Q_B_beta_subgrid_mol = header.Q_B_beta_subgrid_mol;
+            if (!read_selector_value(header.auxiliary_state, &aux.state) ||
+                !read_selector_value(header.auxiliary_units, &aux.units) ||
+                !read_identity_value(header.source_handoff_hash,
+                                     &aux.source_handoff_hash) ||
+                !read_identity_value(header.package_handoff_hash,
+                                     &aux.package_handoff_hash) ||
+                !read_identity_value(header.gp_population_provenance,
+                                     &aux.gp_population_provenance) ||
+                !read_identity_value(
+                    header.beta_subgrid_population_provenance,
+                    &aux.beta_subgrid_population_provenance)) {
+                std::fclose(fp);
+                return set_error(error,
+                                 "checkpoint V6 auxiliary metadata is invalid");
+            }
+            stored_aux = std::move(aux);
+            gp_bin_count = header.gp_bin_count;
+            beta_subgrid_bin_count = header.beta_subgrid_bin_count;
+            has_auxiliary_state = true;
+        } else if (header.aux_schema_version != 0U ||
+                   header.aux_frozen != 1U || header.gp_bin_count != 0U ||
+                   header.beta_subgrid_bin_count != 0U ||
+                   header.Q_B_GP_mol != 0.0 ||
+                   header.Q_B_beta_subgrid_mol != 0.0) {
+            std::fclose(fp);
+            return set_error(error,
+                             "checkpoint V6 absent auxiliary state is not zero");
+        }
+        element_count = header.element_count;
+        k_element_count = header.k_element_count;
+        accepted_step = header.accepted_step;
+        nx = header.nx;
+        ny = header.ny;
+        nz = header.nz;
+        dt_code = header.dt_code;
+        temperature_K = header.temperature_K;
+        target_mass_code = header.target_mass_code;
+        last_lambda = header.last_lambda;
+        last_residual_code = header.last_residual_code;
+        last_derivative_code = header.last_derivative_code;
+        last_iterations = header.last_iterations;
+        accepted_zero_mode_steps = header.accepted_zero_mode_steps;
+        elastic_source_field_step = header.elastic_source_field_step;
+        elastic_last_iterations = header.elastic_last_iterations;
+        elastic_last_relative_residual = header.elastic_last_relative_residual;
+        has_elastic_state = header_has_elastic;
+        expected_checksum = header.payload_checksum;
+        header.payload_checksum = 0U;
+        checksum = fnv1a64(&header, sizeof(header));
+    } else if (std::memcmp(prefix.magic, kMagicV5, sizeof(kMagicV5)) == 0 &&
+               prefix.version == kVersionV5 &&
+               prefix.header_bytes == sizeof(DiskHeaderV5)) {
         DiskHeaderV5 header = {};
         ok = read_exact(fp, &header, sizeof(header));
         const bool header_has_elastic = header.elastic_state_present == 1;

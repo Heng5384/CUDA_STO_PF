@@ -35,6 +35,7 @@
 #include "thermo_utils.h"
 #include "cuda_kernels.h"
 #include "io_vtk_cuda.h"
+#include "pf_auxiliary_handoff_v2.h"
 #include "pf_zero_mode_checkpoint.h"
 
 __global__ void diagnostic_rsmd_gather_double_kernel(const double *src,
@@ -65,13 +66,14 @@ static int g_dynamic_outputs_use_case_dir = 0;
 // the authority for validating every header field, payload checksum, and
 // provenance identity.  This narrow dispatch lets historical V2--V4 files
 // retain their explicit unbound-contract read path without ever weakening the
-// V5 hash comparison.
+// current V6 hash comparison.
 enum class PfZeroModeCheckpointDiskVersion {
     kUnknown = 0,
     kV2 = 2,
     kV3 = 3,
     kV4 = 4,
     kV5 = 5,
+    kV6 = 6,
 };
 
 static PfZeroModeCheckpointDiskVersion
@@ -97,6 +99,9 @@ inspect_pf_zero_mode_checkpoint_disk_version(const char* path) {
     }
     if (memcmp(magic, "PFZMCHK5", sizeof(magic)) == 0 && version == 5U) {
         return PfZeroModeCheckpointDiskVersion::kV5;
+    }
+    if (memcmp(magic, "PFZMCHK6", sizeof(magic)) == 0 && version == 6U) {
+        return PfZeroModeCheckpointDiskVersion::kV6;
     }
     return PfZeroModeCheckpointDiskVersion::kUnknown;
 }
@@ -134,7 +139,7 @@ static void compute_field_minmax_host(const std::vector<double> &phi,
                                       double *phi_mean,
                                       double *xb_min, double *xb_max,
                                       double *xb_mean, double *mean_h);
-static void sync_thermo_runtime_flags(const PFParams *P);
+static int sync_thermo_runtime_flags(const PFParams *P);
 static double gpu_reduce_sum_model_xBtot(const PFParams *P,
                                          const double *phi_r,
                                          const double *eta_r,
@@ -2734,6 +2739,13 @@ typedef struct {
     double xB_max_safe;
     char dtype[32];
     char order[16];
+    char phi_path[256];
+    char xB_path[256];
+    char validation_contract_hash[96];
+    char source_handoff_hash[96];
+    char package_hash[96];
+    char fixture_hash[96];
+    char auxiliary_sidecar_sha256[96];
 } RawInitMeta;
 
 static char *read_text_file_alloc(const char *path) {
@@ -2829,6 +2841,21 @@ static int load_raw_init_meta(const char *path, RawInitMeta *meta) {
     json_get_number_simple(json, "xB_max_safe", &meta->xB_max_safe);
     json_get_string_simple(json, "dtype", meta->dtype, sizeof(meta->dtype));
     json_get_string_simple(json, "order", meta->order, sizeof(meta->order));
+    json_get_string_simple(json, "phi_path", meta->phi_path, sizeof(meta->phi_path));
+    json_get_string_simple(json, "xB_path", meta->xB_path, sizeof(meta->xB_path));
+    json_get_string_simple(json, "validation_contract_hash",
+                           meta->validation_contract_hash,
+                           sizeof(meta->validation_contract_hash));
+    json_get_string_simple(json, "source_handoff_hash",
+                           meta->source_handoff_hash,
+                           sizeof(meta->source_handoff_hash));
+    json_get_string_simple(json, "package_hash", meta->package_hash,
+                           sizeof(meta->package_hash));
+    json_get_string_simple(json, "fixture_hash", meta->fixture_hash,
+                           sizeof(meta->fixture_hash));
+    json_get_string_simple(json, "auxiliary_sidecar_sha256",
+                           meta->auxiliary_sidecar_sha256,
+                           sizeof(meta->auxiliary_sidecar_sha256));
     free(json);
     meta->valid = ok ? 1 : 0;
     if (!ok) {
@@ -2977,10 +3004,56 @@ static int validate_raw_init_meta_against_run(const RawInitMeta *meta, const PFP
     return ok;
 }
 
+static int raw_init_path_matches_meta_file(const char *raw_path,
+                                           const char *meta_path,
+                                           const char *meta_file_name) {
+    if (!raw_path || !meta_path || !meta_file_name || raw_path[0] == '\0' ||
+        meta_path[0] == '\0' || meta_file_name[0] == '\0') {
+        return 0;
+    }
+    const char *last_slash = strrchr(meta_path, '/');
+    if (!last_slash) return strcmp(raw_path, meta_file_name) == 0;
+    const size_t directory_size = (size_t)(last_slash - meta_path + 1);
+    const size_t file_name_size = strlen(meta_file_name);
+    if (directory_size + file_name_size + 1U > 4096U) return 0;
+    char expected_path[4096];
+    memcpy(expected_path, meta_path, directory_size);
+    memcpy(expected_path + directory_size, meta_file_name, file_name_size + 1U);
+    return strcmp(raw_path, expected_path) == 0;
+}
+
+static int validate_fixture_conditioned_raw_init_binding(
+    const RawInitMeta *meta, const PFParams *P, const char *meta_path,
+    const char *validation_contract_hash, const char *source_handoff_hash,
+    const char *package_hash, const char *fixture_hash) {
+    if (!meta || !meta->valid || !P) return 0;
+    const int identity_matches =
+        strcmp(meta->validation_contract_hash, validation_contract_hash) == 0 &&
+        strcmp(meta->source_handoff_hash, source_handoff_hash) == 0 &&
+        strcmp(meta->package_hash, package_hash) == 0 &&
+        strcmp(meta->fixture_hash, fixture_hash) == 0;
+    if (!identity_matches || meta->auxiliary_sidecar_sha256[0] == '\0' ||
+        strcmp(meta->dtype, "float64") != 0 || strcmp(meta->order, "C") != 0 ||
+        !raw_init_path_matches_meta_file(P->init_phi_raw_path, meta_path,
+                                         meta->phi_path) ||
+        !raw_init_path_matches_meta_file(P->init_xB_raw_path, meta_path,
+                                         meta->xB_path) ||
+        P->init_eta_raw_path[0] != '\0' ||
+        P->init_dY_dt_prev_raw_path[0] != '\0') {
+        fprintf(stderr,
+                "[fatal] fixture-conditioned auxiliary sidecar requires the "
+                "matching float64 phi/xB raw-init pair and fresh zero eta/dY "
+                "history from its materialization directory\n");
+        return 0;
+    }
+    return 1;
+}
+
 static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, double *xB_r, double *xBtot_r,
                                 double *dY_dt_prev_r,
                                 const PFParams *P, int total_size,
-                                const RawInitMeta *meta, int emit_logs) {
+                                const RawInitMeta *meta, int emit_logs,
+                                int strict_no_clamp) {
     if (!meta || !meta->valid) return 0;
     if (!read_raw_field_to_double(P->init_phi_raw_path, meta->dtype, (size_t)total_size, phi_r, "phi")) {
         return 0;
@@ -3029,6 +3102,15 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
         if (eta0 > 1.0) ++eta_high_clamp;
         if (xb0 < P->xB_eps) ++xb_low_clamp;
         if (isfinite(xb_cap) && xb0 > xb_cap) ++xb_high_clamp;
+        if (strict_no_clamp &&
+            (phi0 < 0.0 || phi0 > 1.0 || eta0 < 0.0 || eta0 > 1.0 ||
+             xb0 < P->xB_eps || (isfinite(xb_cap) && xb0 > xb_cap))) {
+            fprintf(stderr,
+                    "[fatal] fixture-conditioned raw init would require "
+                    "clamping at idx=%d (phi=%g eta=%g xB=%g)\n",
+                    i, phi0, eta0, xb0);
+            return 0;
+        }
         double phi = clamp01(phi0);
         double eta = clamp01(eta0);
         double xb = clamp_eps(xb0, P->xB_eps);
@@ -3060,6 +3142,18 @@ static int load_raw_init_fields(double *phi_r, double *eta_r, double *Y_r, doubl
         dYdt_max = fmax(dYdt_max, dYdt0);
         dYdt_sum_sq += dYdt0 * dYdt0;
         xbtot_sum += xBtot_r[i];
+    }
+    if (strict_no_clamp) {
+        const double actual_mean_xBtot = xbtot_sum / (double)total_size;
+        const double scale = fmax(fabs(meta->mean_xBtot), 1.0e-30);
+        if (!isfinite(meta->mean_xBtot) ||
+            fabs(actual_mean_xBtot - meta->mean_xBtot) > 1.0e-12 * scale) {
+            fprintf(stderr,
+                    "[fatal] fixture-conditioned raw field ledger differs "
+                    "from its materialized metadata: actual=%.17e meta=%.17e\n",
+                    actual_mean_xBtot, meta->mean_xBtot);
+            return 0;
+        }
     }
     if (emit_logs) {
         const double invN = 1.0 / (double)total_size;
@@ -15688,10 +15782,19 @@ static void pfparams_refresh_thermo(PFParams *P) {
     P->mu0_compound = v_weighted_mu_compound(muA_eq, muB_eq, P->v_A, P->v_B);
 }
 
-static void sync_thermo_runtime_flags(const PFParams *P) {
-    const int enabled = (P && P->thermo_convex_extrapolation_enabled) ? 1 : 0;
+static int sync_thermo_runtime_flags(const PFParams *P) {
+    if (!P || P->thermo_convex_extrapolation_enabled !=
+                  PF_KWN_CONVEX_EXTRAPOLATION_ENABLED) {
+        fprintf(stderr,
+                "[fatal] thermo_convex_extrapolation_enabled must match "
+                "PF_KWN_VALIDATION_CONTRACT_V1 (%d)\n",
+                PF_KWN_CONVEX_EXTRAPOLATION_ENABLED);
+        return 0;
+    }
+    const int enabled = PF_KWN_CONVEX_EXTRAPOLATION_ENABLED;
     h_thermo_convex_extrapolation_enabled = enabled;
     CUDA_CHECK(cudaMemcpyToSymbol(d_thermo_convex_extrapolation_enabled, &enabled, sizeof(int)));
+    return 1;
 }
 
 // 根据给定法向 n(theta,phi) 构造旋转矩阵 R，使椭球短轴对齐到 n
@@ -16272,7 +16375,8 @@ static void params_default(PFParams *P) {
     P->D_compound = -1.0;
 
     P->temperature_C = -1.0;
-    P->thermo_convex_extrapolation_enabled = 0;
+    P->thermo_convex_extrapolation_enabled =
+        PF_KWN_CONVEX_EXTRAPOLATION_ENABLED;
     P->mu_reference_scale = -1.0;
     P->v_B = -1.0;
     P->v_A = -1.0;
@@ -22759,6 +22863,10 @@ int main(int argc, char **argv) {
     char pf_zero_mode_backend[64] = {0};
     char pf_checkpoint_path[4096] = {0};
     char pf_restart_from[4096] = {0};
+    char pf_auxiliary_sidecar_path[4096] = {0};
+    char pf_auxiliary_source_handoff_sha256[96] = {0};
+    char pf_auxiliary_package_sha256[96] = {0};
+    char pf_auxiliary_fixture_sha256[96] = {0};
     char pf_initial_state_class[96] = {0};
     char pf_fixture_manifest_sha256[96] = {0};
     char pf_profile_library_manifest_sha256[96] = {0};
@@ -22934,6 +23042,10 @@ int main(int argc, char **argv) {
             printf("  --pf-checkpoint-every <n>            0 disables periodic checkpoints\n");
             printf("  --pf-checkpoint-path <path>          atomic full-state checkpoint\n");
             printf("  --pf-restart-from <path>             provenance-strict restart\n");
+            printf("  --pf-auxiliary-sidecar <path>        frozen compact GP/subgrid storage for a fresh raw-field start\n");
+            printf("  --pf-auxiliary-source-handoff-sha256 <hex> expected fixture-conditioned source identity\n");
+            printf("  --pf-auxiliary-package-sha256 <hex>  expected compact handoff package identity\n");
+            printf("  --pf-auxiliary-fixture-sha256 <hex>  expected fixture identity (must match --pf-fixture-manifest-sha256)\n");
             printf("  --pf-initial-state-class <name>      checkpoint-pinned initial-state policy\n");
             printf("  --pf-fixture-manifest-sha256 <hex>   checkpoint-pinned fixture identity\n");
             printf("  --pf-profile-library-manifest-sha256 <hex> checkpoint-pinned profile-library identity\n");
@@ -23016,6 +23128,38 @@ int main(int argc, char **argv) {
         if ((v = get_flag_value(argc, argv, &i, "--pf-restart-from")) != NULL ||
             (v = get_flag_value(argc, argv, &i, "--pf_restart_from")) != NULL) {
             snprintf(pf_restart_from, sizeof(pf_restart_from), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--pf-auxiliary-sidecar")) != NULL ||
+            (v = get_flag_value(argc, argv, &i,
+                                "--pf_auxiliary_sidecar")) != NULL) {
+            snprintf(pf_auxiliary_sidecar_path,
+                     sizeof(pf_auxiliary_sidecar_path), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--pf-auxiliary-source-handoff-sha256")) != NULL ||
+            (v = get_flag_value(argc, argv, &i,
+                                "--pf_auxiliary_source_handoff_sha256")) != NULL) {
+            snprintf(pf_auxiliary_source_handoff_sha256,
+                     sizeof(pf_auxiliary_source_handoff_sha256), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--pf-auxiliary-package-sha256")) != NULL ||
+            (v = get_flag_value(argc, argv, &i,
+                                "--pf_auxiliary_package_sha256")) != NULL) {
+            snprintf(pf_auxiliary_package_sha256,
+                     sizeof(pf_auxiliary_package_sha256), "%s", v);
+            continue;
+        }
+        if ((v = get_flag_value(argc, argv, &i,
+                                "--pf-auxiliary-fixture-sha256")) != NULL ||
+            (v = get_flag_value(argc, argv, &i,
+                                "--pf_auxiliary_fixture_sha256")) != NULL) {
+            snprintf(pf_auxiliary_fixture_sha256,
+                     sizeof(pf_auxiliary_fixture_sha256), "%s", v);
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i,
@@ -24693,7 +24837,9 @@ int main(int argc, char **argv) {
                  sizeof(P.y_update_mass_projection_target_mode),
                  "%s", "pre_Y_update");
     }
-    sync_thermo_runtime_flags(&P);
+    if (!sync_thermo_runtime_flags(&P)) {
+        return 2;
+    }
     P.xB_ref_for_eps_c = P.ic_xB_eq_matrix;
     if (!validate_physical_params_ready(&P)) {
         return 2;
@@ -24885,6 +25031,12 @@ int main(int argc, char **argv) {
                pf_zero_mode::kConditionalHandoffV1) == 0 &&
         is_lowercase_sha256(pf_fixture_manifest_sha256) &&
         is_lowercase_sha256(pf_profile_library_manifest_sha256);
+    const int pf_auxiliary_sidecar_requested =
+        pf_auxiliary_sidecar_path[0] != '\0';
+    const int pf_auxiliary_identity_provided =
+        pf_auxiliary_source_handoff_sha256[0] != '\0' ||
+        pf_auxiliary_package_sha256[0] != '\0' ||
+        pf_auxiliary_fixture_sha256[0] != '\0';
     if (!legacy_initial_state_identity && !conditional_handoff_identity) {
         fprintf(stderr,
                 "[fatal] PF initial-state provenance must be either the "
@@ -24892,6 +25044,29 @@ int main(int argc, char **argv) {
                 "lowercase SHA-256 identities\n",
                 pf_zero_mode::kConditionalHandoffV1);
         return 2;
+    }
+    if (pf_auxiliary_identity_provided && !pf_auxiliary_sidecar_requested) {
+        fprintf(stderr,
+                "[fatal] PF auxiliary handoff hashes require --pf-auxiliary-sidecar\n");
+        return 2;
+    }
+    if (pf_auxiliary_sidecar_requested) {
+        if (!pf_zero_mode_enabled || P.mode != 0 || !P.init_mode_raw_fields ||
+            pf_restart_from[0] != '\0' || !conditional_handoff_identity ||
+            !is_lowercase_sha256(pf_auxiliary_source_handoff_sha256) ||
+            !is_lowercase_sha256(pf_auxiliary_package_sha256) ||
+            !is_lowercase_sha256(pf_auxiliary_fixture_sha256) ||
+            strcmp(pf_auxiliary_fixture_sha256,
+                   pf_fixture_manifest_sha256) != 0) {
+            fprintf(stderr,
+                    "[fatal] --pf-auxiliary-sidecar requires a fresh raw-field "
+                    "dynamics run with %s, %s, all three lowercase SHA-256 "
+                    "identities, and an auxiliary fixture hash equal to the "
+                    "checkpoint-pinned fixture hash\n",
+                    pf_zero_mode::kModeV1,
+                    pf_zero_mode::kConditionalHandoffV1);
+            return 2;
+        }
     }
     if (conditional_handoff_identity) {
         if (!pf_zero_mode_enabled || P.mode != 0) {
@@ -25239,6 +25414,46 @@ int main(int argc, char **argv) {
         if (!load_raw_init_meta(P.init_meta_path, &raw_init_meta)) {
             return 2;
         }
+    }
+    if (pf_auxiliary_sidecar_requested) {
+        pf_auxiliary_handoff_v2::AuxiliaryHandoffIdentity identity;
+        identity.validation_contract_hash = PF_KWN_VALIDATION_CONTRACT_HASH;
+        identity.source_handoff_hash = pf_auxiliary_source_handoff_sha256;
+        identity.package_hash = pf_auxiliary_package_sha256;
+        identity.fixture_hash = pf_auxiliary_fixture_sha256;
+        std::string auxiliary_error;
+        if (!pf_auxiliary_handoff_v2::read_auxiliary_population_handoff_v2(
+                pf_auxiliary_sidecar_path, identity,
+                &pf_auxiliary_population_state, &auxiliary_error)) {
+            fprintf(stderr,
+                    "[fatal] PF auxiliary handoff sidecar rejected: %s\n",
+                    auxiliary_error.c_str());
+            return 2;
+        }
+        if (!validate_fixture_conditioned_raw_init_binding(
+                &raw_init_meta, &P, P.init_meta_path,
+                PF_KWN_VALIDATION_CONTRACT_HASH,
+                pf_auxiliary_source_handoff_sha256,
+                pf_auxiliary_package_sha256,
+                pf_auxiliary_fixture_sha256)) {
+            return 2;
+        }
+        log_section_header("PF Frozen Auxiliary Handoff");
+        log_kv_text("sidecar", "%s", pf_auxiliary_sidecar_path);
+        log_kv_text("source_handoff_hash", "%s",
+                    pf_auxiliary_population_state.source_handoff_hash.c_str());
+        log_kv_text("package_hash", "%s",
+                    pf_auxiliary_population_state.package_handoff_hash.c_str());
+        log_kv_text("fixture_hash", "%s", pf_auxiliary_fixture_sha256);
+        log_kv_text("state", "%s",
+                    pf_auxiliary_population_state.state.c_str());
+        log_kv_text("Q_B_GP_mol", "%.17e",
+                    pf_auxiliary_population_state.Q_B_GP_mol);
+        log_kv_text("Q_B_beta_subgrid_mol", "%.17e",
+                    pf_auxiliary_population_state.Q_B_beta_subgrid_mol);
+        log_kv_text("raw_init_binding", "%s",
+                    "METADATA_PACKAGE_AND_SOURCE_BOUND_NO_CLAMP");
+        log_kv_text("field_mutation", "%s", "FORBIDDEN_STORAGE_ONLY");
     }
 
     {
@@ -27553,7 +27768,8 @@ int main(int argc, char **argv) {
         log_kv_text("path", "%s", "raw_fields phi/xB from Python embedding");
         fflush(stdout);
         if (!load_raw_init_fields(h_phi_r, h_eta_r, h_Y_r, h_xB_r, h_xBtot_r,
-                                  h_dY_dt_prev_r, &P, total_r, &raw_init_meta, 1)) {
+                                  h_dY_dt_prev_r, &P, total_r, &raw_init_meta, 1,
+                                  pf_auxiliary_sidecar_requested)) {
             return 2;
         }
     } else if (P.minimize_continue_from_vtk) {
@@ -27713,7 +27929,7 @@ int main(int argc, char **argv) {
         if (pf_restart_is_legacy) {
             // V2--V4 have no validation-contract field.  Preserve their
             // explicit compatibility identity for reading, but keep the
-            // compiled hash in pf_zero_mode_provenance for every new V5
+            // compiled hash in pf_zero_mode_provenance for every new V6
             // checkpoint written by this process.
             pf_restart_expected_provenance.validation_contract_hash =
                 pf_zero_mode::kLegacyUnboundValidationContractHash;
@@ -27739,14 +27955,33 @@ int main(int argc, char **argv) {
         } else if (
             pf_restart_checkpoint.provenance.validation_contract_hash !=
             PF_KWN_VALIDATION_CONTRACT_HASH) {
-            // read_checkpoint already compares V5 header provenance before
+            // read_checkpoint already compares the current header provenance before
             // fields are returned.  Retain this explicit main-side guard so
             // a nonlegacy restart can never continue under a different
             // compiled validation contract.
             fprintf(stderr,
-                    "[fatal] PF V5 checkpoint validation-contract hash "
+                    "[fatal] PF checkpoint validation-contract hash "
                     "does not match this binary\n");
             return 2;
+        }
+        if (pf_restart_checkpoint.aux.present) {
+            const bool package_identity_present =
+                !pf_restart_checkpoint.aux.package_handoff_hash.empty();
+            const bool requested_identity_matches =
+                !pf_auxiliary_sidecar_requested ||
+                (pf_restart_checkpoint.aux.validation_contract_hash ==
+                     PF_KWN_VALIDATION_CONTRACT_HASH &&
+                 pf_restart_checkpoint.aux.source_handoff_hash ==
+                     pf_auxiliary_source_handoff_sha256 &&
+                 pf_restart_checkpoint.aux.package_handoff_hash ==
+                     pf_auxiliary_package_sha256);
+            if (!package_identity_present || !requested_identity_matches) {
+                fprintf(stderr,
+                        "[fatal] PF auxiliary restart lacks the required "
+                        "V6 package identity or differs from the requested "
+                        "fixture-conditioned handoff\n");
+                return 2;
+            }
         }
         const double temperature_K = P.temperature_C + 273.15;
         if (pf_restart_checkpoint.nx != P.Nx ||
@@ -27804,6 +28039,8 @@ int main(int argc, char **argv) {
                         : "MATCHED_COMPILED_PF_KWN_VALIDATION_CONTRACT");
         log_kv_text("checkpoint_auxiliary_state", "%s",
                     pf_auxiliary_population_state.state.c_str());
+        log_kv_text("checkpoint_auxiliary_package_hash", "%s",
+                    pf_auxiliary_population_state.package_handoff_hash.c_str());
         log_kv_text("checkpoint_auxiliary_Q_B_GP_mol", "%.17e",
                     pf_auxiliary_population_state.Q_B_GP_mol);
         log_kv_text("checkpoint_auxiliary_Q_B_beta_subgrid_mol", "%.17e",
@@ -33992,12 +34229,12 @@ gp_post_birth_skip_to_finalize:
             // A V2--V4 restart has no executable validation-contract
             // identity.  It may be restored for backward-compatible
             // inspection/replay, but it must not be silently reissued as a
-            // V5 checkpoint carrying this binary's current hash.  That
+            // V6 checkpoint carrying this binary's current hash.  That
             // conversion would falsely relabel legacy state as a
             // same-contract validation result.
             if (pf_restart_contract_is_legacy_unbound) {
                 fprintf(stderr,
-                        "[fatal] refusing to write a hash-bound V5 checkpoint "
+                        "[fatal] refusing to write a hash-bound V6 checkpoint "
                         "from a legacy-unbound V2--V4 restart; establish an "
                         "authoritative legacy contract before conversion\n");
                 return 2;
@@ -34087,6 +34324,7 @@ gp_post_birth_skip_to_finalize:
                    "profile_library_manifest_sha256=%s "
                    "validation_contract_hash=%s "
                    "auxiliary_state=%s "
+                   "auxiliary_package_hash=%s "
                    "auxiliary_Q_B_GP_mol=%.17e "
                    "auxiliary_Q_B_beta_subgrid_mol=%.17e "
                    "elastic_solver_mode=%s "
@@ -34105,6 +34343,7 @@ gp_post_birth_skip_to_finalize:
                        .profile_library_manifest_sha256.c_str(),
                    pf_zero_mode_provenance.validation_contract_hash.c_str(),
                    checkpoint.aux.state.c_str(),
+                   checkpoint.aux.package_handoff_hash.c_str(),
                    checkpoint.aux.Q_B_GP_mol,
                    checkpoint.aux.Q_B_beta_subgrid_mol,
                    pf_zero_mode_provenance.elastic_solver_mode.c_str(),

@@ -35,6 +35,7 @@ bool exact_equal(const pf_zero_mode::AuxPopulationState& left,
            left.state == right.state &&
            left.validation_contract_hash == right.validation_contract_hash &&
            left.source_handoff_hash == right.source_handoff_hash &&
+           left.package_handoff_hash == right.package_handoff_hash &&
            left.units == right.units && left.Q_B_GP_mol == right.Q_B_GP_mol &&
            left.Q_B_beta_subgrid_mol == right.Q_B_beta_subgrid_mol &&
            left.gp_population_provenance == right.gp_population_provenance &&
@@ -199,6 +200,69 @@ struct LegacyDiskHeaderV4 {
     std::uint64_t payload_checksum;
 };
 
+// Exact historical V5 on-disk layout.  V5 carried compact auxiliary bins but
+// no complete handoff-package identity; V6 adds that missing identity.
+struct LegacyDiskPopulationBinV1 {
+    double radius_lower_m;
+    double radius_upper_m;
+    double number_density_m3;
+    std::uint64_t count;
+    double xB;
+    double molar_volume_m3_mol;
+    double inventory_mol;
+};
+
+struct LegacyDiskHeaderV5 {
+    char magic[8];
+    std::uint32_t version;
+    std::uint32_t header_bytes;
+    std::uint64_t element_count;
+    std::uint64_t k_element_count;
+    std::uint64_t accepted_step;
+    std::int32_t nx;
+    std::int32_t ny;
+    std::int32_t nz;
+    std::int32_t elastic_state_present;
+    std::uint32_t aux_state_present;
+    std::uint32_t aux_schema_version;
+    std::uint32_t aux_frozen;
+    std::uint32_t reserved;
+    double dt_code;
+    double temperature_K;
+    double target_mass_code;
+    double last_lambda;
+    double last_residual_code;
+    double last_derivative_code;
+    std::uint64_t last_iterations;
+    std::uint64_t accepted_zero_mode_steps;
+    std::uint64_t parameter_fingerprint;
+    std::uint64_t elastic_solver_fingerprint;
+    std::uint64_t elastic_source_field_step;
+    std::uint64_t elastic_last_iterations;
+    double elastic_last_relative_residual;
+    std::uint64_t gp_bin_count;
+    std::uint64_t beta_subgrid_bin_count;
+    double Q_B_GP_mol;
+    double Q_B_beta_subgrid_mol;
+    char zero_mode[kSelectorBytes];
+    char backend[kSelectorBytes];
+    char composition_mode[kSelectorBytes];
+    char y_update_mode[kSelectorBytes];
+    char explicit_context[kSelectorBytes];
+    char reaction_discretization[kSelectorBytes];
+    char elastic_solver_mode[kSelectorBytes];
+    char auxiliary_state[kSelectorBytes];
+    char auxiliary_units[kSelectorBytes];
+    char initial_state_class[kIdentityBytes];
+    char fixture_manifest_sha256[kIdentityBytes];
+    char profile_library_manifest_sha256[kIdentityBytes];
+    char validation_contract_hash[kIdentityBytes];
+    char source_handoff_hash[kIdentityBytes];
+    char gp_population_provenance[kIdentityBytes];
+    char beta_subgrid_population_provenance[kIdentityBytes];
+    std::uint64_t payload_checksum;
+};
+
 bool copy_text(char* destination, std::size_t bytes,
                const std::string& source) {
     if (source.empty() || source.size() >= bytes) return false;
@@ -326,11 +390,83 @@ bool write_legacy_v4(const std::string& path,
     return write_legacy_payload(path, header, source, true);
 }
 
+bool write_legacy_v5(const std::string& path,
+                     const pf_zero_mode::Checkpoint& source) {
+    if (!source.aux.present || source.elastic.present) return false;
+    LegacyDiskHeaderV5 header = {};
+    std::memcpy(header.magic, "PFZMCHK5", sizeof(header.magic));
+    header.version = 5U;
+    header.header_bytes = sizeof(header);
+    if (!fill_legacy_common(&header, source) ||
+        !copy_text(header.elastic_solver_mode, kSelectorBytes,
+                   source.provenance.elastic_solver_mode) ||
+        !copy_text(header.initial_state_class, kIdentityBytes,
+                   source.provenance.initial_state_class) ||
+        !copy_text(header.fixture_manifest_sha256, kIdentityBytes,
+                   source.provenance.fixture_manifest_sha256) ||
+        !copy_text(header.profile_library_manifest_sha256, kIdentityBytes,
+                   source.provenance.profile_library_manifest_sha256) ||
+        !copy_text(header.validation_contract_hash, kIdentityBytes,
+                   source.provenance.validation_contract_hash) ||
+        !copy_text(header.auxiliary_state, kSelectorBytes, source.aux.state) ||
+        !copy_text(header.auxiliary_units, kSelectorBytes, source.aux.units) ||
+        !copy_text(header.source_handoff_hash, kIdentityBytes,
+                   source.aux.source_handoff_hash) ||
+        !copy_text(header.gp_population_provenance, kIdentityBytes,
+                   source.aux.gp_population_provenance) ||
+        !copy_text(header.beta_subgrid_population_provenance, kIdentityBytes,
+                   source.aux.beta_subgrid_population_provenance)) {
+        return false;
+    }
+    header.elastic_state_present = 0;
+    header.aux_state_present = 1U;
+    header.aux_schema_version = source.aux.schema_version;
+    header.aux_frozen = source.aux.frozen ? 1U : 0U;
+    header.gp_bin_count = source.aux.gp_bins.size();
+    header.beta_subgrid_bin_count = source.aux.beta_subgrid_bins.size();
+    header.Q_B_GP_mol = source.aux.Q_B_GP_mol;
+    header.Q_B_beta_subgrid_mol = source.aux.Q_B_beta_subgrid_mol;
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream) return false;
+    std::uint64_t checksum = pf_zero_mode::fnv1a64(&header, sizeof(header));
+    stream.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    const std::vector<double>* fields[] = {
+        &source.phi, &source.Y, &source.xB, &source.dY_dt_prev};
+    for (const std::vector<double>* field : fields) {
+        const std::size_t bytes = field->size() * sizeof(double);
+        stream.write(reinterpret_cast<const char*>(field->data()), bytes);
+        checksum = pf_zero_mode::fnv1a64(field->data(), bytes, checksum);
+    }
+    const std::vector<pf_zero_mode::AuxiliaryPopulationBin>* populations[] = {
+        &source.aux.gp_bins, &source.aux.beta_subgrid_bins};
+    for (const std::vector<pf_zero_mode::AuxiliaryPopulationBin>* population :
+         populations) {
+        for (const pf_zero_mode::AuxiliaryPopulationBin& bin : *population) {
+            LegacyDiskPopulationBinV1 disk = {};
+            disk.radius_lower_m = bin.radius_lower_m;
+            disk.radius_upper_m = bin.radius_upper_m;
+            disk.number_density_m3 = bin.number_density_m3;
+            disk.count = bin.count;
+            disk.xB = bin.xB;
+            disk.molar_volume_m3_mol = bin.molar_volume_m3_mol;
+            disk.inventory_mol = bin.inventory_mol;
+            stream.write(reinterpret_cast<const char*>(&disk), sizeof(disk));
+            checksum = pf_zero_mode::fnv1a64(&disk, sizeof(disk), checksum);
+        }
+    }
+    header.payload_checksum = checksum;
+    stream.seekp(0);
+    stream.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    stream.close();
+    return static_cast<bool>(stream);
+}
+
 bool is_legacy_zero_aux(const pf_zero_mode::AuxPopulationState& aux) {
     return !aux.present && aux.schema_version == 0U && aux.frozen &&
            aux.state == pf_zero_mode::kLegacyZeroAux &&
            aux.validation_contract_hash.empty() &&
            aux.source_handoff_hash.empty() &&
+           aux.package_handoff_hash.empty() &&
            aux.Q_B_GP_mol == 0.0 && aux.Q_B_beta_subgrid_mol == 0.0 &&
            aux.gp_bins.empty() && aux.beta_subgrid_bins.empty();
 }
@@ -349,6 +485,10 @@ int main() {
         "/tmp/pf_zero_mode_checkpoint_legacy_v3_test.chk";
     const std::string legacy_v4_path =
         "/tmp/pf_zero_mode_checkpoint_legacy_v4_test.chk";
+    const std::string legacy_v5_path =
+        "/tmp/pf_zero_mode_checkpoint_legacy_v5_test.chk";
+    const std::string legacy_v5_reissue_path =
+        "/tmp/pf_zero_mode_checkpoint_legacy_v5_reissue.chk";
     std::remove(path.c_str());
     std::remove((path + ".tmp").c_str());
     std::remove(elastic_path.c_str());
@@ -358,6 +498,8 @@ int main() {
     std::remove(legacy_v2_path.c_str());
     std::remove(legacy_v3_path.c_str());
     std::remove(legacy_v4_path.c_str());
+    std::remove(legacy_v5_path.c_str());
+    std::remove(legacy_v5_reissue_path.c_str());
 
     pf_zero_mode::Checkpoint source;
     source.accepted_step = 17U;
@@ -475,7 +617,7 @@ int main() {
     }
     if (!pf_zero_mode::write_checkpoint(
             elastic_path, elastic_source, &error)) {
-        std::cerr << "elastic V5 write failed: " << error << "\n";
+        std::cerr << "elastic V6 write failed: " << error << "\n";
         return 1;
     }
     {
@@ -490,9 +632,9 @@ int main() {
             reinterpret_cast<char*>(&header_bytes),
             sizeof(header_bytes));
         if (!stream ||
-            std::string(magic, sizeof(magic)) != "PFZMCHK5" ||
-            version != 5U || header_bytes == 0U) {
-            std::cerr << "elastic V5 disk prefix mismatch\n";
+            std::string(magic, sizeof(magic)) != "PFZMCHK6" ||
+            version != 6U || header_bytes == 0U) {
+            std::cerr << "elastic V6 disk prefix mismatch\n";
             return 1;
         }
     }
@@ -501,7 +643,7 @@ int main() {
             elastic_path, elastic_source.provenance,
             &elastic_loaded, &error) ||
         !exact_equal(elastic_source, elastic_loaded)) {
-        std::cerr << "elastic V5 round-trip failed: " << error << "\n";
+        std::cerr << "elastic V6 round-trip failed: " << error << "\n";
         return 1;
     }
     mismatch = elastic_source.provenance;
@@ -514,7 +656,7 @@ int main() {
     mismatch = source.provenance;
     if (pf_zero_mode::read_checkpoint(
             elastic_path, mismatch, &elastic_loaded, &error)) {
-        std::cerr << "elastic V5 state was accepted by a legacy solver\n";
+        std::cerr << "elastic V6 state was accepted by a legacy solver\n";
         return 1;
     }
 
@@ -529,6 +671,8 @@ int main() {
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     auxiliary_source.aux.source_handoff_hash =
         "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    auxiliary_source.aux.package_handoff_hash =
+        "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
     auxiliary_source.aux.gp_population_provenance =
         "PRESCRIBED_SOURCE_KWN_GP_V1";
     auxiliary_source.aux.beta_subgrid_population_provenance =
@@ -576,7 +720,7 @@ int main() {
     }
     if (!pf_zero_mode::write_checkpoint(
             auxiliary_path, auxiliary_source, &error)) {
-        std::cerr << "nonzero auxiliary V5 write failed: " << error << "\n";
+        std::cerr << "nonzero auxiliary V6 write failed: " << error << "\n";
         return 1;
     }
     pf_zero_mode::Checkpoint auxiliary_loaded;
@@ -584,7 +728,7 @@ int main() {
             auxiliary_path, auxiliary_source.provenance, &auxiliary_loaded,
             &error) ||
         !exact_equal(auxiliary_source, auxiliary_loaded)) {
-        std::cerr << "nonzero auxiliary V5 round-trip failed: " << error
+        std::cerr << "nonzero auxiliary V6 round-trip failed: " << error
                   << "\n";
         return 1;
     }
@@ -601,7 +745,7 @@ int main() {
     if (pf_zero_mode::write_checkpoint(
             "/tmp/pf_zero_mode_checkpoint_legacy_relabel.chk",
             legacy_v2_source, &error)) {
-        std::cerr << "legacy-unbound state was incorrectly reissued as V5\n";
+        std::cerr << "legacy-unbound state was incorrectly reissued as V6\n";
         return 1;
     }
     if (!write_legacy_v2(legacy_v2_path, legacy_v2_source) ||
@@ -639,6 +783,26 @@ int main() {
         std::cerr << "legacy V4 zero-aux recovery failed: " << error << "\n";
         return 1;
     }
+    if (!write_legacy_v5(legacy_v5_path, auxiliary_source) ||
+        !pf_zero_mode::read_checkpoint(
+            legacy_v5_path, auxiliary_source.provenance, &auxiliary_loaded,
+            &error) ||
+        auxiliary_loaded.aux.package_handoff_hash.size() != 0U ||
+        auxiliary_loaded.aux.source_handoff_hash !=
+            auxiliary_source.aux.source_handoff_hash ||
+        !exact_equal(auxiliary_loaded.aux.gp_bins,
+                     auxiliary_source.aux.gp_bins) ||
+        !exact_equal(auxiliary_loaded.aux.beta_subgrid_bins,
+                     auxiliary_source.aux.beta_subgrid_bins)) {
+        std::cerr << "legacy V5 auxiliary read failed: " << error << "\n";
+        return 1;
+    }
+    if (pf_zero_mode::write_checkpoint(
+            legacy_v5_reissue_path, auxiliary_loaded, &error)) {
+        std::cerr << "legacy V5 auxiliary checkpoint was reissued without "
+                     "a package identity\n";
+        return 1;
+    }
 
     {
         std::fstream stream(path, std::ios::in | std::ios::out |
@@ -662,6 +826,8 @@ int main() {
     std::remove(legacy_v2_path.c_str());
     std::remove(legacy_v3_path.c_str());
     std::remove(legacy_v4_path.c_str());
-    std::cout << "PASS_PF_ZERO_MODE_CHECKPOINT_PROVENANCE_V2_TO_V5_AUX\n";
+    std::remove(legacy_v5_path.c_str());
+    std::remove(legacy_v5_reissue_path.c_str());
+    std::cout << "PASS_PF_ZERO_MODE_CHECKPOINT_PROVENANCE_V2_TO_V6_AUX\n";
     return 0;
 }

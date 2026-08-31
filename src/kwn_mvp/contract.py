@@ -534,9 +534,30 @@ def _validate_contract_shape(data: Mapping[str, Any]) -> None:
         "volumes.Vm_alpha_m3_mol",
         "volumes.Vm_beta_m3_mol",
         "volumes.dVm_alpha_dxB_m3_mol",
+        "elasticity.C_alpha_voigt_GPa",
+        "elasticity.C_beta_voigt_GPa",
         "elasticity.kwn_elastic_penalty_J_m3",
     ):
         provisional._provenance_record(path)
+
+    for path in ("elasticity.C_alpha_voigt_GPa", "elasticity.C_beta_voigt_GPa"):
+        stiffness = provisional.value(path)
+        if not isinstance(stiffness, list) or len(stiffness) != 6:
+            raise ValidationContractError(f"{path} must be a 6x6 Voigt matrix")
+        for row_index, row in enumerate(stiffness):
+            if not isinstance(row, list) or len(row) != 6:
+                raise ValidationContractError(f"{path}[{row_index}] must have six entries")
+            for column_index, item in enumerate(row):
+                _finite_number(item, f"{path}[{row_index}][{column_index}]")
+        for row_index in range(6):
+            for column_index in range(row_index + 1, 6):
+                if not math.isclose(
+                    float(stiffness[row_index][column_index]),
+                    float(stiffness[column_index][row_index]),
+                    rel_tol=0.0,
+                    abs_tol=1.0e-12,
+                ):
+                    raise ValidationContractError(f"{path} must be symmetric")
     # Exercise every generic evaluator once.  This catches malformed standard
     # state arrays or compound mappings before a numerical KWN run begins.
     temperature = provisional.temperature_k

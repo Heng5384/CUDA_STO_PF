@@ -107,6 +107,18 @@ class PFValidationContractTest(unittest.TestCase):
         self.assertGreater(contract.beta_driving_force_j_mol(temperature, 0.006), 0.0)
         self.assertGreater(contract.matrix_diffusivity_m2_s(temperature), 0.0)
 
+        self.assertFalse(contract.value("thermodynamics.convex_extrapolation")["enabled"])
+        for name in ("C_alpha_voigt_GPa", "C_beta_voigt_GPa"):
+            stiffness = contract.value(f"elasticity.{name}")
+            self.assertEqual(len(stiffness), 6)
+            self.assertTrue(all(len(row) == 6 for row in stiffness))
+            for row_index in range(6):
+                for column_index in range(6):
+                    self.assertEqual(
+                        stiffness[row_index][column_index],
+                        stiffness[column_index][row_index],
+                    )
+
         radii = (2.0e-9, 5.0e-9, 10.0e-9, 20.0e-9, 50.0e-9)
         curvature = [contract.curvature_equilibrium_xb(temperature, radius) for radius in radii]
         self.assertTrue(all(left > right for left, right in zip(curvature, curvature[1:])))
