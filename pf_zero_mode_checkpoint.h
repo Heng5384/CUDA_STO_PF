@@ -19,6 +19,13 @@ constexpr const char* kElasticWarmStartResidualV1 =
     "ELASTIC_WARM_START_RESIDUAL_V1";
 constexpr const char* kConditionalHandoffV1 =
     "MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1";
+constexpr const char* kLegacyZeroAux = "LEGACY_ZERO_AUX";
+constexpr const char* kAuxiliaryStateStorageOnlyV1 =
+    "AUXILIARY_POPULATION_STORAGE_ONLY_V1";
+constexpr const char* kAuxiliaryInventoryUnitsMolB = "mol_B";
+constexpr const char* kLegacyUnboundValidationContractHash =
+    "LEGACY_UNBOUND_VALIDATION_CONTRACT";
+constexpr std::uint32_t kAuxiliaryPopulationSchemaV1 = 1U;
 
 struct Provenance {
     std::string zero_mode;
@@ -33,6 +40,11 @@ struct Provenance {
     std::string fixture_manifest_sha256 = kLegacyInitialStateClass;
     std::string profile_library_manifest_sha256 =
         kLegacyInitialStateClass;
+    // SHA-256 of the common PF/KWN validation contract.  V2/V3/V4 files do
+    // not contain this identity and are represented explicitly by the legacy
+    // unbound sentinel on read; they cannot be restarted as a current hash.
+    std::string validation_contract_hash =
+        kLegacyUnboundValidationContractHash;
     std::string elastic_solver_mode = kElasticStateNotRequired;
     std::uint64_t elastic_solver_fingerprint = 0U;
     std::uint64_t parameter_fingerprint = 0U;
@@ -60,6 +72,42 @@ struct ElasticRuntimeState {
     std::vector<float> displacement_k;
 };
 
+// A compact, host-side population record.  Inventory is the absolute amount
+// of B assigned to this bin, in mol_B; it is not a concentration and is never
+// implicitly injected into the local PF composition field.
+struct AuxiliaryPopulationBin {
+    double radius_lower_m = 0.0;
+    double radius_upper_m = 0.0;
+    double number_density_m3 = 0.0;
+    std::uint64_t count = 0U;
+    double xB = 0.0;
+    double molar_volume_m3_mol = 0.0;
+    double inventory_mol = 0.0;
+};
+
+// This state is deliberately storage-only in v1.  It is persisted with the
+// checkpoint and participates in the four-bucket ledger, but it does not
+// alter phi, xB, chemical potentials, or PF dynamics.  A default-constructed
+// instance is an explicit legacy zero-aux state; readers of V2/V3/V4 files
+// return exactly that state rather than inferring any missing inventory.
+struct AuxPopulationState {
+    std::uint32_t schema_version = 0U;
+    bool present = false;
+    bool frozen = true;
+    std::string state = kLegacyZeroAux;
+    // SHA-256 of the canonical validation thermodynamic/kinetic contract.
+    std::string validation_contract_hash;
+    // SHA-256 of the package that prescribed this auxiliary population.
+    std::string source_handoff_hash;
+    std::string units = kAuxiliaryInventoryUnitsMolB;
+    double Q_B_GP_mol = 0.0;
+    double Q_B_beta_subgrid_mol = 0.0;
+    std::string gp_population_provenance;
+    std::string beta_subgrid_population_provenance;
+    std::vector<AuxiliaryPopulationBin> gp_bins;
+    std::vector<AuxiliaryPopulationBin> beta_subgrid_bins;
+};
+
 struct Checkpoint {
     std::uint64_t accepted_step = 0U;
     int nx = 0;
@@ -70,6 +118,7 @@ struct Checkpoint {
     Provenance provenance;
     RuntimeState zero_mode;
     ElasticRuntimeState elastic;
+    AuxPopulationState aux;
     std::vector<double> phi;
     std::vector<double> Y;
     std::vector<double> xB;
@@ -89,6 +138,12 @@ bool read_checkpoint(const std::string& path,
                      std::string* error);
 
 bool validate_checkpoint(const Checkpoint& checkpoint, std::string* error);
+
+// These helpers expose the compact auxiliary ledger without making callers
+// reimplement a potentially inconsistent sum over retained PSD bins.
+double auxiliary_population_inventory_mol(
+    const std::vector<AuxiliaryPopulationBin>& bins);
+double auxiliary_total_inventory_mol(const AuxPopulationState& state);
 
 std::uint64_t fnv1a64(const void* data, std::size_t size,
                       std::uint64_t seed = 1469598103934665603ULL);

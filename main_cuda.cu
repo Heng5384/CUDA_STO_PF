@@ -61,6 +61,53 @@ typedef enum {
 
 static int g_dynamic_outputs_use_case_dir = 0;
 
+// Only the on-disk version is inspected here.  The checkpoint module remains
+// the authority for validating every header field, payload checksum, and
+// provenance identity.  This narrow dispatch lets historical V2--V4 files
+// retain their explicit unbound-contract read path without ever weakening the
+// V5 hash comparison.
+enum class PfZeroModeCheckpointDiskVersion {
+    kUnknown = 0,
+    kV2 = 2,
+    kV3 = 3,
+    kV4 = 4,
+    kV5 = 5,
+};
+
+static PfZeroModeCheckpointDiskVersion
+inspect_pf_zero_mode_checkpoint_disk_version(const char* path) {
+    if (path == NULL || path[0] == '\0') {
+        return PfZeroModeCheckpointDiskVersion::kUnknown;
+    }
+    std::ifstream input(path, std::ios::in | std::ios::binary);
+    char magic[8] = {};
+    uint32_t version = 0U;
+    if (!input.read(magic, sizeof(magic)) ||
+        !input.read(reinterpret_cast<char*>(&version), sizeof(version))) {
+        return PfZeroModeCheckpointDiskVersion::kUnknown;
+    }
+    if (memcmp(magic, "PFZMCHK2", sizeof(magic)) == 0 && version == 2U) {
+        return PfZeroModeCheckpointDiskVersion::kV2;
+    }
+    if (memcmp(magic, "PFZMCHK3", sizeof(magic)) == 0 && version == 3U) {
+        return PfZeroModeCheckpointDiskVersion::kV3;
+    }
+    if (memcmp(magic, "PFZMCHK4", sizeof(magic)) == 0 && version == 4U) {
+        return PfZeroModeCheckpointDiskVersion::kV4;
+    }
+    if (memcmp(magic, "PFZMCHK5", sizeof(magic)) == 0 && version == 5U) {
+        return PfZeroModeCheckpointDiskVersion::kV5;
+    }
+    return PfZeroModeCheckpointDiskVersion::kUnknown;
+}
+
+static bool is_legacy_pf_zero_mode_checkpoint_version(
+    PfZeroModeCheckpointDiskVersion version) {
+    return version == PfZeroModeCheckpointDiskVersion::kV2 ||
+           version == PfZeroModeCheckpointDiskVersion::kV3 ||
+           version == PfZeroModeCheckpointDiskVersion::kV4;
+}
+
 static int is_valid_model_mode(const char *mode);
 static int is_valid_gp_init_mode(const char *mode);
 static int is_valid_gp_init_mass_mode(const char *mode);
@@ -25036,6 +25083,8 @@ int main(int argc, char **argv) {
         pf_fixture_manifest_sha256;
     pf_zero_mode_provenance.profile_library_manifest_sha256 =
         pf_profile_library_manifest_sha256;
+    pf_zero_mode_provenance.validation_contract_hash =
+        PF_KWN_VALIDATION_CONTRACT_HASH;
     if (elastic_accelerated_solver_enabled) {
         pf_zero_mode_provenance.elastic_solver_mode =
             pf_zero_mode::kElasticWarmStartResidualV1;
@@ -25045,12 +25094,16 @@ int main(int argc, char **argv) {
     pf_zero_mode_provenance.parameter_fingerprint =
         pf_zero_mode_parameter_fingerprint(&P);
     pf_zero_mode::RuntimeState pf_zero_mode_runtime;
+    // This compact state is intentionally host-only and storage-only.  It is
+    // never used to populate eta, phi, xB, or any PF driving force.
+    pf_zero_mode::AuxPopulationState pf_auxiliary_population_state;
     // The profile-library minimizer uses the same monotone scalar solve as
     // production PF, but keeps independent state/provenance because its
     // iterations are offline constrained minimization, not physical time.
     pf_zero_mode::RuntimeState minimize_mass_constraint_runtime;
     pf_zero_mode::Checkpoint pf_restart_checkpoint;
     int pf_restart_loaded = 0;
+    int pf_restart_contract_is_legacy_unbound = 0;
     int pf_restart_step = 0;
     if (P.minimize_continue_from_vtk) {
         if (P.mode != 0 && P.mode != 1) {
@@ -25806,6 +25859,10 @@ int main(int argc, char **argv) {
         log_kv_text("pf_profile_library_manifest_sha256", "%s",
                     pf_zero_mode_provenance
                         .profile_library_manifest_sha256.c_str());
+        log_kv_text("pf_validation_contract_hash", "%s",
+                    pf_zero_mode_provenance.validation_contract_hash.c_str());
+        log_kv_text("pf_auxiliary_state_policy", "%s",
+                    "STORAGE_ONLY_NO_PF_DYNAMICS_COUPLING");
         log_kv_text("pf_zero_mode_tolerance_relative", "%.17e",
                     pf_zero_mode_tolerance_relative);
         log_kv_text("pf_zero_mode_max_iterations", "%d",
@@ -27646,13 +27703,49 @@ int main(int argc, char **argv) {
     }
 
     if (pf_restart_from[0] != '\0') {
+        const PfZeroModeCheckpointDiskVersion pf_restart_disk_version =
+            inspect_pf_zero_mode_checkpoint_disk_version(pf_restart_from);
+        const bool pf_restart_is_legacy =
+            is_legacy_pf_zero_mode_checkpoint_version(
+                pf_restart_disk_version);
+        pf_zero_mode::Provenance pf_restart_expected_provenance =
+            pf_zero_mode_provenance;
+        if (pf_restart_is_legacy) {
+            // V2--V4 have no validation-contract field.  Preserve their
+            // explicit compatibility identity for reading, but keep the
+            // compiled hash in pf_zero_mode_provenance for every new V5
+            // checkpoint written by this process.
+            pf_restart_expected_provenance.validation_contract_hash =
+                pf_zero_mode::kLegacyUnboundValidationContractHash;
+        }
         std::string checkpoint_error;
         if (!pf_zero_mode::read_checkpoint(
-                pf_restart_from, pf_zero_mode_provenance,
+                pf_restart_from, pf_restart_expected_provenance,
                 &pf_restart_checkpoint, &checkpoint_error)) {
             fprintf(stderr,
                     "[fatal] PF zero-mode restart rejected: %s\n",
                     checkpoint_error.c_str());
+            return 2;
+        }
+        if (pf_restart_is_legacy) {
+            if (pf_restart_checkpoint.provenance.validation_contract_hash !=
+                pf_zero_mode::kLegacyUnboundValidationContractHash) {
+                fprintf(stderr,
+                        "[fatal] legacy PF checkpoint did not preserve its "
+                        "explicit unbound validation-contract identity\n");
+                return 2;
+            }
+            pf_restart_contract_is_legacy_unbound = 1;
+        } else if (
+            pf_restart_checkpoint.provenance.validation_contract_hash !=
+            PF_KWN_VALIDATION_CONTRACT_HASH) {
+            // read_checkpoint already compares V5 header provenance before
+            // fields are returned.  Retain this explicit main-side guard so
+            // a nonlegacy restart can never continue under a different
+            // compiled validation contract.
+            fprintf(stderr,
+                    "[fatal] PF V5 checkpoint validation-contract hash "
+                    "does not match this binary\n");
             return 2;
         }
         const double temperature_K = P.temperature_C + 273.15;
@@ -27681,6 +27774,11 @@ int main(int argc, char **argv) {
         recompute_host_xBtot_field(
             h_phi_r, h_eta_r, h_xB_r, h_xBtot_r, &P, total_r);
         pf_zero_mode_runtime = pf_restart_checkpoint.zero_mode;
+        // Retain all compact GP/sub-grid PSD bins exactly across restart.
+        // This assignment is deliberately separate from the PF field restore
+        // above: auxiliary inventory must never be injected into eta, matrix
+        // composition, resolved beta, or the PF dynamics in this MVP.
+        pf_auxiliary_population_state = pf_restart_checkpoint.aux;
         pf_restart_step =
             static_cast<int>(pf_restart_checkpoint.accepted_step);
         pf_restart_loaded = 1;
@@ -27695,6 +27793,21 @@ int main(int argc, char **argv) {
         }
         log_section_header("PF Zero-Mode Restart");
         log_kv_text("checkpoint", "%s", pf_restart_from);
+        log_kv_text("checkpoint_disk_version", "%d",
+                    static_cast<int>(pf_restart_disk_version));
+        log_kv_text("checkpoint_validation_contract_hash", "%s",
+                    pf_restart_checkpoint.provenance
+                        .validation_contract_hash.c_str());
+        log_kv_text("checkpoint_validation_contract_status", "%s",
+                    pf_restart_contract_is_legacy_unbound
+                        ? "LEGACY_UNBOUND_COMPATIBILITY_READ"
+                        : "MATCHED_COMPILED_PF_KWN_VALIDATION_CONTRACT");
+        log_kv_text("checkpoint_auxiliary_state", "%s",
+                    pf_auxiliary_population_state.state.c_str());
+        log_kv_text("checkpoint_auxiliary_Q_B_GP_mol", "%.17e",
+                    pf_auxiliary_population_state.Q_B_GP_mol);
+        log_kv_text("checkpoint_auxiliary_Q_B_beta_subgrid_mol", "%.17e",
+                    pf_auxiliary_population_state.Q_B_beta_subgrid_mol);
         log_kv_text("accepted_step", "%d", pf_restart_step);
         log_kv_text("zero_mode", "%s",
                     pf_zero_mode_provenance.zero_mode.c_str());
@@ -33876,6 +33989,19 @@ gp_post_birth_skip_to_finalize:
         if (pf_zero_mode_enabled && pf_checkpoint_every > 0 &&
             ((step % pf_checkpoint_every) == 0 ||
              step == nsteps_run)) {
+            // A V2--V4 restart has no executable validation-contract
+            // identity.  It may be restored for backward-compatible
+            // inspection/replay, but it must not be silently reissued as a
+            // V5 checkpoint carrying this binary's current hash.  That
+            // conversion would falsely relabel legacy state as a
+            // same-contract validation result.
+            if (pf_restart_contract_is_legacy_unbound) {
+                fprintf(stderr,
+                        "[fatal] refusing to write a hash-bound V5 checkpoint "
+                        "from a legacy-unbound V2--V4 restart; establish an "
+                        "authoritative legacy contract before conversion\n");
+                return 2;
+            }
             const double checkpoint_t0 = wall_time_sec_monotonic();
             pf_zero_mode::Checkpoint checkpoint;
             checkpoint.accepted_step =
@@ -33887,6 +34013,10 @@ gp_post_birth_skip_to_finalize:
             checkpoint.temperature_K = P.temperature_C + 273.15;
             checkpoint.provenance = pf_zero_mode_provenance;
             checkpoint.zero_mode = pf_zero_mode_runtime;
+            // A fresh run carries the explicit zero-aux state; a restart
+            // carries its complete frozen compact populations.  Neither case
+            // changes the local PF fields or their numerical evolution.
+            checkpoint.aux = pf_auxiliary_population_state;
             checkpoint.phi.resize((size_t)total_r);
             checkpoint.Y.resize((size_t)total_r);
             checkpoint.xB.resize((size_t)total_r);
@@ -33955,6 +34085,10 @@ gp_post_birth_skip_to_finalize:
                    "initial_state_class=%s "
                    "fixture_manifest_sha256=%s "
                    "profile_library_manifest_sha256=%s "
+                   "validation_contract_hash=%s "
+                   "auxiliary_state=%s "
+                   "auxiliary_Q_B_GP_mol=%.17e "
+                   "auxiliary_Q_B_beta_subgrid_mol=%.17e "
                    "elastic_solver_mode=%s "
                    "elastic_source_field_step=%llu "
                    "elastic_iterations=%llu "
@@ -33969,6 +34103,10 @@ gp_post_birth_skip_to_finalize:
                    pf_zero_mode_provenance.fixture_manifest_sha256.c_str(),
                    pf_zero_mode_provenance
                        .profile_library_manifest_sha256.c_str(),
+                   pf_zero_mode_provenance.validation_contract_hash.c_str(),
+                   checkpoint.aux.state.c_str(),
+                   checkpoint.aux.Q_B_GP_mol,
+                   checkpoint.aux.Q_B_beta_subgrid_mol,
                    pf_zero_mode_provenance.elastic_solver_mode.c_str(),
                    static_cast<unsigned long long>(
                        elastic_accelerated_solver_enabled
@@ -35090,13 +35228,28 @@ gp_post_birth_skip_to_finalize:
                     pf_zero_mode_wall_s);
         log_kv_text("pf_checkpoint_wall_s", "%.9f",
                     pf_checkpoint_wall_s);
+        log_kv_text("pf_validation_contract_hash", "%s",
+                    pf_zero_mode_provenance.validation_contract_hash.c_str());
+        log_kv_text("pf_auxiliary_state", "%s",
+                    pf_auxiliary_population_state.state.c_str());
+        log_kv_text("pf_auxiliary_Q_B_GP_mol", "%.17e",
+                    pf_auxiliary_population_state.Q_B_GP_mol);
+        log_kv_text("pf_auxiliary_Q_B_beta_subgrid_mol", "%.17e",
+                    pf_auxiliary_population_state.Q_B_beta_subgrid_mol);
         printf("pf_zero_mode_status=%s\n",
                pf_zero_mode_final_status
                    ? "PASS_PF_CONSERVED_Y_ZERO_MODE_V1"
                    : "FAIL_PF_CONSERVED_Y_ZERO_MODE_V1");
         printf("checkpoint_restart_provenance=%s\n",
-               pf_restart_loaded ? "RESTORED_AND_VALIDATED"
-                                 : "FRESH_HASH_PINNED");
+               pf_restart_loaded
+                   ? (pf_restart_contract_is_legacy_unbound
+                          ? "RESTORED_LEGACY_UNBOUND_COMPATIBILITY_READ"
+                          : "RESTORED_AND_VALIDATED")
+                   : "FRESH_HASH_PINNED");
+        printf("pf_validation_contract_hash=%s\n",
+               pf_zero_mode_provenance.validation_contract_hash.c_str());
+        printf("pf_auxiliary_state=%s\n",
+               pf_auxiliary_population_state.state.c_str());
         printf("pf_sm_explicit_context=%s\n",
                pf_zero_mode_provenance.explicit_context.c_str());
         printf("pf_reaction_discretization=%s\n",
