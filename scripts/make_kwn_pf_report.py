@@ -119,8 +119,60 @@ def _synthetic_qualification_config(*, bins: int, max_dt_s: float) -> Dict[str, 
     }
 
 
-def _qualification_tables(output_dir: Path) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Reproduce the N5 and N6 diagnostic tables used by the figures."""
+def _coarsening_config() -> Dict[str, Any]:
+    """Return the explicit synthetic N4 closed-coarsening qualification state."""
+
+    return {
+        "simulation": {
+            "temperature_K": 653.15,
+            "max_dt_s": 200.0,
+            "min_dt_s": 1.0e-12,
+            "size_cfl": 0.35,
+            "rmax_outflow_relative_tolerance": 1.0e-10,
+        },
+        "matrix": {
+            "molar_volume_m3_mol": 4.1009e-5,
+            "initial_xB": 0.0066,
+            "total_b_mol_m3": None,
+            "inventory_tolerance_relative": 1.0e-10,
+        },
+        "radius_grid": {"minimum_m": 5.0e-10, "maximum_m": 2.0e-7, "bins": 200},
+        "thermodynamics": {"mode": "approximate_dilute", "planar_reference_xB": 0.006},
+        "populations": {
+            "g": {
+                "xB": 0.02,
+                "molar_volume_m3_mol": 4.1009e-5,
+                "diffusivity_m2_s": 0.0,
+                "gamma_j_m2": 0.0,
+                "xeq_infinity": 0.005,
+                "initial": {"kind": "empty"},
+                "nucleation": {"mode": "off"},
+            },
+            "beta": {
+                "xB": 1.0,
+                "molar_volume_m3_mol": 4.1009e-5,
+                "diffusivity_m2_s": 5.0e-20,
+                "gamma_j_m2": 0.01,
+                "xeq_infinity": 0.006,
+                "shape_factor": 1.0,
+                "elastic_penalty_j_m3": 0.0,
+                "initial": {
+                    "kind": "discrete",
+                    "entries": [
+                        {"radius_m": 1.5e-9, "number_density_m3": 1.0e22},
+                        {"radius_m": 7.0e-9, "number_density_m3": 1.0e22},
+                    ],
+                },
+                "nucleation": {"mode": "off"},
+            },
+        },
+    }
+
+
+def _qualification_tables(
+    output_dir: Path,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Reproduce the N4--N6 tables used by the figures."""
 
     convergence_rows: List[Dict[str, Any]] = []
     observables_by_bins: Dict[int, Dict[str, float]] = {}
@@ -186,7 +238,30 @@ def _qualification_tables(output_dir: Path) -> tuple[List[Dict[str, Any]], List[
             )
     _write_csv(output_dir / "radius_bin_convergence.csv", convergence_rows)
     _write_csv(output_dir / "timestep_convergence.csv", timestep_rows)
-    return convergence_rows, timestep_rows
+    coarsening_solver = KWNSolver(SolverConfig.from_mapping(_coarsening_config()))
+    coarsening_rows: List[Dict[str, Any]] = []
+    for time_s in (0.0, 2.5e4, 5.0e4, 7.5e4, 1.0e5, 1.25e5, 1.5e5):
+        coarsening_solver.run_to_time(time_s)
+        state = solver_observables(coarsening_solver)
+        number_density = state["beta_number_density_m3"]
+        coarsening_rows.append(
+            {
+                "diagnostic": "N4_closed_coarsening_sanity",
+                "time_s": time_s,
+                "time_h": time_s / 3600.0,
+                "N_beta_m3": number_density,
+                "Rbar_m": state["beta_mean_radius_m"],
+                "Rbar_cubed_m3": state["beta_mean_radius_cubed_m3"],
+                "inverse_N_beta_m3": 1.0 / number_density if number_density > 0.0 else float("nan"),
+                "S_v_m_inv": state["beta_specific_surface_area_m_inv"],
+                "f_beta": state["beta_volume_fraction"],
+                "matrix_xB": state["matrix_xB"],
+                "inventory_relative_residual": state["inventory_relative_residual"],
+                "config_label": "synthetic_N4_qualification_not_physical_fit",
+            }
+        )
+    _write_csv(output_dir / "coarsening_diagnostics.csv", coarsening_rows)
+    return convergence_rows, timestep_rows, coarsening_rows
 
 
 def _blocked_panel(plt: Any, path: Path, title: str, status: str, detail: str) -> None:
@@ -222,6 +297,7 @@ def _render_figures(
     sweep_rows: Sequence[Mapping[str, str]],
     convergence_rows: Sequence[Mapping[str, Any]],
     timestep_rows: Sequence[Mapping[str, Any]],
+    coarsening_rows: Sequence[Mapping[str, Any]],
     audit: Mapping[str, Any],
     beta_status: str,
     smoke_status: str,
@@ -322,6 +398,9 @@ def _render_figures(
     beta_nonzero = any(_float(row, "number_density_per_m4") > 0.0 for row in beta_heatmap)
     axes[1].set_title("beta PSD")
     axes[1].set_xlabel("time (h)")
+    axes[1].set_xlim(min(times), max(times))
+    axes[1].set_yscale("log")
+    axes[1].set_ylim(min(radii), max(radii))
     if beta_nonzero:
         axes[1].text(0.5, 0.5, "Non-zero beta data available", transform=axes[1].transAxes, ha="center")
     else:
@@ -407,6 +486,33 @@ def _render_figures(
     axis.legend(fontsize=8)
     figure.tight_layout()
     figure.savefig(figure_dir / "06_timestep_convergence.png", dpi=180)
+    plt.close(figure)
+
+    figure, axes = plt.subplots(1, 2, figsize=(10.4, 4.3))
+    coarsening_time_h = [float(row["time_h"]) for row in coarsening_rows]
+    axes[0].plot(
+        coarsening_time_h,
+        [float(row["Rbar_cubed_m3"]) for row in coarsening_rows],
+        marker="o",
+        color="#457b9d",
+    )
+    axes[0].set_xlabel("time (h)")
+    axes[0].set_ylabel("$\\overline{R^3}$ (m$^3$)")
+    axes[0].set_title("N4 $\\overline{R^3}$–t")
+    axes[1].plot(
+        coarsening_time_h,
+        [float(row["inverse_N_beta_m3"]) for row in coarsening_rows],
+        marker="o",
+        color="#e76f51",
+    )
+    axes[1].set_xlabel("time (h)")
+    axes[1].set_ylabel("1/N$_\\beta$ (m$^3$)")
+    axes[1].set_title("N4 1/N–t")
+    for axis in axes:
+        axis.grid(True, alpha=0.25)
+    figure.suptitle("Closed coarsening diagnostic (synthetic qualification state)")
+    figure.tight_layout()
+    figure.savefig(figure_dir / "11_closed_coarsening_diagnostics.png", dpi=180)
     plt.close(figure)
 
     _blocked_panel(
@@ -508,7 +614,7 @@ def _write_reports(
         "| question | evidence-grounded answer |\n"
         "|---|---|\n"
         "| 1. KWN backend | `INTERNAL_KWN_BACKEND_SELECTED`; Kawin was unavailable/unpinned, while the internal finite-volume backend is fully owned and tested. |\n"
-        "| 2. Strict KWN conservation | Yes for the implemented solver: N1–N7 and the all-state ledger invariant pass at <= `1e-10`; the handoff package residual is `0`. |\n"
+        "| 2. Strict KWN conservation | Yes for the implemented solver: N1–N7, N8 observation mapping, and the all-state ledger invariant pass; residual target is <= `1e-10` and the handoff package residual is `0`. |\n"
         f"| 3. beta-only PF consistency | `{beta_status}`: no valid same-contract PF/KWN comparison was run. |\n"
         "| 4. source of beta-only differences | Not determinable yet; thermodynamic authority, PF-consistent diffusivity, elastic/spatial competition, and full PF PSD inputs are not simultaneously available. |\n"
         f"| 5. 6 h GP-like population | Prescribed source runs; effective-CNT has {counts.get('FEASIBLE', 0)} soft-constraint hit(s) of 64, not a predictive calibration. |\n"
@@ -564,7 +670,7 @@ def main() -> int:
     for label, path in required.items():
         if not path.is_file():
             raise FileNotFoundError(f"required {label} artifact is missing: {path}")
-    convergence_rows, timestep_rows = _qualification_tables(output_dir)
+    convergence_rows, timestep_rows, coarsening_rows = _qualification_tables(output_dir)
     constraints = _read_csv(required["constraints"])
     trajectories = _read_csv(required["trajectories"])
     gp_heatmap = _read_csv(required["gp_heatmap"])
@@ -584,6 +690,7 @@ def main() -> int:
         sweep_rows=sweep_rows,
         convergence_rows=convergence_rows,
         timestep_rows=timestep_rows,
+        coarsening_rows=coarsening_rows,
         audit=audit,
         beta_status=beta_status,
         smoke_status=smoke_status,
