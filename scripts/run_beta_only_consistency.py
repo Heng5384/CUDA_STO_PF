@@ -54,6 +54,7 @@ def main() -> int:
                 "reason",
                 "config_sha256",
             ],
+            lineterminator="\n",
         )
         writer.writeheader()
         for label, route in routes.items():

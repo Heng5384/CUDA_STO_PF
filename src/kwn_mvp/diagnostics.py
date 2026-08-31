@@ -96,7 +96,7 @@ def write_csv(path: str | Path, rows: Sequence[Mapping[str, object]]) -> None:
         if list(row.keys()) != keys:
             raise ValueError("All CSV rows must use the same ordered fields")
     with destination.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=keys)
+        writer = csv.DictWriter(handle, fieldnames=keys, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
