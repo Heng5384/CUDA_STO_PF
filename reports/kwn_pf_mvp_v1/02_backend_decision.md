@@ -33,10 +33,13 @@ the blocked PF contract.
 
 ## Required qualification
 
-Numerical gates N1–N8 cover zero-mobility invariance, dissolution, growth,
-closed coarsening, radius-bin convergence, timestep convergence,
-checkpoint/restart, and no-residual-inventory accounting.  They are required
-for the KWN implementation itself; passing them does not resolve PF readiness.
+Numerical gates N1–N7 cover zero-mobility invariance, dissolution, growth,
+closed coarsening, radius-bin convergence, timestep convergence, and
+checkpoint/restart.  N8 verifies the required Ag-at.% observation mapping
+roundtrip across the supplied AQ/6 h/48 h range.  A separate all-state ledger
+invariant checks the maximum relative inventory residual against `1e-10`.
+These checks qualify the KWN implementation itself; passing them does not
+resolve PF readiness.
 
 ## Fallback limitation
 

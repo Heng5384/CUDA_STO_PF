@@ -94,6 +94,76 @@ def _classification(rows: Sequence[Mapping[str, Any]]) -> str:
     return "FEASIBLE" if all(conditions) else "INFEASIBLE_SOFT_CONSTRAINTS"
 
 
+def _finite_float(row: Mapping[str, Any], key: str) -> float | None:
+    """Read one finite scalar retained in a sweep-result row."""
+
+    try:
+        value = float(row[key])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _parameter_correlations(rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    """Compute descriptive Pearson correlations for completed effective-CNT sets.
+
+    These are sensitivity diagnostics, not an identification analysis: failed
+    inventory trajectories have no physically meaningful terminal observable
+    and remain retained in the main sweep table rather than being imputed.
+    """
+
+    completed = [
+        row
+        for row in rows
+        if row.get("mode") == "effective_cnt"
+        and row.get("status") in {"FEASIBLE", "INFEASIBLE_SOFT_CONSTRAINTS"}
+    ]
+    parameter_specs = (
+        ("gamma_g_J_m2", "log10"),
+        ("xB_g", "linear"),
+        ("xeq_g_infinity", "linear"),
+        ("site_density_g_m3", "log10"),
+        ("attachment_prefactor_s_inv", "log10"),
+        ("D_scale_g", "log10"),
+        ("elastic_penalty_J_m3", "linear"),
+    )
+    outcome_keys = ("N_g_6h_m3", "N_g_48h_m3", "matrix_Ag_6h", "peak_time_h")
+    results: List[Dict[str, Any]] = []
+    for parameter, transform in parameter_specs:
+        for outcome in outcome_keys:
+            values: List[Tuple[float, float]] = []
+            for row in completed:
+                parameter_value = _finite_float(row, parameter)
+                outcome_value = _finite_float(row, outcome)
+                if parameter_value is None or outcome_value is None:
+                    continue
+                if transform == "log10":
+                    if parameter_value <= 0.0:
+                        continue
+                    parameter_value = math.log10(parameter_value)
+                values.append((parameter_value, outcome_value))
+            if len(values) < 3:
+                correlation = float("nan")
+            else:
+                input_values = np.asarray([pair[0] for pair in values], dtype=np.float64)
+                outcome_values = np.asarray([pair[1] for pair in values], dtype=np.float64)
+                if np.std(input_values) == 0.0 or np.std(outcome_values) == 0.0:
+                    correlation = float("nan")
+                else:
+                    correlation = float(np.corrcoef(input_values, outcome_values)[0, 1])
+            results.append(
+                {
+                    "parameter": parameter,
+                    "parameter_transform": transform,
+                    "outcome": outcome,
+                    "completed_set_count": len(values),
+                    "pearson_correlation": correlation,
+                    "interpretation": "DESCRIPTIVE_ONLY_NOT_IDENTIFICATION",
+                }
+            )
+    return results
+
+
 def _effective_config(base: Mapping[str, Any], values: Sequence[float]) -> Dict[str, Any]:
     """Make one explicit effective-CNT parameter set from a bounded LHS sample."""
 
@@ -205,6 +275,8 @@ def main() -> int:
     write_csv(output_dir / "gp_psd_heatmap.csv", [row for row in heatmap if row["population"] == "g"])
     write_csv(output_dir / "beta_psd_heatmap.csv", [row for row in heatmap if row["population"] == "beta"])
     write_csv(output_dir / "gp_parameter_sweep.csv", sweep_rows)
+    correlation_rows = _parameter_correlations(sweep_rows)
+    write_csv(output_dir / "gp_parameter_correlation.csv", correlation_rows)
     feasible = sum(row.get("status") == "FEASIBLE" for row in sweep_rows)
     infeasible_soft = sum(row.get("status") == "INFEASIBLE_SOFT_CONSTRAINTS" for row in sweep_rows)
     infeasible_solver = sum(row.get("status") == "INFEASIBLE_SOLVER_OR_INVENTORY" for row in sweep_rows)
@@ -214,6 +286,17 @@ def main() -> int:
         conclusion = "EFFECTIVE_CNT_CONDITIONALLY_FEASIBLE"
     else:
         conclusion = "STANDARD_CNT_CANNOT_REPRODUCE_REQUIRED_POPULATION"
+    feasible_rows = [row for row in sweep_rows if row.get("status") == "FEASIBLE"]
+    feasible_description = (
+        "No sampled effective-CNT set met all soft constraints."
+        if not feasible_rows
+        else "The only soft-constraint hit is parameter set "
+        f"{feasible_rows[0]['parameter_set']} (gamma_g={feasible_rows[0]['gamma_g_J_m2']}, "
+        f"xB_g={feasible_rows[0]['xB_g']}, D_scale_g={feasible_rows[0]['D_scale_g']})."
+    )
+    completed_correlation_count = max(
+        (int(row["completed_set_count"]) for row in correlation_rows), default=0
+    )
     report = Path(args.report)
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(
@@ -226,7 +309,13 @@ def main() -> int:
         "`xB_g`, gamma_g, site density, attachment, diffusivity scale, and elastic penalty remain effective/exploratory "
         "parameters rather than identified GP thermodynamics. A soft-constraint hit is not a calibrated physical GP nucleation prediction. "
         "Yu 2024 is a holdout plausibility envelope, not a joint fit.\n\n"
-        "Outputs: `gp_parameter_sweep.csv`, `gp_trajectories.csv`, and population PSD heatmaps.\n",
+        f"{feasible_description}\n\n"
+        "## Non-identifiability and failure interpretation\n\n"
+        f"Only {completed_correlation_count} completed effective-CNT trajectories have finite terminal observables, and only {feasible} met all six soft constraints. "
+        "That sampling evidence cannot identify a unique GP composition, interface energy, site density, attachment prefactor, diffusivity scale, or elastic penalty. "
+        "`gp_parameter_correlation.csv` provides descriptive finite-sample Pearson correlations only; it excludes the retained solver/inventory failures rather than imputing them. "
+        f"The {infeasible_solver} solver/inventory failures are useful evidence that some exploratory priors overconsume the shared reservoir, not data to hide or cap.\n\n"
+        "Outputs: `gp_parameter_sweep.csv`, `gp_parameter_correlation.csv`, `gp_trajectories.csv`, and population PSD heatmaps.\n",
         encoding="utf-8",
     )
     return 0

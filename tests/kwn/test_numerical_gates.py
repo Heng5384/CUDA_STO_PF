@@ -1,4 +1,4 @@
-"""N1--N8 automated qualification for the internal finite-volume KWN solver."""
+"""N1--N7 numerical qualification plus a global ledger-closure invariant."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ def _config(
 
 
 class NumericalQualificationTest(unittest.TestCase):
-    """Run the requested N1--N8 gates using fixed, reproducible synthetic states."""
+    """Run N1--N7 with fixed synthetic states and one all-state mass check."""
 
     def _solver(self, **kwargs: Any) -> KWNSolver:
         """Build a solver for one numerical gate."""
@@ -188,8 +188,8 @@ class NumericalQualificationTest(unittest.TestCase):
             resumed.ledger.component_dict(matrix_xb=resumed.matrix_xb, populations=resumed.population_list()),
         )
 
-    def test_n8_inventory_closure_across_representative_states(self) -> None:
-        """N8: every representative N1--N7-style trajectory remains ledger-closed."""
+    def test_inventory_closure_across_representative_states(self) -> None:
+        """Every representative N1--N7-style trajectory remains ledger-closed."""
 
         states = []
         zero_mobility = self._solver(beta_diffusivity=0.0)
