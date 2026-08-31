@@ -125,12 +125,28 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     trajectories, heatmap = _run_snapshots(prescribed_document.data, "prescribed_source", 0)
+    prescribed_six = next(row for row in trajectories if row["time_h"] == 6.0)
+    prescribed_48 = next(row for row in trajectories if row["time_h"] == 48.0)
+    prescribed_peak = max(trajectories, key=lambda row: row["g_number_density_m3"])
+    prescribed_g = prescribed_document.data["populations"]["g"]
     sweep_rows: List[Dict[str, Any]] = [
         {
             "parameter_set": 0,
             "mode": "prescribed_source",
             "status": "RUNNABLE_NONPREDICTIVE",
-            "statement": "PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION",
+            "gamma_g_J_m2": prescribed_g["gamma_j_m2"],
+            "xB_g": prescribed_g["xB"],
+            "xeq_g_infinity": prescribed_g["xeq_infinity"],
+            "site_density_g_m3": "",
+            "attachment_prefactor_s_inv": "",
+            "D_scale_g": "",
+            "elastic_penalty_J_m3": prescribed_g["elastic_penalty_j_m3"],
+            "N_g_6h_m3": prescribed_six["g_number_density_m3"],
+            "N_g_48h_m3": prescribed_48["g_number_density_m3"],
+            "matrix_Ag_6h": prescribed_six["matrix_Ag_at_fraction"],
+            "peak_time_h": prescribed_peak["time_h"],
+            "peak_N_g_m3": prescribed_peak["g_number_density_m3"],
+            "failure_reason": "PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION",
             "config_sha256": prescribed_document.sha256,
         }
     ]
@@ -190,9 +206,11 @@ def main() -> int:
     write_csv(output_dir / "beta_psd_heatmap.csv", [row for row in heatmap if row["population"] == "beta"])
     write_csv(output_dir / "gp_parameter_sweep.csv", sweep_rows)
     feasible = sum(row.get("status") == "FEASIBLE" for row in sweep_rows)
+    infeasible_soft = sum(row.get("status") == "INFEASIBLE_SOFT_CONSTRAINTS" for row in sweep_rows)
+    infeasible_solver = sum(row.get("status") == "INFEASIBLE_SOLVER_OR_INVENTORY" for row in sweep_rows)
     if feasible:
-        conclusion = "EFFECTIVE_CNT_FEASIBLE"
-    elif any(row.get("status") == "INFEASIBLE_SOFT_CONSTRAINTS" for row in sweep_rows):
+        conclusion = "EFFECTIVE_CNT_SOFT_CONSTRAINT_FEASIBLE_NOT_IDENTIFIED"
+    elif infeasible_soft:
         conclusion = "EFFECTIVE_CNT_CONDITIONALLY_FEASIBLE"
     else:
         conclusion = "STANDARD_CNT_CANNOT_REPRODUCE_REQUIRED_POPULATION"
@@ -203,9 +221,11 @@ def main() -> int:
         f"Status: `{conclusion}`\n\n"
         "The prescribed-source route is numerically active solely to test two-population mass exchange and handoff. "
         "`PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION`.\n\n"
-        f"The effective-CNT sweep retained all {count} deterministic Latin-hypercube parameter sets; {feasible} met all soft constraints. "
+        f"The effective-CNT sweep retained all {count} deterministic Latin-hypercube parameter sets: {feasible} met all soft constraints, "
+        f"{infeasible_soft} missed at least one soft constraint, and {infeasible_solver} hit an explicit solver/inventory boundary. "
         "`xB_g`, gamma_g, site density, attachment, diffusivity scale, and elastic penalty remain effective/exploratory "
-        "parameters rather than identified GP thermodynamics. Yu 2024 is a holdout plausibility envelope, not a joint fit.\n\n"
+        "parameters rather than identified GP thermodynamics. A soft-constraint hit is not a calibrated physical GP nucleation prediction. "
+        "Yu 2024 is a holdout plausibility envelope, not a joint fit.\n\n"
         "Outputs: `gp_parameter_sweep.csv`, `gp_trajectories.csv`, and population PSD heatmaps.\n",
         encoding="utf-8",
     )
