@@ -1,0 +1,9 @@
+diagnostic,max_dt_s,metric,value,reference_dt_150_s,relative_difference_vs_150_s,target_relative_difference,time_s,config_label
+N6_timestep_convergence,300.0,beta_number_density_m3,2e+22,2.0000000000000004e+22,2.0971519999999996e-16,0.02,30000.0,synthetic_N6_qualification_not_physical_fit
+N6_timestep_convergence,300.0,beta_mean_radius_m,5.1608533190678575e-09,5.160756605578851e-09,1.8740176372970838e-05,0.02,30000.0,synthetic_N6_qualification_not_physical_fit
+N6_timestep_convergence,300.0,beta_volume_fraction,0.01293304001644374,0.012932425039254911,4.755312224603168e-05,0.02,30000.0,synthetic_N6_qualification_not_physical_fit
+N6_timestep_convergence,300.0,matrix_xB,0.006201651374056908,0.006202270544750186,9.982968153533538e-05,0.02,30000.0,synthetic_N6_qualification_not_physical_fit
+N6_timestep_convergence,150.0,beta_number_density_m3,2.0000000000000004e+22,2.0000000000000004e+22,0.0,0.02,30000.0,synthetic_N6_qualification_not_physical_fit
+N6_timestep_convergence,150.0,beta_mean_radius_m,5.160756605578851e-09,5.160756605578851e-09,0.0,0.02,30000.0,synthetic_N6_qualification_not_physical_fit
+N6_timestep_convergence,150.0,beta_volume_fraction,0.012932425039254911,0.012932425039254911,0.0,0.02,30000.0,synthetic_N6_qualification_not_physical_fit
+N6_timestep_convergence,150.0,matrix_xB,0.006202270544750186,0.006202270544750186,0.0,0.02,30000.0,synthetic_N6_qualification_not_physical_fit

@@ -1,0 +1,6 @@
+bucket,inventory_mol_B_m3,destination,pf_materialized_mol_B_m3,package_only_mol_B_m3,status
+C_B_total,190.94679216757297,source total,0.0,0.0,PARTIAL_PF_STATE_NOT_CLOSED
+C_B_matrix,120.10356487774848,PF matrix xB_alpha,120.10356487774848,0.0,PARTIAL_PF_STATE_NOT_CLOSED
+C_B_GP,70.84322728982448,package-only retained inventory,0.0,70.84322728982448,PARTIAL_PF_STATE_NOT_CLOSED
+C_B_beta_subgrid,0.0,package-only retained inventory,0.0,0.0,PARTIAL_PF_STATE_NOT_CLOSED
+C_B_beta_resolved,0.0,PF resolved-beta geometry,0.0,0.0,PARTIAL_PF_STATE_NOT_CLOSED

@@ -1,0 +1,46 @@
+{
+  "accounted_total": 190.94679216757297,
+  "accounting_residual": 0.0,
+  "destination_by_bucket": {
+    "C_B_GP": "package-only retained inventory",
+    "C_B_beta_resolved": "PF resolved-beta geometry",
+    "C_B_beta_subgrid": "package-only retained inventory",
+    "C_B_matrix": "PF matrix xB_alpha"
+  },
+  "double_counting_detected": false,
+  "notes": [
+    "This is an offline snapshot plan; it does not implement concurrent KWN-PF coupling.",
+    "The supplied matrix xB_alpha is a target baseline, not permission to overwrite the existing diffuse profile or delta_C_relaxation field.",
+    "GP and/or beta-subgrid inventory is preserved in the handoff ledger, not added to xB_alpha.",
+    "Ledger closure is package-level only; no PF raw initialization is emitted while state remains partial."
+  ],
+  "package_only_inventory": {
+    "C_B_GP": 70.84322728982448,
+    "C_B_beta_subgrid": 0.0
+  },
+  "pf_materialized_inventory": {
+    "C_B_GP": 0.0,
+    "C_B_beta_resolved": 0.0,
+    "C_B_beta_subgrid": 0.0,
+    "C_B_matrix": 120.10356487774848
+  },
+  "pf_raw_initialization_allowed": false,
+  "pf_raw_initialization_emitted": false,
+  "relative_accounting_residual": 0.0,
+  "source_ledger": {
+    "C_B_GP": 70.84322728982448,
+    "C_B_beta_resolved": 0.0,
+    "C_B_beta_subgrid": 0.0,
+    "C_B_matrix": 120.10356487774848,
+    "C_B_total": 190.94679216757297,
+    "residual": 0.0
+  },
+  "source_validation": {
+    "C_B_bucket_sum": 190.94679216757297,
+    "C_B_total": 190.94679216757297,
+    "relative_residual": 0.0,
+    "residual": 0.0,
+    "schema_version": "kwn_pf_handoff_v1"
+  },
+  "status": "PARTIAL_PF_STATE_NOT_CLOSED"
+}

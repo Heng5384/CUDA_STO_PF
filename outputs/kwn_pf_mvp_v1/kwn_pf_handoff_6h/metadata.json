@@ -1,0 +1,100 @@
+{
+  "assumptions": [
+    "PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION.",
+    "PF thermodynamic contract status is P0_CONTRACT_CONFLICT; this package is not PF-run eligible.",
+    "R_h is a numerical PF profile-support classification, not a physical GP-to-beta transformation radius.",
+    "Existing-geometry handoff preserves authoritative resolved-beta diffuse profiles and delta_C_relaxation rather than overwriting them with a scalar matrix value.",
+    "Resolved beta is classified from KWN beta bins at or above the numerical handoff radius; this is not direct GP-to-beta conversion.",
+    "GP and beta-subgrid inventories remain separate ledger buckets during PF handoff."
+  ],
+  "beta_resolved_population": {
+    "B_inventory": 0.0,
+    "Vm_m3_per_mol": 4.1009e-05,
+    "shape_orientation_metadata": {
+      "fixture": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "mode": "existing_geometry",
+      "profile_support_radii_nm": [
+        8.0,
+        8.25,
+        8.5,
+        8.75,
+        9.0,
+        9.25,
+        9.5,
+        9.75,
+        10.0,
+        10.25,
+        10.5,
+        10.75,
+        11.0,
+        11.25,
+        11.5
+      ]
+    },
+    "volume_fraction": 0.0,
+    "xB_beta": 1.0
+  },
+  "beta_subgrid_population": {
+    "B_inventory": 0.0,
+    "Vm_m3_per_mol": 4.1009e-05,
+    "volume_fraction": 0.0,
+    "xB_beta": 1.0
+  },
+  "extensions": {
+    "beta_handoff_radius_m": 8e-09
+  },
+  "gp_population": {
+    "B_inventory": 70.84322728982448,
+    "Vm_m3_per_mol": 4.1009e-05,
+    "volume_fraction": 0.1452604953964206,
+    "xB_g": 0.02
+  },
+  "handoff_time_s": 21600.0,
+  "inventory_basis": "mol_B_per_m3",
+  "ledger": {
+    "C_B_GP": 70.84322728982448,
+    "C_B_beta_resolved": 0.0,
+    "C_B_beta_subgrid": 0.0,
+    "C_B_matrix": 120.10356487774848,
+    "C_B_total": 190.94679216757297,
+    "residual": 0.0
+  },
+  "matrix": {
+    "B_inventory": 120.10356487774848,
+    "Vm_m3_per_mol": 4.1009e-05,
+    "xB_alpha": 0.005762372121031086
+  },
+  "observation_dataset_role": "Sheskin_2018_primary_prescribed_source_numerical_exercise",
+  "pf_box": {
+    "lengths_m": [
+      9.6e-08,
+      9.6e-08,
+      9.6e-08
+    ],
+    "periodic": true
+  },
+  "schema_version": "kwn_pf_handoff_v1",
+  "source": {
+    "additional_provenance": {
+      "handoff_config_path": "configs/kwn/kwn_pf_handoff_existing_geometry.yaml",
+      "handoff_config_sha256": "2124e889f539216fa6b0711e4ed957bb268d283c49aee78d6fdfb8b8e2a715b5",
+      "kwn_config_path": "configs/kwn/gp_prescribed_source_mvp.yaml",
+      "kwn_config_sha256": "2aa878559ca897fdbb80b384791280eac2d642dc6b175b116fb109abcfe8da43",
+      "pf_contract_status": "P0_CONTRACT_CONFLICT",
+      "pf_fixture_path": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "pf_fixture_sha256": "d7b12b9e9c621da457701ab0ca5f1e9cbbdfc65493e9fde4c5123dc8767c2b32",
+      "sampled_geometry_config_path": "configs/kwn/kwn_pf_handoff_sampled_geometry.yaml",
+      "sampled_geometry_config_sha256": "ef0d18e02ffabbf8565c3d066e8f7b30269eafc2cc23ff59c013645e96349621"
+    },
+    "analysis_hash": "fc1f5a2d0af9e42cc1563e65440d7b4d09c97a2ca54d4878c5e00a20e09cd795",
+    "binary_hash": "NOT_APPLICABLE_INTERNAL_PYTHON_KWN_BACKEND",
+    "config_hash": "2aa878559ca897fdbb80b384791280eac2d642dc6b175b116fb109abcfe8da43",
+    "fixture_hash": "d7b12b9e9c621da457701ab0ca5f1e9cbbdfc65493e9fde4c5123dc8767c2b32",
+    "git_commit": "369867741ebfb6b3b1867b3ec4e7727994e284a4",
+    "kwn_backend": "internal_kwn_finite_volume_v1",
+    "kwn_backend_version": "v1"
+  },
+  "temperature_K": 653.15,
+  "total_pseudo_binary_inventory": 190.94679216757297,
+  "unit_system": "SI"
+}

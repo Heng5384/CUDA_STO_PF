@@ -1,0 +1,22 @@
+{
+  "fixture_grid": [
+    96,
+    96,
+    96
+  ],
+  "fixture_id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+  "fixture_lambda_sm_nm": 4.0,
+  "fixture_path": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+  "fixture_sha256": "d7b12b9e9c621da457701ab0ca5f1e9cbbdfc65493e9fde4c5123dc8767c2b32",
+  "fixture_temperature_C": 380.0,
+  "handoff_audit_status": "PARTIAL_PF_STATE_NOT_CLOSED",
+  "pf_executable_invoked": false,
+  "required_future_checks": [
+    "0/6/48 h N_beta, mean radius, matrix xB_alpha, and total B inventory continuity",
+    "new beta nucleation OFF",
+    "GP, GP birth, GP release, external source, and GP-assisted beta modes OFF",
+    "particle identity fail-closed on unresolved merge/split events"
+  ],
+  "status": "NOT_RUN_P0_CONTRACT_CONFLICT",
+  "thermodynamic_contract_path": "thermodynamic_contract_freeze_v1/07_frozen_thermodynamic_contract.yaml"
+}
