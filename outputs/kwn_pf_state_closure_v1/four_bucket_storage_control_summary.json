@@ -1,0 +1,210 @@
+{
+  "S1_zero_aux_identity": {
+    "ledger": {
+      "C_B_GP_mol_m3": 0.0,
+      "C_B_beta_resolved_fixed_mol_m3": 583.4882372282235,
+      "C_B_beta_subgrid_mol_m3": 0.0,
+      "C_B_matrix_mol_m3": 148.058496415611,
+      "C_B_total_mol_m3": 731.5467336438344,
+      "Q_B_GP_mol": 0.0,
+      "Q_B_beta_resolved_fixed_mol": 5.162330490523496e-19,
+      "Q_B_beta_subgrid_mol": 0.0,
+      "Q_B_bucket_sum_mol": 6.472257309371117e-19,
+      "Q_B_matrix_mol": 1.3099268188476202e-19,
+      "Q_B_total_mol": 6.472257309371116e-19,
+      "box_volume_m3": 8.847360000000001e-22,
+      "relative_residual": 1.4878348096565177e-16,
+      "residual_mol": -9.62964972193618e-35,
+      "unit_C_B": "mol_B_m-3",
+      "unit_Q_B": "mol_B"
+    },
+    "max_mapped_matrix_xB_difference_from_source": 4.336808689942018e-18,
+    "source_field_preservation": {
+      "resolved_inventory_relative_residual": 0.0,
+      "source_phi_max_abs_difference": 0.0,
+      "source_phi_sha256_after": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_phi_sha256_before": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_xB_alpha_max_abs_difference": 0.0,
+      "source_xB_alpha_sha256_after": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618",
+      "source_xB_alpha_sha256_before": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618"
+    },
+    "status": "PASS"
+  },
+  "S2E_fixture_conditioned_rebalanced_aux": {
+    "dynamics_excluded": [
+      "chemical_potential",
+      "phi",
+      "GP_release",
+      "GP_to_beta_conversion",
+      "new_beta_seed",
+      "online_KWN_call"
+    ],
+    "gp_fraction_of_source_matrix": 0.01,
+    "ledger": {
+      "C_B_GP_mol_m3": 1.4805849641561086,
+      "C_B_beta_resolved_fixed_mol_m3": 583.4882372282235,
+      "C_B_beta_subgrid_mol_m3": 0.7402924820780543,
+      "C_B_matrix_mol_m3": 145.8376189693768,
+      "C_B_total_mol_m3": 731.5467336438344,
+      "Q_B_GP_mol": 1.309926818847619e-21,
+      "Q_B_beta_resolved_fixed_mol": 5.162330490523496e-19,
+      "Q_B_beta_subgrid_mol": 6.549634094238095e-22,
+      "Q_B_bucket_sum_mol": 6.472257309371116e-19,
+      "Q_B_matrix_mol": 1.2902779165649057e-19,
+      "Q_B_total_mol": 6.472257309371116e-19,
+      "box_volume_m3": 8.847360000000001e-22,
+      "relative_residual": 0.0,
+      "residual_mol": 0.0,
+      "unit_C_B": "mol_B_m-3",
+      "unit_Q_B": "mol_B"
+    },
+    "mapped_matrix_max_xB_difference_from_source": 9.330867835967947e-05,
+    "matrix_rebalanced": true,
+    "pf_raw_initialization_emitted": false,
+    "source_field_preservation": {
+      "resolved_inventory_relative_residual": 0.0,
+      "source_phi_max_abs_difference": 0.0,
+      "source_phi_sha256_after": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_phi_sha256_before": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_xB_alpha_max_abs_difference": 0.0,
+      "source_xB_alpha_sha256_after": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618",
+      "source_xB_alpha_sha256_before": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618"
+    },
+    "status": "PASS",
+    "subgrid_fraction_of_source_matrix": 0.005
+  },
+  "S2_nonzero_frozen_aux_storage_only": {
+    "dynamics_excluded": [
+      "chemical_potential",
+      "phi",
+      "GP_release",
+      "GP_to_beta_conversion",
+      "new_beta_seed",
+      "online_KWN_call"
+    ],
+    "gp_fraction_of_source_matrix": 0.01,
+    "ledger": {
+      "Q_B_GP_mol": 1.309926818847619e-21,
+      "Q_B_beta_resolved_fixed_mol": 5.162330490523496e-19,
+      "Q_B_beta_subgrid_mol": 6.549634094238095e-22,
+      "Q_B_bucket_sum_mol": 6.491906211653829e-19,
+      "Q_B_matrix_mol": 1.309926818847619e-19,
+      "Q_B_total_mol": 6.49190621165383e-19,
+      "box_volume_m3": 8.847360000000001e-22,
+      "relative_residual": 1.4833316144724465e-16,
+      "residual_mol": 9.62964972193618e-35
+    },
+    "local_matrix_inventory_mol": 1.309926818847619e-19,
+    "local_matrix_inventory_relative_residual": 0.0,
+    "local_resolved_inventory_mol": 5.162330490523496e-19,
+    "local_resolved_inventory_relative_residual": 0.0,
+    "mapped_matrix_max_xB_difference_from_source": 0.0,
+    "matrix_rebalanced": false,
+    "pf_raw_initialization_emitted": false,
+    "source_field_preservation": {
+      "resolved_inventory_relative_residual": 0.0,
+      "source_phi_max_abs_difference": 0.0,
+      "source_phi_sha256_after": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_phi_sha256_before": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_xB_alpha_max_abs_difference": 0.0,
+      "source_xB_alpha_sha256_after": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618",
+      "source_xB_alpha_sha256_before": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618"
+    },
+    "status": "PASS",
+    "subgrid_fraction_of_source_matrix": 0.005,
+    "total_increase_mol": 1.964890228271425e-21,
+    "total_increase_relative_residual": 1.914397999699196e-15
+  },
+  "S3_exact_matrix_to_GP_inverse_transfer_and_reverse": {
+    "forward_matrix_inverse_audit": {
+      "actual_matrix_inventory_mol": 1.2968275506591433e-19,
+      "baseline_xB": 0.0061605721967528575,
+      "clipping_used": 0.0,
+      "lower_bound_margin": 0.005954697839971643,
+      "matrix_support_storage": 863565.7988914119,
+      "relative_residual": 3.712771878204502e-16,
+      "relaxation_storage": -1.8993482190241315,
+      "target_matrix_inventory_mol": 1.2968275506591429e-19,
+      "upper_bound_margin": 0.9936953385252538,
+      "xB_max": 0.0063046614747461335,
+      "xB_min": 0.005954697839971643
+    },
+    "ledger_forward": {
+      "Q_B_GP_mol": 1.309926818847619e-21,
+      "Q_B_beta_resolved_fixed_mol": 5.162330490523496e-19,
+      "Q_B_beta_subgrid_mol": 0.0,
+      "Q_B_bucket_sum_mol": 6.472257309371116e-19,
+      "Q_B_matrix_mol": 1.2968275506591433e-19,
+      "Q_B_total_mol": 6.472257309371116e-19,
+      "box_volume_m3": 8.847360000000001e-22,
+      "relative_residual": 0.0,
+      "residual_mol": 0.0
+    },
+    "matrix_capacity_and_bounds": {
+      "Q_B_matrix_max_feasible_mol": 2.1054877440823505e-17,
+      "Q_B_matrix_min_feasible_mol": 4.2889781551854774e-21,
+      "Q_B_transfer_capacity_from_GP_mol": 2.0923884758938744e-17,
+      "Q_B_transfer_capacity_to_GP_mol": 1.2670370372957644e-19,
+      "baseline_lower": 0.0002058743567812148,
+      "baseline_upper": 0.9998559107220067,
+      "matrix_support_storage": 863565.7988914119,
+      "xB_lower_bound": 0.0,
+      "xB_upper_bound": 1.0
+    },
+    "max_xB_roundtrip_error": 2.6020852139652106e-18,
+    "reverse_matrix_inverse_audit": {
+      "actual_matrix_inventory_mol": 1.3099268188476195e-19,
+      "baseline_xB": 0.0062227779823259815,
+      "clipping_used": 0.0,
+      "lower_bound_margin": 0.006016903625544767,
+      "matrix_support_storage": 863565.7988914119,
+      "relative_residual": 3.675644159422457e-16,
+      "relaxation_storage": -1.8993482190241315,
+      "target_matrix_inventory_mol": 1.309926818847619e-19,
+      "upper_bound_margin": 0.9936331327396808,
+      "xB_max": 0.0063668672603192575,
+      "xB_min": 0.006016903625544767
+    },
+    "reverse_relative_residual": 3.675644159422457e-16,
+    "source_field_preservation": {
+      "resolved_inventory_relative_residual": 0.0,
+      "source_phi_max_abs_difference": 0.0,
+      "source_phi_sha256_after": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_phi_sha256_before": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de",
+      "source_xB_alpha_max_abs_difference": 0.0,
+      "source_xB_alpha_sha256_after": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618",
+      "source_xB_alpha_sha256_before": "54d349f29a45c392d12ffecaf1ed1246c7e0001994f1527facdf0eb6d864c618"
+    },
+    "status": "PASS",
+    "transfer_delta_Q_mol": 1.309926818847619e-21,
+    "transfer_relative_residual": 3.862297964393128e-14
+  },
+  "S4_cpp_V6_checkpoint_dependency": {
+    "command": [
+      "make",
+      "test_pf_zero_mode_checkpoint"
+    ],
+    "cuda_pf_dynamics": "NOT_RUN",
+    "execution_scope": "HOST_CHECKPOINT_PERSISTENCE_NOT_CUDA",
+    "meaning": "V6 host checkpoint serialization/recovery with package identity and V2-V5 backward reads; this is not a CUDA PF restart smoke",
+    "output_sha256": "d46c6c48cbe5879a3895e6f4ea1f6dc81acc07656a64b6e7e0db3913bc8aa5eb",
+    "return_code": 0,
+    "status": "PASS_PF_ZERO_MODE_CHECKPOINT_PROVENANCE_V2_TO_V6_AUX"
+  },
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "cuda_pf_dynamics": "NOT_RUN",
+  "execution_scope": "HOST_STORAGE_CONTROL_NOT_CUDA",
+  "fixture": {
+    "box_volume_m3": 8.847360000000001e-22,
+    "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+    "fixture_id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+    "source_kind": "HOST_RAW_PROFILE_FIELDS_HASH_VALIDATED",
+    "source_matrix_inventory_mol": 1.309926818847619e-19,
+    "source_resolved_inventory_mol": 5.162330490523496e-19,
+    "source_total_inventory_mol": 6.472257309371116e-19
+  },
+  "historical_as_run_claim": false,
+  "interpretation": "This proves only hash-validated host storage closure and the separately invoked host C++ checkpoint contract.  It does not run CUDA, PF dynamics, GP release, GP-to-beta conversion, or new beta nucleation.",
+  "schema_version": "PF_KWN_FOUR_BUCKET_HOST_STORAGE_CONTROL_V1",
+  "status": "PASS_FOUR_BUCKET_HOST_STORAGE_CONTROL_NOT_CUDA"
+}

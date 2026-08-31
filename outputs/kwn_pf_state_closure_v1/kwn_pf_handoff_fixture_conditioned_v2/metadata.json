@@ -1,0 +1,275 @@
+{
+  "array_manifest": {
+    "beta_subgrid_expected_count": {
+      "dtype": "float64",
+      "sha256": "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb",
+      "shape": [
+        2
+      ]
+    },
+    "beta_subgrid_number_density_per_m4": {
+      "dtype": "float64",
+      "sha256": "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb",
+      "shape": [
+        2
+      ]
+    },
+    "beta_subgrid_radius_bin_edges_m": {
+      "dtype": "float64",
+      "sha256": "dae350ed188140e5dd5780cad34f17fb8d76b58da3ced47023f177f8a3036adf",
+      "shape": [
+        3
+      ]
+    },
+    "gp_expected_count": {
+      "dtype": "float64",
+      "sha256": "32378e208255113f901b51f560bfa315d2bade04aba7cdf0c66462ac1d364c49",
+      "shape": [
+        2
+      ]
+    },
+    "gp_number_density_per_m4": {
+      "dtype": "float64",
+      "sha256": "77c682661fcc48e4f8c3f66605b7a3d12d808767ed7139df5a8b19203b13f58f",
+      "shape": [
+        2
+      ]
+    },
+    "gp_radius_bin_edges_m": {
+      "dtype": "float64",
+      "sha256": "f81fe9be855b6a8f6f3276869e4eda3117d329ec3257dc2eeeb70561082b3593",
+      "shape": [
+        3
+      ]
+    },
+    "matrix_baseline_xB": {
+      "dtype": "float64",
+      "sha256": "bfd63ebf107fc76facf9b37ab4904524db0562fcfb81e75f17309020b9e8df0f",
+      "shape": [
+        1
+      ]
+    },
+    "resolved_equivalent_radii_m": {
+      "dtype": "float64",
+      "sha256": "52be326bdca741e3cae47a42407f7d16fa1c9ad05c00cfb3e1aff14f2f350969",
+      "shape": [
+        6
+      ]
+    }
+  },
+  "arrays_file_sha256": "ffc0c9e7fcb605eaabd8b2cda4fb00c1093ccbfdbcc45fc8a496f1747cbe0aa8",
+  "auxiliary_sidecar": {
+    "filename": "auxiliary_population_state_v1.txt",
+    "schema_version": "PF_AUXILIARY_HANDOFF_V2_SIDECAR_V1",
+    "semantics": "COMPACT_FROZEN_STORAGE_REQUIRES_SEPARATE_RAW_FIELDS"
+  },
+  "auxiliary_sidecar_sha256": "6d8cc735ce2db67c540e0a26fe8d25c08421801ea08a25af0201771cf4a2203e",
+  "auxiliary_state": {
+    "GP": {
+      "Vm_m3_mol": 4.1009e-05,
+      "inventory_mol": 1.309926818847619e-21,
+      "provenance": {
+        "backend": "compact_host_population_state_v2",
+        "disclaimer": "FIXTURE_CONDITIONED_PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION",
+        "kind": "PRESCRIBED_NON_PREDICTIVE_STORAGE_CONTROL"
+      },
+      "volume_fraction": 0.0020239102931692617,
+      "xB_g": 0.03
+    },
+    "beta_subgrid": {
+      "Vm_m3_mol": 4.1009e-05,
+      "inventory_mol": 0.0,
+      "provenance": {
+        "backend": "compact_host_population_state_v2",
+        "disclaimer": "FIXTURE_CONDITIONED_PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION",
+        "kind": "PRESCRIBED_NON_PREDICTIVE_STORAGE_CONTROL"
+      },
+      "volume_fraction": 0.0,
+      "xB_beta": 1.0
+    },
+    "dynamics_excluded": [
+      "chemical_potential",
+      "phi",
+      "GP_release",
+      "GP_to_beta_conversion",
+      "new_beta_seed",
+      "online_KWN_call"
+    ],
+    "frozen": true,
+    "schema_version": "AuxPopulationState_V1"
+  },
+  "box": {
+    "box_volume_m3": 8.847360000000001e-22,
+    "dx_m": 1e-09,
+    "grid_shape": [
+      96,
+      96,
+      96
+    ],
+    "periodic": true
+  },
+  "build_context": {
+    "host_fixture_attempt_error": null,
+    "pf_execution": "NOT_RUN_STORAGE_PACKAGE_ONLY",
+    "synthetic_fallback_used": false
+  },
+  "conditioning_mode": "FIXED_RESOLVED_BETA_GEOMETRY_REMAINING_BUCKET_ALLOCATION",
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "contract_schema_version": "PF_KWN_VALIDATION_CONTRACT_V1",
+  "contract_source_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/contracts/pf_kwn_validation_contract_v1.json",
+  "double_count_contract": {
+    "GP_is_not_added_to_matrix_xB": true,
+    "fixed_resolved_removed_before_remaining_allocation": true,
+    "resolved_bucket_is_not_generated_from_compact_KWN_beta_PSD": true,
+    "source_matrix_inventory_mol": 1.309926818847619e-19,
+    "source_resolved_inventory_mol": 5.162330490523496e-19,
+    "source_total_inventory_mol": 6.472257309371116e-19
+  },
+  "fixed_resolved_beta": {
+    "field_storage_contract": "sum(h(phi)*v_B)*voxel_volume/Vm_beta",
+    "inventory_mol": 5.162330490523496e-19,
+    "resolved_equivalent_radius_count": 6,
+    "source_geometry_preserved": true
+  },
+  "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+  "fixture_id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+  "fixture_source_details": {
+    "fixture_spec_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+    "fixture_spec_sha256": "d7b12b9e9c621da457701ab0ca5f1e9cbbdfc65493e9fde4c5123dc8767c2b32",
+    "profile_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles",
+    "profile_source_commits": [
+      "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d"
+    ],
+    "profiles": [
+      {
+        "center_grid": [
+          22,
+          5,
+          22
+        ],
+        "particle_id": "MP001",
+        "profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+        "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+        "registered_radius_nm": 10.5
+      },
+      {
+        "center_grid": [
+          54,
+          37,
+          32
+        ],
+        "particle_id": "MP002",
+        "profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+        "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+        "registered_radius_nm": 10.5
+      },
+      {
+        "center_grid": [
+          86,
+          81,
+          70
+        ],
+        "particle_id": "MP003",
+        "profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+        "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+        "registered_radius_nm": 9.5
+      },
+      {
+        "center_grid": [
+          33,
+          81,
+          70
+        ],
+        "particle_id": "MP004",
+        "profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+        "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+        "registered_radius_nm": 9.5
+      },
+      {
+        "center_grid": [
+          95,
+          43,
+          5
+        ],
+        "particle_id": "MP005",
+        "profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+        "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+        "registered_radius_nm": 8.0
+      },
+      {
+        "center_grid": [
+          18,
+          34,
+          56
+        ],
+        "particle_id": "MP006",
+        "profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+        "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+        "registered_radius_nm": 8.0
+      }
+    ]
+  },
+  "fixture_source_kind": "HOST_RAW_PROFILE_FIELDS_HASH_VALIDATED",
+  "historical_as_run_claim": false,
+  "ledger": {
+    "C_B_GP_mol_m3": 1.4805849641561086,
+    "C_B_beta_resolved_fixed_mol_m3": 583.4882372282235,
+    "C_B_beta_subgrid_mol_m3": 0.0,
+    "C_B_matrix_mol_m3": 146.57791145145492,
+    "C_B_total_mol_m3": 731.5467336438344,
+    "Q_B_GP_mol": 1.309926818847619e-21,
+    "Q_B_beta_resolved_fixed_mol": 5.162330490523496e-19,
+    "Q_B_beta_subgrid_mol": 0.0,
+    "Q_B_bucket_sum_mol": 6.472257309371117e-19,
+    "Q_B_matrix_mol": 1.2968275506591443e-19,
+    "Q_B_total_mol": 6.472257309371116e-19,
+    "box_volume_m3": 8.847360000000001e-22,
+    "relative_residual": 1.4878348096565177e-16,
+    "residual_mol": -9.62964972193618e-35,
+    "unit_C_B": "mol_B_m-3",
+    "unit_Q_B": "mol_B"
+  },
+  "matrix_field_mapping": {
+    "audit": {
+      "actual_matrix_inventory_mol": 1.2968275506591443e-19,
+      "baseline_xB": 0.006160572196752861,
+      "clipping_used": 0.0,
+      "lower_bound_margin": 0.005954697839971646,
+      "matrix_support_storage": 863565.7988914119,
+      "relative_residual": 7.425543756409001e-16,
+      "relaxation_storage": -1.8993482190241315,
+      "target_matrix_inventory_mol": 1.2968275506591433e-19,
+      "upper_bound_margin": 0.9936953385252538,
+      "xB_max": 0.006304661474746137,
+      "xB_min": 0.005954697839971646
+    },
+    "clipping_used": false,
+    "delta_C_relaxation_reset": false,
+    "matrix_baseline_array_key": "matrix_baseline_xB",
+    "method": "baseline_only_inverse_storage_preserve_phi_and_delta_C_relaxation",
+    "phi_reset": false,
+    "reconstruction": "xB_alpha=matrix_baseline_xB+delta_C_relaxation/(1-h(phi))",
+    "source_delta_C_relaxation_sha256": "33eee8028f63a63af0c3554e637c5d0687164b5f55d255e8e3bcf49ed3b7b572",
+    "source_h_phi_sha256": "d6b21f1b37731f787281fb3f36e3df654015fc71276c50f8a2750e48a3595f9e",
+    "source_phi_sha256": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de"
+  },
+  "metadata_canonical_sha256": "5ffc4ab70afde89e7b23bfe642cdfba40034f60f20f4a42f7e3fcbcace99f3a8",
+  "package_hash": "5ffc4ab70afde89e7b23bfe642cdfba40034f60f20f4a42f7e3fcbcace99f3a8",
+  "pf_raw_initialization_allowed": true,
+  "pf_raw_initialization_emitted": false,
+  "prescribed_source_disclaimer": "FIXTURE_CONDITIONED_PRESCRIBED_SOURCE_IS_NOT_A_GP_NUCLEATION_PREDICTION",
+  "schema_version": "kwn_pf_handoff_v2",
+  "source_handoff_hash": "faf241ab3f67523e1054f51bfa9113efb4096722dec7b002a47ef4c7edc90f03",
+  "source_kwn_commit": "f228cd45638279413ea62edd774d5b2315dbcbf6",
+  "source_pf_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+  "temperature_K": 653.15,
+  "time_state_label": "96cube_fixture_conditioned_storage_adapter_t0",
+  "unit_definitions": {
+    "C_B": "mol B m^-3, computed as Q_B/box_volume",
+    "PF_native_storage": "dimensionless C_B_code=(1-h)*xB_alpha+h*v_B",
+    "Q_B": "absolute mol of pseudo-binary B=Ag2Te in complete PF box",
+    "molar_volume_conversion": "Q_matrix=sum((1-h)*xB_alpha)*voxel_volume/Vm_alpha; Q_resolved=sum(h*v_B)*voxel_volume/Vm_beta"
+  },
+  "validation_contract_source_commit": "f228cd45638279413ea62edd774d5b2315dbcbf6",
+  "validation_only": true
+}

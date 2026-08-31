@@ -1,0 +1,60 @@
+{
+  "arrays_file_sha256": "ffc0c9e7fcb605eaabd8b2cda4fb00c1093ccbfdbcc45fc8a496f1747cbe0aa8",
+  "checks": {
+    "contract_hash_bind": true,
+    "fixed_resolved_matches_field": true,
+    "frozen_auxiliary": true,
+    "gp_matches_compact_psd": true,
+    "gp_not_added_to_matrix": true,
+    "ledger_closes": true,
+    "matrix_matches_field": true,
+    "no_clipping": true,
+    "nonnegative_auxiliary": true,
+    "phi_and_delta_reference_preserved": true,
+    "resolved_not_double_counted": true,
+    "subgrid_matches_compact_psd": true,
+    "unit_conversion": true
+  },
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "double_count_check": {
+    "fixed_resolved_inventory_mol": 5.162330490523496e-19,
+    "matrix_includes_GP": false,
+    "resolved_population_emitted_from_KWN": false,
+    "status": "PASS_NO_DOUBLE_COUNT"
+  },
+  "field_storage": {
+    "Q_B_beta_resolved_mol": 5.162330490523496e-19,
+    "Q_B_matrix_mol": 1.2968275506591443e-19,
+    "delta_C_relaxation_sha256": "33eee8028f63a63af0c3554e637c5d0687164b5f55d255e8e3bcf49ed3b7b572",
+    "field_space_matrix_storage": 5318.160102498084,
+    "field_space_resolved_storage": 21170.2011085878,
+    "phi_sha256": "a650c253a0576033371e36fd157ccfb224f3b612cac0fac29f887fe431f469de"
+  },
+  "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+  "fixture_source_kind": "HOST_RAW_PROFILE_FIELDS_HASH_VALIDATED",
+  "ledger": {
+    "C_B_GP_mol_m3": 1.4805849641561086,
+    "C_B_beta_resolved_fixed_mol_m3": 583.4882372282235,
+    "C_B_beta_subgrid_mol_m3": 0.0,
+    "C_B_matrix_mol_m3": 146.57791145145492,
+    "C_B_total_mol_m3": 731.5467336438344,
+    "Q_B_GP_mol": 1.309926818847619e-21,
+    "Q_B_beta_resolved_fixed_mol": 5.162330490523496e-19,
+    "Q_B_beta_subgrid_mol": 0.0,
+    "Q_B_bucket_sum_mol": 6.472257309371117e-19,
+    "Q_B_matrix_mol": 1.2968275506591443e-19,
+    "Q_B_total_mol": 6.472257309371116e-19,
+    "box_volume_m3": 8.847360000000001e-22,
+    "relative_residual": 1.4878348096565177e-16,
+    "residual_mol": -9.62964972193618e-35,
+    "unit_C_B": "mol_B_m-3",
+    "unit_Q_B": "mol_B"
+  },
+  "metadata_file_sha256": "7f0cc4936b8cd4e3a14fac9e82ed06c08d932357e0958502dabaccde843f5ca4",
+  "package_hash": "5ffc4ab70afde89e7b23bfe642cdfba40034f60f20f4a42f7e3fcbcace99f3a8",
+  "pf_raw_initialization_allowed": true,
+  "pf_raw_initialization_emitted": false,
+  "relative_residual": 1.4878348096565177e-16,
+  "schema_version": "kwn_pf_handoff_v2",
+  "status": "PASS_FIXTURE_CONDITIONED_HANDOFF_V2"
+}

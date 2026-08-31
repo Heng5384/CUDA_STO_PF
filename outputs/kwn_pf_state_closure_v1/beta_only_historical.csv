@@ -1,0 +1,2 @@
+comparison_id,status,historical_authority_status,historical_psd_status,reason
+historical_12h_broad_narrow_beta_only,NOT_RUN_HISTORICAL_AUTHORITY_OR_PSD_UNAVAILABLE,HISTORICAL_AS_RUN_AUTHORITY_UNRECOVERED,HISTORICAL_12H_PSD_NOT_RECOVERED,no recoverable historical as-run broad/narrow 12 h PSD is available locally

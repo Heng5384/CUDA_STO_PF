@@ -648,7 +648,12 @@ def _write_outputs(output_directory: Path, summary: Mapping[str, Any], records: 
         "max_xB_roundtrip_error",
     )
     with ledger_path.open("x", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="raise")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=columns,
+            extrasaction="raise",
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(records)
     with summary_path.open("x", encoding="utf-8") as handle:

@@ -1,0 +1,16 @@
+{
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "convex_extrapolation_enabled": false,
+  "direction_pass": true,
+  "dissolution_driving_force_J_mol": -3627.797031279093,
+  "growth_driving_force_J_mol": 3492.349623820144,
+  "maximum_relative_error": 3.657021380996818e-12,
+  "maximum_solvus_absolute_error": 0.0,
+  "probe": "tools/pf_thermo_probe.cpp compiled host-only through thermo_utils.h and generated/pf_kwn_validation_contract_v1.h",
+  "relative_tolerance": 1e-10,
+  "rows": 100,
+  "solvus_absolute_tolerance": 1e-08,
+  "status": "PASS_THERMO_VALIDATION_HASH_BIND",
+  "temperature_K": 653.15,
+  "xB_grid_max": 0.2
+}

@@ -1,0 +1,518 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="968.92625pt" height="449.622134pt" viewBox="0 0 968.92625 449.622134" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-01T00:21:38.802220</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.4, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 449.622134
+L 968.92625 449.622134
+L 968.92625 -0
+L 0 -0
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 199.67625 389.7264
+L 618.237361 389.7264
+L 618.237361 121.0864
+L 199.67625 121.0864
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 209.442676 124.84736
+L 329.430194 124.84736
+Q 333.615806 124.84736 333.615806 126.4592
+L 333.615806 169.4416
+Q 333.615806 171.05344 329.430194 171.05344
+L 209.442676 171.05344
+Q 205.257065 171.05344 205.257065 169.4416
+L 205.257065 126.4592
+Q 205.257065 124.84736 209.442676 124.84736
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 348.963046 124.84736
+L 468.950565 124.84736
+Q 473.136176 124.84736 473.136176 126.4592
+L 473.136176 169.4416
+Q 473.136176 171.05344 468.950565 171.05344
+L 348.963046 171.05344
+Q 344.777435 171.05344 344.777435 169.4416
+L 344.777435 126.4592
+Q 344.777435 124.84736 348.963046 124.84736
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 488.483417 124.84736
+L 608.470935 124.84736
+Q 612.656546 124.84736 612.656546 126.4592
+L 612.656546 169.4416
+Q 612.656546 171.05344 608.470935 171.05344
+L 488.483417 171.05344
+Q 484.297806 171.05344 484.297806 169.4416
+L 484.297806 126.4592
+Q 484.297806 124.84736 488.483417 124.84736
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 209.442676 178.57536
+L 329.430194 178.57536
+Q 333.615806 178.57536 333.615806 180.1872
+L 333.615806 223.1696
+Q 333.615806 224.78144 329.430194 224.78144
+L 209.442676 224.78144
+Q 205.257065 224.78144 205.257065 223.1696
+L 205.257065 180.1872
+Q 205.257065 178.57536 209.442676 178.57536
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 348.963046 178.57536
+L 468.950565 178.57536
+Q 473.136176 178.57536 473.136176 180.1872
+L 473.136176 223.1696
+Q 473.136176 224.78144 468.950565 224.78144
+L 348.963046 224.78144
+Q 344.777435 224.78144 344.777435 223.1696
+L 344.777435 180.1872
+Q 344.777435 178.57536 348.963046 178.57536
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 488.483417 178.57536
+L 608.470935 178.57536
+Q 612.656546 178.57536 612.656546 180.1872
+L 612.656546 223.1696
+Q 612.656546 224.78144 608.470935 224.78144
+L 488.483417 224.78144
+Q 484.297806 224.78144 484.297806 223.1696
+L 484.297806 180.1872
+Q 484.297806 178.57536 488.483417 178.57536
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_9">
+    <path d="M 209.442676 232.30336
+L 329.430194 232.30336
+Q 333.615806 232.30336 333.615806 233.9152
+L 333.615806 276.8976
+Q 333.615806 278.50944 329.430194 278.50944
+L 209.442676 278.50944
+Q 205.257065 278.50944 205.257065 276.8976
+L 205.257065 233.9152
+Q 205.257065 232.30336 209.442676 232.30336
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 348.963046 232.30336
+L 468.950565 232.30336
+Q 473.136176 232.30336 473.136176 233.9152
+L 473.136176 276.8976
+Q 473.136176 278.50944 468.950565 278.50944
+L 348.963046 278.50944
+Q 344.777435 278.50944 344.777435 276.8976
+L 344.777435 233.9152
+Q 344.777435 232.30336 348.963046 232.30336
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 488.483417 232.30336
+L 608.470935 232.30336
+Q 612.656546 232.30336 612.656546 233.9152
+L 612.656546 276.8976
+Q 612.656546 278.50944 608.470935 278.50944
+L 488.483417 278.50944
+Q 484.297806 278.50944 484.297806 276.8976
+L 484.297806 233.9152
+Q 484.297806 232.30336 488.483417 232.30336
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_12">
+    <path d="M 209.442676 286.03136
+L 329.430194 286.03136
+Q 333.615806 286.03136 333.615806 287.6432
+L 333.615806 330.6256
+Q 333.615806 332.23744 329.430194 332.23744
+L 209.442676 332.23744
+Q 205.257065 332.23744 205.257065 330.6256
+L 205.257065 287.6432
+Q 205.257065 286.03136 209.442676 286.03136
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_13">
+    <path d="M 348.963046 286.03136
+L 468.950565 286.03136
+Q 473.136176 286.03136 473.136176 287.6432
+L 473.136176 330.6256
+Q 473.136176 332.23744 468.950565 332.23744
+L 348.963046 332.23744
+Q 344.777435 332.23744 344.777435 330.6256
+L 344.777435 287.6432
+Q 344.777435 286.03136 348.963046 286.03136
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_14">
+    <path d="M 488.483417 286.03136
+L 608.470935 286.03136
+Q 612.656546 286.03136 612.656546 287.6432
+L 612.656546 330.6256
+Q 612.656546 332.23744 608.470935 332.23744
+L 488.483417 332.23744
+Q 484.297806 332.23744 484.297806 330.6256
+L 484.297806 287.6432
+Q 484.297806 286.03136 488.483417 286.03136
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_15">
+    <path d="M 209.442676 339.75936
+L 329.430194 339.75936
+Q 333.615806 339.75936 333.615806 341.3712
+L 333.615806 384.3536
+Q 333.615806 385.96544 329.430194 385.96544
+L 209.442676 385.96544
+Q 205.257065 385.96544 205.257065 384.3536
+L 205.257065 341.3712
+Q 205.257065 339.75936 209.442676 339.75936
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_16">
+    <path d="M 348.963046 339.75936
+L 468.950565 339.75936
+Q 473.136176 339.75936 473.136176 341.3712
+L 473.136176 384.3536
+Q 473.136176 385.96544 468.950565 385.96544
+L 348.963046 385.96544
+Q 344.777435 385.96544 344.777435 384.3536
+L 344.777435 341.3712
+Q 344.777435 339.75936 348.963046 339.75936
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_17">
+    <path d="M 488.483417 339.75936
+L 608.470935 339.75936
+Q 612.656546 339.75936 612.656546 341.3712
+L 612.656546 384.3536
+Q 612.656546 385.96544 608.470935 385.96544
+L 488.483417 385.96544
+Q 484.297806 385.96544 484.297806 384.3536
+L 484.297806 341.3712
+Q 484.297806 339.75936 488.483417 339.75936
+z
+" clip-path="url(#p58b56895fb)" style="fill: #fee2e2; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <defs>
+       <path id="m02a6c7de94" d="M 0 0
+L 0 -3.5
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#m02a6c7de94" x="269.436435" y="121.0864" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="269.436435" y="112.42265" transform="rotate(-0 269.436435 112.42265)">0 h</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2">
+      <g>
+       <use xlink:href="#m02a6c7de94" x="408.956806" y="121.0864" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="408.956806" y="112.42265" transform="rotate(-0 408.956806 112.42265)">6 h</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_3">
+      <g>
+       <use xlink:href="#m02a6c7de94" x="548.477176" y="121.0864" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="548.477176" y="112.42265" transform="rotate(-0 548.477176 112.42265)">48 h</text>
+     </g>
+    </g>
+    <g id="text_4">
+     <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="408.956806" y="410.80515" transform="rotate(-0 408.956806 410.80515)">No CUDA PF binary/trajectory was available</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_4">
+      <defs>
+       <path id="mbdf0c8b73d" d="M 0 0
+L -3.5 0
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#mbdf0c8b73d" x="199.67625" y="147.9504" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: end" x="192.67625" y="150.91915" transform="rotate(-0 192.67625 150.91915)">A. BASELINE_LEGACY_ZERO_AUX</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_5">
+      <g>
+       <use xlink:href="#mbdf0c8b73d" x="199.67625" y="201.6784" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_6">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: end" x="192.67625" y="204.64715" transform="rotate(-0 192.67625 204.64715)">B. IDENTITY_ADAPTER_ZERO_AUX</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_6">
+      <g>
+       <use xlink:href="#mbdf0c8b73d" x="199.67625" y="255.4064" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_7">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: end" x="192.67625" y="258.37515" transform="rotate(-0 192.67625 258.37515)">C. NONZERO_FROZEN_AUX_STORAGE</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_7">
+      <g>
+       <use xlink:href="#mbdf0c8b73d" x="199.67625" y="309.1344" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_8">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: end" x="192.67625" y="312.10315" transform="rotate(-0 192.67625 312.10315)">D. CONSERVATIVE_MATRIX_TO_GP_CONTROL</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_8">
+      <g>
+       <use xlink:href="#mbdf0c8b73d" x="199.67625" y="362.8624" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_9">
+      <text style="font: 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: end" x="192.67625" y="365.83115" transform="rotate(-0 192.67625 365.83115)">E. FIXTURE_CONDITIONED_KWN_HANDOFF_V2</text>
+     </g>
+    </g>
+   </g>
+   <g id="text_10">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(248.891435 145.678775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(256.836435 154.637025)">CUDA</text>
+   </g>
+   <g id="text_11">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(388.411806 145.678775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(396.356806 154.637025)">CUDA</text>
+   </g>
+   <g id="text_12">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(527.932176 145.678775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(535.877176 154.637025)">CUDA</text>
+   </g>
+   <g id="text_13">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(248.891435 199.406775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(256.836435 208.365025)">CUDA</text>
+   </g>
+   <g id="text_14">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(388.411806 199.406775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(396.356806 208.365025)">CUDA</text>
+   </g>
+   <g id="text_15">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(527.932176 199.406775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(535.877176 208.365025)">CUDA</text>
+   </g>
+   <g id="text_16">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(248.891435 253.134775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(256.836435 262.093025)">CUDA</text>
+   </g>
+   <g id="text_17">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(388.411806 253.134775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(396.356806 262.093025)">CUDA</text>
+   </g>
+   <g id="text_18">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(527.932176 253.134775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(535.877176 262.093025)">CUDA</text>
+   </g>
+   <g id="text_19">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(248.891435 306.862775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(256.836435 315.821025)">CUDA</text>
+   </g>
+   <g id="text_20">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(388.411806 306.862775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(396.356806 315.821025)">CUDA</text>
+   </g>
+   <g id="text_21">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(527.932176 306.862775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(535.877176 315.821025)">CUDA</text>
+   </g>
+   <g id="text_22">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(248.891435 360.590775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(256.836435 369.549025)">CUDA</text>
+   </g>
+   <g id="text_23">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(388.411806 360.590775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(396.356806 369.549025)">CUDA</text>
+   </g>
+   <g id="text_24">
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(527.932176 360.590775)">NOT RUN</text>
+    <text style="fill: #b91c1c; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(535.877176 369.549025)">CUDA</text>
+   </g>
+   <g id="text_25">
+    <text style="font: 9.6px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="408.956806" y="100.3439" transform="rotate(-0 408.956806 100.3439)">Actual 96³ PF smoke trajectory matrix</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="text_26">
+    <text style="font: 700 12px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="794.301806" y="142.5776" transform="rotate(-0 794.301806 142.5776)">Available evidence is host-side only</text>
+   </g>
+   <g id="text_27">
+    <g id="patch_18">
+     <path d="M 636.922828 201.6394
+L 782.062328 201.6394
+Q 785.054328 201.6394 785.054328 198.6474
+L 785.054328 179.94245
+Q 785.054328 176.95045 782.062328 176.95045
+L 636.922828 176.95045
+Q 633.930828 176.95045 633.930828 179.94245
+L 633.930828 198.6474
+Q 633.930828 201.6394 636.922828 201.6394
+z
+" style="fill: #f8fafc; stroke: #15803d; stroke-linejoin: miter"/>
+    </g>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 186.71845)">A. BASELINE_LEGACY_ZERO_AUX</text>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 196.817275)">No host PF trajectory record</text>
+   </g>
+   <g id="text_28">
+    <g id="patch_19">
+     <path d="M 636.922828 240.5922
+L 786.126828 240.5922
+Q 789.118828 240.5922 789.118828 237.6002
+L 789.118828 218.89525
+Q 789.118828 215.90325 786.126828 215.90325
+L 636.922828 215.90325
+Q 633.930828 215.90325 633.930828 218.89525
+L 633.930828 237.6002
+Q 633.930828 240.5922 636.922828 240.5922
+z
+" style="fill: #f8fafc; stroke: #15803d; stroke-linejoin: miter"/>
+    </g>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 225.67125)">B. IDENTITY_ADAPTER_ZERO_AUX</text>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 235.770075)">S1 host zero-aux identity</text>
+   </g>
+   <g id="text_29">
+    <g id="patch_20">
+     <path d="M 636.922828 279.545
+L 803.245578 279.545
+Q 806.237578 279.545 806.237578 276.553
+L 806.237578 257.84805
+Q 806.237578 254.85605 803.245578 254.85605
+L 636.922828 254.85605
+Q 633.930828 254.85605 633.930828 257.84805
+L 633.930828 276.553
+Q 633.930828 279.545 636.922828 279.545
+z
+" style="fill: #f8fafc; stroke: #15803d; stroke-linejoin: miter"/>
+    </g>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 264.62405)">C. NONZERO_FROZEN_AUX_STORAGE</text>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 274.722875)">S2 host frozen-aux storage</text>
+   </g>
+   <g id="text_30">
+    <g id="patch_21">
+     <path d="M 636.922828 318.4978
+L 834.119828 318.4978
+Q 837.111828 318.4978 837.111828 315.5058
+L 837.111828 296.80085
+Q 837.111828 293.80885 834.119828 293.80885
+L 636.922828 293.80885
+Q 633.930828 293.80885 633.930828 296.80085
+L 633.930828 315.5058
+Q 633.930828 318.4978 636.922828 318.4978
+z
+" style="fill: #f8fafc; stroke: #15803d; stroke-linejoin: miter"/>
+    </g>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 303.57685)">D. CONSERVATIVE_MATRIX_TO_GP_CONTROL</text>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 313.675675)">S3 host conservative transfer</text>
+   </g>
+   <g id="text_31">
+    <g id="patch_22">
+     <path d="M 636.922828 357.4506
+L 880.891828 357.4506
+Q 883.883828 357.4506 883.883828 354.4586
+L 883.883828 335.75365
+Q 883.883828 332.76165 880.891828 332.76165
+L 636.922828 332.76165
+Q 633.930828 332.76165 633.930828 335.75365
+L 633.930828 354.4586
+Q 633.930828 357.4506 636.922828 357.4506
+z
+" style="fill: #f8fafc; stroke: #7c3aed; stroke-linejoin: miter"/>
+    </g>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 342.52965)">E. FIXTURE_CONDITIONED_KWN_HANDOFF_V2</text>
+    <text style="font: 8.8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 352.628475)">V2 package passed; no dense raw fields are embedded</text>
+   </g>
+   <g id="text_32">
+    <text style="fill: #334155; font: 7.2px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 369.421)">E package validation checks: 13/13 true.</text>
+    <text style="fill: #334155; font: 7.2px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif" transform="translate(636.922828 377.483425)">This confirms package closure, not a CUDA PF trajectory.</text>
+   </g>
+  </g>
+  <g id="text_33">
+   <text style="font: 700 13px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="484.36625" y="42.076369" transform="rotate(-0 484.36625 42.076369)">96³ PF smoke A–E — execution status, not an inferred result</text>
+  </g>
+  <g id="text_34">
+   <text style="fill: #334155; font: 8.5px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: middle" x="484.36625" y="440.6544" transform="rotate(-0 484.36625 440.6544)">No matrix-pulse, particle-loss, free-energy, clipping, NaN/Inf, or restart-drift trajectory result is claimed without CUDA execution.</text>
+  </g>
+  <g id="text_35">
+   <g id="patch_23">
+    <path d="M 10.03025 17.1825
+L 319.679 17.1825
+Q 321.919 17.1825 321.919 14.9425
+L 321.919 7.2
+Q 321.919 4.96 319.679 4.96
+L 10.03025 4.96
+Q 7.79025 4.96 7.79025 7.2
+L 7.79025 14.9425
+Q 7.79025 17.1825 10.03025 17.1825
+z
+" style="fill: #b91c1c; stroke: #b91c1c; stroke-linejoin: miter"/>
+   </g>
+   <text style="fill: #ffffff; font: 700 8px 'DejaVu Sans', 'Arial', 'Helvetica', sans-serif; text-anchor: start" x="10.03025" y="13.27875" transform="rotate(-0 10.03025 13.27875)">NOT RUN CUDA — do not interpret host controls as PF smoke passes</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p58b56895fb">
+   <rect x="199.67625" y="121.0864" width="418.561111" height="268.64"/>
+  </clipPath>
+ </defs>
+</svg>

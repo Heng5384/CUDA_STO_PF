@@ -470,7 +470,12 @@ def _pf_runtime_status() -> dict[str, Any]:
 
 def _write_csv(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     with Path(path).open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS, extrasaction="ignore")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=CSV_FIELDS,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -486,6 +491,7 @@ def _write_historical_not_run(path: Path) -> None:
                 "historical_psd_status",
                 "reason",
             ],
+            lineterminator="\n",
         )
         writer.writeheader()
         writer.writerow(

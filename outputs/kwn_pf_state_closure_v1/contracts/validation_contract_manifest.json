@@ -1,0 +1,9 @@
+{
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "contract_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/contracts/pf_kwn_validation_contract_v1.json",
+  "contract_schema_version": "PF_KWN_VALIDATION_CONTRACT_V1",
+  "generated_header": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/generated/pf_kwn_validation_contract_v1.h",
+  "generated_header_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "schema_version": "PF_KWN_VALIDATION_CONTRACT_ARTIFACT_V1",
+  "scope": "VALIDATION_CONTROL_ONLY_NOT_HISTORICAL_AS_RUN"
+}

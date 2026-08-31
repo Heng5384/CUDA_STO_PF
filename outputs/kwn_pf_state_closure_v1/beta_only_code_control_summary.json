@@ -1,0 +1,282 @@
+{
+  "construction": {
+    "beta_nucleation_mode": "off",
+    "beta_parameters_from_contract": {
+      "D_alpha_m2_s": 8.073255954803963e-18,
+      "Vm_beta_m3_mol": 4.1009e-05,
+      "elastic_penalty_J_m3": 0.0,
+      "gamma_J_m2": 0.168,
+      "xB_beta": 1.0,
+      "xeq_infinity": 0.004649261005504824
+    },
+    "config_mapping": {
+      "matrix": {
+        "initial_xB": 0.006220578557312318,
+        "inventory_tolerance_relative": 1e-10,
+        "molar_volume_m3_mol": 4.1009e-05,
+        "total_b_mol_m3": 731.5467336438344
+      },
+      "populations": {
+        "beta": {
+          "diffusivity_m2_s": 8.073255954803963e-18,
+          "elastic_penalty_j_m3": 0.0,
+          "gamma_j_m2": 0.168,
+          "initial": {
+            "entries": [
+              {
+                "grid_bin_index": 105.0,
+                "number_density_m3": 2.2677880803129203e+21,
+                "radius_m": 7.963658043416817e-09,
+                "source_particle_count": 2.0
+              },
+              {
+                "grid_bin_index": 112.0,
+                "number_density_m3": 2.2677880803129203e+21,
+                "radius_m": 9.605316280497267e-09,
+                "source_particle_count": 2.0
+              },
+              {
+                "grid_bin_index": 115.0,
+                "number_density_m3": 2.2677880803129203e+21,
+                "radius_m": 1.0408711802477457e-08,
+                "source_particle_count": 2.0
+              }
+            ],
+            "kind": "discrete"
+          },
+          "molar_volume_m3_mol": 4.1009e-05,
+          "nucleation": {
+            "mode": "off"
+          },
+          "shape_factor": 1.0,
+          "xB": 1.0,
+          "xeq_infinity": 0.004649261005504824
+        },
+        "g": {
+          "diffusivity_m2_s": 8.073255954803963e-18,
+          "elastic_penalty_j_m3": 0.0,
+          "gamma_j_m2": 0.168,
+          "initial": {
+            "kind": "empty"
+          },
+          "molar_volume_m3_mol": 4.1009e-05,
+          "nucleation": {
+            "mode": "off"
+          },
+          "shape_factor": 1.0,
+          "xB": 1.0,
+          "xeq_infinity": 0.004649261005504824
+        }
+      },
+      "radius_grid": {
+        "bins": 200,
+        "maximum_m": 1e-07,
+        "minimum_m": 4.724027182871601e-10
+      },
+      "simulation": {
+        "max_dt_s": 900.0,
+        "min_dt_s": 1e-12,
+        "random_seed": 20260831,
+        "rmax_outflow_relative_tolerance": 1e-10,
+        "size_cfl": 0.35,
+        "temperature_K": 653.15
+      },
+      "thermodynamics": {
+        "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+        "contract_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/contracts/pf_kwn_validation_contract_v1.json",
+        "mode": "pf_contract",
+        "planar_reference_xB": 0.004649261005504824
+      }
+    },
+    "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+    "contract_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/contracts/pf_kwn_validation_contract_v1.json",
+    "gp_nucleation_mode": "off",
+    "gp_population_state": "EMPTY_COMPATIBILITY_CARRIER_NO_GP_DYNAMICS",
+    "matrix_inventory_mol": 1.309926818847619e-19,
+    "matrix_xB_from_fixed_fixture_inventory": 0.006220578557312318,
+    "numerical_domain_gate": {
+      "contract_valid_minimum_m": 4.724027182871601e-10,
+      "initial_fixture_radii_changed": false,
+      "minimum_initial_fixture_radius_m": 8e-09,
+      "physical_parameters_changed": false,
+      "reason": "unused legacy bins below this radius yield a nonphysical exact-contract curvature equilibrium and are rejected before KWN evaluation",
+      "template_minimum_m": 2.5e-10
+    },
+    "numerical_template_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/configs/kwn/beta_only_pf_consistency.yaml",
+    "numerical_template_sha256": "2cac3616191a4e47bceed8ace15cc90ddb64a03f8b7c978313b68a5e08c15112",
+    "planar_solvus_xB": 0.004649261005504824,
+    "resolved_inventory_mol": 5.162330490523496e-19,
+    "resolved_psd_projection": {
+      "projected_resolved_volume_fraction": 0.02392826912049222,
+      "projection": "COMMON_NUMBER_SCALE_TO_PRESERVE_FIXED_PF_H_VOLUME_ON_KWN_GRID_CENTRES",
+      "resolved_equivalent_number_scale": 1.003196877511866,
+      "source_radii_m": [
+        1.0500000000000001e-08,
+        1.0500000000000001e-08,
+        9.5e-09,
+        9.5e-09,
+        8e-09,
+        8e-09
+      ],
+      "source_resolved_radius_count": 6,
+      "source_unique_radius_count": 3,
+      "target_resolved_volume_fraction": 0.02392826912049222
+    },
+    "thermodynamics_mode": "pf_contract",
+    "total_inventory_mol": 6.472257309371116e-19,
+    "total_inventory_mol_m3": 731.5467336438344
+  },
+  "contract": {
+    "hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+    "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/contracts/pf_kwn_validation_contract_v1.json",
+    "schema_version": "PF_KWN_VALIDATION_CONTRACT_V1"
+  },
+  "fixture": {
+    "hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+    "id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+    "source_details": {
+      "fixture_spec_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "fixture_spec_sha256": "d7b12b9e9c621da457701ab0ca5f1e9cbbdfc65493e9fde4c5123dc8767c2b32",
+      "profile_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles",
+      "profile_source_commits": [
+        "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d"
+      ],
+      "profiles": [
+        {
+          "center_grid": [
+            22,
+            5,
+            22
+          ],
+          "particle_id": "MP001",
+          "profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+          "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+          "registered_radius_nm": 10.5
+        },
+        {
+          "center_grid": [
+            54,
+            37,
+            32
+          ],
+          "particle_id": "MP002",
+          "profile_manifest_sha256": "ac559f2ff5aa9c32a194b454c9f3a1a41a3732dfc9368ee5cb526bd27c2e625e",
+          "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+          "registered_radius_nm": 10.5
+        },
+        {
+          "center_grid": [
+            86,
+            81,
+            70
+          ],
+          "particle_id": "MP003",
+          "profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+          "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+          "registered_radius_nm": 9.5
+        },
+        {
+          "center_grid": [
+            33,
+            81,
+            70
+          ],
+          "particle_id": "MP004",
+          "profile_manifest_sha256": "e8909cf192b0250a2a3f81cd8f0c43c724334289d73e82668eb37b888bfad07f",
+          "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+          "registered_radius_nm": 9.5
+        },
+        {
+          "center_grid": [
+            95,
+            43,
+            5
+          ],
+          "particle_id": "MP005",
+          "profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+          "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+          "registered_radius_nm": 8.0
+        },
+        {
+          "center_grid": [
+            18,
+            34,
+            56
+          ],
+          "particle_id": "MP006",
+          "profile_manifest_sha256": "0c323647c09326d1c39e22d853f6cbda783dbdab72da9e308792cb3bd9b898b2",
+          "profile_source_commit": "5bb0db2bb3321b70cb5f254ffd9ab738a3b3611d",
+          "registered_radius_nm": 8.0
+        }
+      ]
+    },
+    "source_kind": "HOST_RAW_PROFILE_FIELDS_HASH_VALIDATED",
+    "source_matrix_inventory_mol": 1.309926818847619e-19,
+    "source_resolved_inventory_mol": 5.162330490523496e-19,
+    "source_total_inventory_mol": 6.472257309371116e-19
+  },
+  "historical_comparison": {
+    "authority_status": "HISTORICAL_AS_RUN_AUTHORITY_UNRECOVERED",
+    "csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/outputs/kwn_pf_state_closure_v1/beta_only_historical.csv",
+    "psd_status": "HISTORICAL_12H_PSD_NOT_RECOVERED",
+    "status": "NOT_RUN_HISTORICAL_AUTHORITY_OR_PSD_UNAVAILABLE"
+  },
+  "kwn": {
+    "checkpoint_provenance": {
+      "path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/outputs/kwn_pf_state_closure_v1/beta_only_code_control_6h_checkpoint.npz",
+      "status": "NOT_WRITTEN"
+    },
+    "runtime_error": "SolverStateError: beta finite-volume update violated positivity or finiteness",
+    "runtime_failure_metrics": {
+      "kwn_beta_mean_radius_m": 9.248859865775249e-09,
+      "kwn_beta_number_density_m3": 6.80336424093876e+21,
+      "kwn_beta_resolved_B_mol_m3": 586.1876334412076,
+      "kwn_beta_surface_area_m_inv": 7478754.571828883,
+      "kwn_beta_volume_fraction": 0.024038968659790484,
+      "kwn_gp_B_mol_m3": 0.0,
+      "kwn_inventory_relative_residual": 0.0,
+      "kwn_matrix_B_mol_m3": 145.3591002026268,
+      "kwn_matrix_xB": 0.006107857945950683,
+      "kwn_step": 87.0,
+      "kwn_time_h": 0.39317699499770825,
+      "kwn_total_B_mol_m3": 731.5467336438344
+    },
+    "runtime_failure_time_h": 0.39317699499770825,
+    "solver_version": "internal_kwn_finite_volume_v1",
+    "source_config_hash": "7f84da24a032ef2d4547e63a9da5abf356744ca34bc1b8059f3b4cfa1f943a45",
+    "timepoints_reached_h": [
+      0.0
+    ],
+    "timepoints_requested_h": [
+      0.0,
+      6.0,
+      48.0
+    ],
+    "validation_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+  },
+  "outputs": {
+    "beta_only_code_control_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/outputs/kwn_pf_state_closure_v1/beta_only_code_control.csv",
+    "beta_only_historical_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/outputs/kwn_pf_state_closure_v1/beta_only_historical.csv",
+    "summary_json": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-state-closure-v1/outputs/kwn_pf_state_closure_v1/beta_only_code_control_summary.json"
+  },
+  "pf_cuda_trajectory": {
+    "nvcc_path": null,
+    "pf_binary_candidates_found": [],
+    "reason": "this host control does not invoke CUDA PF; no local nvcc or qualified PF binary is available",
+    "status": "NOT_RUN_NO_CUDA_OR_PF_BINARY"
+  },
+  "schema_version": "BETA_ONLY_SAME_CONTRACT_CODE_CONTROL_V1",
+  "scope": {
+    "beta_nucleation": "off",
+    "comparison_semantics": "HOST_KWN_T0_CURVATURE_DIRECTION_ONLY_NOT_PF_TRAJECTORY_OR_TIMESCALE_COMPARISON",
+    "gp_dynamics": "off",
+    "historical_as_run_claim": false,
+    "validation_only": true
+  },
+  "status": "PARTIAL_BETA_ONLY_DIRECTION_T0_ONLY_KWN_RUNTIME_INCOMPLETE",
+  "t0_direction_gate": {
+    "class_count": 3,
+    "definition": "each initially occupied KWN size class has the same growth/dissolution sign as matrix_xB minus the exact contract curvature equilibrium",
+    "status": "PASS_BETA_ONLY_CODE_DIRECTION"
+  }
+}
