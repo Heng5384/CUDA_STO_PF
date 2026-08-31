@@ -25506,7 +25506,8 @@ int main(int argc, char **argv) {
 
         log_section_header("Thermodynamics");
         log_kv_text("thermo_contract_version", "%s", THERMO_CONTRACT_VERSION);
-        log_kv_text("thermo_contract_hash", "%s", "UNFROZEN_LOCAL_CANDIDATE");
+        log_kv_text("thermo_contract_hash", "%s",
+                    PF_KWN_VALIDATION_CONTRACT_HASH);
         log_kv_text("thermo_delta_H_J_per_mol", "%.15g", THERMO_DELTA_H_J_PER_MOL);
         log_kv_text("thermo_delta_S_J_per_mol_K", "%.15g", THERMO_DELTA_S_J_PER_MOL_K);
         log_kv_text("T_C", "%.6f", P.temperature_C);

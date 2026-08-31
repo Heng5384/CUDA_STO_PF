@@ -1,0 +1,415 @@
+{
+  "schema_version": "PF_KWN_VALIDATION_CONTRACT_V1",
+  "name": "PF_KWN_VALIDATION_CONTRACT_V1",
+  "purpose": "VALIDATION_CONTROL_ONLY: bind the 96-cube KWN/PF comparison and frozen one-way storage handoff; this contract is not a historical production as-run authority.",
+  "historical_as_run_claim": false,
+  "source_commit": "f228cd45638279413ea62edd774d5b2315dbcbf6",
+  "contract_creation_script": "tools/generate_pf_contract_header.py",
+  "canonicalization": {
+    "algorithm": "SHA-256 over UTF-8 JSON with sort_keys=true, separators=(',', ':'), allow_nan=false",
+    "float_precision": "IEEE-754 binary64",
+    "source_file": "src/kwn_mvp/config.py:canonical_json",
+    "source_line_or_symbol": "canonical_json",
+    "authority_role": "contract_hash_rule",
+    "used_by_pf": true,
+    "used_by_kwn": true,
+    "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+  },
+  "temperature": {
+    "temperature_K": {
+      "value": 653.15,
+      "unit": "K",
+      "source_file": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "source_line_or_symbol": "target.temperature_C=380.0",
+      "authority_role": "fixture_validation_temperature",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    }
+  },
+  "composition": {
+    "component_A": {
+      "value": "PbTe",
+      "unit": "pseudo-binary component",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "G_PbTe_Solid",
+      "authority_role": "composition_definition",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "component_B": {
+      "value": "Ag2Te",
+      "unit": "pseudo-binary component",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "G_Ag2Te_Solid",
+      "authority_role": "composition_definition",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "xB_definition": {
+      "value": "xB is the Ag2Te pseudo-binary mole fraction; xAg_atomic=2*xB/(2+xB).",
+      "unit": "dimensionless",
+      "source_file": "src/kwn_mvp/composition_mapping.py",
+      "source_line_or_symbol": "pseudo_binary_to_ag_atomic_fraction",
+      "authority_role": "composition_mapping",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "v_A": {
+      "value": 0.0,
+      "unit": "pseudo-binary B storage coefficient",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.v_A",
+      "authority_role": "PF_storage",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "v_B": {
+      "value": 1.0,
+      "unit": "pseudo-binary B storage coefficient",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.v_B",
+      "authority_role": "PF_storage",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "storage_equation": {
+      "value": "C_B_code=(1-h(phi))*xB_alpha+h(phi)*v_B; Q_matrix=sum((1-h)*xB_alpha)*voxel_volume/Vm_alpha; Q_beta_resolved=sum(h*v_B)*voxel_volume/Vm_beta.",
+      "unit": "dimensionless code storage and mol B",
+      "source_file": "cuda_kernels.cu",
+      "source_line_or_symbol": "compute_xBtot_kernel",
+      "authority_role": "PF_storage",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    }
+  },
+  "thermodynamics": {
+    "gas_constant_j_mol_k": {
+      "value": 8.31446261815324,
+      "unit": "J mol^-1 K^-1",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "R_GAS",
+      "authority_role": "thermodynamic_constant",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "standard_state_coefficients": {
+      "value": {
+        "GHSER_Pb": {
+          "transition_K": 600.61,
+          "low": [-7650.085, 101.700244, -24.5242231, -0.00365895, -2.4395e-7, 0.0, 0.0],
+          "high": [-10531.095, 154.243182, -32.4913959, 0.00154613, 0.0, 8.05448e25, -9.0],
+          "form": "a0+a1*T+a_log*T*ln(T)+a2*T^2+a3*T^3+a_inv9*T^inv9"
+        },
+        "GHSER_Ag": {
+          "transition_K": 1234.93,
+          "low": [-7209.512, 118.202013, -23.8463314, -0.001790585, -3.98587e-7, -12011.0, -1.0],
+          "high": [-15095.252, 190.266404, -33.472, 0.0, 0.0, 1.411773e29, -9.0],
+          "form": "a0+a1*T+a_log*T*ln(T)+a2*T^2+a3*T^3+a_inv*T^inv"
+        },
+        "GHSER_Te": {
+          "transition_K": 722.66,
+          "low": [-10544.679, 183.372894, -35.6687, 0.01583435, -5.240417e-6, 155015.0, -1.0],
+          "high": [9160.595, -129.265373, 13.004, -0.0362361, 5.006367e-6, -1.28681e30, -9.0],
+          "form": "a0+a1*T+a_log*T*ln(T)+a2*T^2+a3*T^3+a_inv*T^inv"
+        },
+        "G_PbTe": {"base": [-76063.2138, 9.67716633], "terms": ["GHSER_Pb", "GHSER_Te"]},
+        "G_Ag2Te": {"base_per_atom": [-10128.93, -12.645115], "atom_weights": [0.6666666666666666, 0.3333333333333333], "terms": ["GHSER_Ag", "GHSER_Te"], "molecular_multiplier": 3.0}
+      },
+      "unit": "J mol^-1; coefficient order is declared in each form",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "GHSER_Pb, GHSER_Ag, GHSER_Te, G_PbTe_Solid, G_Ag2Te_Solid",
+      "authority_role": "PF_KWN_shared_standard_state_thermodynamics",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "delta_H_J_mol": {
+      "value": 41504.29119633958,
+      "unit": "J mol^-1",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "THERMO_DELTA_H_J_PER_MOL",
+      "authority_role": "external_four_point_exact_solvus_candidate",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "VALIDATION_ONLY_EXACT_CANDIDATE_NOT_HISTORICAL_AS_RUN"
+    },
+    "delta_S_J_mol_K": {
+      "value": 18.469276826409214,
+      "unit": "J mol^-1 K^-1",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "THERMO_DELTA_S_J_PER_MOL_K",
+      "authority_role": "external_four_point_exact_solvus_candidate",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "VALIDATION_ONLY_EXACT_CANDIDATE_NOT_HISTORICAL_AS_RUN"
+    },
+    "regular_solution": {
+      "value": "L(T)=delta_H_J_mol-T*delta_S_J_mol_K; G_alpha=(1-xB)*G_PbTe+xB*G_Ag2Te+R*T*((1-xB)*ln(1-xB)+xB*ln(xB))+L*xB*(1-xB).",
+      "unit": "J mol^-1",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "get_L_param, mu_PbTe_calphad, mu_Ag2Te_calphad",
+      "authority_role": "PF_KWN_shared_thermodynamics",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "solvus_root_equation": {
+      "value": "R*T*ln(xB)+L(T)*(1-xB)^2=0",
+      "unit": "J mol^-1",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "solve_x_eq_device",
+      "authority_role": "planar_solvus",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "convex_extrapolation": {
+      "value": {"enabled": false, "xB_limit": 0.09, "penalty_J_mol": 5000.0},
+      "unit": "validation probe uses physical regular-solution branch on xB<=0.05",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "X_LIMIT_CONVEX, mu_*_raw",
+      "authority_role": "thermo_range_constraint",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    }
+  },
+  "kinetics": {
+    "D0_cm2_s": {
+      "value": 4.251e-11,
+      "unit": "cm^2 s^-1",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "D_Ag_in_PbTe_m2_per_s",
+      "authority_role": "matrix_diffusivity",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "activation_energy_J_mol": {
+      "value": 34030.0,
+      "unit": "J mol^-1",
+      "source_file": "thermo_utils.h",
+      "source_line_or_symbol": "D_Ag_in_PbTe_m2_per_s",
+      "authority_role": "matrix_diffusivity",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "D_compound_over_D_alpha": {
+      "value": 0.01,
+      "unit": "dimensionless",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.D_compound / parameters.D_alpha",
+      "authority_role": "PF_phase_diffusivity_ratio",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "D_alpha_code": {
+      "value": 400.0,
+      "unit": "code length^2 code time^-1",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.D_alpha",
+      "authority_role": "PF_runtime_mapping",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "time_real_unit_s": {
+      "value": 49.546304767159207,
+      "unit": "s code_time^-1",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.t_real_unit",
+      "authority_role": "PF_runtime_mapping",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    }
+  },
+  "interface": {
+    "gamma_J_m2": {
+      "value": 0.168,
+      "unit": "J m^-2",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.gamma_Jm2",
+      "authority_role": "beta_interface_energy",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "lambda_sm_m": {
+      "value": 4e-9,
+      "unit": "m",
+      "source_file": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "source_line_or_symbol": "target.lambda_sm_nm",
+      "authority_role": "PF_interface_width",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "barrier_W_J_m3": {
+      "value": 504000000.0,
+      "unit": "J m^-3",
+      "source_file": "Unit_Psedobinary.py",
+      "source_line_or_symbol": "compute_interface_params: W=12*gamma/lambda",
+      "authority_role": "PF_interface_parameterization",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "gradient_kappa_J_m": {
+      "value": 1.008e-9,
+      "unit": "J m^-1",
+      "source_file": "Unit_Psedobinary.py",
+      "source_line_or_symbol": "compute_interface_params: kappa=1.5*gamma*lambda",
+      "authority_role": "PF_interface_parameterization",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "interpolation_h_phi": {
+      "value": "h(phi)=6*phi^5-15*phi^4+10*phi^3",
+      "unit": "dimensionless",
+      "source_file": "phase_functions.h",
+      "source_line_or_symbol": "h_of_phi",
+      "authority_role": "PF_storage_interpolation",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    }
+  },
+  "volumes": {
+    "Vm_alpha_m3_mol": {
+      "value": 4.1009e-05,
+      "unit": "m^3 mol^-1",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.Vm_alpha_0_phys_m3mol",
+      "authority_role": "physical_storage_conversion",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "Vm_beta_m3_mol": {
+      "value": 4.1009e-05,
+      "unit": "m^3 mol^-1",
+      "source_file": "physical_inputs.example.json",
+      "source_line_or_symbol": "Vm_compound",
+      "authority_role": "physical_storage_conversion",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "dVm_alpha_dxB_m3_mol": {
+      "value": 0.0,
+      "unit": "m^3 mol^-1 per xB",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.dVm_alpha_dxB",
+      "authority_role": "validation_storage_simplification",
+      "used_by_pf": true,
+      "used_by_kwn": true,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    }
+  },
+  "elasticity": {
+    "enabled": {
+      "value": true,
+      "unit": "boolean",
+      "source_file": "data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles/R9p5/profile_manifest.json",
+      "source_line_or_symbol": "parameters.elastic_enabled",
+      "authority_role": "fixture_physics",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "eigenstrain_voigt": {
+      "value": [0.046, -0.022, -0.017, 0.0, 0.0, 0.0],
+      "unit": "dimensionless",
+      "source_file": "Unit_Psedobinary.py",
+      "source_line_or_symbol": "DEFAULT_CONFIG.eigenstrain_principal",
+      "authority_role": "elasticity",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "external_stress_and_strain": {
+      "value": "zero; periodic fixed-cell identity/[100] orientation",
+      "unit": "contract statement",
+      "source_file": "PROJECT_CORE_MEMORY.md",
+      "source_line_or_symbol": "13.8",
+      "authority_role": "elasticity_boundary_condition",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "kwn_elastic_penalty_J_m3": {
+      "value": 0.0,
+      "unit": "J m^-3",
+      "source_file": "contracts/pf_kwn_validation_contract_v1.json",
+      "source_line_or_symbol": "validation control assumption",
+      "authority_role": "mean_field_beta_control",
+      "used_by_pf": false,
+      "used_by_kwn": true,
+      "assumption_status": "VALIDATION_CONTROL_SPHERICAL_MEAN_FIELD_NOT_PF_ELASTIC_REPLAY"
+    }
+  },
+  "numerics": {
+    "grid_shape": {
+      "value": [96, 96, 96],
+      "unit": "voxels",
+      "source_file": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "source_line_or_symbol": "target.grid",
+      "authority_role": "validation_fixture",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "dx_m": {
+      "value": 1e-09,
+      "unit": "m",
+      "source_file": "data/qualification/pf_elastic_target_profile_v1/physical_override_T380_dx1nm_lambda4nm_dynamic_dt0p02.json",
+      "source_line_or_symbol": "dx",
+      "authority_role": "validation_fixture",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "dt_code": {
+      "value": 0.02,
+      "unit": "code time",
+      "source_file": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "source_line_or_symbol": "target.dt_code",
+      "authority_role": "validation_fixture",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "periodic": {
+      "value": true,
+      "unit": "boolean",
+      "source_file": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+      "source_line_or_symbol": "fixture contract",
+      "authority_role": "validation_fixture",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    },
+    "field_precision": {
+      "value": "float64 for phi,Y,xB,dY_dt_prev; float32 complex packing only for optional elastic warm state",
+      "unit": "storage precision",
+      "source_file": "pf_zero_mode_checkpoint.h",
+      "source_line_or_symbol": "Checkpoint, ElasticRuntimeState",
+      "authority_role": "checkpoint_precision",
+      "used_by_pf": true,
+      "used_by_kwn": false,
+      "assumption_status": "FROZEN_FOR_VALIDATION_ONLY"
+    }
+  }
+}

@@ -1,13 +1,13 @@
 #ifndef PHASE_FUNCTIONS_H
 #define PHASE_FUNCTIONS_H
 
+#include "generated/pf_kwn_validation_contract_v1.h"
+
 // Phase field interpolation functions
 
 // Quintic h(phi) = phi^3*(6*phi^2 - 15*phi + 10)
 __device__ __host__ static inline double h_of_phi(double phi){
-    double p2 = phi * phi;
-    double p3 = p2 * phi;
-    return p3 * (6.0 * p2 - 15.0 * phi + 10.0);
+    return pf_kwn_h_of_phi(phi);
 }
 
 // h'(phi) = 30*phi^2*(1-phi)^2
@@ -58,4 +58,3 @@ __device__ __host__ static inline double g_prime_of_phi(double phi){
 }
 
 #endif // PHASE_FUNCTIONS_H
-

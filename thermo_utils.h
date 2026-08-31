@@ -249,22 +249,26 @@
 #define THERMO_UTILS_H
 
 #include <math.h>
+#include "generated/pf_kwn_validation_contract_v1.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// 气体常数
-#define R_GAS 8.31446261815324
+// The validation control consumes the generated view of the canonical JSON.
+// These compatibility names deliberately reference generated constants so the
+// PF path has no independently hand-maintained thermodynamic literals.
+#define R_GAS PF_KWN_R_GAS
+#define THERMO_DELTA_H_J_PER_MOL PF_KWN_DELTA_H_J_PER_MOL
+#define THERMO_DELTA_S_J_PER_MOL_K PF_KWN_DELTA_S_J_PER_MOL_K
+#define THERMO_CONTRACT_VERSION PF_KWN_VALIDATION_CONTRACT_SCHEMA
 
-// External four-point exact solvus calibration (local candidate patch).
-// Cross-environment contract hash remains unset until deployment validation.
-#define THERMO_DELTA_H_J_PER_MOL 41504.29119633958
-#define THERMO_DELTA_S_J_PER_MOL_K 18.469276826409214
-#define THERMO_CONTRACT_VERSION "exact_candidate_v1_local_unfrozen"
-
-// CUDA设备函数标记
+// CUDA设备函数标记. The host-side probe also includes this header.
+#if defined(__CUDACC__)
 #define DEVICE_FUNC __device__ __host__
+#else
+#define DEVICE_FUNC
+#endif
 
 #ifdef THERMO_UTILS_DEFINE_GLOBALS
 #ifdef __CUDACC__
@@ -288,10 +292,7 @@ DEVICE_FUNC static inline int thermo_convex_extrapolation_enabled_runtime(void) 
 
 // D(Ag in PbTe), m^2/s; mirrors Unit_Psedobinary.py:D_Ag_in_PbTe_m2_per_s
 DEVICE_FUNC static inline double D_Ag_in_PbTe_m2_per_s(double T_K) {
-    const double D0_cm2_s = 4.251e-11;
-    const double Q_J_mol = 3.403e+04;
-    const double D_cm2_s = D0_cm2_s * exp(-Q_J_mol / (R_GAS * T_K));
-    return D_cm2_s * 1.0e-4;
+    return pf_kwn_D_alpha_m2_s(T_K);
 }
 
 // 定义凸化外推的临界浓度
@@ -318,40 +319,25 @@ DEVICE_FUNC static inline double clamp_fraction_eps(double x){
 // =========================================================
 
 DEVICE_FUNC static inline double GHSER_Pb(double T) {
-    if (T < 600.61) {
-        return -7650.085 + 101.700244*T - 24.5242231*T*log(T) - 0.00365895*T*T - 2.4395e-7*pow(T, 3);
-    } else {
-        return -10531.095 + 154.243182*T - 32.4913959*T*log(T) + 0.00154613*T*T + 8.05448e25*pow(T, -9);
-    }
+    return pf_kwn_GHSER_Pb(T);
 }
 
 DEVICE_FUNC static inline double GHSER_Ag(double T) {
-    if (T < 1234.93) {
-        return -7209.512 + 118.202013*T - 23.8463314*T*log(T) - 0.001790585*T*T - 3.98587e-7*pow(T, 3) - 12011.0/T;
-    } else {
-        return -15095.252 + 190.266404*T - 33.472*T*log(T) + 1.411773e29*pow(T, -9);
-    }
+    return pf_kwn_GHSER_Ag(T);
 }
 
 DEVICE_FUNC static inline double GHSER_Te(double T) {
-    if (T < 722.66) {
-        return -10544.679 + 183.372894*T - 35.6687*T*log(T) + 0.01583435*T*T - 5.240417e-6*pow(T, 3) + 155015.0/T;
-    } else {
-        return 9160.595 - 129.265373*T + 13.004*T*log(T) - 0.0362361*T*T + 5.006367e-6*pow(T, 3) - 1.28681e30*pow(T, -9);
-    }
+    return pf_kwn_GHSER_Te(T);
 }
 
 // 1 mol PbTe 分子单元的标准吉布斯能
 DEVICE_FUNC static inline double G_PbTe_Solid(double T) {
-    double base = -76063.2138 + 9.67716633 * T;
-    return base + GHSER_Pb(T) + GHSER_Te(T);
+    return pf_kwn_G_PbTe(T);
 }
 
 // 1 mol Ag2Te 分子单元的标准吉布斯能 (3倍原子能量)
 DEVICE_FUNC static inline double G_Ag2Te_Solid(double T) {
-    double base_per_atom = -10128.93 - 12.645115 * T;
-    double G_atom = base_per_atom + (2.0/3.0)*GHSER_Ag(T) + (1.0/3.0)*GHSER_Te(T);
-    return 3.0 * G_atom;
+    return pf_kwn_G_Ag2Te(T);
 }
 
 // =========================================================
@@ -361,41 +347,33 @@ DEVICE_FUNC static inline double G_Ag2Te_Solid(double T) {
 
 // 相互作用参数 L(T)
 DEVICE_FUNC static inline double get_L_param(double T) {
-    return THERMO_DELTA_H_J_PER_MOL - THERMO_DELTA_S_J_PER_MOL_K * T;
+    return pf_kwn_L(T);
 }
 
 // 辅助函数：计算未修改的 CALPHAD 化学势 (PbTe)
 DEVICE_FUNC static inline double mu_PbTe_calphad(double T, double xB) {
-    double x = clamp_fraction_eps(xB);
-    double G0 = G_PbTe_Solid(T);
-    double L = get_L_param(T);
-    return G0 + R_GAS * T * log(1.0 - x) + L * x * x;
+    return pf_kwn_mu_A(T, xB);
 }
 
 // 辅助函数：计算未修改的 CALPHAD 化学势 (Ag2Te)
 DEVICE_FUNC static inline double mu_Ag2Te_calphad(double T, double xB) {
-    double x = clamp_fraction_eps(xB);
-    double G0 = G_Ag2Te_Solid(T);
-    double L = get_L_param(T);
-    return G0 + R_GAS * T * log(x) + L * (1.0 - x) * (1.0 - x);
+    return pf_kwn_mu_B(T, xB);
 }
 
 // 辅助函数：计算未修改的 d(mu_PbTe)/dx (解析导数)
 DEVICE_FUNC static inline double dmu_PbTe_calphad_dx(double T, double xB) {
     double x = clamp_fraction_eps(xB);
-    double L = get_L_param(T);
     // mu = G0 + RT*ln(1-x) + L*x^2
     // dmu/dx = -RT/(1-x) + 2Lx
-    return -R_GAS * T / (1.0 - x) + 2.0 * L * x;
+    return -PF_KWN_R_GAS * T / (1.0 - x) + 2.0 * pf_kwn_L(T) * x;
 }
 
 // 辅助函数：计算未修改的 d(mu_Ag2Te)/dx (解析导数)
 DEVICE_FUNC static inline double dmu_Ag2Te_calphad_dx(double T, double xB) {
     double x = clamp_fraction_eps(xB);
-    double L = get_L_param(T);
     // mu = G0 + RT*ln(x) + L*(1-x)^2
     // dmu/dx = RT/x - 2L(1-x)
-    return R_GAS * T / x - 2.0 * L * (1.0 - x);
+    return PF_KWN_R_GAS * T / x - 2.0 * pf_kwn_L(T) * (1.0 - x);
 }
 
 // --- [核心修改] 安全的化学势函数 (带凸化外推) ---
@@ -457,31 +435,7 @@ DEVICE_FUNC static inline double mu_B_dimless(double xB, double temperature_K, d
 
 // 在 GPU 上实时计算平衡浓度 x_eq
 DEVICE_FUNC static inline double solve_x_eq_device(double T) {
-    double L = get_L_param(T);
-    double RT = R_GAS * T;
-    
-    // 初始猜测: 稀溶液近似 x ~ exp(-L/RT)
-    double x = exp(-L / RT);
-    
-    // 边界保护
-    if (x < 1e-9) x = 1e-9;
-    if (x > 0.99) x = 0.5;
-
-    // Newton-Raphson 迭代 (使用未修改的物理方程，因为平衡点肯定在正常区)
-    for (int i = 0; i < 20; ++i) {
-        double f = RT * log(x) + L * (1.0 - x) * (1.0 - x);
-        double df = RT / x - 2.0 * L * (1.0 - x);
-        
-        double delta = f / df;
-        x -= delta;
-        
-        if (x < 1e-10) x = 1e-10;
-        if (x > 0.999) x = 0.999;
-        
-        if (fabs(delta) < 1e-8) break;
-    }
-    
-    return x;
+    return pf_kwn_planar_solvus(T);
 }
 
 // 替换旧的 xB_eq_from_temperature
