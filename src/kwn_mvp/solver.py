@@ -16,7 +16,11 @@ from .ledger import InventoryError, InventoryLedger, InventorySnapshot
 from .nucleation import NucleationResult, nucleation_rate
 from .populations import Population, PopulationParameters
 from .radius_grid import RadiusGrid
-from .thermo_adapter import DiluteEquilibriumAdapter, build_equilibrium_adapter
+from .thermo_adapter import (
+    DiluteEquilibriumAdapter,
+    ValidationContractEquilibriumAdapter,
+    build_equilibrium_adapter,
+)
 
 
 class RadiusGridOverflowError(RuntimeError):
@@ -43,6 +47,8 @@ class SolverConfig:
     rmax_outflow_relative_tolerance: float
     thermo_mode: str
     planar_reference_xb: float | None
+    validation_contract_path: str | None
+    validation_contract_hash: str | None
     populations: Tuple[PopulationParameters, PopulationParameters]
     initial_population: Dict[str, Dict[str, Any]]
     source_config_hash: str
@@ -118,6 +124,16 @@ class SolverConfig:
                 None
                 if thermo.get("planar_reference_xB") is None
                 else float(thermo["planar_reference_xB"])
+            ),
+            validation_contract_path=(
+                None
+                if thermo.get("contract_path") is None
+                else str(thermo["contract_path"])
+            ),
+            validation_contract_hash=(
+                None
+                if thermo.get("contract_hash") is None
+                else str(thermo["contract_hash"])
             ),
             populations=(parsed[0], parsed[1]),
             initial_population=initial,
@@ -226,10 +242,12 @@ class KWNSolver:
             )
             for parameters in config.populations
         }
-        self.equilibrium_adapter: DiluteEquilibriumAdapter = build_equilibrium_adapter(
+        self.equilibrium_adapter: DiluteEquilibriumAdapter | ValidationContractEquilibriumAdapter = build_equilibrium_adapter(
             mode=config.thermo_mode,
             temperature_k=config.temperature_k,
             planar_reference_xb=config.planar_reference_xb,
+            contract_path=config.validation_contract_path,
+            expected_contract_hash=config.validation_contract_hash,
         )
         if config.total_b_mol_m3 is None:
             total = self._derive_initial_total_b_mol_m3(config.initial_matrix_xb)
@@ -284,6 +302,12 @@ class KWNSolver:
             return self.populations[name]
         except KeyError as exc:
             raise KeyError(f"No KWN population named {name!r}") from exc
+
+    @property
+    def contract_hash(self) -> str | None:
+        """Return the hash governing this KWN run, if it uses the validation path."""
+
+        return getattr(self.equilibrium_adapter, "contract_hash", None)
 
     def equilibrium_xb(self, population: Population) -> NDArray[np.float64]:
         """Return the current curvature-corrected equilibrium for one population."""
@@ -489,6 +513,7 @@ class KWNSolver:
             "source_config_hash": self.config.source_config_hash,
             "temperature_K": self.config.temperature_k,
             "total_b_mol_m3": self.ledger.total_b_mol_m3,
+            "validation_contract_hash": self.contract_hash,
         }
         arrays = self.state_arrays()
         arrays["metadata_json"] = np.asarray(json.dumps(metadata, sort_keys=True))
@@ -506,6 +531,10 @@ class KWNSolver:
             if metadata.get("source_config_hash") != config.source_config_hash:
                 raise SolverStateError("Checkpoint config hash differs from the requested restart config")
             solver = cls(config)
+            if metadata.get("validation_contract_hash") != solver.contract_hash:
+                raise SolverStateError(
+                    "Checkpoint validation contract hash differs from the requested restart config"
+                )
             if not np.isclose(float(metadata["total_b_mol_m3"]), solver.ledger.total_b_mol_m3, rtol=0.0, atol=0.0):
                 raise SolverStateError("Checkpoint total inventory differs from configuration")
             solver.populations["g"].number_density_per_m4[:] = archive["g_number_density_per_m4"]

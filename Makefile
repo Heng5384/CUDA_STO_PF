@@ -21,7 +21,7 @@ SRC_MAIN = main_cuda.cu cuda_kernels.cu cuda_common.cu pf_zero_mode_checkpoint.c
 SRC_TEST = test_memory_ledger.cu
 
 # 头文件
-HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h pf_zero_mode_checkpoint.h
+HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h pf_zero_mode_checkpoint.h generated/pf_kwn_validation_contract_v1.h
 
 BIN_ZERO_MODE_CHECKPOINT_TEST = test_pf_zero_mode_checkpoint_bin
 BIN_THERMO_PROBE = pf_thermo_probe

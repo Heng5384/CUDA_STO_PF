@@ -1,9 +1,10 @@
 // Host-only numerical view of the generated PF/KWN validation contract.
 //
-// This deliberately includes the generated header directly, so a successful
-// probe cannot be produced from a manually copied second set of coefficients.
+// This deliberately enters through the active PF thermodynamic wrapper. That
+// wrapper includes the generated contract view, so a successful probe covers
+// both the generated coefficients and the PF-facing call path.
 
-#include "generated/pf_kwn_validation_contract_v1.h"
+#include "thermo_utils.h"
 
 #include <cstdlib>
 #include <iomanip>
@@ -79,8 +80,8 @@ int main(int argc, char** argv) {
             }
         }
 
-        const double solvus = pf_kwn_planar_solvus(temperature_K);
-        const double diffusivity = pf_kwn_D_alpha_m2_s(temperature_K);
+        const double solvus = solve_x_eq_device(temperature_K);
+        const double diffusivity = D_Ag_in_PbTe_m2_per_s(temperature_K);
         std::cout << std::setprecision(17);
         std::cout
             << "contract_hash,temperature_K,xB,radius_m,G_alpha_J_mol,mu_A_J_mol,"
@@ -93,10 +94,12 @@ int main(int argc, char** argv) {
                 std::cout << PF_KWN_VALIDATION_CONTRACT_HASH << ',' << temperature_K << ','
                           << xB << ',' << radius_m << ','
                           << pf_kwn_G_alpha(temperature_K, xB) << ','
-                          << pf_kwn_mu_A(temperature_K, xB) << ','
-                          << pf_kwn_mu_B(temperature_K, xB) << ','
-                          << pf_kwn_dGdx(temperature_K, xB) << ','
-                          << pf_kwn_d2Gdx2(temperature_K, xB) << ','
+                          << mu_PbTe_calphad(temperature_K, xB) << ','
+                          << mu_Ag2Te_calphad(temperature_K, xB) << ','
+                          << (mu_Ag2Te_calphad(temperature_K, xB) -
+                              mu_PbTe_calphad(temperature_K, xB)) << ','
+                          << (dmu_Ag2Te_calphad_dx(temperature_K, xB) -
+                              dmu_PbTe_calphad_dx(temperature_K, xB)) << ','
                           << pf_kwn_beta_driving_force(temperature_K, xB) << ','
                           << diffusivity << ',' << solvus << ','
                           << pf_kwn_curvature_equilibrium(temperature_K, radius_m, 0.0) << ','
