@@ -162,22 +162,20 @@ def _project_fixture_resolved_psd(
     contract: ValidationContract,
     grid: RadiusGrid,
 ) -> tuple[list[dict[str, float]], dict[str, Any]]:
-    """Project fixed PF resolved volume onto KWN grid centres without tuning.
+    """Project the fixed PF PSD onto KWN centres without altering its moments.
 
     The frozen fixture supplies six registered radii but its diffuse ``h(phi)``
     storage volume is not exactly a sum of six sharp spheres.  A common
-    number-scale factor preserves that *actual resolved field inventory* when
-    the radii are represented on the KWN finite-volume grid.  This is an
-    inventory projection, not an adjusted radius, diffusivity, or interface
-    parameter.
+    number-scale factor preserves that *actual resolved field inventory*.
+    Each source particle is then split over its two bracketing KWN centres so
+    both number and spherical-equivalent ``R^3`` are retained exactly.  The
+    projection is therefore grid-refining rather than changing the frozen
+    initial PSD, diffusivity, interface parameter, or material contract.
     """
 
     source_radii = np.asarray(fixture.resolved_equivalent_radii_m, dtype=np.float64)
     if source_radii.ndim != 1 or source_radii.size == 0 or np.any(source_radii <= 0.0):
         raise RuntimeError("fixture has no positive resolved-beta equivalent radii")
-    grouped: dict[int, int] = defaultdict(int)
-    for radius in source_radii:
-        grouped[grid.bin_index(float(radius))] += 1
     target_volume_fraction = (
         fixture.source_resolved_inventory_mol
         * contract.vm_beta_m3_mol
@@ -185,13 +183,33 @@ def _project_fixture_resolved_psd(
     )
     if not 0.0 < target_volume_fraction < 1.0:
         raise RuntimeError("fixture resolved-beta inventory does not define a physical volume fraction")
-    unscaled_box_volume = sum(
-        count * _sphere_volume(float(grid.centres_m[index])) for index, count in grouped.items()
-    )
-    if unscaled_box_volume <= 0.0:
+    source_box_volume = float(np.sum([_sphere_volume(float(radius)) for radius in source_radii]))
+    if source_box_volume <= 0.0:
         raise RuntimeError("resolved-beta PSD projection has zero equivalent-sphere volume")
     target_box_volume = target_volume_fraction * fixture.box_volume_m3
-    number_scale = target_box_volume / unscaled_box_volume
+    number_scale = target_box_volume / source_box_volume
+    grouped: dict[int, float] = defaultdict(float)
+    centres = grid.centres_m
+    for radius in source_radii:
+        upper = int(np.searchsorted(centres, radius, side="left"))
+        if upper == 0:
+            grouped[0] += 1.0
+            continue
+        if upper == grid.bins:
+            grouped[grid.bins - 1] += 1.0
+            continue
+        lower = upper - 1
+        lower_radius_cubed = float(centres[lower] ** 3)
+        upper_radius_cubed = float(centres[upper] ** 3)
+        source_radius_cubed = float(radius**3)
+        upper_weight = (
+            source_radius_cubed - lower_radius_cubed
+        ) / (upper_radius_cubed - lower_radius_cubed)
+        lower_weight = 1.0 - upper_weight
+        if not 0.0 <= lower_weight <= 1.0 or not 0.0 <= upper_weight <= 1.0:
+            raise RuntimeError("source radius cannot be projected between KWN grid centres")
+        grouped[lower] += lower_weight
+        grouped[upper] += upper_weight
     entries: list[dict[str, float]] = []
     for index, source_count in sorted(grouped.items()):
         centre = float(grid.centres_m[index])
@@ -211,11 +229,12 @@ def _project_fixture_resolved_psd(
     return entries, {
         "source_resolved_radius_count": int(source_radii.size),
         "source_radii_m": [float(value) for value in source_radii],
-        "source_unique_radius_count": int(len(grouped)),
+        "source_unique_radius_count": int(np.unique(source_radii).size),
+        "occupied_grid_bin_count": int(len(grouped)),
         "target_resolved_volume_fraction": target_volume_fraction,
         "projected_resolved_volume_fraction": projected,
         "resolved_equivalent_number_scale": number_scale,
-        "projection": "COMMON_NUMBER_SCALE_TO_PRESERVE_FIXED_PF_H_VOLUME_ON_KWN_GRID_CENTRES",
+        "projection": "COMMON_NUMBER_SCALE_PLUS_TWO_CENTRE_NUMBER_AND_R3_MOMENT_PRESERVING_FV_PROJECTION",
     }
 
 

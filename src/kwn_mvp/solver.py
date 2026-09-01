@@ -399,8 +399,9 @@ class KWNSolver:
                 total_volume * self.config.cfl_active_inventory_relative_threshold, 1.0e-300
             )
             # Include immediate receivers/donors at each active face.  The
-            # conservative face limiter below protects the tiny transported
-            # tails that are intentionally excluded from this support test.
+            # conservative implicit face solve below advances the remaining
+            # low-inventory tail without allowing it to impose a global
+            # explicit-CFL micro-step.
             active[:-1] |= active[1:]
             active[1:] |= active[:-1]
             if np.any(active):
@@ -421,74 +422,23 @@ class KWNSolver:
         cfl = max_rate * dt
         return dt, cfl
 
-    def _limit_outgoing_face_fluxes(
-        self,
-        *,
-        density_per_m4: NDArray[np.float64],
-        widths_m: NDArray[np.float64],
-        raw_faces_m3_s: NDArray[np.float64],
-        dt_s: float,
-        population_name: str,
-    ) -> Tuple[NDArray[np.float64], float]:
-        """Limit each donor's total outgoing flux without breaking face conservation.
-
-        The raw upwind face values are first assigned to their unique donor.
-        Every donor's outward faces receive one common scale so at most
-        ``positivity_safety`` of that cell's available population leaves in a
-        macro-step.  An internal face is still represented by exactly one
-        limited value in both adjacent updates, hence the limiter does not
-        create or destroy particle inventory.  It is not a negative-bin clamp.
-        """
-
-        if dt_s <= 0.0:
-            raise SolverStateError("finite-volume limiter requires a positive timestep")
-        cell_number = density_per_m4 * widths_m
-        outgoing = np.maximum(raw_faces_m3_s[1:], 0.0) + np.maximum(
-            -raw_faces_m3_s[:-1], 0.0
-        )
-        active = outgoing > 0.0
-        if np.any(cell_number[active] <= 0.0):
-            raise SolverStateError(
-                f"{population_name} has outgoing finite-volume flux without an available donor population"
-            )
-        donor_scale = np.ones_like(cell_number)
-        with np.errstate(over="ignore", under="ignore", divide="ignore", invalid="ignore"):
-            donor_dt_limit = cell_number[active] / outgoing[active]
-            donor_scale[active] = np.minimum(
-                1.0, self.config.positivity_safety * donor_dt_limit / dt_s
-            )
-        face_scale = np.ones_like(raw_faces_m3_s)
-        if raw_faces_m3_s[0] < 0.0:
-            face_scale[0] = donor_scale[0]
-        internal = raw_faces_m3_s[1:-1]
-        face_scale[1:-1] = np.where(
-            internal >= 0.0,
-            donor_scale[:-1],
-            donor_scale[1:],
-        )
-        if raw_faces_m3_s[-1] > 0.0:
-            face_scale[-1] = donor_scale[-1]
-        limited = raw_faces_m3_s * face_scale
-        limited_outgoing = np.maximum(limited[1:], 0.0) + np.maximum(-limited[:-1], 0.0)
-        utilization = np.divide(
-            dt_s * limited_outgoing,
-            cell_number,
-            out=np.zeros_like(cell_number),
-            where=cell_number > 0.0,
-        )
-        return limited, float(np.max(utilization))
-
     def _advect_population(
         self, population: Population, velocity_m_s: NDArray[np.float64], dt_s: float
     ) -> Tuple[float, float, float, int]:
-        """Apply one first-order upwind finite-volume update.
+        """Advance one conservative first-order implicit upwind face update.
 
         Returns lower-boundary dissolution and Rmax outflow number fluxes in
-        m^-3 s^-1.  Rmax outflow is rejected before material can disappear.
+        m^-3 s^-1.  Face velocities are frozen at the accepted start state,
+        while donor densities are solved at the end state.  This is an
+        M-matrix update: it is conservative across every internal face and
+        positive without a negative-bin clamp, including the stiff Rmin tail.
+        Rmax outflow is rejected before material can disappear.
         """
 
         density = population.number_density_per_m4
         widths = population.grid.widths_m
+        if not np.any(density):
+            return 0.0, 0.0, 0.0, 0
         raw_faces = self._upwind_face_fluxes(density, velocity_m_s)
         raw_rmax_outflow_flux = max(raw_faces[-1], 0.0)
         existing_number = max(population.number_density_m3(), 1.0e-300)
@@ -498,16 +448,53 @@ class KWNSolver:
                 f"{population.parameters.name} would lose {relative_outflow:.3e} of its number density "
                 "through Rmax. Expand the configured radius grid; material was not discarded."
             )
-        faces, positivity_utilization = self._limit_outgoing_face_fluxes(
-            density_per_m4=density,
-            widths_m=widths,
-            raw_faces_m3_s=raw_faces,
-            dt_s=dt_s,
-            population_name=population.parameters.name,
-        )
-        lower_dissolution_flux = max(-faces[0], 0.0)
-        rmax_outflow_flux = max(faces[-1], 0.0)
-        updated = density - dt_s * (faces[1:] - faces[:-1]) / widths
+
+        # Assemble ``n_new + dt * div(F_new) = n_old``.  Each upwind face has
+        # one donor, so the system is tridiagonal with positive diagonal and
+        # non-positive off-diagonal entries.  The Thomas solve below preserves
+        # the literal shared-face sign in both neighbouring cells.
+        bin_count = density.size
+        lower = np.zeros(bin_count, dtype=np.float64)
+        diagonal = np.ones(bin_count, dtype=np.float64)
+        upper = np.zeros(bin_count, dtype=np.float64)
+        if velocity_m_s[0] < 0.0:
+            diagonal[0] -= dt_s * velocity_m_s[0] / widths[0]
+        face_velocity = 0.5 * (velocity_m_s[:-1] + velocity_m_s[1:])
+        positive_faces = np.flatnonzero(face_velocity >= 0.0)
+        negative_faces = np.flatnonzero(face_velocity < 0.0)
+        if positive_faces.size:
+            values = face_velocity[positive_faces]
+            diagonal[positive_faces] += dt_s * values / widths[positive_faces]
+            lower[positive_faces + 1] -= dt_s * values / widths[positive_faces + 1]
+        if negative_faces.size:
+            values = face_velocity[negative_faces]
+            diagonal[negative_faces + 1] -= dt_s * values / widths[negative_faces + 1]
+            upper[negative_faces] += dt_s * values / widths[negative_faces]
+        if velocity_m_s[-1] > 0.0:
+            diagonal[-1] += dt_s * velocity_m_s[-1] / widths[-1]
+
+        upper_reduced = np.zeros(bin_count, dtype=np.float64)
+        rhs_reduced = np.empty(bin_count, dtype=np.float64)
+        pivot = diagonal[0]
+        if pivot <= 0.0 or not np.isfinite(pivot):
+            raise SolverStateError("implicit finite-volume solve has an invalid first pivot")
+        upper_reduced[0] = upper[0] / pivot
+        rhs_reduced[0] = density[0] / pivot
+        for index in range(1, bin_count):
+            pivot = diagonal[index] - lower[index] * upper_reduced[index - 1]
+            if pivot <= 0.0 or not np.isfinite(pivot):
+                raise SolverStateError(
+                    f"implicit finite-volume solve has an invalid pivot at bin {index}"
+                )
+            if index < bin_count - 1:
+                upper_reduced[index] = upper[index] / pivot
+            rhs_reduced[index] = (
+                density[index] - lower[index] * rhs_reduced[index - 1]
+            ) / pivot
+        updated = np.empty_like(density)
+        updated[-1] = rhs_reduced[-1]
+        for index in range(bin_count - 2, -1, -1):
+            updated[index] = rhs_reduced[index] - upper_reduced[index] * updated[index + 1]
         roundoff_floor = -1.0e-280
         if np.any(updated < roundoff_floor) or not np.all(np.isfinite(updated)):
             raise SolverStateError(
@@ -517,8 +504,17 @@ class KWNSolver:
         roundoff_mask = (updated < 0.0) & (updated >= roundoff_floor)
         roundoff_zeroed = int(np.count_nonzero(roundoff_mask))
         updated[roundoff_mask] = 0.0
+        faces = self._upwind_face_fluxes(updated, velocity_m_s)
+        lower_dissolution_flux = max(-faces[0], 0.0)
+        rmax_outflow_flux = max(faces[-1], 0.0)
+        depletion = np.divide(
+            np.maximum(density - updated, 0.0),
+            density,
+            out=np.zeros_like(density),
+            where=density > 0.0,
+        )
         population.number_density_per_m4[:] = updated
-        return lower_dissolution_flux, rmax_outflow_flux, positivity_utilization, roundoff_zeroed
+        return lower_dissolution_flux, rmax_outflow_flux, float(np.max(depletion)), roundoff_zeroed
 
     def _inject_nucleation(self, population: Population, result: NucleationResult, dt_s: float) -> None:
         """Insert a source into one finite-volume bin; mass is drawn via the ledger."""

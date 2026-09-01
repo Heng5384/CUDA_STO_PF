@@ -60,7 +60,7 @@ class ConservativePositivityRepairTest(unittest.TestCase):
             contract=self.contract,
         )
         self.assertLess(config.positivity_safety, 1.0)
-        self.assertEqual(config.cfl_active_inventory_relative_threshold, 1.0e-12)
+        self.assertEqual(config.cfl_active_inventory_relative_threshold, 1.0e-6)
         solver = self.control.KWNSolver(config)
         solver.run_to_time(0.5 * 3600.0)
         self.assertGreater(solver.time_s, LEGACY_FAILURE_TIME_S)

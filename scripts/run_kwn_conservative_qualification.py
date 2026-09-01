@@ -9,8 +9,9 @@ import hashlib
 import json
 import sys
 from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -24,7 +25,7 @@ from coupling.fixture_conditioned_handoff_v2 import (  # noqa: E402
     load_validation_contract,
 )
 from kwn_mvp.radius_grid import RadiusGrid  # noqa: E402
-from kwn_mvp.solver import KWNSolver, SolverConfig, StepDiagnostics  # noqa: E402
+from kwn_mvp.solver import KWNSolver, SolverConfig  # noqa: E402
 from scripts import run_beta_only_same_contract_control as beta_control  # noqa: E402
 
 
@@ -98,20 +99,64 @@ def _metrics(solver: KWNSolver) -> dict[str, float]:
     }
 
 
-def _audit(history: Sequence[StepDiagnostics]) -> dict[str, float | int]:
-    """Summarise a concrete sequence of accepted steps for a gate audit."""
+@dataclass
+class AcceptedStepAudit:
+    """Exact compact reducer for one accepted-state trajectory segment.
 
-    if not history:
-        raise RuntimeError("qualification solver has no accepted steps")
-    return {
-        "accepted_step_count": len(history),
-        "rejected_step_count": 0,
-        "minimum_dt_s": min(item.dt_s for item in history),
-        "median_dt_s": float(np.median([item.dt_s for item in history])),
-        "maximum_size_cfl": max(item.size_cfl for item in history),
-        "maximum_positivity_utilization": max(item.positivity_utilization for item in history),
-        "roundoff_zeroed_bin_count": sum(item.roundoff_zeroed_bin_count for item in history),
-    }
+    The solver's accepted-step diagnostic has no state feedback.  Retaining
+    every rich ``StepDiagnostics`` object across five long qualification arms
+    only consumes memory, so this reducer retains the exact scalars needed for
+    P1--P6 and the raw float64 ``dt`` values required for the existing exact
+    median definition.
+    """
+
+    dt_s: list[float] = field(default_factory=list)
+    maximum_size_cfl: float = 0.0
+    maximum_positivity_utilization: float = 0.0
+    maximum_inventory_relative_residual: float = 0.0
+    roundoff_zeroed_bin_count: int = 0
+
+    def consume(self, diagnostic: Any) -> None:
+        self.dt_s.append(float(diagnostic.dt_s))
+        self.maximum_size_cfl = max(self.maximum_size_cfl, float(diagnostic.size_cfl))
+        self.maximum_positivity_utilization = max(
+            self.maximum_positivity_utilization,
+            float(diagnostic.positivity_utilization),
+        )
+        self.maximum_inventory_relative_residual = max(
+            self.maximum_inventory_relative_residual,
+            float(diagnostic.inventory.relative_residual),
+        )
+        self.roundoff_zeroed_bin_count += int(diagnostic.roundoff_zeroed_bin_count)
+
+    def summary(self) -> dict[str, float | int]:
+        if not self.dt_s:
+            raise RuntimeError("qualification solver has no accepted steps")
+        return {
+            "accepted_step_count": len(self.dt_s),
+            "rejected_step_count": 0,
+            "minimum_dt_s": min(self.dt_s),
+            "median_dt_s": float(np.median(self.dt_s)),
+            "maximum_size_cfl": self.maximum_size_cfl,
+            "maximum_positivity_utilization": self.maximum_positivity_utilization,
+            "maximum_inventory_relative_residual": self.maximum_inventory_relative_residual,
+            "roundoff_zeroed_bin_count": self.roundoff_zeroed_bin_count,
+        }
+
+
+def _run_to_time(
+    solver: KWNSolver, end_time_s: float, audit: AcceptedStepAudit
+) -> None:
+    """Run an exact target time while retaining only compact audit evidence."""
+
+    if end_time_s < solver.time_s:
+        raise ValueError("end_time_s precedes the current solver time")
+    while solver.time_s < end_time_s:
+        diagnostic = solver.advance_one(maximum_dt_s=end_time_s - solver.time_s)
+        audit.consume(diagnostic)
+        # ``history`` is diagnostic-only.  Dropping this just-created object
+        # cannot alter state, checkpoint bytes, or the next accepted step.
+        solver.history.pop()
 
 
 def _state_equal(left: KWNSolver, right: KWNSolver) -> tuple[bool, dict[str, float]]:
@@ -143,44 +188,50 @@ def main() -> int:
         raise SystemExit("refusing to overwrite KWN qualification artifacts")
     work.mkdir(parents=True, exist_ok=True)
     checkpoint_dir = work / "checkpoints"
-    checkpoint_dir.mkdir()
+    checkpoint_dir.mkdir(exist_ok=True)
+    if any(checkpoint_dir.iterdir()):
+        raise SystemExit("refusing to overwrite KWN qualification checkpoints")
 
     contract = load_validation_contract(CONTRACT)
     fixture = load_host_96cube_fixture(FIXTURE_SPEC, PROFILE_ROOT, contract)
     canonical = _build_solver(fixture=fixture, contract=contract, bins=200, max_dt_factor=1.0)
     trajectory_rows: list[dict[str, object]] = []
-    canonical_states: dict[float, dict[str, np.ndarray]] = {}
+    canonical_audit_reducer = AcceptedStepAudit()
     for time_h in (0.0, 0.1, 1.0, 3.0, 6.0, 12.0, 24.0, 48.0):
-        canonical.run_to_time(time_h * 3600.0)
-        canonical_states[time_h] = canonical.state_arrays()
+        _run_to_time(canonical, time_h * 3600.0, canonical_audit_reducer)
         trajectory_rows.append({"run_id": "canonical_200", "bins": 200, "max_dt_factor": 1.0, **_metrics(canonical)})
 
     restart = _build_solver(fixture=fixture, contract=contract, bins=200, max_dt_factor=1.0)
     restart_segment_audits: dict[str, dict[str, float | int]] = {}
-    restart_0_to_3h = restart.run_to_time(3.0 * 3600.0)
-    restart_segment_audits["restart_0_to_3h"] = _audit(restart_0_to_3h)
+    restart_0_to_3h = AcceptedStepAudit()
+    _run_to_time(restart, 3.0 * 3600.0, restart_0_to_3h)
+    restart_segment_audits["restart_0_to_3h"] = restart_0_to_3h.summary()
     checkpoint_3h = checkpoint_dir / "restart_3h.npz"
     restart.save_checkpoint(checkpoint_3h)
     restart = KWNSolver.load_checkpoint(config=restart.config, path=checkpoint_3h)
-    restart_3_to_6h = restart.run_to_time(6.0 * 3600.0)
-    restart_segment_audits["restart_3_to_6h"] = _audit(restart_3_to_6h)
+    restart_3_to_6h = AcceptedStepAudit()
+    _run_to_time(restart, 6.0 * 3600.0, restart_3_to_6h)
+    restart_segment_audits["restart_3_to_6h"] = restart_3_to_6h.summary()
     continuous_restart_control = _build_solver(
         fixture=fixture, contract=contract, bins=200, max_dt_factor=1.0
     )
-    continuous_restart_control.run_to_time(3.0 * 3600.0)
-    continuous_restart_control.run_to_time(6.0 * 3600.0)
+    continuous_restart_control_audit_reducer = AcceptedStepAudit()
+    _run_to_time(continuous_restart_control, 3.0 * 3600.0, continuous_restart_control_audit_reducer)
+    _run_to_time(continuous_restart_control, 6.0 * 3600.0, continuous_restart_control_audit_reducer)
     equal_6h, differences_6h = _state_equal(continuous_restart_control, restart)
     checkpoint_6h = checkpoint_dir / "restart_6h.npz"
     restart.save_checkpoint(checkpoint_6h)
-    restart_6_to_24h = restart.run_to_time(24.0 * 3600.0)
-    restart_segment_audits["restart_6_to_24h"] = _audit(restart_6_to_24h)
+    restart_6_to_24h = AcceptedStepAudit()
+    _run_to_time(restart, 24.0 * 3600.0, restart_6_to_24h)
+    restart_segment_audits["restart_6_to_24h"] = restart_6_to_24h.summary()
     checkpoint_24h = checkpoint_dir / "restart_24h.npz"
     restart.save_checkpoint(checkpoint_24h)
     restart = KWNSolver.load_checkpoint(config=restart.config, path=checkpoint_24h)
-    restart_24_to_48h = restart.run_to_time(48.0 * 3600.0)
-    restart_segment_audits["restart_24_to_48h"] = _audit(restart_24_to_48h)
-    continuous_restart_control.run_to_time(24.0 * 3600.0)
-    continuous_restart_control.run_to_time(48.0 * 3600.0)
+    restart_24_to_48h = AcceptedStepAudit()
+    _run_to_time(restart, 48.0 * 3600.0, restart_24_to_48h)
+    restart_segment_audits["restart_24_to_48h"] = restart_24_to_48h.summary()
+    _run_to_time(continuous_restart_control, 24.0 * 3600.0, continuous_restart_control_audit_reducer)
+    _run_to_time(continuous_restart_control, 48.0 * 3600.0, continuous_restart_control_audit_reducer)
     equal_48h, differences_48h = _state_equal(continuous_restart_control, restart)
     restart_rows = [
         {
@@ -198,10 +249,12 @@ def main() -> int:
     ]
 
     refined_dt = _build_solver(fixture=fixture, contract=contract, bins=200, max_dt_factor=0.5)
-    refined_dt.run_to_time(48.0 * 3600.0)
+    refined_dt_audit_reducer = AcceptedStepAudit()
+    _run_to_time(refined_dt, 48.0 * 3600.0, refined_dt_audit_reducer)
     trajectory_rows.append({"run_id": "dt_half_200", "bins": 200, "max_dt_factor": 0.5, **_metrics(refined_dt)})
     grid_400 = _build_solver(fixture=fixture, contract=contract, bins=400, max_dt_factor=1.0)
-    grid_400.run_to_time(48.0 * 3600.0)
+    grid_400_audit_reducer = AcceptedStepAudit()
+    _run_to_time(grid_400, 48.0 * 3600.0, grid_400_audit_reducer)
     trajectory_rows.append({"run_id": "grid_400", "bins": 400, "max_dt_factor": 1.0, **_metrics(grid_400)})
 
     canonical_48 = _metrics(canonical)
@@ -209,16 +262,17 @@ def main() -> int:
     grid_400_48 = _metrics(grid_400)
     grid_convergence = {name: _relative_difference(canonical_48[name], grid_400_48[name]) for name in METRIC_NAMES}
     timestep_convergence = {name: _relative_difference(canonical_48[name], refined_48[name]) for name in METRIC_NAMES}
-    canonical_audit = _audit(canonical.history)
-    refined_dt_audit = _audit(refined_dt.history)
-    grid_400_audit = _audit(grid_400.history)
-    continuous_restart_control_audit = _audit(continuous_restart_control.history)
+    canonical_audit = canonical_audit_reducer.summary()
+    refined_dt_audit = refined_dt_audit_reducer.summary()
+    grid_400_audit = grid_400_audit_reducer.summary()
+    continuous_restart_control_audit = continuous_restart_control_audit_reducer.summary()
     # The sampled canonical path crossed the legacy 0.39317699499770825 h
     # failure during the 0.1 -> 1 h interval; verify the state remains finite.
     p1_solver = _build_solver(fixture=fixture, contract=contract, bins=200, max_dt_factor=1.0)
-    p1_solver.run_to_time(0.5 * 3600.0)
+    p1_audit_reducer = AcceptedStepAudit()
+    _run_to_time(p1_solver, 0.5 * 3600.0, p1_audit_reducer)
     p1_metrics = _metrics(p1_solver)
-    p1_audit = _audit(p1_solver.history)
+    p1_audit = p1_audit_reducer.summary()
     p3_no_clipping_audits = {
         "canonical_200_0_to_48h": canonical_audit,
         "exact_failure_regression_200_0_to_0p5h": p1_audit,
@@ -235,14 +289,18 @@ def main() -> int:
             for item in p3_no_clipping_audits.values()
         ),
         "P4_conservation": max(
-            canonical_48["inventory_relative_residual"],
-            refined_48["inventory_relative_residual"],
-            grid_400_48["inventory_relative_residual"],
+            *(
+                float(item["maximum_inventory_relative_residual"])
+                for item in p3_no_clipping_audits.values()
+            ),
         ) <= 1.0e-10,
         "P5_bin_convergence_200_vs_400": all(value <= 0.02 for value in grid_convergence.values()),
         "P5_timestep_convergence": all(value <= 0.02 for value in timestep_convergence.values()),
         "P6_restart": equal_6h and equal_48h,
-        "P6_positivity_utilization": canonical_audit["maximum_positivity_utilization"] <= canonical.config.positivity_safety * (1.0 + 1.0e-12),
+        "P6_positivity_utilization": max(
+            float(item["maximum_positivity_utilization"])
+            for item in p3_no_clipping_audits.values()
+        ) <= canonical.config.positivity_safety * (1.0 + 1.0e-12),
     }
     with convergence_path.open("x", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(trajectory_rows[0]), lineterminator="\n")
@@ -259,10 +317,11 @@ def main() -> int:
         "fixture_id": fixture.fixture_id,
         "fixture_hash": fixture.fixture_hash,
         "repair": {
-            "method": "CONSERVATIVE_DONOR_OUTGOING_FACE_FLUX_LIMITER",
+            "method": "CONSERVATIVE_IMPLICIT_UPWIND_FACE_SOLVE",
             "positivity_safety": canonical.config.positivity_safety,
             "cfl_active_inventory_relative_threshold": canonical.config.cfl_active_inventory_relative_threshold,
-            "no_parameter_retuning": True,
+            "physical_parameter_retuning": False,
+            "numerical_transport_revision": "IMPLICIT_SHARED_FACE_SOLVE_WITH_FROZEN_START_STATE_VELOCITIES",
             "negative_bin_clamp": False,
         },
         "gates": gate,

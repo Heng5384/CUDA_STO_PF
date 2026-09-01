@@ -7,7 +7,10 @@ import sys
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 from coupling.fixture_conditioned_handoff_v2 import make_synthetic_fixture_control
+from kwn_mvp.radius_grid import RadiusGrid
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -80,6 +83,30 @@ class BetaOnlySameContractControlTests(unittest.TestCase):
             domain["contract_valid_minimum_m"], domain["minimum_initial_fixture_radius_m"])
         self.assertFalse(domain["initial_fixture_radii_changed"])
         self.assertFalse(domain["physical_parameters_changed"])
+
+    def test_grid_projection_preserves_number_and_r_cubed_moment(self) -> None:
+        """Refining the FV grid must not redefine the frozen six-particle PSD."""
+
+        def projected_moments(bins: int) -> tuple[float, float, float]:
+            grid = RadiusGrid.logarithmic(1.0e-9, 1.0e-7, bins)
+            entries, _ = self.control._project_fixture_resolved_psd(
+                self.fixture, self.contract, grid
+            )
+            number = sum(float(entry["number_density_m3"]) for entry in entries)
+            r_cubed = sum(
+                float(entry["number_density_m3"]) * float(entry["radius_m"]) ** 3
+                for entry in entries
+            ) / number
+            volume = number * (4.0 * np.pi / 3.0) * r_cubed
+            return number, r_cubed, volume
+
+        coarse = projected_moments(200)
+        refined = projected_moments(400)
+        for coarse_value, refined_value in zip(coarse, refined):
+            self.assertTrue(
+                np.isclose(coarse_value, refined_value, rtol=2.0e-15, atol=0.0),
+                msg=f"projection moment changed across grid refinement: {coarse_value} vs {refined_value}",
+            )
 
 
 if __name__ == "__main__":

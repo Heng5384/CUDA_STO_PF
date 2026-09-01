@@ -5,7 +5,7 @@
     "min_dt_s": 1e-12,
     "size_cfl": 0.35,
     "positivity_safety": 0.999999,
-    "cfl_active_inventory_relative_threshold": 1e-12,
+    "cfl_active_inventory_relative_threshold": 1e-6,
     "rmax_outflow_relative_tolerance": 1e-10,
     "random_seed": 20260831
   },
