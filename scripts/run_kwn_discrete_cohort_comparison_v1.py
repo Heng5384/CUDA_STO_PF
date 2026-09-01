@@ -304,25 +304,42 @@ def _smooth_authority_selection(legacy_root: Path) -> dict[str, Any]:
     passing = [item for item in assessed if item["pass"]]
     if not passing:
         return {"status": "FAIL_EULERIAN_SMOOTH_POPULATION_AUTHORITY", "pairs": assessed, "authority_grid": None}
-    # The registered ladder ends at 3200; 1600→3200 is the available
-    # next-finer confirmation.  800→1600 fails, so 1600 cannot be authority.
-    final = passing[-1]
-    previous = next((item for item in assessed if item["right"] == final["left"]), None)
-    if previous is not None and previous["pass"]:
-        authority = int(final["left"])
-        rationale = "two consecutive passing pairs select the smallest doubly-confirmed grid"
-    else:
-        authority = int(final["right"])
-        rationale = (
-            "the first registered passing pair is 1600→3200; its finer member is retained as authority. "
-            "No unregistered 6400-bin extension is permitted."
-        )
+    # Select the smallest grid whose immediately preceding comparison passes
+    # and whose next finer comparison also passes.  At the registered ladder
+    # ceiling, the right member of a passing final pair is the only permitted
+    # terminal authority candidate: this task explicitly forbids inventing a
+    # 6400-bin extension merely to manufacture another confirmation.
+    for item in assessed:
+        if not item["pass"]:
+            continue
+        candidate = int(item["right"])
+        next_finer = next((other for other in assessed if other["left"] == candidate), None)
+        if next_finer is not None and next_finer["pass"]:
+            return {
+                "status": "PENDING_REQUALIFICATION",
+                "authority_grid": candidate,
+                "qualifying_pair": item["pair"],
+                "confirmation_pair": next_finer["pair"],
+                "selection_rationale": "two consecutive passing pairs select the smallest doubly-confirmed grid",
+                "pairs": assessed,
+            }
+        if next_finer is None:
+            return {
+                "status": "PENDING_REQUALIFICATION",
+                "authority_grid": candidate,
+                "qualifying_pair": item["pair"],
+                "confirmation_pair": None,
+                "selection_rationale": (
+                    "the terminal registered passing pair selects its finer member; no unregistered 6400-bin "
+                    "extension is permitted"
+                ),
+                "pairs": assessed,
+            }
     return {
-        "status": "PENDING_REQUALIFICATION",
-        "authority_grid": authority,
-        "qualifying_pair": final["pair"],
-        "selection_rationale": rationale,
+        "status": "FAIL_EULERIAN_SMOOTH_POPULATION_AUTHORITY",
+        "authority_grid": None,
         "pairs": assessed,
+        "reason": "no smooth grid has both a passing incoming pair and the required next-finer confirmation",
     }
 
 
@@ -703,13 +720,12 @@ def _strict_fixture_cohorts(audit: Any) -> tuple[CohortSolver, dict[str, Any], A
     sharp_volume = math.fsum(sphere_volume_m3(radius) for radius in radii.values())
     target_beta_volume = float(t0["beta_volume_fraction"]) * fixture.box_volume_m3
     physical_weight_per_particle_m3 = 1.0 / fixture.box_volume_m3
-    # PF's global resolved-beta bucket includes the diffuse interface whereas
-    # the component extractor supplies sharp equivalent radii.  The common
-    # factor below is therefore a derived inventory representation map: it is
-    # fixed by t=0 PF volume closure, never fitted to later dynamics, and does
-    # not alter a physical radius or any material parameter.
+    # The diffuse global PF beta bucket is retained as an identity check, not
+    # as permission to alter the physical one-particle-per-box number density.
+    # A mismatch between that bucket and the sum of six sharp component
+    # equivalent spheres must fail closed for the requested exact fixture.
     common_weight_scale = target_beta_volume / sharp_volume
-    weight = common_weight_scale * physical_weight_per_particle_m3
+    weight = physical_weight_per_particle_m3
     cohorts = [Cohort(initial_id=fixture_id, radius_m=radii[fixture_id], weight_m3=weight) for fixture_id in sorted(radii)]
     solver = CohortSolver.from_kwn_solver(
         kwn_solver=kwn,
@@ -746,7 +762,13 @@ def _strict_fixture_cohorts(audit: Any) -> tuple[CohortSolver, dict[str, Any], A
         "temperature": math.isclose(kwn.config.temperature_k, contract.temperature_K, abs_tol=1.0e-12),
         "resolved_equivalent_weight_formula": math.isclose(
             weight,
-            physical_weight_per_particle_m3 * target_beta_volume / sharp_volume,
+            physical_weight_per_particle_m3,
+            rel_tol=0.0,
+            abs_tol=0.0,
+        ),
+        "weights_exact_one_particle_per_box": math.isclose(
+            weight,
+            physical_weight_per_particle_m3,
             rel_tol=0.0,
             abs_tol=0.0,
         ),
@@ -763,11 +785,14 @@ def _strict_fixture_cohorts(audit: Any) -> tuple[CohortSolver, dict[str, Any], A
         "weight_per_cohort_m3": weight,
         "target_beta_volume_m3": target_beta_volume,
         "sharp_sphere_volume_m3": sharp_volume,
+        "global_pf_to_sharp_component_beta_volume_relative_difference": _relative_error(
+            sharp_volume, target_beta_volume
+        ),
         "strict_pf_matrix_xB": strict_matrix_xb,
         "cohort_matrix_xB": snapshot.matrix_xB,
         "weight_representation": (
-            "one physical particle per box is preserved as identity/count; "
-            "cohort weight is the t=0 PF-resolved-volume-equivalent common number scale over box volume"
+            "exact physical representation: one cohort equals one PF particle per box; "
+            "no diffuse-volume-derived number-density scale is applied"
         ),
         "contract_hash": contract.contract_hash,
         "fixture_hash": fixture.fixture_hash,
@@ -1022,10 +1047,10 @@ def _cohort_numerical_qualification() -> tuple[dict[str, Any], dict[float, Cohor
         "Each cohort retains its initial ID, frozen PF t=0 equivalent radius, active state, "
         "dissolution time, returned inventory and a strictly derived current inventory.  No cohort is binned, "
         "projected, split or smoothed.\n\n"
-        "The physical fixture count is one particle per box.  To close the frozen PF global resolved-beta bucket with "
-        "the six sharp-equivalent component radii, the cohort inventory weight is the unique common t=0 "
-        "resolved-volume-equivalent number scale divided by box volume.  It is derived from the PF t=0 bucket, not a "
-        "fitted parameter, and leaves radii, D(T), gamma and thermodynamics unchanged.\n\n"
+        f"The physical fixture count and weight are exactly one particle per box.  The frozen global diffuse PF beta bucket "
+        f"and the sum of six sharp component-equivalent spheres are compared only as a strict initial-identity gate; its current "
+        f"status is `{identity['status']}`.  No diffuse-volume-derived number-density scale is applied, and radii, D(T), gamma and "
+        "thermodynamics remain unchanged.\n\n"
         "The RHS uses the existing `growth_rate_m_s`, exact validation-contract curvature equilibrium, D(T), "
         "molar volumes and lower edge.  Matrix xB is algebraically recovered from total inventory after every RHS "
         "evaluation.  A one-sided radius characteristic ends at the Rmin convention without evaluating an invalid "
@@ -1116,6 +1141,41 @@ def _cohort_eulerian_smooth_crosscheck(
 ) -> dict[str, Any]:
     audit = _load_radius_audit_module()
     authority_grid = int(authority["authority_grid"])
+    authority_rows = list(authority.get("authority_trajectory", []))
+    authority_by_time = {
+        float(row["target_time_h"]): row
+        for row in authority_rows
+    }
+    if set(authority_by_time) != set(SMOOTH_TIMES_H):
+        raise RuntimeError("requalified smooth authority trajectory does not cover the registered comparison schedule")
+    legacy_manifest = _read_json(
+        legacy_root / "runs" / f"ladder_smooth_{authority_grid}_uniform" / "manifest.json"
+    )
+    current_solver, current_construction, current_contract, current_fixture = audit._build_smooth_solver(
+        bins=authority_grid, max_dt_factor=1.0
+    )
+    current_edges = current_solver.population("beta").grid.edges_m
+    legacy_edges = np.asarray(legacy_manifest["radius_edges_m"], dtype=np.float64)
+    authority_binding = {
+        "authority_grid": int(legacy_manifest["radius_bins"]) == authority_grid,
+        "requalified_contract_hash": authority.get("contract_hash") == current_contract.contract_hash,
+        "legacy_contract_hash": legacy_manifest["contract_hash"] == current_contract.contract_hash,
+        "requalified_fixture_hash": authority.get("fixture_hash") == current_fixture.fixture_hash,
+        "legacy_fixture_hash": legacy_manifest["fixture_hash"] == current_fixture.fixture_hash,
+        "radius_edges": legacy_edges.shape == current_edges.shape
+        and bool(np.allclose(legacy_edges, current_edges, rtol=0.0, atol=0.0)),
+        "max_dt_s": math.isclose(float(current_solver.config.max_dt_s), 900.0, abs_tol=0.0),
+        "beta_parameters": legacy_manifest["construction"]["beta_parameters_from_contract"]
+        == current_construction["beta_parameters_from_contract"],
+        "initial_total_inventory_mol_m3": math.isclose(
+            float(legacy_manifest["construction"]["total_inventory_mol_m3"]),
+            float(current_construction["total_inventory_mol_m3"]),
+            rel_tol=0.0,
+            abs_tol=0.0,
+        ),
+    }
+    if not all(authority_binding.values()):
+        raise RuntimeError(f"legacy smooth PSD/ledger artifacts do not bind to requalified authority: {authority_binding}")
     trajectories: dict[int, dict[float, CohortSnapshot]] = {}
     metadata: dict[int, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -1127,7 +1187,8 @@ def _cohort_eulerian_smooth_crosscheck(
         trajectories[count] = snapshots
         metadata[count] = meta
         for time_h, snapshot in snapshots.items():
-            eulerian = _legacy_smooth_row(legacy_root, time_h, bins=authority_grid)
+            eulerian = authority_by_time[time_h]
+            legacy_eulerian = _legacy_smooth_row(legacy_root, time_h, bins=authority_grid)
             current_cohorts = [
                 row
                 for row in trajectory_cohort_rows
@@ -1160,7 +1221,9 @@ def _cohort_eulerian_smooth_crosscheck(
                 eulerian_key = metric
                 if metric == "cumulative_dissolution_inventory_mol_m3":
                     eulerian_key = "cumulative_lower_boundary_beta_inventory_mol_m3"
-                eulerian_value = float(eulerian[eulerian_key])
+                    eulerian_value = float(legacy_eulerian[eulerian_key])
+                else:
+                    eulerian_value = float(eulerian[eulerian_key])
                 rows.append(
                     {
                         "record_type": "cohort_vs_eulerian",
@@ -1207,6 +1270,7 @@ def _cohort_eulerian_smooth_crosscheck(
     refinement_metrics = {
         "N_m0_m3", "M0_m3", "M1_m2", "M2_m", "M3_dimensionless",
         "Rmean_m", "Rmean3_m3", "Sv_m_inv", "f_beta", "matrix_xB",
+        "cumulative_dissolution_inventory_mol_m3",
     }
     for coarse_count, fine_count in ((400, 800), (800, 1600)):
         for time_h in SMOOTH_TIMES_H:
@@ -1229,7 +1293,11 @@ def _cohort_eulerian_smooth_crosscheck(
                     }
                 )
     authority_rows = [row for row in rows if row["record_type"] == "cohort_vs_eulerian" and row["cohort_count"] == 1600]
-    continuous_metrics = {"N_m0_m3", "M0_m3", "M1_m2", "M2_m", "M3_dimensionless", "Rmean_m", "Rmean3_m3", "Sv_m_inv", "f_beta", "matrix_xB"}
+    continuous_metrics = {
+        "N_m0_m3", "M0_m3", "M1_m2", "M2_m", "M3_dimensionless",
+        "Rmean_m", "Rmean3_m3", "Sv_m_inv", "f_beta", "matrix_xB",
+        "cumulative_dissolution_inventory_mol_m3",
+    }
     refinement_rows = [
         row
         for row in rows
@@ -1267,8 +1335,11 @@ def _cohort_eulerian_smooth_crosscheck(
             float(getattr(trajectories[1600][48.0], cohort_key))
             - float(getattr(trajectories[1600][0.0], cohort_key))
         )
-        start = _legacy_smooth_row(legacy_root, 0.0, bins=authority_grid)
-        end = _legacy_smooth_row(legacy_root, 48.0, bins=authority_grid)
+        start = authority_by_time[0.0]
+        end = authority_by_time[48.0]
+        if eulerian_key == "cumulative_lower_boundary_beta_inventory_mol_m3":
+            start = _legacy_smooth_row(legacy_root, 0.0, bins=authority_grid)
+            end = _legacy_smooth_row(legacy_root, 48.0, bins=authority_grid)
         directions[metric] = {
             "cohort": cohort_direction,
             "eulerian": _sign(float(end[eulerian_key]) - float(start[eulerian_key])),
@@ -1284,6 +1355,7 @@ def _cohort_eulerian_smooth_crosscheck(
         "quadrature_refinement_pass": quadrature_pass,
         "direction_pass": direction_pass,
         "directions": directions,
+        "requalified_authority_binding": authority_binding,
         "cohort_quadrature": metadata,
         "representation_note": "deterministic log-radius quadrature cohorts; no radius bins, projection, splitting, or smoothing after t=0",
     }
@@ -1294,10 +1366,32 @@ def _cohort_eulerian_smooth_crosscheck(
         "Cohort–Eulerian smooth-PSD crosscheck",
         f"Status: `{status}`.  The 1600-node deterministic quadrature is the cohort comparison authority. "
         f"800→1600 quadrature refinement: `{quadrature_pass}`; global direction agreement: `{direction_pass}`; "
-        f"2% continuous-metric gate: `{crosscheck_pass}`.\n\n"
+        f"2% continuous-metric gate (including cumulative dissolution inventory): `{crosscheck_pass}`.  "
+        f"Requalified-authority binding: `{all(authority_binding.values())}`.\n\n"
         "All three cohort representations use the same frozen beta growth law, curvature equilibrium, D(T), "
         "molar volumes, total inventory and matrix inverse as Eulerian KWN.  Differences are therefore reported as "
         "representation differences, not physical retuning.",
+    )
+    return result
+
+
+def _blocked_cohort_eulerian_smooth_crosscheck(authority: Mapping[str, Any]) -> dict[str, Any]:
+    """Write a complete, fail-closed crosscheck artifact when no authority exists."""
+
+    result = {
+        "schema_version": "KWN_COHORT_EULERIAN_SMOOTH_CROSSCHECK_V1",
+        "status": "BLOCKED_EULERIAN_SMOOTH_AUTHORITY",
+        "authority_status": authority.get("status"),
+        "eulerian_authority_grid": authority.get("authority_grid"),
+        "reason": "a smooth Eulerian authority trajectory is required before a same-physics cohort crosscheck",
+    }
+    _write_csv(OUTPUT_ROOT / "cohort_smooth_crosscheck.csv", [result])
+    _write_json(OUTPUT_ROOT / "cohort_eulerian_smooth_crosscheck.json", result)
+    _write_report(
+        "06_cohort_eulerian_smooth_crosscheck.md",
+        "Cohort–Eulerian smooth-PSD crosscheck",
+        "`BLOCKED_EULERIAN_SMOOTH_AUTHORITY`: the prerequisite smooth Eulerian authority did not pass, "
+        "so no cohort–Eulerian physics comparison was adjudicated.",
     )
     return result
 
@@ -1380,7 +1474,7 @@ def _event_diagnosis(
                     }
                 )
     _write_csv(OUTPUT_ROOT / "eulerian_vs_cohort_event_overlay.csv", overlay_rows)
-    final_by_grid = {}
+    final_by_grid: dict[int, dict[str, dict[str, str]]] = {}
     for bins in (1600, 3200):
         rows = _read_csv(legacy_root / "runs" / f"ladder_fixture_{bins}_uniform" / "class_events.csv")
         final_by_grid[bins] = {
@@ -1388,23 +1482,111 @@ def _event_diagnosis(
             for row in rows
             if math.isclose(float(row["target_time_h"]), 48.0, abs_tol=1.0e-12)
         }
-    r105_1600 = final_by_grid[1600]["R10.5nm"]
-    r105_3200 = final_by_grid[3200]["R10.5nm"]
+    class_labels = sorted(final_by_grid[1600])
+
+    def class_radius_nm(label: str) -> float:
+        if not label.startswith("R") or not label.endswith("nm"):
+            raise RuntimeError(f"unexpected Eulerian class label {label!r}")
+        return float(label[1:-2])
+
+    exact_events_by_class: dict[str, list[float]] = {label: [] for label in class_labels}
+    exact_survivor_count_by_class: dict[str, int] = {label: 0 for label in class_labels}
+    for row in event_table:
+        label = min(class_labels, key=lambda candidate: abs(class_radius_nm(candidate) - float(row["initial_radius_m"]) * 1.0e9))
+        if abs(class_radius_nm(label) - float(row["initial_radius_m"]) * 1.0e9) > 1.0:
+            raise RuntimeError(f"cannot associate exact cohort {row['initial_id']} with an Eulerian size class")
+        if row["dissolution_time_h"] == "":
+            exact_survivor_count_by_class[label] += 1
+        else:
+            exact_events_by_class[label].append(float(row["dissolution_time_h"]))
+
+    class_survival_gaps = [
+        {
+            "class_label": label,
+            "survival_weight_fraction_1600": float(final_by_grid[1600][label]["survival_weight_fraction"]),
+            "survival_weight_fraction_3200": float(final_by_grid[3200][label]["survival_weight_fraction"]),
+        }
+        for label in class_labels
+    ]
+    for row in class_survival_gaps:
+        row["absolute_survival_weight_gap"] = abs(
+            row["survival_weight_fraction_1600"] - row["survival_weight_fraction_3200"]
+        )
+    responsible = max(class_survival_gaps, key=lambda row: float(row["absolute_survival_weight_gap"]))
+
+    timing_adjudication: dict[str, dict[str, Any]] = {}
+    for label in class_labels:
+        exact_events = exact_events_by_class[label]
+        exact_event_h = None if not exact_events else float(np.median(np.asarray(exact_events, dtype=np.float64)))
+        entry: dict[str, Any] = {
+            "exact_cohort_event_time_h": exact_event_h,
+            "exact_cohort_survivor_count": exact_survivor_count_by_class[label],
+            "eulerian_first_lower_boundary_crossing_h": {},
+        }
+        for bins in (1600, 3200):
+            crossing_text = final_by_grid[bins][label]["first_lower_boundary_crossing_time_h"]
+            crossing_h = None if crossing_text == "" else float(crossing_text)
+            if exact_event_h is None:
+                classification = (
+                    "SPURIOUS_NUMERICAL_LOWER_TAIL_FOR_SURVIVING_SHARP_COHORT"
+                    if crossing_h is not None
+                    else "NO_LOWER_BOUNDARY_EVENT"
+                )
+                delta_h = None
+            else:
+                delta_h = None if crossing_h is None else crossing_h - exact_event_h
+                classification = (
+                    "ADVANCED_NUMERICAL_LOWER_TAIL_LEAKAGE"
+                    if delta_h is not None and delta_h < 0.0
+                    else "DELAYED_NUMERICAL_LOWER_TAIL_LEAKAGE"
+                    if delta_h is not None and delta_h > 0.0
+                    else "COINCIDENT_WITHIN_REPORTED_PRECISION"
+                    if delta_h is not None
+                    else "NO_EULERIAN_LOWER_BOUNDARY_CROSSING"
+                )
+            entry["eulerian_first_lower_boundary_crossing_h"][str(bins)] = {
+                "time_h": crossing_h,
+                "minus_exact_event_h": delta_h,
+                "classification": classification,
+            }
+        timing_adjudication[label] = entry
+
+    endpoint_envelope: dict[str, dict[str, Any]] = {}
+    for metric in ("N_m0_m3", "Rmean3_m3", "Sv_m_inv"):
+        eulerian_values = []
+        for bins in (100, 200, 400, 800, 1600, 3200):
+            trajectory = _read_csv(legacy_root / "runs" / f"ladder_fixture_{bins}_uniform" / "trajectory.csv")
+            match = [row for row in trajectory if math.isclose(float(row["target_time_h"]), 48.0, abs_tol=1.0e-12)]
+            if len(match) != 1:
+                raise RuntimeError(f"fixture {bins} trajectory lacks unique 48 h row for event envelope")
+            eulerian_values.append(float(match[0][metric]))
+        exact_value = float(getattr(exact_snapshots[48.0], metric))
+        endpoint_envelope[metric] = {
+            "exact_cohort_value": exact_value,
+            "eulerian_minimum": min(eulerian_values),
+            "eulerian_maximum": max(eulerian_values),
+            "exact_within_eulerian_refinement_range": min(eulerian_values) <= exact_value <= max(eulerian_values),
+        }
+    envelope_status = (
+        "EXACT_COHORT_WITHIN_EULERIAN_REFINEMENT_RANGE"
+        if all(item["exact_within_eulerian_refinement_range"] for item in endpoint_envelope.values())
+        else "EXACT_COHORT_OUTSIDE_EULERIAN_REFINEMENT_RANGE"
+    )
     result = {
         "primary_discrete_event_root_cause": "IMPLICIT_UPWIND_NUMERICAL_DIFFUSION",
-        "event_responsible_for_1600_3200_gap": "R10.5nm lower-bound numerical tail survival/leakage",
+        "event_responsible_for_1600_3200_gap": (
+            f"{responsible['class_label']} lower-bound numerical tail survival/leakage"
+        ),
         "cohort_exact_events": event_table,
-        "r10p5_final_survival": {
-            "1600": float(r105_1600["survival_weight_fraction"]),
-            "3200": float(r105_3200["survival_weight_fraction"]),
-            "1600_first_lower_crossing_h": float(r105_1600["first_lower_boundary_crossing_time_h"]),
-            "3200_first_lower_crossing_h": float(r105_3200["first_lower_boundary_crossing_time_h"]),
-        },
+        "final_class_survival_gaps": class_survival_gaps,
+        "event_timing_adjudication": timing_adjudication,
+        "exact_vs_eulerian_endpoint_envelope": endpoint_envelope,
+        "exact_vs_eulerian_endpoint_envelope_status": envelope_status,
         "interpretation": {
-            "event_timing": "Eulerian lower-face tails start at grid-dependent accepted endpoints before the sharp cohort reaches its exact Rmin event.",
-            "N_Rmean3_Sv": "At 48 h the only appreciable Eulerian surviving class is R10.5nm; its grid-dependent survival fraction therefore dominates N, Rmean3 and Sv differences.",
+            "event_timing": "The per-class table gives a signed Eulerian first-lower-boundary time minus the sharp cohort event; it distinguishes advanced numerical leakage from spurious leakage of cohorts that physically survive.",
+            "N_Rmean3_Sv": "The class with the largest 1600→3200 final survival-weight gap is reported explicitly and is the direct discrete-event contributor to N, Rmean3 and Sv divergence.",
             "f_beta_matrix_xB": "M3-weighted beta inventory is far less sensitive to a low-radius number tail, and conservative lower-bound return keeps f_beta and matrix_xB inventory closed and comparatively convergent.",
-            "envelope": "Exact cohort events are a no-bin characteristic reference; legacy Eulerian sequences remain non-authority diagnostics rather than an authority envelope or a replacement comparison.",
+            "envelope": "The endpoint range is reported only as a diagnostic relation; legacy Eulerian sequences remain non-authority diagnostics rather than a replacement comparator.",
         },
     }
     _write_json(OUTPUT_ROOT / "discrete_event_diagnosis.json", result)
@@ -1414,12 +1596,11 @@ def _event_diagnosis(
         "The old Eulerian six-particle sequence is explicitly `NON-AUTHORITY EULERIAN DISCRETE-FIXTURE DIAGNOSTIC`.\n\n"
         f"Primary root cause: `{result['primary_discrete_event_root_cause']}`.  The 1600→3200 N gap is dominated at 48 h by "
         f"`{result['event_responsible_for_1600_3200_gap']}`: its survival is "
-        f"{float(r105_1600['survival_weight_fraction']):.6g} (1600) versus "
-        f"{float(r105_3200['survival_weight_fraction']):.6g} (3200).  The lower-tail first crossing is "
-        f"{float(r105_1600['first_lower_boundary_crossing_time_h']):.6g} h versus "
-        f"{float(r105_3200['first_lower_boundary_crossing_time_h']):.6g} h.\n\n"
-        "The sharp cohorts record exact event times and return the Rmin remainder to the matrix.  Eulerian upwind tails "
-        "advance/lag different class leakage paths under refinement; they do not license changing the P5 threshold.",
+        f"{float(responsible['survival_weight_fraction_1600']):.6g} (1600) versus "
+        f"{float(responsible['survival_weight_fraction_3200']):.6g} (3200).\n\n"
+        f"The exact-cohort endpoint relation to the legacy Eulerian range is `{envelope_status}`.  The per-class timing table "
+        "in `discrete_event_diagnosis.json` records whether leakage is advanced, delayed, or spurious for a physically surviving "
+        "sharp cohort; none of those diagnostics licenses a P5 threshold change.",
     )
     return result
 
@@ -1866,8 +2047,8 @@ def _final_status(
     return "PASS_KWN_PF_ONE_WAY_STORAGE_COUPLING_V1", local_gp
 
 
-def _analysis_provenance(legacy_root: Path, *, command: str) -> dict[str, Any]:
-    source_files = [
+def _analysis_source_files() -> list[Path]:
+    return [
         ROOT / "scripts" / "run_kwn_discrete_cohort_comparison_v1.py",
         ROOT / "scripts" / "run_kwn_radius_grid_convergence_v1.py",
         ROOT / "src" / "kwn_mvp" / "cohort_solver.py",
@@ -1876,35 +2057,80 @@ def _analysis_provenance(legacy_root: Path, *, command: str) -> dict[str, Any]:
         ROOT / "src" / "kwn_mvp" / "thermo_adapter.py",
         ROOT / "tests" / "kwn" / "test_cohort_solver.py",
     ]
-    status = subprocess.run(
-        ["git", "status", "--short"], cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True
+
+
+def _git_stdout(arguments: Sequence[str]) -> str:
+    return subprocess.run(
+        list(arguments), cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True
     ).stdout
-    branch = subprocess.run(
-        ["git", "branch", "--show-current"], cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True
-    ).stdout.strip()
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True
-    ).stdout.strip()
+
+
+def _capture_launch_context() -> dict[str, Any]:
+    generated_prefixes = (
+        str(REPORT_ROOT.relative_to(ROOT)) + "/",
+        str(OUTPUT_ROOT.relative_to(ROOT)) + "/",
+    )
+    porcelain = _git_stdout(("git", "status", "--short"))
+    source_porcelain = "\n".join(
+        line
+        for line in porcelain.splitlines()
+        if not any(line[3:].startswith(prefix) for prefix in generated_prefixes)
+    )
+    return {
+        "git_branch": _git_stdout(("git", "branch", "--show-current")).strip(),
+        "git_head": _git_stdout(("git", "rev-parse", "HEAD")).strip(),
+        "source_worktree_porcelain": source_porcelain,
+        "source_file_sha256": {
+            str(path.relative_to(ROOT)): _sha256_file(path) for path in _analysis_source_files()
+        },
+    }
+
+
+def _task_scope_change_evidence() -> dict[str, Any]:
+    changed_paths = [
+        path for path in _git_stdout(("git", "diff", "--name-only", f"{LEGACY_REPORT_COMMIT}..HEAD")).splitlines() if path
+    ]
+    pf_source_prefixes = ("main_cuda", "cuda/", "include/", "src/pf_")
+    physical_contract_prefixes = (
+        "contracts/",
+        "configs/kwn/",
+        "src/kwn_mvp/growth.py",
+        "src/kwn_mvp/thermo_adapter.py",
+    )
+    return {
+        "changed_paths_since_legacy_report_commit": changed_paths,
+        "pf_source_modified": any(path.startswith(pf_source_prefixes) for path in changed_paths),
+        "physical_retuning": any(path.startswith(physical_contract_prefixes) for path in changed_paths),
+    }
+
+
+def _analysis_provenance(
+    legacy_root: Path, *, command: str, launch_context: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    launch = dict(launch_context or _capture_launch_context())
+    task_scope = _task_scope_change_evidence()
     return {
         "schema_version": "KWN_DISCRETE_COHORT_ANALYSIS_PROVENANCE_V1",
-        "git_branch": branch,
-        "git_head_at_launch": head,
-        "working_tree_porcelain_at_analysis": status,
+        "git_branch": launch["git_branch"],
+        "git_head_at_launch": launch["git_head"],
+        "source_worktree_porcelain_at_launch": launch["source_worktree_porcelain"],
+        "generated_artifacts_excluded_from_source_worktree_status": True,
         "command": command,
         "legacy_report_commit": LEGACY_REPORT_COMMIT,
         "legacy_radius_grid_output_root": str(legacy_root),
         "legacy_input_sha256": {
             str(path.relative_to(legacy_root)): _sha256_file(path) for path in _legacy_input_paths(legacy_root)
         },
-        "source_file_sha256": {str(path.relative_to(ROOT)): _sha256_file(path) for path in source_files},
+        "source_file_sha256_at_launch": launch["source_file_sha256"],
         "frozen_cuda_pf": {
             "cuda_rerun": False,
             "trajectory_sha256": _sha256_file(FROZEN_PF_ROOT / "cuda_ae_trajectories.csv"),
             "component_history_sha256": _sha256_file(FROZEN_PF_ROOT / "cuda_component_history.csv"),
             "binary_provenance_sha256": _sha256_file(FROZEN_PF_ROOT / "binary_provenance.json"),
         },
-        "pf_source_modified": False,
-        "physical_retuning": False,
+        "task_scope_change_evidence": task_scope,
+        "pf_source_modified": task_scope["pf_source_modified"],
+        "physical_retuning": task_scope["physical_retuning"],
         "prohibitions_retained": [
             "legacy_six_particle_eulerian_P5_not_relaxed",
             "no_6400_or_12800_bins",
@@ -1974,7 +2200,89 @@ def _write_reproduction_commands(legacy_root: Path) -> None:
     )
 
 
+def _terminal_summary(
+    *,
+    top_status: str,
+    human_gate: Mapping[str, Any],
+    baseline: Mapping[str, Any],
+    authority: Mapping[str, Any],
+    numeric: Mapping[str, Any],
+    crosscheck: Mapping[str, Any],
+    diagnosis: Mapping[str, Any],
+    pf: Mapping[str, Any],
+    cuda_evidence: Mapping[str, Any],
+    provenance: Mapping[str, Any],
+    local_gp: str,
+) -> dict[str, Any]:
+    """Machine-readable equivalent of the required final terminal fields."""
+
+    initial_identity = pf.get("initial_identity", numeric.get("initial_state_identity", {}))
+    task_scope = provenance.get("task_scope_change_evidence", {})
+    max_authority_residual = authority.get("state_gate", {}).get("maximum_inventory_relative_residual")
+    top_findings = [
+        "Eulerian KWN is qualified only for the smooth high-density population domain.",
+        "The legacy six-particle Eulerian P5 failure remains retained at the unchanged 2% gate.",
+        "The exact six-particle fixture uses no-bin, event-aware cohorts rather than Eulerian radius bins.",
+        f"Frozen CUDA A–E evidence reuse: {cuda_evidence.get('status', 'NOT_RUN')}.",
+        f"Beta-only PF comparison status: {pf.get('status', 'NOT_RUN')}.",
+    ]
+    p0_blockers: list[str] = []
+    if initial_identity.get("status") == "FAIL_BETA_ONLY_INITIAL_STATE_IDENTITY":
+        p0_blockers.append("PF diffuse global beta bucket is not exactly identical to six sharp one-per-box component spheres")
+    if top_status.startswith("FAIL_") and not p0_blockers:
+        p0_blockers.append(f"terminal gate: {top_status}")
+    return {
+        "STATUS": top_status,
+        "BRANCH": provenance.get("git_branch"),
+        "COMMIT": provenance.get("git_head_at_launch"),
+        "HUMAN_GATE_DECISION": human_gate,
+        "LEGACY_SIX_PARTICLE_EULERIAN_P5": human_gate.get("LEGACY_SIX_PARTICLE_EULERIAN_P5"),
+        "SMOOTH_EULERIAN_AUTHORITY_GRID": authority.get("authority_grid"),
+        "SMOOTH_EULERIAN_RESTART": authority.get("restart", {}).get("status", "NOT_RUN"),
+        "SMOOTH_EULERIAN_MAX_RESIDUAL": max_authority_residual,
+        "COHORT_SOLVER": numeric.get("status", "NOT_RUN"),
+        "COHORT_TOLERANCE_GATE": numeric.get("tolerance_pass", "NOT_RUN"),
+        "COHORT_RESTART": numeric.get("restart_pass", "NOT_RUN"),
+        "COHORT_MAX_RESIDUAL": numeric.get("max_inventory_relative_residual"),
+        "COHORT_EVENT_ACCURACY": numeric.get("tolerance_pass", "NOT_RUN"),
+        "COHORT_EULERIAN_SMOOTH_CROSSCHECK": crosscheck.get("status", "NOT_RUN"),
+        "PRIMARY_DISCRETE_EVENT_ROOT_CAUSE": diagnosis.get("primary_discrete_event_root_cause", "NOT_RUN"),
+        "EVENT_RESPONSIBLE_FOR_1600_3200_GAP": diagnosis.get("event_responsible_for_1600_3200_gap", "NOT_RUN"),
+        "BETA_INITIAL_STATE_IDENTITY": initial_identity.get("status", pf.get("status", "NOT_RUN")),
+        "BETA_ONLY_DIRECTION": pf.get("status", "NOT_RUN"),
+        "BETA_ONLY_TIMESCALE": pf.get("timescale_status", "NOT_RUN"),
+        "MEAN_FIELD_SPATIAL_ELASTIC_GAP": pf.get("mean_field_spatial_elastic_gap", "NOT_RUN"),
+        "CUDA_EVIDENCE_REUSED": cuda_evidence.get("status", "NOT_RUN"),
+        "PF_SOURCE_MODIFIED": task_scope.get("pf_source_modified"),
+        "PHYSICAL_RETUNING": task_scope.get("physical_retuning"),
+        "HISTORICAL_AUTHORITY": "HISTORICAL_AS_RUN_AUTHORITY_UNRECOVERED; HISTORICAL_12H_PSD_NOT_RECOVERED",
+        "TOP_5_FINDINGS": top_findings,
+        "P0_BLOCKERS": p0_blockers or ["NONE"],
+        "NEXT_ACTION": (
+            "Resolve the strict diffuse-PF-versus-sharp-six-component initial-inventory identity before any beta-only PF direction adjudication."
+            if p0_blockers
+            else "See 09_final_acceptance_report.md."
+        ),
+        "LOCAL_GP_RELEASE_AUTHORIZED": local_gp,
+        "BASELINE": baseline.get("status"),
+        "KEY_REPORTS": [
+            str(REPORT_ROOT / name)
+            for name in (
+                "00_human_gate_decision.md",
+                "02_eulerian_smooth_authority.md",
+                "04_cohort_numerical_qualification.md",
+                "05_discrete_event_diagnosis.md",
+                "06_cohort_eulerian_smooth_crosscheck.md",
+                "07_beta_only_cohort_pf_comparison.md",
+                "09_final_acceptance_report.md",
+            )
+        ],
+    }
+
+
 def run_all(legacy_root: Path, *, command: str) -> int:
+    launch_context = _capture_launch_context()
+    human_gate = _require_human_gate()
     figures = OUTPUT_ROOT / "figures"
     figures.mkdir(parents=True, exist_ok=True)
     (figures / "README.md").write_text(
@@ -1984,7 +2292,6 @@ def run_all(legacy_root: Path, *, command: str) -> int:
         "`../beta_only_cohort_pf_comparison.csv` for the frozen-PF comparison.\n",
         encoding="utf-8",
     )
-    _require_human_gate()
     baseline = _baseline_reproduction(legacy_root)
     cuda_evidence = _inherited_cuda_evidence()
     if baseline["status"] != "PASS_RADIUS_GRID_BASELINE_REPRODUCTION":
@@ -2002,11 +2309,35 @@ def run_all(legacy_root: Path, *, command: str) -> int:
             local_gp="LOCAL_GP_RELEASE_NOT_AUTHORIZED",
         )
         _write_reproduction_commands(legacy_root)
-        _write_json(OUTPUT_ROOT / "analysis_provenance.json", _analysis_provenance(legacy_root, command=command))
+        provenance = _analysis_provenance(legacy_root, command=command, launch_context=launch_context)
+        _write_json(OUTPUT_ROOT / "analysis_provenance.json", provenance)
+        print(
+            json.dumps(
+                _terminal_summary(
+                    top_status="FAIL_BASELINE_REPRODUCTION",
+                    human_gate=human_gate,
+                    baseline=baseline,
+                    authority=empty,
+                    numeric=empty,
+                    crosscheck=empty,
+                    diagnosis=empty,
+                    pf=empty,
+                    cuda_evidence=cuda_evidence,
+                    provenance=provenance,
+                    local_gp="LOCAL_GP_RELEASE_NOT_AUTHORIZED",
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 2
     authority = _authority_requalification(legacy_root)
     numeric, exact_snapshots, _, exact_context = _cohort_numerical_qualification()
-    crosscheck = _cohort_eulerian_smooth_crosscheck(legacy_root, authority)
+    crosscheck = (
+        _cohort_eulerian_smooth_crosscheck(legacy_root, authority)
+        if authority.get("status") == "PASS_EULERIAN_SMOOTH_POPULATION_AUTHORITY"
+        else _blocked_cohort_eulerian_smooth_crosscheck(authority)
+    )
     diagnosis = _event_diagnosis(legacy_root, exact_snapshots, exact_context)
     pf = _cohort_pf_comparison(authority, numeric, crosscheck)
     _model_boundary_report(authority, numeric, crosscheck, pf, cuda_evidence)
@@ -2025,11 +2356,29 @@ def run_all(legacy_root: Path, *, command: str) -> int:
         local_gp=local_gp,
     )
     _write_reproduction_commands(legacy_root)
-    provenance = _analysis_provenance(legacy_root, command=command)
+    provenance = _analysis_provenance(legacy_root, command=command, launch_context=launch_context)
     provenance["top_status"] = top_status
     provenance["inherited_cuda_evidence"] = cuda_evidence
     _write_json(OUTPUT_ROOT / "analysis_provenance.json", provenance)
-    print(json.dumps({"status": top_status, "local_gp_release": local_gp}, sort_keys=True))
+    print(
+        json.dumps(
+            _terminal_summary(
+                top_status=top_status,
+                human_gate=human_gate,
+                baseline=baseline,
+                authority=authority,
+                numeric=numeric,
+                crosscheck=crosscheck,
+                diagnosis=diagnosis,
+                pf=pf,
+                cuda_evidence=cuda_evidence,
+                provenance=provenance,
+                local_gp=local_gp,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0 if top_status.startswith("PASS_") else 2
 
 
