@@ -84,7 +84,42 @@ class Population:
     def number_density_m3(self) -> float:
         """Return total number density in m^-3."""
 
+        # Retain the established production reduction order exactly.  The
+        # audit-only ``radius_moment`` method below deliberately has no solver
+        # or ledger feedback.
         return float(np.sum(self.number_density_per_m4 * self.grid.widths_m))
+
+    def radius_moment(self, order: int, *, quadrature: str = "fixed_pivot") -> float:
+        """Return ``M_order = integral R**order n(R) dR``.
+
+        The production KWN state is a fixed-pivot finite-volume state: each
+        cell carries a cell-integrated number that evolves by conservative face
+        fluxes and is represented at that cell's geometric pivot.  Existing
+        ledger and observation methods therefore use ``fixed_pivot`` and must
+        continue to do so.
+
+        ``cell_integrated`` is provided strictly as a diagnostic reconstruction
+        for radius-grid audits.  It interprets the stored density as piecewise
+        constant in each finite-volume cell and integrates the monomial over
+        the exact cell edges.  It does not feed the solver, the inventory
+        ledger, or the production observables.
+        """
+
+        if isinstance(order, bool) or int(order) != order or int(order) < 0:
+            raise ValueError("moment order must be a non-negative integer")
+        exponent = int(order)
+        density = self.number_density_per_m4
+        if quadrature == "fixed_pivot":
+            return float(
+                np.sum(density * self.grid.widths_m * self.grid.centres_m**exponent)
+            )
+        if quadrature == "cell_integrated":
+            edges = self.grid.edges_m
+            integral = (edges[1:] ** (exponent + 1) - edges[:-1] ** (exponent + 1)) / (
+                exponent + 1
+            )
+            return float(np.sum(density * integral))
+        raise ValueError(f"Unsupported radius-moment quadrature {quadrature!r}")
 
     def volume_fraction(self) -> float:
         """Return particle volume per unit material volume (dimensionless)."""

@@ -95,6 +95,39 @@ class RminBoundaryTest(unittest.TestCase):
         self.assertLessEqual(after["inventory_relative_residual"], 1.0e-12)
         self.assertGreaterEqual(np.min(solver.population("g").number_density_per_m4), 0.0)
 
+    def test_beta_rmin_dissolution_returns_its_inventory_to_matrix(self) -> None:
+        """The beta Rmin route closes its own matrix-plus-beta inventory change."""
+
+        data = _dissolution_config()
+        data["populations"]["g"].update(
+            {"diffusivity_m2_s": 0.0, "initial": {"kind": "empty"}}
+        )
+        data["populations"]["beta"].update(
+            {
+                "diffusivity_m2_s": 1.0e-19,
+                "gamma_j_m2": 0.0,
+                "xeq_infinity": 0.006,
+                "initial": {
+                    "kind": "discrete",
+                    "entries": [{"radius_m": 1.01e-9, "number_density_m3": 1.0e22}],
+                },
+            }
+        )
+        solver = KWNSolver(SolverConfig.from_mapping(data))
+        before = solver_observables(solver)
+        diagnostic = solver.advance_one()
+        after = solver_observables(solver)
+        matrix_gain = after["C_B_matrix_mol_m3"] - before["C_B_matrix_mol_m3"]
+        beta_change = after["C_B_beta_mol_m3"] - before["C_B_beta_mol_m3"]
+        self.assertGreater(diagnostic.rmin_dissolution_flux_m3_s, 0.0)
+        self.assertLess(beta_change, 0.0)
+        self.assertGreater(matrix_gain, 0.0)
+        self.assertLessEqual(
+            abs(matrix_gain + beta_change), 1.0e-12 * before["C_B_total_mol_m3"]
+        )
+        self.assertLessEqual(after["inventory_relative_residual"], 1.0e-12)
+        self.assertGreaterEqual(np.min(solver.population("beta").number_density_per_m4), 0.0)
+
     def test_rmax_outflow_fails_closed_instead_of_deleting_material(self) -> None:
         """A material upper-boundary flux requests grid expansion through an error."""
 
