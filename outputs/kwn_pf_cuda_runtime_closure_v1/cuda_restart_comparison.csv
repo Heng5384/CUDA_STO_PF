@@ -1,0 +1,25 @@
+label,field,max_abs_difference,within_1e-14
+A 6h continuous/restart,phi,0.0,True
+A 6h continuous/restart,Y,0.0,True
+A 6h continuous/restart,xB,0.0,True
+A 6h continuous/restart,dY_dt_prev,0.0,True
+B 6h continuous/restart,phi,0.0,True
+B 6h continuous/restart,Y,0.0,True
+B 6h continuous/restart,xB,0.0,True
+B 6h continuous/restart,dY_dt_prev,0.0,True
+E 6h continuous/restart,phi,0.0,True
+E 6h continuous/restart,Y,0.0,True
+E 6h continuous/restart,xB,0.0,True
+E 6h continuous/restart,dY_dt_prev,0.0,True
+E 24h primary/6h-start checkpoint,phi,0.0,True
+E 24h primary/6h-start checkpoint,Y,0.0,True
+E 24h primary/6h-start checkpoint,xB,0.0,True
+E 24h primary/6h-start checkpoint,dY_dt_prev,0.0,True
+E 48h primary/6h-continuous,phi,0.0,True
+E 48h primary/6h-continuous,Y,0.0,True
+E 48h primary/6h-continuous,xB,0.0,True
+E 48h primary/6h-continuous,dY_dt_prev,0.0,True
+E 48h 6h-continuous/24h-restart,phi,0.0,True
+E 48h 6h-continuous/24h-restart,Y,0.0,True
+E 48h 6h-continuous/24h-restart,xB,0.0,True
+E 48h 6h-continuous/24h-restart,dY_dt_prev,0.0,True

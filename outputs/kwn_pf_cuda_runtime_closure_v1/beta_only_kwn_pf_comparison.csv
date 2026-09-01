@@ -1,0 +1,2 @@
+status,comparison_performed,reason,required_cuda_gate,required_kwn_gate
+NOT_RUN_PREREQUISITE_FAIL_KWN_CONSERVATIVE_POSITIVITY,false,No scalar-moment substitute is permitted when the frozen-fixture KWN radius-grid qualification fails,PASS_CUDA_AE_SMOKE,PASS_KWN_CONSERVATIVE_POSITIVITY

@@ -1,0 +1,227 @@
+{
+  "classification_evidence": {
+    "beta_growth_sign_critical_radius_m": 9.298630205867348e-09,
+    "beta_nucleation_rate_m3_s": 0.0,
+    "candidate_dt_s": 0.032719807676965265,
+    "candidate_negative_beta_bin": 18,
+    "donor_dt_max_s": 0.014004277652097781,
+    "gp_nucleation_rate_m3_s": 0.0,
+    "lower_boundary_flux_m3_s": 0.0,
+    "raw_positivity_utilization": 2.3364152361020905,
+    "source_overdraw": false,
+    "strictly_exceeds_donor_bound": true,
+    "upper_boundary_flux_m3_s": 1.4125960253730131e-268
+  },
+  "completion": {
+    "accepted_steps": 87,
+    "inventory_relative_residual": 0.0,
+    "reached_step_ceiling": false,
+    "reached_time_ceiling": false,
+    "time_h": 0.39317699499770825,
+    "time_s": 1415.4371819917496
+  },
+  "construction": {
+    "beta_nucleation_mode": "off",
+    "beta_parameters_from_contract": {
+      "D_alpha_m2_s": 8.073255954803963e-18,
+      "Vm_beta_m3_mol": 4.1009e-05,
+      "elastic_penalty_J_m3": 0.0,
+      "gamma_J_m2": 0.168,
+      "xB_beta": 1.0,
+      "xeq_infinity": 0.004649261005504824
+    },
+    "config_mapping": {
+      "matrix": {
+        "initial_xB": 0.006220578557312318,
+        "inventory_tolerance_relative": 1e-10,
+        "molar_volume_m3_mol": 4.1009e-05,
+        "total_b_mol_m3": 731.5467336438344
+      },
+      "populations": {
+        "beta": {
+          "diffusivity_m2_s": 8.073255954803963e-18,
+          "elastic_penalty_j_m3": 0.0,
+          "gamma_j_m2": 0.168,
+          "initial": {
+            "entries": [
+              {
+                "grid_bin_index": 105.0,
+                "number_density_m3": 2.2677880803129203e+21,
+                "radius_m": 7.963658043416817e-09,
+                "source_particle_count": 2.0
+              },
+              {
+                "grid_bin_index": 112.0,
+                "number_density_m3": 2.2677880803129203e+21,
+                "radius_m": 9.605316280497267e-09,
+                "source_particle_count": 2.0
+              },
+              {
+                "grid_bin_index": 115.0,
+                "number_density_m3": 2.2677880803129203e+21,
+                "radius_m": 1.0408711802477457e-08,
+                "source_particle_count": 2.0
+              }
+            ],
+            "kind": "discrete"
+          },
+          "molar_volume_m3_mol": 4.1009e-05,
+          "nucleation": {
+            "mode": "off"
+          },
+          "shape_factor": 1.0,
+          "xB": 1.0,
+          "xeq_infinity": 0.004649261005504824
+        },
+        "g": {
+          "diffusivity_m2_s": 8.073255954803963e-18,
+          "elastic_penalty_j_m3": 0.0,
+          "gamma_j_m2": 0.168,
+          "initial": {
+            "kind": "empty"
+          },
+          "molar_volume_m3_mol": 4.1009e-05,
+          "nucleation": {
+            "mode": "off"
+          },
+          "shape_factor": 1.0,
+          "xB": 1.0,
+          "xeq_infinity": 0.004649261005504824
+        }
+      },
+      "radius_grid": {
+        "bins": 200,
+        "maximum_m": 1e-07,
+        "minimum_m": 4.724027182871601e-10
+      },
+      "simulation": {
+        "cfl_active_inventory_relative_threshold": 1e-12,
+        "max_dt_s": 900.0,
+        "min_dt_s": 1e-12,
+        "positivity_safety": 0.999999,
+        "random_seed": 20260831,
+        "rmax_outflow_relative_tolerance": 1e-10,
+        "size_cfl": 0.35,
+        "temperature_K": 653.15
+      },
+      "thermodynamics": {
+        "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+        "contract_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-cuda-runtime-closure-v1/contracts/pf_kwn_validation_contract_v1.json",
+        "mode": "pf_contract",
+        "planar_reference_xB": 0.004649261005504824
+      }
+    },
+    "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+    "contract_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-cuda-runtime-closure-v1/contracts/pf_kwn_validation_contract_v1.json",
+    "gp_nucleation_mode": "off",
+    "gp_population_state": "EMPTY_COMPATIBILITY_CARRIER_NO_GP_DYNAMICS",
+    "legacy_reproduction": {
+      "cfl_active_population_relative_threshold": 1e-30,
+      "cfl_support": "number_weighted_relative_threshold",
+      "face_flux_limiter": "OFF_PRE_REPAIR_BASELINE_ONLY",
+      "negative_bin_handling": "STRICT_FAILURE_BELOW_SUBNORMAL_ROUNDOFF",
+      "source_commit": "404b0578071120577b72a1e6f253a79ae1ca393c"
+    },
+    "matrix_inventory_mol": 1.309926818847619e-19,
+    "matrix_xB_from_fixed_fixture_inventory": 0.006220578557312318,
+    "numerical_domain_gate": {
+      "contract_valid_minimum_m": 4.724027182871601e-10,
+      "initial_fixture_radii_changed": false,
+      "minimum_initial_fixture_radius_m": 8e-09,
+      "physical_parameters_changed": false,
+      "reason": "unused legacy bins below this radius yield a nonphysical exact-contract curvature equilibrium and are rejected before KWN evaluation",
+      "template_minimum_m": 2.5e-10
+    },
+    "numerical_template_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-cuda-runtime-closure-v1/configs/kwn/beta_only_pf_consistency.yaml",
+    "numerical_template_sha256": "f3af9f344b87cadd3fb8ebab754820e235748197cbb281e529ba45828c49ca1d",
+    "planar_solvus_xB": 0.004649261005504824,
+    "resolved_inventory_mol": 5.162330490523496e-19,
+    "resolved_psd_projection": {
+      "projected_resolved_volume_fraction": 0.02392826912049222,
+      "projection": "COMMON_NUMBER_SCALE_TO_PRESERVE_FIXED_PF_H_VOLUME_ON_KWN_GRID_CENTRES",
+      "resolved_equivalent_number_scale": 1.003196877511866,
+      "source_radii_m": [
+        1.0500000000000001e-08,
+        1.0500000000000001e-08,
+        9.5e-09,
+        9.5e-09,
+        8e-09,
+        8e-09
+      ],
+      "source_resolved_radius_count": 6,
+      "source_unique_radius_count": 3,
+      "target_resolved_volume_fraction": 0.02392826912049222
+    },
+    "thermodynamics_mode": "pf_contract",
+    "total_inventory_mol": 6.472257309371116e-19,
+    "total_inventory_mol_m3": 731.5467336438344
+  },
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "error": "SolverStateError: beta finite-volume update violated positivity or finiteness",
+  "failure": {
+    "dt_s": 0.032719807676965265,
+    "inventory_relative_residual": 0.0,
+    "matrix_inventory_mol_m3": 145.3591002026268,
+    "matrix_xB": 0.006107857945950683,
+    "particle_inventory_mol_m3": 586.1876334412076,
+    "populations": {
+      "beta": {
+        "first_candidate_negative_after_density_per_m4": -0.12258148017758173,
+        "first_candidate_negative_before_density_per_m4": 0.12411698027314709,
+        "first_candidate_negative_bin": 18,
+        "first_candidate_negative_dt_max_s": 0.014004277652097781,
+        "lower_boundary_flux_m3_s": 0.0,
+        "minimum_candidate_cell_number_m3": -2.5445641195850307e-12,
+        "minimum_candidate_density_per_m4": -0.12258148017758173,
+        "minimum_donor_dt_max_s": 0.014004277652097781,
+        "raw_positivity_utilization": 2.3364152361020905,
+        "upper_boundary_flux_m3_s": 1.4125960253730131e-268
+      },
+      "g": {
+        "first_candidate_negative_after_density_per_m4": null,
+        "first_candidate_negative_before_density_per_m4": null,
+        "first_candidate_negative_bin": null,
+        "first_candidate_negative_dt_max_s": null,
+        "lower_boundary_flux_m3_s": -0.0,
+        "minimum_candidate_cell_number_m3": 0.0,
+        "minimum_candidate_density_per_m4": 0.0,
+        "minimum_donor_dt_max_s": Infinity,
+        "raw_positivity_utilization": 0.0,
+        "upper_boundary_flux_m3_s": 0.0
+      }
+    },
+    "raw_positivity_utilization": 2.3364152361020905,
+    "size_cfl": 0.35,
+    "sources": {
+      "beta": {
+        "barrier_j": null,
+        "configured_critical_radius_m": null,
+        "driving_energy_j_m3": null,
+        "growth_sign_critical_radius_m": 9.298630205867348e-09,
+        "injected_number_density_m3": 0.0,
+        "rate_m3_s": 0.0,
+        "source_radius_m": 0.0
+      },
+      "g": {
+        "barrier_j": null,
+        "configured_critical_radius_m": null,
+        "driving_energy_j_m3": null,
+        "growth_sign_critical_radius_m": null,
+        "injected_number_density_m3": 0.0,
+        "rate_m3_s": 0.0,
+        "source_radius_m": 0.0
+      }
+    },
+    "step": 87,
+    "time_h": 0.39317699499770825,
+    "time_s": 1415.4371819917496,
+    "total_inventory_mol_m3": 731.5467336438344
+  },
+  "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+  "fixture_id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+  "kwn_solver_version": "internal_kwn_finite_volume_v1_legacy_unlimited_diagnosis",
+  "max_dt_factor": 1.0,
+  "radius_bins": 200,
+  "schema_version": "KWN_POSITIVITY_FAILURE_DIAGNOSIS_V1",
+  "status": "REPRODUCED_STRICT_POSITIVITY_FAILURE"
+}

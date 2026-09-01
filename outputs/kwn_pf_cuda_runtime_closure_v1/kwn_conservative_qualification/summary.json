@@ -1,0 +1,232 @@
+{
+  "canonical_48h": {
+    "beta_mean_radius_cubed_m3": 1.4282434839968e-23,
+    "beta_mean_radius_m": 2.2858332888971688e-08,
+    "beta_number_density_m3": 4.167642658843149e+20,
+    "beta_specific_surface_area_m_inv": 2918994.4793669293,
+    "beta_volume_fraction": 0.024933390298714265,
+    "inventory_relative_residual": 0.0,
+    "matrix_xB": 0.0051961677806174784,
+    "minimum_bin_density_per_m4": 69.43182928987684,
+    "roundoff_zeroed_bin_count": 0.0,
+    "time_h": 48.0
+  },
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "dt_half_200_48h": {
+    "beta_mean_radius_cubed_m3": 1.4282438488055846e-23,
+    "beta_mean_radius_m": 2.2858334509739017e-08,
+    "beta_number_density_m3": 4.167641598493052e+20,
+    "beta_specific_surface_area_m_inv": 2918994.19513255,
+    "beta_volume_fraction": 0.02493339032365495,
+    "inventory_relative_residual": 0.0,
+    "matrix_xB": 0.005196167755171946,
+    "minimum_bin_density_per_m4": 69.4335647277458,
+    "roundoff_zeroed_bin_count": 0.0,
+    "time_h": 48.0
+  },
+  "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+  "fixture_id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+  "gates": {
+    "P1_exact_failure_regression": true,
+    "P2_48h_completion": true,
+    "P3_no_clipping": true,
+    "P4_conservation": true,
+    "P5_bin_convergence_200_vs_400": false,
+    "P5_timestep_convergence": true,
+    "P6_positivity_utilization": true,
+    "P6_restart": true
+  },
+  "grid_400_48h": {
+    "beta_mean_radius_cubed_m3": 1.2313165928720454e-23,
+    "beta_mean_radius_m": 2.190405128824409e-08,
+    "beta_number_density_m3": 4.8291116889507935e+20,
+    "beta_specific_surface_area_m_inv": 3084093.0612803055,
+    "beta_volume_fraction": 0.024907239180141455,
+    "inventory_relative_residual": 0.0,
+    "matrix_xB": 0.0052228475325532655,
+    "minimum_bin_density_per_m4": 6.48174987211973e-24,
+    "roundoff_zeroed_bin_count": 0.0,
+    "time_h": 48.0
+  },
+  "grid_convergence_relative_difference": {
+    "beta_mean_radius_cubed_m3": 0.15993197221960823,
+    "beta_mean_radius_m": 0.04356644294563725,
+    "beta_number_density_m3": 0.13697530161108365,
+    "beta_specific_surface_area_m_inv": 0.05353229576180121,
+    "beta_volume_fraction": 0.001049940476488464,
+    "matrix_xB": 0.005108277002056046
+  },
+  "outputs": {
+    "checkpoint_sha256": {
+      "restart_24h.npz": "bdc9160ba6452c9f39a871e94e8ad3fc4663a8321f0f4af006397830dc527580",
+      "restart_3h.npz": "76151353cd90b242495bffe64825c8bcb930aba5f879ad8c8a08729185657f0c",
+      "restart_6h.npz": "badb3518419558262789d623545bcbf0ef58e47f42335af3cf19fd3f8770c2b7"
+    },
+    "convergence_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-cuda-runtime-closure-v1/outputs/kwn_pf_cuda_runtime_closure_v1/kwn_repair_convergence.csv",
+    "restart_csv": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-pf-cuda-runtime-closure-v1/outputs/kwn_pf_cuda_runtime_closure_v1/kwn_conservative_qualification/restart_comparison.csv"
+  },
+  "p1_audit": {
+    "accepted_step_count": 215,
+    "maximum_inventory_relative_residual": 0.0,
+    "maximum_positivity_utilization": 0.2026004846811445,
+    "maximum_size_cfl": 0.35000000000000003,
+    "median_dt_s": 4.848531350603255,
+    "minimum_dt_s": 0.8665787888498926,
+    "rejected_step_count": 0,
+    "roundoff_zeroed_bin_count": 0
+  },
+  "p1_metrics_0p5h": {
+    "beta_mean_radius_cubed_m3": 8.465657054749013e-25,
+    "beta_mean_radius_m": 9.208669307426832e-09,
+    "beta_number_density_m3": 6.776385173340261e+21,
+    "beta_specific_surface_area_m_inv": 7429451.771161031,
+    "beta_volume_fraction": 0.024029645507255327,
+    "inventory_relative_residual": 0.0,
+    "matrix_xB": 0.006117352299955605,
+    "minimum_bin_density_per_m4": 1.1649451534747884e-59,
+    "roundoff_zeroed_bin_count": 0.0,
+    "time_h": 0.5
+  },
+  "p3_no_clipping_audits": {
+    "canonical_200_0_to_48h": {
+      "accepted_step_count": 66651,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.2026004846811445,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 1.8555011836575184,
+      "minimum_dt_s": 0.21746423396325554,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "continuous_restart_control_0_to_48h": {
+      "accepted_step_count": 66650,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.2026004846811445,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 1.8554960077263454,
+      "minimum_dt_s": 0.3743634485140893,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "dt_half_200_0_to_48h": {
+      "accepted_step_count": 66649,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.2026004846811445,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 1.8555024972897738,
+      "minimum_dt_s": 0.3743634485140893,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "exact_failure_regression_200_0_to_0p5h": {
+      "accepted_step_count": 215,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.2026004846811445,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 4.848531350603255,
+      "minimum_dt_s": 0.8665787888498926,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "grid_400_0_to_48h": {
+      "accepted_step_count": 87344,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.2161818895545328,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 1.6027176271385635,
+      "minimum_dt_s": 0.23930183515136558,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "restart_0_to_3h": {
+      "accepted_step_count": 12235,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.2026004846811445,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 0.4691328563028463,
+      "minimum_dt_s": 0.3743634485140893,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "restart_24_to_48h": {
+      "accepted_step_count": 14309,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.00011653010973987888,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 5.666562581984447,
+      "minimum_dt_s": 0.8705520341463853,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "restart_3_to_6h": {
+      "accepted_step_count": 11966,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.00022642865945770316,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 0.854854661956576,
+      "minimum_dt_s": 0.7705447398749721,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    },
+    "restart_6_to_24h": {
+      "accepted_step_count": 28140,
+      "maximum_inventory_relative_residual": 0.0,
+      "maximum_positivity_utilization": 0.00015972933320063424,
+      "maximum_size_cfl": 0.35000000000000003,
+      "median_dt_s": 2.04727865656987,
+      "minimum_dt_s": 1.269222348886113,
+      "rejected_step_count": 0,
+      "roundoff_zeroed_bin_count": 0
+    }
+  },
+  "repair": {
+    "cfl_active_inventory_relative_threshold": 1e-06,
+    "method": "CONSERVATIVE_IMPLICIT_UPWIND_FACE_SOLVE",
+    "negative_bin_clamp": false,
+    "numerical_transport_revision": "IMPLICIT_SHARED_FACE_SOLVE_WITH_FROZEN_START_STATE_VELOCITIES",
+    "physical_parameter_retuning": false,
+    "positivity_safety": 0.999999
+  },
+  "restart": [
+    {
+      "beta_number_density_per_m4": 0.0,
+      "checkpoint_sha256": "76151353cd90b242495bffe64825c8bcb930aba5f879ad8c8a08729185657f0c",
+      "comparison": "continuous_0_6h_vs_restart_0_3h_3_6h",
+      "g_number_density_per_m4": 0.0,
+      "matrix_xb": 0.0,
+      "pass": true,
+      "step": 0.0,
+      "time_s": 0.0
+    },
+    {
+      "beta_number_density_per_m4": 0.0,
+      "checkpoint_sha256": "bdc9160ba6452c9f39a871e94e8ad3fc4663a8321f0f4af006397830dc527580",
+      "comparison": "continuous_0_48h_vs_restart_0_6h_6_24h_24_48h",
+      "g_number_density_per_m4": 0.0,
+      "matrix_xb": 0.0,
+      "pass": true,
+      "step": 0.0,
+      "time_s": 0.0
+    }
+  ],
+  "retry_audit": {
+    "accepted_step_count": 66651,
+    "maximum_inventory_relative_residual": 0.0,
+    "maximum_positivity_utilization": 0.2026004846811445,
+    "maximum_size_cfl": 0.35000000000000003,
+    "median_dt_s": 1.8555011836575184,
+    "minimum_dt_s": 0.21746423396325554,
+    "rejected_step_count": 0,
+    "roundoff_zeroed_bin_count": 0
+  },
+  "schema_version": "KWN_CONSERVATIVE_POSITIVITY_QUALIFICATION_V1",
+  "status": "FAIL_KWN_CONSERVATIVE_POSITIVITY",
+  "timestep_convergence_relative_difference": {
+    "beta_mean_radius_cubed_m3": 2.554247196045673e-07,
+    "beta_mean_radius_m": 7.090487404614473e-08,
+    "beta_number_density_m3": 2.544244920719585e-07,
+    "beta_specific_surface_area_m_inv": 9.737408176150463e-08,
+    "beta_volume_fraction": 1.0002925639161817e-09,
+    "matrix_xB": 4.896980627355796e-09
+  }
+}

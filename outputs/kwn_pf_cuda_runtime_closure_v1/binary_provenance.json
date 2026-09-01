@@ -1,0 +1,54 @@
+{
+  "build_flavor": "CONTROLLED_CLEAN",
+  "build_utc": "2026-09-01T08:10:04Z",
+  "checkpoint": {
+    "auxiliary_population_schema": "AUXILIARY_POPULATION_STORAGE_ONLY_V1",
+    "auxiliary_sidecar_schema": "PF_AUXILIARY_HANDOFF_V2_SIDECAR_V1",
+    "disk_magic": "PFZMCHK6",
+    "schema": "PF_ZERO_MODE_CHECKPOINT_V6"
+  },
+  "contract": {
+    "canonical_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+    "header_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+    "header_path": "generated/pf_kwn_validation_contract_v1.h",
+    "header_sha256": "572a9fe86abbad45548f92de85f9dcefcdc948f6d401ad3498db5d1372c70f92",
+    "json_sha256": "e85c7533677785f645882421d98dfe0766b7c17f66ae19106bcf99ae4c19e71d",
+    "path": "contracts/pf_kwn_validation_contract_v1.json",
+    "schema_version": "PF_KWN_VALIDATION_CONTRACT_V1"
+  },
+  "controlled_binary_eligible": true,
+  "fixture": {
+    "fixture_id": "pf_mass_conserving_library_handoff_six_particle_96cube_v1",
+    "schema": "PF_MASS_CONSERVING_LIBRARY_HANDOFF_SPEC_V1",
+    "sha256": "d7b12b9e9c621da457701ab0ca5f1e9cbbdfc65493e9fde4c5123dc8767c2b32",
+    "spec_path": "data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json",
+    "target_grid": [
+      96,
+      96,
+      96
+    ]
+  },
+  "precision": {
+    "checkpoint_field_payload": "IEEE754_BINARY64",
+    "elastic_warm_state": "COMPLEX_FLOAT32",
+    "pf_state": "IEEE754_BINARY64"
+  },
+  "schema_version": "PF_CUDA_BUILD_PROVENANCE_V1",
+  "source": {
+    "clean": true,
+    "commit": "097a69582ca3747fecd182ed262278885e0fe0c8",
+    "dirty_path_count": 0
+  },
+  "toolchain": {
+    "cuda_arch": "sm_80",
+    "cuda_root": "/usr/local/cuda-12.8",
+    "host_cxx": "g++",
+    "host_cxx_version": "g++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-22) Copyright (C) 2018 Free Software Foundation, Inc. This is free software; see the source for copying conditions. There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "includes": "-I/usr/local/cuda-12.8/include",
+    "ldflags": "-L/usr/local/cuda-12.8/lib64",
+    "ldlibs": "-lcufft -lcudart -lm",
+    "nvcc_path": "/usr/local/cuda-12.8/bin/nvcc",
+    "nvcc_version": "nvcc: NVIDIA (R) Cuda compiler driver Copyright (c) 2005-2025 NVIDIA Corporation Built on Wed_Jan_15_19:20:09_PST_2025 Cuda compilation tools, release 12.8, V12.8.61 Build cuda_12.8.r12.8/compiler.35404655_0",
+    "nvccflags": "-arch=sm_80 -O3 -std=c++14 --expt-relaxed-constexpr -Xcompiler -Wno-format-truncation"
+  }
+}

@@ -1,0 +1,3 @@
+comparison,pass,checkpoint_sha256,g_number_density_per_m4,beta_number_density_per_m4,matrix_xb,time_s,step
+continuous_0_6h_vs_restart_0_3h_3_6h,True,76151353cd90b242495bffe64825c8bcb930aba5f879ad8c8a08729185657f0c,0.0,0.0,0.0,0.0,0.0
+continuous_0_48h_vs_restart_0_6h_6_24h_24_48h,True,bdc9160ba6452c9f39a871e94e8ad3fc4663a8321f0f4af006397830dc527580,0.0,0.0,0.0,0.0,0.0

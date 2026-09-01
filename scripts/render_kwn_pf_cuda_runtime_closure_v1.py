@@ -98,6 +98,10 @@ def _load_cuda(cuda_run_root: Path) -> dict[str, Any]:
     contract = _mapping(provenance.get("contract"), "binary contract provenance")
     if contract.get("canonical_hash") != CONTRACT_HASH or not bool(source.get("clean")):
         raise EvidenceError("CUDA binary provenance is not clean and contract-bound")
+    runtime_environment = (cuda_run_root / "runtime_environment.txt").read_text(encoding="utf-8")
+    # nvidia-smi uses padded presentation rows.  Strip only trailing layout
+    # spaces while transcribing the human-readable inventory into Markdown.
+    runtime_environment = "\n".join(line.rstrip() for line in runtime_environment.splitlines()) + "\n"
     return {
         "root": cuda_run_root,
         "compact": compact,
@@ -106,7 +110,7 @@ def _load_cuda(cuda_run_root: Path) -> dict[str, Any]:
         "provenance": provenance,
         "binary_sha256": str(binary["sha256"]),
         "source_commit": str(source["commit"]),
-        "runtime_environment": (cuda_run_root / "runtime_environment.txt").read_text(encoding="utf-8"),
+        "runtime_environment": runtime_environment,
         "max_four_bucket_residual": _max_four_bucket_residual(compact / "cuda_ae_inventory.csv"),
     }
 
