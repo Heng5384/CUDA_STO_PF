@@ -21,6 +21,7 @@ DEFAULT_OUTPUT = ROOT / "outputs" / "kwn_pf_cuda_runtime_closure_v1"
 DEFAULT_REPORTS = ROOT / "reports" / "kwn_pf_cuda_runtime_closure_v1"
 CONTRACT_HASH = "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
 FIXTURE_HASH = "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f"
+KWN_QUALIFICATION_EXECUTION_COMMIT = "ebfaae4"
 
 
 class EvidenceError(RuntimeError):
@@ -274,6 +275,8 @@ This is not a lower-radius boundary failure, upper-radius boundary failure, sour
         f"""# 07 KWN conservative positivity repair
 
 Repair method: `{repair['method']}` with `{repair['numerical_transport_revision']}`. Face velocities are frozen at the start state and shared face fluxes are solved implicitly by an upwind tridiagonal M-matrix system. This is a numerical transport revision, not physical retuning.
+
+The recorded numerical qualification execution used source commit `{KWN_QUALIFICATION_EXECUTION_COMMIT}`. Later delivery-only changes do not alter that completed solver trajectory.
 
 - Physical parameter retuning: `{repair['physical_parameter_retuning']}`.
 - Negative-bin clamp: `{repair['negative_bin_clamp']}`.
