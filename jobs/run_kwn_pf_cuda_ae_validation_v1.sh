@@ -109,7 +109,7 @@ document={
  "embedded_binary_provenance":json.load(open(root/"build/main_cuda.embedded_provenance.json")),
  "prohibited_dynamics":{"GP_release":"OFF","GP_to_beta_conversion":"OFF","beta_birth":"OFF","online_KWN_callback":"OFF","matrix_global_reset":"OFF","composition_clamp":"FORBIDDEN"},
 }
-(root/"run_manifest.json").write_text(json.dumps(document,indent=2,sort_keys=True)+"\\n")
+(root/"run_manifest.json").write_text(json.dumps(document,indent=2,sort_keys=True)+"\n")
 ' "${RUN_ROOT}" "${SOURCE_ROOT}" "${RUN_ROOT}/staged_assets" "${MAX_STAGE}" "${ASSET_CONTRACT_HASH}" "${FIXTURE_HASH}" "${PROFILE_LIBRARY_MANIFEST_SHA256}"
 
 declare -A PHI XB META SIDECAR SOURCE_HASH PACKAGE_HASH
