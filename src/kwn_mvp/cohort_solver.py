@@ -58,6 +58,7 @@ class Cohort:
     active: bool = True
     dissolution_time_s: float | None = None
     radius_before_event_m: float | None = None
+    post_event_ledger_relative_residual: float | None = None
     returned_inventory_mol_m3: float = 0.0
     initial_radius_m: float | None = None
     initial_growth_sign: str = "UNASSESSED"
@@ -255,6 +256,19 @@ class CohortSolver:
     def _radii_for_active(self) -> NDArray[np.float64]:
         return np.asarray([item.radius_m for item in self._active_cohorts()], dtype=np.float64)
 
+    @staticmethod
+    def _beta_fraction_from_weights_and_radii(
+        weights_m3: NDArray[np.float64], radii_m: NDArray[np.float64]
+    ) -> float:
+        """Return sharp-sphere beta volume fraction with a vector fast path."""
+
+        if radii_m.size > 64:
+            return float((4.0 * math.pi / 3.0) * np.dot(weights_m3, radii_m**3))
+        return math.fsum(
+            float(weight) * sphere_volume_m3(float(radius))
+            for weight, radius in zip(weights_m3, radii_m)
+        )
+
     def _matrix_xb_from_active_radii(self, radii_m: NDArray[np.float64]) -> float:
         radii = np.asarray(radii_m, dtype=np.float64)
         if radii.ndim != 1 or np.any(~np.isfinite(radii)) or np.any(radii <= 0.0):
@@ -262,10 +276,7 @@ class CohortSolver:
         weights = self._weights_for_active()
         if radii.shape != weights.shape:
             raise CohortSolverError("active radius vector does not match active cohort state")
-        beta_fraction = math.fsum(
-            float(weight) * sphere_volume_m3(float(radius))
-            for weight, radius in zip(weights, radii)
-        )
+        beta_fraction = self._beta_fraction_from_weights_and_radii(weights, radii)
         matrix_fraction = 1.0 - beta_fraction
         if matrix_fraction <= 0.0:
             raise CohortSolverError("active cohorts leave no matrix volume")
@@ -314,10 +325,7 @@ class CohortSolver:
     def _inventory_components(self) -> tuple[float, float, float, float]:
         radii = self._radii_for_active()
         weights = self._weights_for_active()
-        beta_fraction = math.fsum(
-            float(weight) * sphere_volume_m3(float(radius))
-            for weight, radius in zip(weights, radii)
-        )
+        beta_fraction = self._beta_fraction_from_weights_and_radii(weights, radii)
         matrix_fraction = 1.0 - beta_fraction
         matrix_xb = self._matrix_xb_from_active_radii(radii)
         beta_inventory = beta_fraction * self.beta_parameters.x_b / self.beta_parameters.molar_volume_m3_mol
@@ -348,6 +356,7 @@ class CohortSolver:
                 candidates = [nearest]
             else:
                 raise CohortSolverError("terminal event did not identify a cohort at R_diss")
+        retired: list[Cohort] = []
         for index in candidates:
             cohort = active[index]
             if not cohort.active:
@@ -367,6 +376,11 @@ class CohortSolver:
             cohort.returned_inventory_mol_m3 += returned
             cohort.active = False
             cohort.dissolution_time_s = self.time_s
+            retired.append(cohort)
+        _, _, _, residual = self._inventory_components()
+        relative = abs(residual) / max(abs(self.total_b_mol_m3), 1.0e-300)
+        for cohort in retired:
+            cohort.post_event_ledger_relative_residual = relative
         self._assert_inventory_closed()
 
     def advance_to(self, target_time_s: float) -> None:
@@ -406,21 +420,35 @@ class CohortSolver:
         active = self._active_cohorts()
         initial = self._radii_for_active()
         smallest_index = int(np.argmin(initial))
-        # Stop a comfortably finite distance from the sign transition.  This
-        # is a numerical event locator only; the subsequent characteristic
-        # segment uses the unchanged physical growth law and R_diss contract.
-        dissolution_guard_m_s = 1.0e-10
+        initial_rates = self.growth_rates()
+        rate_scale_m_s = float(np.max(np.abs(initial_rates)))
+        if rate_scale_m_s == 0.0:
+            # Zero mobility is an exact invariant, not a numerical event.
+            self.time_s = target_time_s
+            self.accepted_segment_count += 1
+            self._assert_inventory_closed()
+            return
+        # Select the negative branch at a scale set by the frozen physical
+        # RHS, rather than a fixed SI speed.  The guard is only an event
+        # locator: it avoids a zero-rate characteristic denominator and does
+        # not change an accepted radius, time, or growth law.
+        dissolution_guard_m_s = max(1.0e-4, math.sqrt(self.rtol)) * rate_scale_m_s
 
         def dissolution_onset_event(time_s: float, radii_m: NDArray[np.float64]) -> float:
             return float(self._rhs(time_s, radii_m)[smallest_index] + dissolution_guard_m_s)
 
         dissolution_onset_event.terminal = True  # type: ignore[attr-defined]
         dissolution_onset_event.direction = -1.0  # type: ignore[attr-defined]
+        # Away from Rmin this is a regular physical-time IVP.  DOP853 avoids
+        # scale-overflow warnings from implicit finite-difference Jacobians
+        # on radii expressed in metres; the configured implicit method remains
+        # in use for the stiff one-sided characteristic segment.
+        regular_method = "DOP853" if self.method in {"Radau", "BDF"} else self.method
         result = solve_ivp(
             self._rhs,
             (self.time_s, target_time_s),
             initial,
-            method=self.method,
+            method=regular_method,
             rtol=self.rtol,
             atol=self.atol_m,
             events=dissolution_onset_event,
@@ -563,8 +591,13 @@ class CohortSolver:
         self.time_s = float(final_state[0])
         self.accepted_segment_count += 1
         if result.t_events[0].size:
-            event_time_tolerance_s = max(1.0e-2, 1.0e-6 * target_time_s)
-            if abs(self.time_s - target_time_s) > event_time_tolerance_s:
+            # Radau's characteristic-time event interpolation can land a few
+            # seconds either side of a long requested output time.  Correct
+            # that safe, accepted bracket by integrating the same physical
+            # RHS to the requested time (backward if necessary), rather than
+            # relabelling a nearby state.  A gross miss remains a hard error.
+            correction_bound_s = max(1.0, 1.0e-3 * max(target_time_s, 1.0))
+            if abs(self.time_s - target_time_s) > correction_bound_s:
                 raise CohortSolverError(
                     "target-time event does not close to the requested accepted time: "
                     f"observed={self.time_s:.17e} requested={target_time_s:.17e}"
@@ -606,7 +639,7 @@ class CohortSolver:
             self._rhs,
             (self.time_s, target_time_s),
             radii,
-            method=self.method,
+            method="DOP853" if self.method in {"Radau", "BDF"} else self.method,
             rtol=self.rtol,
             atol=self.atol_m,
             max_step=abs(remaining),
@@ -684,6 +717,7 @@ class CohortSolver:
                     ),
                     "dissolution_time_s": item.dissolution_time_s,
                     "radius_before_event_m": item.radius_before_event_m,
+                    "post_event_ledger_relative_residual": item.post_event_ledger_relative_residual,
                     "returned_inventory_mol_m3": item.returned_inventory_mol_m3,
                     "current_inventory_mol_m3": (
                         item.weight_m3
@@ -718,6 +752,7 @@ class CohortSolver:
                     "initial_growth_sign": item.initial_growth_sign,
                     "dissolution_time_s": item.dissolution_time_s,
                     "radius_before_event_m": item.radius_before_event_m,
+                    "post_event_ledger_relative_residual": item.post_event_ledger_relative_residual,
                     "returned_inventory_mol_m3": item.returned_inventory_mol_m3,
                 }
                 for item in self.cohorts
@@ -755,6 +790,11 @@ class CohortSolver:
             )
             cohort.radius_before_event_m = (
                 None if item.get("radius_before_event_m") is None else float(item["radius_before_event_m"])
+            )
+            cohort.post_event_ledger_relative_residual = (
+                None
+                if item.get("post_event_ledger_relative_residual") is None
+                else float(item["post_event_ledger_relative_residual"])
             )
             cohort.returned_inventory_mol_m3 = float(item["returned_inventory_mol_m3"])
         self.time_s = float(checkpoint["time_s"])

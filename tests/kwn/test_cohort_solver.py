@@ -109,6 +109,21 @@ class CohortSolverQualificationTests(unittest.TestCase):
         self.assertLess(after.N_m0_m3, before.N_m0_m3)
         self.assertLessEqual(after.inventory_relative_residual, 1.0e-10)
 
+    def test_growing_cohort_that_later_turns_dissolving_reaches_event(self) -> None:
+        """The physical-time branch must hand off before a later Rmin event."""
+
+        solver = _solver(
+            [Cohort("small", 2.0e-9, 1.0e21), Cohort("large", 8.0e-9, 1.0e21)],
+            matrix_xb=0.008,
+            rtol=1.0e-8,
+        )
+        self.assertTrue(np.all(solver.growth_rates() > 0.0))
+        solver.advance_to(2.0e6)
+        rows = {str(row["initial_id"]): row for row in solver.cohort_rows()}
+        self.assertFalse(bool(rows["small"]["active"]))
+        self.assertIsNotNone(rows["small"]["dissolution_time_s"])
+        self.assertLessEqual(solver.snapshot().inventory_relative_residual, 1.0e-10)
+
     def test_c5_permutation_invariance(self) -> None:
         forward = _solver(_mixed_cohorts(), matrix_xb=0.0061)
         reverse = _solver(list(reversed(_mixed_cohorts())), matrix_xb=0.0061)
@@ -138,6 +153,11 @@ class CohortSolverQualificationTests(unittest.TestCase):
         self.assertLessEqual(
             abs(float(events[1.0e-8]) - float(events[1.0e-10])), 1.0e-5
         )
+        self.assertLessEqual(
+            abs(float(events[1.0e-8]) - float(events[1.0e-10]))
+            / max(abs(float(events[1.0e-10])), 1.0e-300),
+            1.0e-3,
+        )
 
     def test_c7_restart(self) -> None:
         continuous = _solver(_mixed_cohorts(), matrix_xb=0.0061)
@@ -160,6 +180,21 @@ class CohortSolverQualificationTests(unittest.TestCase):
             self.assertTrue(
                 math.isclose(float(left["radius_m"]), float(right["radius_m"]), rel_tol=1.0e-10)
             )
+            for field in (
+                "dissolution_time_s",
+                "radius_before_event_m",
+                "post_event_ledger_relative_residual",
+                "returned_inventory_mol_m3",
+            ):
+                if left[field] is None or right[field] is None:
+                    self.assertEqual(left[field], right[field], msg=field)
+                else:
+                    self.assertTrue(
+                        math.isclose(
+                            float(left[field]), float(right[field]), rel_tol=1.0e-10, abs_tol=1.0e-18
+                        ),
+                        msg=field,
+                    )
 
     def test_c8_exact_inventory(self) -> None:
         solver = _solver(_mixed_cohorts(), matrix_xb=0.0061)
