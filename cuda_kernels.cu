@@ -1071,7 +1071,8 @@ __global__ void eta_semi_implicit_update_kernel(
 __global__ void phi_normalize_and_clamp_kernel(
     double *phi_r,
     double invN,
-    int total_size)
+    int total_size,
+    unsigned long long *clip_ledger)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
@@ -1079,8 +1080,18 @@ __global__ void phi_normalize_and_clamp_kernel(
     phi_r[idx] *= invN;
     
     // 截断到合理范围
-    if (phi_r[idx] < -1e-6) phi_r[idx] = -1e-6;
-    if (phi_r[idx] > 1.0 + 1e-6) phi_r[idx] = 1.0 + 1e-6;
+    if (phi_r[idx] < -1e-6) {
+        if (clip_ledger) {
+            atomicAdd(&clip_ledger[DYNAMICS_CLIP_LEDGER_PHI_LOWER], 1ULL);
+        }
+        phi_r[idx] = -1e-6;
+    }
+    if (phi_r[idx] > 1.0 + 1e-6) {
+        if (clip_ledger) {
+            atomicAdd(&clip_ledger[DYNAMICS_CLIP_LEDGER_PHI_UPPER], 1ULL);
+        }
+        phi_r[idx] = 1.0 + 1e-6;
+    }
 }
 
 __global__ void eta_normalize_and_clamp_kernel(
@@ -1263,6 +1274,47 @@ __global__ void normalize_only_kernel(
 // 5. Y方程相关kernel：计算mu_x（化学势差）
 // ============================================================================
 
+// Keep the production sigmoid arithmetic unchanged when diagnostics are off.
+// With a ledger, this is the same projection sequence as sigmoid_from_logit,
+// with one native event recorded for each active lower/upper projection.
+__device__ static inline double sigmoid_from_logit_with_clip_ledger(
+    double Y,
+    double Y_clip,
+    double xB_eps,
+    unsigned long long *clip_ledger)
+{
+    if (!clip_ledger) {
+        return sigmoid_from_logit(Y, Y_clip, xB_eps);
+    }
+
+    if (Y > Y_clip) {
+        atomicAdd(&clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_Y_UPPER], 1ULL);
+        Y = Y_clip;
+    }
+    if (Y < -Y_clip) {
+        atomicAdd(&clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_Y_LOWER], 1ULL);
+        Y = -Y_clip;
+    }
+
+    double xB;
+    if (Y >= 0) {
+        double e_negY = exp(-Y);
+        xB = 1.0 / (1.0 + e_negY);
+    } else {
+        double e_Y = exp(Y);
+        xB = e_Y / (1.0 + e_Y);
+    }
+    if (xB < xB_eps) {
+        atomicAdd(&clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_XB_LOWER], 1ULL);
+        xB = xB_eps;
+    }
+    if (xB > 1.0 - xB_eps) {
+        atomicAdd(&clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_XB_UPPER], 1ULL);
+        xB = 1.0 - xB_eps;
+    }
+    return xB;
+}
+
 __global__ void compute_mu_x_kernel(
     const double *Y_r,
     const double *phi_r,
@@ -1282,14 +1334,16 @@ __global__ void compute_mu_x_kernel(
     const float *sigma_zz_r,
     double eps_iso_over_vB,
     int total_size,
-    int elastic_enabled)
+    int elastic_enabled,
+    unsigned long long *clip_ledger)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= total_size) return;
     
     // 从logit转换为xB
     double Y = Y_r[idx];
-    double xB = sigmoid_from_logit(Y, Y_clip, xB_eps);
+    double xB = sigmoid_from_logit_with_clip_ledger(
+        Y, Y_clip, xB_eps, clip_ledger);
     xB_r[idx] = xB;
 
     double phi = phi_r[idx];
@@ -4516,10 +4570,12 @@ void launch_eta_semi_implicit_update_kernel(const cuDoubleComplex *eta_k_old,
         eta_k_old, rhs_k, k2, eta_k_new, L_eta, kappa_eta, dt, total_size);
 }
 
-void launch_phi_normalize_and_clamp_kernel(double *phi_r, double invN, int total_size) {
+void launch_phi_normalize_and_clamp_kernel(double *phi_r, double invN, int total_size,
+                                           unsigned long long *clip_ledger) {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
-    phi_normalize_and_clamp_kernel<<<blocks, threads>>>(phi_r, invN, total_size);
+    phi_normalize_and_clamp_kernel<<<blocks, threads>>>(
+        phi_r, invN, total_size, clip_ledger);
 }
 
 void launch_eta_normalize_and_clamp_kernel(double *eta_r, double invN, int total_size) {
@@ -4601,7 +4657,8 @@ void launch_compute_mu_x_kernel(const double *Y_r, const double *phi_r,
                                 const float *sigma_zz_r,
                                 double eps_iso_over_vB,
                                 int total_size,
-                                int elastic_enabled) {
+                                int elastic_enabled,
+                                unsigned long long *clip_ledger) {
     int threads, blocks;
     configure_launch(total_size, threads, blocks);
     compute_mu_x_kernel<<<blocks, threads>>>(
@@ -4613,7 +4670,8 @@ void launch_compute_mu_x_kernel(const double *Y_r, const double *phi_r,
         sigma_xx_r, sigma_yy_r, sigma_zz_r,
         eps_iso_over_vB,
         total_size,
-        elastic_enabled);
+        elastic_enabled,
+        clip_ledger);
 }
 
 void launch_compute_mu_C_gp_kernel(const double *Y_r,

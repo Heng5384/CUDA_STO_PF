@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Audit the controlled 96-cube CUDA A--E validation run without inventing data.
+"""Audit the controlled 96-cube CUDA A--E validation run.
 
-This reader is deliberately independent of ``main_cuda``.  It validates the
-frozen input index, extracts only the V6 checkpoint facts that are actually
-present on disk, and writes compact machine-readable summaries below the
-caller-owned run root.  It is not a PF, KWN, GP, or microstructure analysis
-path: absent CUDA diagnostics remain explicitly ``NOT_CAPTURED``.
+The reader is deliberately independent of ``main_cuda``.  It validates the
+frozen input index and V6 checkpoints, then derives compact accepted-state
+diagnostics from the checkpoint fields plus the CUDA accepted-field mechanics
+bundle.  R0's bundle is an online synchronized reference; later bundles are
+deterministic mechanics replays from the exact saved checkpoint and explicitly
+prove that time, phi, and xB were not advanced.  The resulting chemical
+potential, energy, and periodic-component values are therefore labelled as
+checkpoint/replay-derived CUDA accepted-state diagnostics rather than invented
+or solver-native scalar output.
 
 The companion Slurm runner uses ``--emit-run-manifest`` before launching any
 CUDA work.  That gives the shell a checked, tab-separated view of the A--E
@@ -69,6 +73,35 @@ FIELD_EQ_TOL = 1.0e-14
 # bound.  This is distinct from (and must not enable) a composition clamp.
 PHI_REPRESENTATION_LOWER = -1.0e-6
 PHI_REPRESENTATION_UPPER = 1.0 + 1.0e-6
+DIAGNOSTIC_PROVENANCE = "CHECKPOINT_REPLAY_DERIVED_CUDA_ACCEPTED_STATE_V1"
+MECHANICS_REPLAY_SCHEMA = "MECHANICS_ONLY_ACCEPTED_FIELD_REPLAY_V1"
+PARTICLE_H_THRESHOLD = 1.0e-4
+INITIAL_FIXTURE_COMPONENT_COUNT = 6
+NATIVE_DIAGNOSTIC_TAG_BY_STEP: Mapping[int, str] = {
+    1: "R1a",
+    10: "R1b",
+    36: "R2a",
+    363: "R2b",
+    3633: "R3a",
+    10899: "R3b",
+    21798: "R3c",
+    43596: "R4a",
+    87191: "R4b",
+    174382: "R4c",
+}
+NATIVE_SEGMENT_START_BY_STEP: Mapping[int, int] = {
+    1: 0,
+    10: 1,
+    36: 10,
+    363: 36,
+    3633: 363,
+    10899: 3633,
+    21798: 10899,
+    43596: 21798,
+    87191: 43596,
+    174382: 87191,
+}
+ALL_STEP_CLIP_LEDGER_SCHEMA = "DYNAMICS_ALL_STEP_CLIP_LEDGER_V1"
 
 
 class AuditError(RuntimeError):
@@ -547,6 +580,13 @@ def _bin_inventory(path: Path, offset: int, count: int) -> tuple[float, list[dic
     return float(sum(item["inventory_mol"] for item in bins)), bins
 
 
+def _population_checksum(bins: Sequence[Mapping[str, float]]) -> str:
+    """Stable compact checksum of the decoded frozen PSD bins."""
+
+    payload = json.dumps(list(bins), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _checkpoint_observation(
     path: Path,
     *,
@@ -710,12 +750,10 @@ def _checkpoint_observation(
         },
         "phase_representation": phase_representation,
         "auxiliary_bins": {"GP": gp_bins, "beta_subgrid": subgrid_bins},
-        "diagnostics_not_captured": [
-            "component_identity_lineage",
-            "specific_interfacial_area",
-            "chemical_potential_field",
-            "full_free_energy_decomposition",
-        ],
+        "auxiliary_population_checksums": {
+            "GP": _population_checksum(gp_bins),
+            "beta_subgrid": _population_checksum(subgrid_bins),
+        },
     }
     return observation
 
@@ -763,6 +801,818 @@ def _load_raw_field(path: Path) -> np.ndarray:
     return values
 
 
+def _read_key_value_text(path: Path, *, label: str) -> dict[str, str]:
+    if not path.is_file():
+        raise AuditError(f"missing {label}: {path}")
+    result: dict[str, str] = {}
+    for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        text = raw.strip()
+        if not text or text.startswith("#"):
+            continue
+        if "=" not in text:
+            raise AuditError(f"malformed {label} line {line_number}: {path}")
+        key, value = (part.strip() for part in text.split("=", 1))
+        if not key or not value or key in result:
+            raise AuditError(f"malformed or duplicate {label} key at line {line_number}: {path}")
+        result[key] = value
+    return result
+
+
+def _pf_parameter_values(path: Path, *, contract: Any) -> dict[str, float]:
+    raw = _read_key_value_text(path, label="frozen PF parameter file")
+    required = (
+        "dt", "dx", "dy", "dz", "t_real_unit", "temperature_C",
+        "mu_reference_scale", "W", "kappa_phi", "v_A", "v_B",
+        "Vm_compound", "Vm_alpha_0", "dVm_alpha_dxB", "eps_iso_over_vB",
+    )
+    result: dict[str, float] = {}
+    for key in required:
+        try:
+            value = float(raw[key])
+        except (KeyError, ValueError) as error:
+            raise AuditError(f"frozen PF parameter file lacks finite {key}: {path}") from error
+        if not math.isfinite(value):
+            raise AuditError(f"frozen PF parameter value is non-finite: {key}")
+        result[key] = value
+    # These two parameters are defaults in main_cuda unless explicitly set in
+    # the frozen file.  Reading them here keeps the offline reconstruction on
+    # exactly the same logit branch as compute_mu_x_kernel.
+    for key, default in (("Y_clip", 20.0), ("xB_eps", 1.0e-8)):
+        try:
+            value = float(raw.get(key, default))
+        except ValueError as error:
+            raise AuditError(f"invalid optional PF parameter {key}: {path}") from error
+        if not math.isfinite(value) or value <= 0.0:
+            raise AuditError(f"invalid optional PF parameter {key}: {path}")
+        result[key] = value
+    if not math.isclose(
+        result["temperature_C"] + 273.15,
+        float(contract.temperature_K),
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        raise AuditError("frozen PF parameter temperature differs from validation contract")
+    if not math.isclose(result["dt"], float(contract.canonical.value("numerics.dt_code")), rel_tol=0.0, abs_tol=1.0e-15):
+        raise AuditError("frozen PF parameter dt differs from validation contract")
+    return result
+
+
+def _contract_thermodynamics(document: Mapping[str, Any], *, temperature_K: float, scale: float) -> tuple[Any, Any, float]:
+    """Port the generated contract helpers without duplicating numeric inputs.
+
+    The formulas and all coefficients are read from the frozen JSON, which is
+    the same source used to generate the CUDA header.  ``mu_a`` and ``mu_b``
+    return the dimensionless quantities used by CUDA's ``compute_mu_x_kernel``.
+    """
+
+    thermo = _mapping(document.get("thermodynamics"), "contract thermodynamics")
+    standard = _mapping(_mapping(thermo.get("standard_state_coefficients"), "standard state coefficients").get("value"), "standard state coefficient values")
+    gas = _number(_mapping(thermo.get("gas_constant_j_mol_k"), "gas constant").get("value"), "gas constant")
+    delta_h = _number(_mapping(thermo.get("delta_H_J_mol"), "delta H").get("value"), "delta H")
+    delta_s = _number(_mapping(thermo.get("delta_S_J_mol_K"), "delta S").get("value"), "delta S")
+
+    def standard_state(name: str) -> float:
+        entry = _mapping(standard.get(name), f"standard state {name}")
+        transition = _number(entry.get("transition_K"), f"{name} transition")
+        coefficients = entry.get("low" if temperature_K < transition else "high")
+        if not isinstance(coefficients, Sequence) or len(coefficients) != 7:
+            raise AuditError(f"unexpected standard-state coefficients for {name}")
+        a0, a1, alog, a2, a3, ainv, pinv = (
+            _number(value, f"{name} coefficient") for value in coefficients
+        )
+        tail = 0.0 if ainv == 0.0 else ainv * temperature_K**pinv
+        return a0 + a1 * temperature_K + alog * temperature_K * math.log(temperature_K) + a2 * temperature_K**2 + a3 * temperature_K**3 + tail
+
+    pbte = _mapping(standard.get("G_PbTe"), "G_PbTe")
+    pbte_base = pbte.get("base")
+    if not isinstance(pbte_base, Sequence) or len(pbte_base) != 2:
+        raise AuditError("unexpected G_PbTe base coefficients")
+    g_pbte = _number(pbte_base[0], "G_PbTe base") + _number(pbte_base[1], "G_PbTe slope") * temperature_K + standard_state("GHSER_Pb") + standard_state("GHSER_Te")
+
+    ag2te = _mapping(standard.get("G_Ag2Te"), "G_Ag2Te")
+    ag_base = ag2te.get("base_per_atom")
+    weights = ag2te.get("atom_weights")
+    if not isinstance(ag_base, Sequence) or len(ag_base) != 2 or not isinstance(weights, Sequence) or len(weights) != 2:
+        raise AuditError("unexpected G_Ag2Te coefficients")
+    atom = (
+        _number(ag_base[0], "G_Ag2Te base")
+        + _number(ag_base[1], "G_Ag2Te slope") * temperature_K
+        + _number(weights[0], "G_Ag2Te Ag weight") * standard_state("GHSER_Ag")
+        + _number(weights[1], "G_Ag2Te Te weight") * standard_state("GHSER_Te")
+    )
+    g_ag2te = _number(ag2te.get("molecular_multiplier"), "G_Ag2Te multiplier") * atom
+    interaction = delta_h - temperature_K * delta_s
+
+    def clamp_fraction(values: np.ndarray | float) -> np.ndarray | float:
+        return np.clip(values, 1.0e-12, 1.0 - 1.0e-12)
+
+    def mu_a(values: np.ndarray | float) -> np.ndarray | float:
+        x = clamp_fraction(values)
+        return (g_pbte + gas * temperature_K * np.log(1.0 - x) + interaction * x * x) / scale
+
+    def mu_b(values: np.ndarray | float) -> np.ndarray | float:
+        x = clamp_fraction(values)
+        return (g_ag2te + gas * temperature_K * np.log(x) + interaction * (1.0 - x) * (1.0 - x)) / scale
+
+    lo, hi = 1.0e-12, 0.5
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        value = gas * temperature_K * math.log(mid) + interaction * (1.0 - mid) ** 2
+        if value > 0.0:
+            hi = mid
+        else:
+            lo = mid
+    xeq = 0.5 * (lo + hi)
+    return mu_a, mu_b, xeq
+
+
+def _sigmoid_from_logit(values: np.ndarray, *, y_clip: float, xB_eps: float) -> np.ndarray:
+    y = np.clip(np.asarray(values, dtype=np.float64), -y_clip, y_clip)
+    positive = y >= 0.0
+    out = np.empty_like(y)
+    out[positive] = 1.0 / (1.0 + np.exp(-y[positive]))
+    exp_y = np.exp(y[~positive])
+    out[~positive] = exp_y / (1.0 + exp_y)
+    return np.clip(out, xB_eps, 1.0 - xB_eps)
+
+
+def _mechanics_bundle_path(run_root: Path, case: str, step: int) -> Path:
+    if step == 0:
+        return run_root / "mechanics_sync" / case / "step_0"
+    return run_root / "mechanics_replay" / case / f"step_{step}"
+
+
+def _read_exact_array(path: Path, *, dtype: str, count: int, label: str) -> np.ndarray:
+    expected_bytes = np.dtype(dtype).itemsize * count
+    if not path.is_file() or path.stat().st_size != expected_bytes:
+        raise AuditError(f"missing or incorrectly sized {label}: {path}")
+    values = np.fromfile(path, dtype=dtype)
+    if values.size != count or not np.all(np.isfinite(values)):
+        raise AuditError(f"non-finite or truncated {label}: {path}")
+    return values
+
+
+def _single_native_result_file(root: Path, filename: str, *, label: str) -> Path:
+    """Find the one case-tagged CUDA result under this runner invocation."""
+
+    matches = sorted(root.rglob(filename)) if root.is_dir() else []
+    if len(matches) != 1:
+        rendered = ", ".join(str(path) for path in matches) if matches else "<none>"
+        raise AuditError(f"expected exactly one {label} below {root}, found {rendered}")
+    return matches[0]
+
+
+def _native_step_mass_diagnostic(run_root: Path, *, case: str, step: int) -> dict[str, Any]:
+    if step == 0:
+        return {
+            "source": "R0_ZERO_STEP_NO_ACCEPTED_UPDATE",
+            "coverage": "zero_step_only",
+            "phi_clip_count_low": 0.0,
+            "phi_clip_count_high": 0.0,
+            "Y_clip_count_low": 0.0,
+            "Y_clip_count_high": 0.0,
+            "xB_clip_count_low": 0.0,
+            "xB_clip_count_high": 0.0,
+            "segment_total_phi_clip_count": 0.0,
+            "segment_total_xB_clip_count": 0.0,
+            "segment_total_Y_clip_count": 0.0,
+            "all_step_ledger": "R0_ZERO_STEP_NOT_APPLICABLE",
+        }
+    try:
+        tag = NATIVE_DIAGNOSTIC_TAG_BY_STEP[step]
+        segment_start = NATIVE_SEGMENT_START_BY_STEP[step]
+    except KeyError as error:
+        raise AuditError(f"no native mass-diagnostic tag is registered for step {step}") from error
+    result_root = run_root / "results" / case / tag
+    path = _single_native_result_file(
+        result_root,
+        "dynamics_mass_diagnostics.csv",
+        label="native endpoint mass diagnostics",
+    )
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = [row for row in csv.DictReader(handle) if int(row.get("step", "-1")) == step]
+    if len(rows) != 1:
+        raise AuditError(f"native endpoint mass diagnostics lack a unique step {step}: {path}")
+    row = rows[0]
+    keys = (
+        "phi_clip_count_low", "phi_clip_count_high", "Y_clip_count_low",
+        "Y_clip_count_high", "xB_clip_count_low", "xB_clip_count_high",
+    )
+    result: dict[str, Any] = {
+        "source": str(path),
+        "source_sha256": _sha256(path),
+        # The runner requests exactly one row at each required accepted
+        # endpoint.  The native summary consequently covers that sampled row,
+        # rather than every intervening PF step in the restart segment.
+        "coverage": "one_native_accepted_endpoint_row",
+    }
+    for key in keys:
+        try:
+            value = float(row[key])
+        except (KeyError, ValueError) as error:
+            raise AuditError(f"native endpoint diagnostics have invalid {key}: {path}") from error
+        if not math.isfinite(value) or value < 0.0:
+            raise AuditError(f"native endpoint diagnostics have invalid {key}: {path}")
+        result[key] = value
+    summary_path = _single_native_result_file(
+        result_root,
+        "mass_drift_summary.csv",
+        label="native mass-diagnostic summary",
+    )
+    if summary_path.parent != path.parent:
+        raise AuditError(f"native mass diagnostics and summary are not colocated: {result_root}")
+    with summary_path.open(newline="", encoding="utf-8") as handle:
+        summary_rows = list(csv.DictReader(handle))
+    if len(summary_rows) != 1:
+        raise AuditError(f"native mass-diagnostic summary lacks one row: {summary_path}")
+    summary = summary_rows[0]
+    sampled_totals = (
+        ("sampled_endpoint_summary_phi_clip_count", "total_clip_count_phi"),
+        ("sampled_endpoint_summary_xB_clip_count", "total_clip_count_xB"),
+        ("sampled_endpoint_summary_Y_clip_count", "total_clip_count_Y"),
+    )
+    for output_key, source_key in sampled_totals:
+        try:
+            value = float(summary[source_key])
+        except (KeyError, ValueError) as error:
+            raise AuditError(f"native mass-diagnostic summary has invalid {source_key}: {summary_path}") from error
+        if not math.isfinite(value) or value < 0.0:
+            raise AuditError(f"native mass-diagnostic summary has invalid {source_key}: {summary_path}")
+        result[output_key] = value
+    endpoint_totals = (
+        ("sampled_endpoint_summary_phi_clip_count", "phi_clip_count_low", "phi_clip_count_high"),
+        ("sampled_endpoint_summary_xB_clip_count", "xB_clip_count_low", "xB_clip_count_high"),
+        ("sampled_endpoint_summary_Y_clip_count", "Y_clip_count_low", "Y_clip_count_high"),
+    )
+    for summary_key, low_key, high_key in endpoint_totals:
+        endpoint_value = float(result[low_key]) + float(result[high_key])
+        if not math.isclose(float(result[summary_key]), endpoint_value, rel_tol=0.0, abs_tol=0.0):
+            raise AuditError(
+                f"native endpoint mass-diagnostic summary does not match its sole sampled row: {summary_path}"
+            )
+    result["summary_source"] = str(summary_path)
+    result["summary_source_sha256"] = _sha256(summary_path)
+
+    ledger_path = _single_native_result_file(
+        result_root,
+        "dynamics_clip_ledger.json",
+        label="native all-step clipping ledger",
+    )
+    if ledger_path.parent != path.parent:
+        raise AuditError(f"native mass diagnostics and clipping ledger are not colocated: {result_root}")
+    try:
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise AuditError(f"invalid native all-step clipping ledger JSON: {ledger_path}") from error
+    if not isinstance(ledger, Mapping) or ledger.get("schema") != ALL_STEP_CLIP_LEDGER_SCHEMA:
+        raise AuditError(f"unexpected native all-step clipping ledger schema: {ledger_path}")
+    try:
+        ledger_start = int(ledger["segment_start_accepted_step"])
+        ledger_end = int(ledger["segment_end_accepted_step"])
+        ledger_count = int(ledger["accepted_step_count"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise AuditError(f"native all-step clipping ledger lacks segment bounds: {ledger_path}") from error
+    if (ledger_start, ledger_end, ledger_count) != (segment_start, step, step - segment_start):
+        raise AuditError(
+            f"native all-step clipping ledger has wrong accepted-step interval: {ledger_path}"
+        )
+    ledger_keys = (
+        "phi_projection_lower_count",
+        "phi_projection_upper_count",
+        "mu_x_logit_Y_projection_lower_count",
+        "mu_x_logit_Y_projection_upper_count",
+        "mu_x_logit_xB_projection_lower_count",
+        "mu_x_logit_xB_projection_upper_count",
+    )
+    parsed_ledger: dict[str, Any] = {
+        "path": str(ledger_path),
+        "sha256": _sha256(ledger_path),
+        "schema": ALL_STEP_CLIP_LEDGER_SCHEMA,
+        "segment_start_accepted_step": ledger_start,
+        "segment_end_accepted_step": ledger_end,
+        "accepted_step_count": ledger_count,
+    }
+    for key in ledger_keys:
+        value = ledger.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise AuditError(f"native all-step clipping ledger has invalid {key}: {ledger_path}")
+        parsed_ledger[key] = value
+    result["all_step_ledger"] = parsed_ledger
+    result["segment_total_phi_clip_count"] = float(
+        parsed_ledger["phi_projection_lower_count"] + parsed_ledger["phi_projection_upper_count"]
+    )
+    result["segment_total_xB_clip_count"] = float(
+        parsed_ledger["mu_x_logit_xB_projection_lower_count"] + parsed_ledger["mu_x_logit_xB_projection_upper_count"]
+    )
+    result["segment_total_Y_clip_count"] = float(
+        parsed_ledger["mu_x_logit_Y_projection_lower_count"] + parsed_ledger["mu_x_logit_Y_projection_upper_count"]
+    )
+    return result
+
+
+def _shared_energy_reference(
+    *, run_root: Path, contract: Any, params: Mapping[str, float]
+) -> dict[str, Any]:
+    """Use one fixed Case-A R0 matrix reference for every energy snapshot."""
+
+    checkpoint = _checkpoint_path(run_root, "A", 0)
+    header = _header_from(checkpoint)
+    layout = _checkpoint_payload_layout(header)
+    count = int(header["element_count"])
+    phi = _array_at(checkpoint, layout["phi"], count)
+    xB = _array_at(checkpoint, layout["xB"], count)
+    storage_h = h_of_phi(np.clip(phi, 0.0, 1.0))
+    matrix = xB[storage_h < 5.0e-3]
+    if matrix.size == 0:
+        raise AuditError(f"Case A R0 has no matrix support for fixed energy reference: {checkpoint}")
+    xB_reference = float(np.mean(matrix, dtype=np.float64))
+    mu_a, mu_b, _ = _contract_thermodynamics(
+        _mapping(contract.document, "validation contract document"),
+        temperature_K=float(params["temperature_C"]) + 273.15,
+        scale=float(params["mu_reference_scale"]),
+    )
+    g_bulk0 = (1.0 - xB_reference) * float(mu_a(xB_reference)) + xB_reference * float(mu_b(xB_reference))
+    return {
+        "definition": "fixed Case-A R0 matrix h<0.005 reference used for every checkpoint/replay energy",
+        "case": "A",
+        "step": 0,
+        "xB_reference": xB_reference,
+        "g_bulk0_hat": g_bulk0,
+    }
+
+
+def _accepted_field_mechanics_diagnostics(
+    *,
+    run_root: Path,
+    record: Mapping[str, Any],
+    contract: Any,
+    params: Mapping[str, float],
+    energy_reference: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind a CUDA mechanics bundle to one V6 accepted checkpoint."""
+
+    case = _text(record.get("case"), "diagnostic case")
+    step = int(record["accepted_step"])
+    checkpoint_path = Path(_text(record.get("checkpoint"), "diagnostic checkpoint"))
+    header = _header_from(checkpoint_path)
+    layout = _checkpoint_payload_layout(header)
+    count = int(header["element_count"])
+    phi = _array_at(checkpoint_path, layout["phi"], count)
+    y = _array_at(checkpoint_path, layout["Y"], count)
+    xB_checkpoint = _array_at(checkpoint_path, layout["xB"], count)
+    bundle = _mechanics_bundle_path(run_root, case, step)
+    summary_path = bundle / "replay_summary.txt"
+    summary = _read_key_value_text(summary_path, label="mechanics accepted-field summary")
+    expected_role = "online_synchronized_reference" if step == 0 else "offline_accepted_field_replay"
+    expected = {
+        "schema": MECHANICS_REPLAY_SCHEMA,
+        "bundle_role": expected_role,
+        "accepted_field_step": str(step),
+        "solver_step": str(step + 1),
+        "grid": "96,96,96",
+        "dtype_real_fields": "float32-le",
+        "dtype_source_fields": "float64-le",
+        "time_advanced": "false",
+        "phi_advanced": "false",
+        "xB_advanced": "false",
+        "checkpoint_written": "false",
+    }
+    for key, value in expected.items():
+        if summary.get(key) != value:
+            raise AuditError(f"mechanics bundle {key} is not {value}: {summary_path}")
+    try:
+        residual = float(summary["solver_relative_residual"])
+        residual_tolerance = float(summary["solver_residual_tolerance"])
+        summary_elastic_mean = float(summary["elastic_energy_density_mean_hat"])
+    except (KeyError, ValueError) as error:
+        raise AuditError(f"mechanics bundle lacks a finite solver/energy summary: {summary_path}") from error
+    if not all(math.isfinite(value) for value in (residual, residual_tolerance, summary_elastic_mean)):
+        raise AuditError(f"mechanics bundle summary is non-finite: {summary_path}")
+    if residual > residual_tolerance * (1.0 + 1.0e-8):
+        raise AuditError(f"mechanics replay did not meet its residual tolerance: {summary_path}")
+
+    phi_bundle_path = bundle / "accepted_phi.raw.f64"
+    xB_bundle_path = bundle / "accepted_xB.raw.f64"
+    phi_checkpoint_hash = hashlib.sha256(np.ascontiguousarray(phi, dtype="<f8").tobytes()).hexdigest()
+    xB_checkpoint_hash = hashlib.sha256(np.ascontiguousarray(xB_checkpoint, dtype="<f8").tobytes()).hexdigest()
+    if _sha256(phi_bundle_path) != phi_checkpoint_hash:
+        raise AuditError(f"mechanics accepted phi bytes differ from V6 checkpoint: {bundle}")
+    if _sha256(xB_bundle_path) != xB_checkpoint_hash:
+        raise AuditError(f"mechanics accepted xB bytes differ from V6 checkpoint: {bundle}")
+    phi_bundle = _read_exact_array(phi_bundle_path, dtype="<f8", count=count, label="accepted phi bundle")
+    xB_bundle = _read_exact_array(xB_bundle_path, dtype="<f8", count=count, label="accepted xB bundle")
+    stresses = [
+        _read_exact_array(bundle / f"stress_{axis}.raw.f32", dtype="<f4", count=count, label=f"stress_{axis} bundle")
+        for axis in ("xx", "yy", "zz")
+    ]
+    elastic = _read_exact_array(bundle / "elastic_energy_density.raw.f64", dtype="<f8", count=count, label="elastic-energy bundle")
+    elastic_mean = float(np.mean(elastic, dtype=np.float64))
+    if _relative_error(elastic_mean, summary_elastic_mean) > 1.0e-10:
+        raise AuditError(f"mechanics elastic-energy field disagrees with its summary: {bundle}")
+
+    xB_from_y = _sigmoid_from_logit(y, y_clip=float(params["Y_clip"]), xB_eps=float(params["xB_eps"]))
+    xB_from_y_difference = float(np.max(np.abs(xB_from_y - xB_bundle)))
+    if xB_from_y_difference > FIELD_EQ_TOL:
+        raise AuditError(f"checkpoint Y does not reconstruct accepted xB at 1e-14: {checkpoint_path}")
+
+    mu_a, mu_b, xeq = _contract_thermodynamics(
+        _mapping(contract.document, "validation contract document"),
+        temperature_K=float(params["temperature_C"]) + 273.15,
+        scale=float(params["mu_reference_scale"]),
+    )
+    mu_a_eq = float(mu_a(xeq))
+    mu_b_eq = float(mu_b(xeq))
+    stoich = float(params["v_A"]) + float(params["v_B"])
+    if abs(stoich) <= 1.0e-30:
+        raise AuditError("invalid v_A + v_B in frozen PF parameters")
+    mu0 = (float(params["v_A"]) * mu_a_eq + float(params["v_B"]) * mu_b_eq) / stoich
+    h_raw = h_of_phi(np.asarray(phi_bundle, dtype=np.float64))
+    mu_a_values = np.asarray(mu_a(xB_from_y), dtype=np.float64)
+    mu_b_values = np.asarray(mu_b(xB_from_y), dtype=np.float64)
+    vm_alpha = float(params["Vm_alpha_0"]) + float(params["dVm_alpha_dxB"]) * xB_from_y
+    denominator = vm_alpha * (1.0 - h_raw) + float(params["Vm_compound"]) * h_raw
+    denominator = np.where(np.abs(denominator) < 1.0e-12, np.copysign(1.0e-12, denominator), denominator)
+    c_bulk = 1.0 / denominator
+    mu_mix_for_mu = (1.0 - xB_from_y) * mu_a_values + xB_from_y * mu_b_values
+    mu_total = (1.0 - h_raw) * mu_mix_for_mu + h_raw * mu0
+    mu_x = c_bulk * (mu_b_values - mu_a_values - c_bulk * mu_total * float(params["dVm_alpha_dxB"]))
+    stress_hydro = (
+        stresses[0].astype(np.float64)
+        + stresses[1].astype(np.float64)
+        + stresses[2].astype(np.float64)
+    )
+    mu_x -= float(params["eps_iso_over_vB"]) * stress_hydro
+    if not np.all(np.isfinite(mu_x)):
+        raise AuditError(f"checkpoint/replay chemical potential is non-finite: {checkpoint_path}")
+
+    # These are the CUDA functional pieces evaluated on the accepted state.
+    # The chemical term follows compute_gbulk_excess_hat_kernel's clamp01(phi)
+    # convention and reports an excess against one shared Case-A R0 reference;
+    # gradient and double-well terms use raw phi, exactly as their CUDA kernels
+    # do.  The solver did not emit these dynamics-mode scalars natively.
+    h_chemical = h_of_phi(np.clip(phi_bundle, 0.0, 1.0))
+    mu_a_energy = np.asarray(mu_a(xB_bundle), dtype=np.float64)
+    mu_b_energy = np.asarray(mu_b(xB_bundle), dtype=np.float64)
+    mu_mix_energy = (1.0 - xB_bundle) * mu_a_energy + xB_bundle * mu_b_energy
+    chemical_absolute_hat = float(np.mean((1.0 - h_chemical) * mu_mix_energy + h_chemical * mu0, dtype=np.float64))
+    chemical_excess_hat = chemical_absolute_hat - _number(
+        energy_reference.get("g_bulk0_hat"), "shared energy reference g_bulk0_hat"
+    )
+    phi_3d = np.asarray(phi_bundle, dtype=np.float64).reshape((96, 96, 96))
+    dx, dy, dz = (float(params[name]) for name in ("dx", "dy", "dz"))
+    dphi_dx = (np.roll(phi_3d, -1, axis=0) - np.roll(phi_3d, 1, axis=0)) / (2.0 * dx)
+    dphi_dy = (np.roll(phi_3d, -1, axis=1) - np.roll(phi_3d, 1, axis=1)) / (2.0 * dy)
+    dphi_dz = (np.roll(phi_3d, -1, axis=2) - np.roll(phi_3d, 1, axis=2)) / (2.0 * dz)
+    gradient_hat = float(np.mean(0.5 * float(params["kappa_phi"]) * (dphi_dx * dphi_dx + dphi_dy * dphi_dy + dphi_dz * dphi_dz), dtype=np.float64))
+    barrier_hat = float(np.mean(float(params["W"]) * phi_bundle * phi_bundle * (1.0 - phi_bundle) * (1.0 - phi_bundle), dtype=np.float64))
+    total_excess_hat = chemical_excess_hat + gradient_hat + barrier_hat + elastic_mean
+    if not all(math.isfinite(value) for value in (chemical_absolute_hat, chemical_excess_hat, gradient_hat, barrier_hat, elastic_mean, total_excess_hat)):
+        raise AuditError(f"checkpoint/replay energy decomposition is non-finite: {checkpoint_path}")
+
+    storage_h, representation = _phase_storage_values(phi_bundle, path=checkpoint_path)
+    matrix_mask = h_of_phi(storage_h) < 5.0e-3
+    matrix_values = xB_bundle[matrix_mask]
+    if matrix_values.size == 0:
+        raise AuditError(f"accepted field has no matrix support for matrix diagnostics: {checkpoint_path}")
+    native_clip = _native_step_mass_diagnostic(run_root, case=case, step=step)
+    if native_clip["segment_total_xB_clip_count"] > 0.0 or native_clip["segment_total_Y_clip_count"] > 0.0:
+        raise AuditError(
+            f"composition clipping occurred in native CUDA segment ending at {case} step {step}; composition clamp is forbidden"
+        )
+    return {
+        "provenance": DIAGNOSTIC_PROVENANCE,
+        "time_h": step * float(params["dt"]) * float(params["t_real_unit"]) / 3600.0,
+        "mechanics_bundle": {
+            "path": str(bundle),
+            "summary_sha256": _sha256(summary_path),
+            "bundle_role": expected_role,
+            "accepted_phi_sha256": phi_checkpoint_hash,
+            "accepted_xB_sha256": xB_checkpoint_hash,
+            "solver_relative_residual": residual,
+            "solver_residual_tolerance": residual_tolerance,
+            "elastic_energy_density_mean_summary_hat": summary_elastic_mean,
+            "xB_from_Y_max_abs_difference": xB_from_y_difference,
+        },
+        "local_fields": {
+            "xB_alpha_mean": float(np.mean(xB_bundle, dtype=np.float64)),
+            "xB_alpha_min": float(np.min(xB_bundle)),
+            "xB_alpha_max": float(np.max(xB_bundle)),
+            "Y_min": float(np.min(y)),
+            "Y_max": float(np.max(y)),
+            "phi_min": float(np.min(phi_bundle)),
+            "phi_max": float(np.max(phi_bundle)),
+            "matrix_xB_h_lt_0p005_mean": float(np.mean(matrix_values, dtype=np.float64)),
+            "matrix_xB_h_lt_0p005_min": float(np.min(matrix_values)),
+            "matrix_xB_h_lt_0p005_max": float(np.max(matrix_values)),
+            "nan_count": int(np.count_nonzero(np.isnan(phi_bundle)) + np.count_nonzero(np.isnan(y)) + np.count_nonzero(np.isnan(xB_bundle))),
+            "inf_count": int(np.count_nonzero(np.isinf(phi_bundle)) + np.count_nonzero(np.isinf(y)) + np.count_nonzero(np.isinf(xB_bundle))),
+            "phase_representation": representation,
+        },
+        "chemical_potential": {
+            "definition": "CUDA_compute_mu_x_kernel_reconstructed_from_checkpoint_Y_and_accepted_field_stress",
+            "mu0_compound_hat": mu0,
+            "planar_solvus_xB": xeq,
+            "mean": float(np.mean(mu_x, dtype=np.float64)),
+            "min": float(np.min(mu_x)),
+            "max": float(np.max(mu_x)),
+        },
+        "clipping": {
+            "definition": "native endpoint mass-diagnostic counters plus a persistent all-step CUDA projection ledger; R0 has no accepted update",
+            **native_clip,
+            "checkpoint_phase_representation_boundary_counts": {
+                "lower_floor": representation["lower_floor_cell_count"],
+                "upper_ceiling": representation["upper_ceiling_cell_count"],
+                "not_runtime_clip_event_counts": True,
+            },
+        },
+        "auxiliary": {
+            "GP_inventory_mol": _number(_mapping(record.get("inventory_mol"), "diagnostic inventory").get("Q_B_GP_mol"), "GP inventory"),
+            "beta_subgrid_inventory_mol": _number(_mapping(record.get("inventory_mol"), "diagnostic inventory").get("Q_B_beta_subgrid_mol"), "beta-subgrid inventory"),
+            "GP_PSD_checksum": _sha(_mapping(record.get("auxiliary_population_checksums"), "auxiliary checksums").get("GP"), "GP PSD checksum"),
+            "beta_subgrid_PSD_checksum": _sha(_mapping(record.get("auxiliary_population_checksums"), "auxiliary checksums").get("beta_subgrid"), "beta-subgrid PSD checksum"),
+            "frozen": int(header["aux_frozen"]) == 1 if int(header["aux_state_present"]) else True,
+        },
+        "energy": {
+            "definition": "checkpoint/replay-derived CUDA accepted-state excess functional components in code/hat units",
+            "reference": dict(energy_reference),
+            "chemical_absolute_hat": chemical_absolute_hat,
+            "chemical_excess_hat": chemical_excess_hat,
+            "gradient_hat": gradient_hat,
+            "barrier_hat": barrier_hat,
+            "elastic_hat": elastic_mean,
+            "total_excess_hat": total_excess_hat,
+        },
+    }
+
+
+def _periodic_components(mask: np.ndarray) -> np.ndarray:
+    """Return dense periodic six-neighbour labels without a SciPy dependency."""
+
+    if mask.shape != (96, 96, 96):
+        raise AuditError(f"periodic component mask is not 96^3: {mask.shape}")
+    total = mask.size
+    if not np.any(mask):
+        return np.zeros(mask.shape, dtype=np.int32)
+    parent = np.arange(total, dtype=np.int32)
+    rank = np.zeros(total, dtype=np.uint8)
+
+    def find(value: int) -> int:
+        while parent[value] != value:
+            parent[value] = parent[parent[value]]
+            value = int(parent[value])
+        return value
+
+    def union(left: int, right: int) -> None:
+        root_left = find(int(left))
+        root_right = find(int(right))
+        if root_left == root_right:
+            return
+        if rank[root_left] < rank[root_right]:
+            root_left, root_right = root_right, root_left
+        parent[root_right] = root_left
+        if rank[root_left] == rank[root_right]:
+            rank[root_left] += 1
+
+    indices = np.arange(total, dtype=np.int32).reshape(mask.shape)
+    for axis in range(3):
+        linked = np.flatnonzero((mask & np.roll(mask, -1, axis=axis)).ravel())
+        neighbours = np.roll(indices, -1, axis=axis).ravel()[linked]
+        for left, right in zip(linked, neighbours):
+            union(int(left), int(right))
+    active = np.flatnonzero(mask.ravel())
+    roots = np.fromiter((find(int(value)) for value in active), dtype=np.int32, count=active.size)
+    _, inverse = np.unique(roots, return_inverse=True)
+    labels = np.zeros(total, dtype=np.int32)
+    labels[active] = inverse + 1
+    return labels.reshape(mask.shape)
+
+
+def _periodic_centroid(flat_indices: np.ndarray, shape: tuple[int, int, int]) -> tuple[float, float, float]:
+    coordinates = np.unravel_index(flat_indices, shape)
+    output: list[float] = []
+    for values, size in zip(coordinates, shape):
+        angles = 2.0 * math.pi * (values.astype(np.float64) + 0.5) / size
+        angle = math.atan2(float(np.mean(np.sin(angles))), float(np.mean(np.cos(angles))))
+        output.append((angle % (2.0 * math.pi)) * size / (2.0 * math.pi))
+    return output[0], output[1], output[2]
+
+
+def _component_snapshot(phi: np.ndarray, *, dx_nm: float) -> tuple[dict[str, Any], list[dict[str, Any]], np.ndarray]:
+    storage_phi = np.clip(np.asarray(phi, dtype=np.float64), 0.0, 1.0)
+    h = h_of_phi(storage_phi).reshape((96, 96, 96))
+    mask = h > PARTICLE_H_THRESHOLD
+    labels = _periodic_components(mask)
+    cell_volume_nm3 = dx_nm**3
+    box_volume_nm3 = (96.0 * dx_nm) ** 3
+    rows: list[dict[str, Any]] = []
+    radii: list[float] = []
+    for component in range(1, int(labels.max()) + 1):
+        flat_indices = np.flatnonzero(labels.ravel() == component)
+        if flat_indices.size == 0:
+            continue
+        h_volume_nm3 = float(np.sum(h.ravel()[flat_indices], dtype=np.float64) * cell_volume_nm3)
+        radius_nm = (3.0 * h_volume_nm3 / (4.0 * math.pi)) ** (1.0 / 3.0)
+        coords = np.unravel_index(flat_indices, labels.shape)
+        wraps = tuple(
+            bool(np.any(axis_values == 0) and np.any(axis_values == size - 1))
+            for axis_values, size in zip(coords, labels.shape)
+        )
+        centroid = _periodic_centroid(flat_indices, labels.shape)
+        radii.append(radius_nm)
+        rows.append(
+            {
+                "dense_component_label": component,
+                "component_cell_count": int(flat_indices.size),
+                "h_volume_nm3": h_volume_nm3,
+                "equivalent_radius_nm": radius_nm,
+                "centroid_x_nm": centroid[0] * dx_nm,
+                "centroid_y_nm": centroid[1] * dx_nm,
+                "centroid_z_nm": centroid[2] * dx_nm,
+                "wraps_periodic_x": wraps[0],
+                "wraps_periodic_y": wraps[1],
+                "wraps_periodic_z": wraps[2],
+                "_flat_indices": flat_indices,
+            }
+        )
+    threshold_faces = int(sum(np.count_nonzero(mask != np.roll(mask, -1, axis=axis)) for axis in range(3)))
+    sv_equivalent = 4.0 * math.pi * sum(radius * radius for radius in radii) / box_volume_nm3
+    sv_threshold_faces = threshold_faces * dx_nm**2 / box_volume_nm3
+    summary: dict[str, Any] = {
+        "definition": "h(clamp01(phi)) > 1e-4; periodic six-neighbour connected components",
+        "particle_h_threshold": PARTICLE_H_THRESHOLD,
+        "beta_volume_fraction": float(np.mean(h, dtype=np.float64)),
+        "total_resolved_beta_h_volume_nm3": float(np.sum(h, dtype=np.float64) * cell_volume_nm3),
+        "thresholded_component_h_volume_nm3": float(np.sum(h[mask], dtype=np.float64) * cell_volume_nm3),
+        "connected_particle_count": len(rows),
+        "equivalent_radius_min_nm": min(radii) if radii else None,
+        "equivalent_radius_mean_nm": float(np.mean(radii, dtype=np.float64)) if radii else None,
+        "S_v_equivalent_sphere_nm_inverse": sv_equivalent,
+        "S_v_threshold_faces_nm_inverse": sv_threshold_faces,
+        "threshold_interface_face_count": threshold_faces,
+        "periodic_component_status": "PERIODIC_6_NEIGHBOR_CCL",
+    }
+    return summary, rows, labels.ravel()
+
+
+def _attach_component_lineage(
+    observations: Sequence[dict[str, Any]], *, contract: Any, params: Mapping[str, float]
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Add component observables and fail closed on unresolved identity events."""
+
+    dx_nm = float(contract.dx_m) * 1.0e9
+    seconds_per_step = float(params["dt"]) * float(params["t_real_unit"])
+    history: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for case in CASES:
+        snapshots = sorted(
+            (record for record in observations if record.get("case") == case),
+            key=lambda record: int(record["accepted_step"]),
+        )
+        previous_ids: np.ndarray | None = None
+        previous_component_ids: set[int] = set()
+        previous_step: int | None = None
+        next_particle_id = 1
+        initial_count: int | None = None
+        for record in snapshots:
+            step = int(record["accepted_step"])
+            checkpoint_path = Path(_text(record.get("checkpoint"), "component checkpoint"))
+            header = _header_from(checkpoint_path)
+            layout = _checkpoint_payload_layout(header)
+            phi = _array_at(checkpoint_path, layout["phi"], int(header["element_count"]))
+            summary, components, current_dense = _component_snapshot(phi, dx_nm=dx_nm)
+            current_ids = np.zeros_like(current_dense, dtype=np.int32)
+            parent_to_children: dict[int, set[int]] = {}
+            component_parent_ids: dict[int, list[int]] = {}
+            if previous_ids is not None:
+                for component in components:
+                    old = previous_ids[component["_flat_indices"]]
+                    parents = sorted(int(value) for value in np.unique(old[old > 0]))
+                    component_parent_ids[int(component["dense_component_label"])] = parents
+                    for parent_id in parents:
+                        parent_to_children.setdefault(parent_id, set()).add(int(component["dense_component_label"]))
+            split_parent_ids = {parent_id for parent_id, children in parent_to_children.items() if len(children) > 1}
+            current_component_ids: set[int] = set()
+            merge_count = split_count = new_count = 0
+            for component in components:
+                dense = int(component["dense_component_label"])
+                parents = component_parent_ids.get(dense, [])
+                merge = len(parents) > 1
+                split = any(parent_id in split_parent_ids for parent_id in parents)
+                if previous_ids is None:
+                    particle_id = next_particle_id
+                    next_particle_id += 1
+                    event = "initial_component"
+                elif len(parents) == 1 and not merge and not split:
+                    particle_id = parents[0]
+                    event = "continuous_identity"
+                elif not parents:
+                    particle_id = next_particle_id
+                    next_particle_id += 1
+                    event = "new_unmatched_component"
+                    new_count += 1
+                else:
+                    particle_id = next_particle_id
+                    next_particle_id += 1
+                    event = "unresolved_merge_split"
+                if merge:
+                    merge_count += 1
+                if split:
+                    split_count += 1
+                current_component_ids.add(particle_id)
+                current_ids[component["_flat_indices"]] = particle_id
+                history_row = {
+                    key: value for key, value in component.items() if key != "_flat_indices"
+                }
+                history_row.update(
+                    {
+                        "case": case,
+                        "step": step,
+                        "time_h": step * seconds_per_step / 3600.0,
+                        "particle_id": particle_id,
+                        "previous_step": previous_step,
+                        "overlap_parent_ids": ";".join(str(value) for value in parents),
+                        "overlap_parent_count": len(parents),
+                        "identity_event": event,
+                        "unresolved_merge": merge,
+                        "unresolved_split": split,
+                        "unresolved_new_component": event == "new_unmatched_component",
+                    }
+                )
+                history.append(history_row)
+            disappeared = sorted(previous_component_ids - set(parent_to_children)) if previous_ids is not None else []
+            for particle_id in disappeared:
+                if step == 1:
+                    loss_category = "first_step_profile_loss_candidate"
+                elif step <= 363:
+                    loss_category = "early_physical_dissolution_candidate"
+                else:
+                    loss_category = "later_coarsening_or_dissolution_candidate"
+                history.append(
+                    {
+                        "case": case,
+                        "step": step,
+                        "time_h": step * seconds_per_step / 3600.0,
+                        "particle_id": particle_id,
+                        "previous_step": previous_step,
+                        "dense_component_label": None,
+                        "component_cell_count": 0,
+                        "h_volume_nm3": 0.0,
+                        "equivalent_radius_nm": 0.0,
+                        "centroid_x_nm": None,
+                        "centroid_y_nm": None,
+                        "centroid_z_nm": None,
+                        "wraps_periodic_x": False,
+                        "wraps_periodic_y": False,
+                        "wraps_periodic_z": False,
+                        "overlap_parent_ids": str(particle_id),
+                        "overlap_parent_count": 1,
+                        "identity_event": loss_category,
+                        "unresolved_merge": False,
+                        "unresolved_split": False,
+                        "unresolved_new_component": False,
+                    }
+                )
+            if initial_count is None:
+                initial_count = int(summary["connected_particle_count"])
+                if initial_count != INITIAL_FIXTURE_COMPONENT_COUNT:
+                    failures.append(
+                        f"FAIL_INITIALIZATION_GEOMETRY: {case} R0 initializes {initial_count} periodic components, expected {INITIAL_FIXTURE_COMPONENT_COUNT}"
+                    )
+            unresolved = merge_count > 0 or split_count > 0 or new_count > 0
+            if unresolved:
+                failures.append(
+                    f"{case} step {step} has unresolved periodic component identity event(s): "
+                    f"merge={merge_count} split={split_count} new={new_count}"
+                )
+            summary.update(
+                {
+                    "initial_component_count": initial_count,
+                    "immediate_component_loss_from_R0": (
+                        initial_count - int(summary["connected_particle_count"])
+                        if step == 1 and initial_count is not None
+                        else 0
+                    ),
+                    "component_disappearance_candidate_count": len(disappeared),
+                    "unresolved_merge_count": merge_count,
+                    "unresolved_split_count": split_count,
+                    "unresolved_new_component_count": new_count,
+                    "identity_resolution_status": (
+                        "FAIL_CLOSED_UNRESOLVED_COMPONENT_EVENT"
+                        if unresolved
+                        else "PASS_PERIODIC_COMPONENT_IDENTITY"
+                    ),
+                }
+            )
+            runtime = record.get("runtime_diagnostics")
+            if not isinstance(runtime, dict):
+                raise AuditError(f"missing accepted-state diagnostics before component analysis: {checkpoint_path}")
+            runtime["microstructure"] = summary
+            previous_ids = current_ids
+            previous_component_ids = current_component_ids
+            previous_step = step
+    return history, failures
+
+
 def _compare_field_checkpoints(
     left_path: Path, right_path: Path, *, label: str
 ) -> dict[str, Any]:
@@ -773,7 +1623,29 @@ def _compare_field_checkpoints(
     count = int(left_header["element_count"])
     left_layout = _checkpoint_payload_layout(left_header)
     right_layout = _checkpoint_payload_layout(right_header)
-    summary: dict[str, Any] = {"label": label, "left": str(left_path), "right": str(right_path), "fields": {}}
+    for path, layout in ((left_path, left_layout), (right_path, right_layout)):
+        if path.stat().st_size != layout["file_size"]:
+            raise AuditError(f"restart comparison finds an invalid V6 payload size: {label}: {path}")
+    header_mismatches = [
+        key for key in left_header
+        if left_header[key] != right_header[key]
+    ]
+    if header_mismatches:
+        raise AuditError(
+            "restart comparison V6 header/provenance mismatch for "
+            f"{label}: {', '.join(header_mismatches)}"
+        )
+    summary: dict[str, Any] = {
+        "label": label,
+        "left": str(left_path),
+        "right": str(right_path),
+        "v6_header_and_provenance": {
+            "all_fields_exact": True,
+            "compared_field_count": len(left_header),
+            "mismatched_fields": [],
+        },
+        "fields": {},
+    }
     for field in ("phi", "Y", "xB", "dY_dt_prev"):
         left = _array_at(left_path, left_layout[field], count)
         right = _array_at(right_path, right_layout[field], count)
@@ -781,11 +1653,40 @@ def _compare_field_checkpoints(
         summary["fields"][field] = {"max_abs_difference": maximum, "within_1e-14": maximum <= FIELD_EQ_TOL}
         if maximum > FIELD_EQ_TOL:
             raise AuditError(f"restart comparison exceeds 1e-14 for {field}: {label}")
-    if left_header["aux_state_present"] != right_header["aux_state_present"]:
-        raise AuditError(f"restart auxiliary presence mismatch: {label}")
-    for key in ("Q_B_GP_mol", "Q_B_beta_subgrid_mol", "source_handoff_hash", "package_handoff_hash"):
-        if left_header[key] != right_header[key]:
-            raise AuditError(f"restart auxiliary state mismatch for {key}: {label}")
+    elastic_bytes = 24 * int(left_header["k_element_count"])
+    if bool(left_header["elastic_state_present"]):
+        with left_path.open("rb") as handle:
+            handle.seek(left_layout["elastic"])
+            left_elastic = handle.read(elastic_bytes)
+        with right_path.open("rb") as handle:
+            handle.seek(right_layout["elastic"])
+            right_elastic = handle.read(elastic_bytes)
+        if len(left_elastic) != elastic_bytes or len(right_elastic) != elastic_bytes:
+            raise AuditError(f"restart comparison truncated elastic warm state: {label}")
+        if left_elastic != right_elastic:
+            raise AuditError(f"restart comparison elastic warm state differs: {label}")
+    summary["elastic_warm_state"] = {
+        "present": bool(left_header["elastic_state_present"]),
+        "byte_count": elastic_bytes,
+        "byte_identical": True,
+    }
+    auxiliary_summary: dict[str, Any] = {}
+    for population, header_key, layout_key in (
+        ("GP", "gp_bin_count", "gp_bins"),
+        ("beta_subgrid", "beta_subgrid_bin_count", "beta_subgrid_bins"),
+    ):
+        bin_count = int(left_header[header_key])
+        left_inventory, left_bins = _bin_inventory(left_path, left_layout[layout_key], bin_count)
+        right_inventory, right_bins = _bin_inventory(right_path, right_layout[layout_key], bin_count)
+        if left_bins != right_bins:
+            raise AuditError(f"restart comparison decoded {population} PSD bins differ: {label}")
+        auxiliary_summary[population] = {
+            "bin_count": bin_count,
+            "decoded_bins_exact": True,
+            "inventory_mol": left_inventory,
+            "inventory_exact": left_inventory == right_inventory,
+        }
+    summary["auxiliary_populations"] = auxiliary_summary
     return summary
 
 
@@ -833,6 +1734,102 @@ def _compare_local_case_fields(
     }
 
 
+def _live_component_signature(rows: Sequence[Mapping[str, Any]]) -> list[tuple[Any, ...]]:
+    signature: list[tuple[Any, ...]] = []
+    for row in rows:
+        if row.get("dense_component_label") is None:
+            continue
+        signature.append(
+            (
+                int(row["particle_id"]),
+                int(row["dense_component_label"]),
+                int(row["component_cell_count"]),
+                float(row["h_volume_nm3"]),
+                float(row["equivalent_radius_nm"]),
+                bool(row["wraps_periodic_x"]),
+                bool(row["wraps_periodic_y"]),
+                bool(row["wraps_periodic_z"]),
+            )
+        )
+    return sorted(signature)
+
+
+def _compare_local_case_runtime_diagnostics(
+    left: Mapping[str, Any],
+    right: Mapping[str, Any],
+    *,
+    left_components: Sequence[Mapping[str, Any]],
+    right_components: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Compare control observables which are not raw checkpoint fields."""
+
+    left_runtime = _mapping(left.get("runtime_diagnostics"), "left runtime diagnostics")
+    right_runtime = _mapping(right.get("runtime_diagnostics"), "right runtime diagnostics")
+    compared: dict[str, dict[str, Any]] = {}
+
+    def compare_scalar(group: str, key: str) -> None:
+        lhs = _number(_mapping(left_runtime.get(group), f"left {group}").get(key), f"left {group}.{key}")
+        rhs = _number(_mapping(right_runtime.get(group), f"right {group}").get(key), f"right {group}.{key}")
+        maximum = abs(lhs - rhs)
+        compared[f"{group}.{key}"] = {"max_abs_difference": maximum, "within_1e-14": maximum <= FIELD_EQ_TOL}
+        if maximum > FIELD_EQ_TOL:
+            raise AuditError(
+                f"{left['case']}/{right['case']} {group}.{key} differs by more than 1e-14 at step {left['accepted_step']}"
+            )
+
+    for key in (
+        "xB_alpha_mean", "xB_alpha_min", "xB_alpha_max", "phi_min", "phi_max",
+        "matrix_xB_h_lt_0p005_mean", "matrix_xB_h_lt_0p005_min", "matrix_xB_h_lt_0p005_max",
+    ):
+        compare_scalar("local_fields", key)
+    for key in ("mean", "min", "max"):
+        compare_scalar("chemical_potential", key)
+    for key in ("chemical_excess_hat", "gradient_hat", "barrier_hat", "elastic_hat", "total_excess_hat"):
+        compare_scalar("energy", key)
+    for key in (
+        "phi_clip_count_low", "phi_clip_count_high", "Y_clip_count_low", "Y_clip_count_high",
+        "xB_clip_count_low", "xB_clip_count_high", "segment_total_phi_clip_count",
+        "segment_total_xB_clip_count", "segment_total_Y_clip_count",
+    ):
+        compare_scalar("clipping", key)
+    for key in (
+        "beta_volume_fraction", "total_resolved_beta_h_volume_nm3", "thresholded_component_h_volume_nm3", "S_v_equivalent_sphere_nm_inverse",
+        "S_v_threshold_faces_nm_inverse",
+    ):
+        compare_scalar("microstructure", key)
+    left_micro = _mapping(left_runtime.get("microstructure"), "left microstructure")
+    right_micro = _mapping(right_runtime.get("microstructure"), "right microstructure")
+    discrete_keys = (
+        "connected_particle_count", "threshold_interface_face_count", "identity_resolution_status",
+        "unresolved_merge_count", "unresolved_split_count", "unresolved_new_component_count",
+        "immediate_component_loss_from_R0",
+    )
+    discrete: dict[str, Any] = {}
+    for key in discrete_keys:
+        equal = left_micro.get(key) == right_micro.get(key)
+        discrete[key] = {"equal": equal, "left": left_micro.get(key), "right": right_micro.get(key)}
+        if not equal:
+            if key == "immediate_component_loss_from_R0" and left["case"] == "A" and right["case"] == "B":
+                raise AuditError("FAIL_IDENTITY_ADAPTER_RUNTIME: Case B has an adapter-specific first-step component loss")
+            raise AuditError(f"{left['case']}/{right['case']} microstructure {key} differs at step {left['accepted_step']}")
+    component_equal = _live_component_signature(left_components) == _live_component_signature(right_components)
+    if not component_equal:
+        raise AuditError(f"{left['case']}/{right['case']} particle labels/radii differ at step {left['accepted_step']}")
+    for key in ("Q_B_matrix_mol", "Q_B_beta_resolved_fixed_mol"):
+        lhs = _number(_mapping(left.get("inventory_mol"), "left inventory").get(key), f"left {key}")
+        rhs = _number(_mapping(right.get("inventory_mol"), "right inventory").get(key), f"right {key}")
+        maximum = abs(lhs - rhs)
+        compared[f"inventory.{key}"] = {"max_abs_difference": maximum, "within_1e-14": maximum <= FIELD_EQ_TOL}
+        if maximum > FIELD_EQ_TOL:
+            raise AuditError(f"{left['case']}/{right['case']} {key} differs by more than 1e-14 at step {left['accepted_step']}")
+    return {
+        "checkpoint_replay_derived": DIAGNOSTIC_PROVENANCE,
+        "scalars": compared,
+        "discrete": discrete,
+        "particle_labels_and_components_identical": component_equal,
+    }
+
+
 def audit_runtime(
     *,
     index_path: Path,
@@ -850,6 +1847,7 @@ def audit_runtime(
     index_contract = _sha(_mapping(index["contract"], "contract").get("hash"), "contract hash")
     if contract.contract_hash != index_contract:
         raise AuditError("runtime contract path does not match the frozen asset index")
+    params = _pf_parameter_values(run_root / "pf_input.params", contract=contract)
     if required_stage is not None and required_stage not in STAGES:
         raise AuditError(f"unsupported required stage: {required_stage}")
     maximum_stage_index = STAGES.index(required_stage) if required_stage else len(STAGES) - 1
@@ -885,6 +1883,37 @@ def audit_runtime(
             if step not in per_case_available[case]:
                 missing.append(f"{case}: step {step}")
 
+    # Checkpoint fields establish the accepted PF state; the bundle adds a
+    # deterministic CUDA mechanics solve for that exact state.  This is done
+    # before control comparisons so A/B and B/C include every requested local
+    # observable, not only phi/xB/Y history.
+    component_history: list[dict[str, Any]] = []
+    energy_reference: dict[str, Any] | None = None
+    try:
+        energy_reference = _shared_energy_reference(run_root=run_root, contract=contract, params=params)
+    except AuditError as error:
+        runtime_failures.append(str(error))
+    if energy_reference is not None:
+        for record in observations:
+            try:
+                record["runtime_diagnostics"] = _accepted_field_mechanics_diagnostics(
+                    run_root=run_root,
+                    record=record,
+                    contract=contract,
+                    params=params,
+                    energy_reference=energy_reference,
+                )
+            except AuditError as error:
+                runtime_failures.append(str(error))
+    if not runtime_failures:
+        try:
+            component_history, component_failures = _attach_component_lineage(
+                observations, contract=contract, params=params
+            )
+            runtime_failures.extend(component_failures)
+        except AuditError as error:
+            runtime_failures.append(str(error))
+
     # R0 must still bind byte-identically materialized local fields.  This is
     # an observed input-state comparison, not a claim about later dynamics.
     r0_records = {(record["case"], record["accepted_step"]): record for record in observations}
@@ -904,15 +1933,30 @@ def audit_runtime(
             runtime_failures.append(f"R0 raw field mismatch exceeds 1e-14 for case {case}")
 
     local_control_comparisons: list[dict[str, Any]] = []
+    observation_by_case_step = {
+        (str(record["case"]), int(record["accepted_step"])): record for record in observations
+    }
+    component_history_by_case_step: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for row in component_history:
+        component_history_by_case_step.setdefault((str(row["case"]), int(row["step"])), []).append(row)
     common_abc_steps = set(per_case_available["A"])
     common_abc_steps.intersection_update(per_case_available["B"])
     common_abc_steps.intersection_update(per_case_available["C"])
     for step in sorted(common_abc_steps):
         for left_case, right_case in (("A", "B"), ("B", "C")):
             try:
-                local_control_comparisons.append(
-                    _compare_local_case_fields(run_root, step, left_case, right_case)
+                comparison = _compare_local_case_fields(run_root, step, left_case, right_case)
+                left_record = observation_by_case_step.get((left_case, step))
+                right_record = observation_by_case_step.get((right_case, step))
+                if left_record is None or right_record is None:
+                    raise AuditError(f"missing accepted-state observation for {left_case}/{right_case} step {step}")
+                comparison["checkpoint_replay_diagnostics"] = _compare_local_case_runtime_diagnostics(
+                    left_record,
+                    right_record,
+                    left_components=component_history_by_case_step.get((left_case, step), []),
+                    right_components=component_history_by_case_step.get((right_case, step), []),
                 )
+                local_control_comparisons.append(comparison)
             except AuditError as error:
                 runtime_failures.append(str(error))
 
@@ -973,28 +2017,27 @@ def audit_runtime(
             {
                 "case": case,
                 "step": record["accepted_step"],
+                "time_h_from_R0": float(record["accepted_step"]) * float(params["dt"]) * float(params["t_real_unit"]) / 3600.0,
                 "Q_B_matrix_mol": inventory["Q_B_matrix_mol"],
                 "delta_from_R0_mol": float(inventory["Q_B_matrix_mol"]) - initial_matrix[case],
             }
         )
-    # The requested pulse is an observed R0--R2 diagnostic only.  Do not
-    # extend it to a 48 h interpretation when R3/R4 happen to be present.
-    pulse_window = [row for row in matrix_inventory_pulse_summary if int(row["step"]) <= 363]
     pulse_by_case: dict[str, dict[str, Any]] = {}
-    seconds_per_step = 0.99092609534318414
+    seconds_per_step = float(params["dt"]) * float(params["t_real_unit"])
     for case in CASES:
-        rows = [row for row in pulse_window if row["case"] == case]
+        rows = [row for row in matrix_inventory_pulse_summary if row["case"] == case]
         if not rows:
             continue
         peak = max(rows, key=lambda row: abs(float(row["delta_from_R0_mol"])))
         initial = initial_matrix[case]
         pulse_by_case[case] = {
-            "window": "OBSERVED_R0_TO_R2_ONLY",
+            "window": "ALL_OBSERVED_ACCEPTED_CHECKPOINTS",
             "own_R0_matrix_inventory_mol": initial,
             "peak_minus_own_R0_mol": peak["delta_from_R0_mol"],
             "peak_abs_minus_own_R0_mol": abs(float(peak["delta_from_R0_mol"])),
             "peak_step": peak["step"],
             "peak_time_s_from_R0": float(peak["step"]) * seconds_per_step,
+            "peak_time_h_from_R0": float(peak["step"]) * seconds_per_step / 3600.0,
             "normalized_peak_minus_own_R0": float(peak["delta_from_R0_mol"]) / max(abs(initial), 1.0e-300),
         }
     a_b_pulse_comparison: dict[str, Any] | str
@@ -1002,14 +2045,14 @@ def audit_runtime(
         a_peak = pulse_by_case["A"]
         b_peak = pulse_by_case["B"]
         a_b_pulse_comparison = {
-            "window": "OBSERVED_R0_TO_R2_ONLY",
+            "window": "ALL_OBSERVED_ACCEPTED_CHECKPOINTS",
             "A_minus_B_peak_delta_mol": float(a_peak["peak_minus_own_R0_mol"]) - float(b_peak["peak_minus_own_R0_mol"]),
             "A_peak_step": a_peak["peak_step"],
             "B_peak_step": b_peak["peak_step"],
             "same_peak_step": a_peak["peak_step"] == b_peak["peak_step"],
         }
     else:
-        a_b_pulse_comparison = "NOT_CAPTURED_UNTIL_A_AND_B_HAVE_OBSERVED_R0_TO_R2_CHECKPOINTS"
+        a_b_pulse_comparison = "NOT_CAPTURED_UNTIL_A_AND_B_HAVE_ACCEPTED_CHECKPOINTS"
 
     restart_comparisons: list[dict[str, Any]] = []
     qualification_pairs = (
@@ -1029,15 +2072,91 @@ def audit_runtime(
             except AuditError as error:
                 runtime_failures.append(str(error))
     if maximum_stage_index >= STAGES.index("R4"):
-        left = run_root / "restart_qualification/E/continuous_48h.pfzck"
-        right = run_root / "restart_qualification/E/restart_48h.pfzck"
-        if not left.is_file() or not right.is_file():
-            missing.append("E: 48 h continuous-vs-restart qualification")
-        else:
+        r4_pairs = (
+            (
+                _checkpoint_path(run_root, "E", 87191),
+                run_root / "restart_qualification/E/checkpoint_24h_from_6h.pfzck",
+                "E 24h primary/6h-start checkpoint",
+            ),
+            (
+                _checkpoint_path(run_root, "E", 174382),
+                run_root / "restart_qualification/E/continuous_6to48h.pfzck",
+                "E 48h primary/6h-continuous",
+            ),
+            (
+                run_root / "restart_qualification/E/continuous_6to48h.pfzck",
+                run_root / "restart_qualification/E/restart_48h_from_24h.pfzck",
+                "E 48h 6h-continuous/24h-restart",
+            ),
+        )
+        for left, right, label in r4_pairs:
+            if not left.is_file() or not right.is_file():
+                missing.append(f"{label}: restart qualification")
+                continue
             try:
-                restart_comparisons.append(_compare_field_checkpoints(left, right, label="E 48h continuous/restart"))
+                restart_comparisons.append(_compare_field_checkpoints(left, right, label=label))
             except AuditError as error:
                 runtime_failures.append(str(error))
+
+    case_e_runtime_closure: dict[str, Any] = {}
+    e_records = sorted(
+        (record for record in observations if record.get("case") == "E" and isinstance(record.get("runtime_diagnostics"), Mapping)),
+        key=lambda record: int(record["accepted_step"]),
+    )
+    if e_records:
+        initial_aux = _mapping(e_records[0]["runtime_diagnostics"], "E runtime diagnostics").get("auxiliary")
+        initial_aux = _mapping(initial_aux, "E initial auxiliary diagnostics")
+        frozen_auxiliary = True
+        for record in e_records:
+            auxiliary = _mapping(_mapping(record["runtime_diagnostics"], "E runtime diagnostics").get("auxiliary"), "E auxiliary diagnostics")
+            frozen_auxiliary = frozen_auxiliary and bool(auxiliary.get("frozen"))
+            for key in ("GP_inventory_mol", "beta_subgrid_inventory_mol"):
+                frozen_auxiliary = frozen_auxiliary and _relative_error(
+                    _number(auxiliary.get(key), f"E {key}"), _number(initial_aux.get(key), f"E initial {key}")
+                ) <= REL_TOL
+            for key in ("GP_PSD_checksum", "beta_subgrid_PSD_checksum"):
+                frozen_auxiliary = frozen_auxiliary and auxiliary.get(key) == initial_aux.get(key)
+        if not frozen_auxiliary:
+            runtime_failures.append("Case E frozen auxiliary storage changed across accepted CUDA checkpoints")
+        max_residual = max(
+            float(_mapping(record["inventory_mol"], "E inventory")["relative_error_vs_case_t0"])
+            for record in e_records
+        )
+        e_restart_labels = [str(record["label"]) for record in restart_comparisons if str(record["label"]).startswith("E ")]
+        case_e_runtime_closure = {
+            "frozen_auxiliary_inventory_and_PSD_persistent": frozen_auxiliary,
+            "max_four_bucket_relative_residual": max_residual,
+            "restart_qualifications": e_restart_labels,
+            "matrix_pulse": pulse_by_case.get("E"),
+            "matrix_pulse_interpretation": (
+                "OBSERVED_RELATIVE_TO_OWN_R0; auxiliary PSD/inventory is frozen, so any recorded matrix evolution has no GP/subgrid handoff transfer route"
+            ),
+            "double_count_status": "PASS_FOUR_BUCKET_SUM_AND_FIXED_RESOLVED_INVENTORY_CHECKED_AT_EVERY_CHECKPOINT",
+        }
+
+    clipping_coverage: dict[str, Any] = {}
+    for case in CASES:
+        records = [
+            record for record in observations
+            if record.get("case") == case and isinstance(record.get("runtime_diagnostics"), Mapping)
+        ]
+        if not records:
+            continue
+        total_phi = total_xB = total_y = 0.0
+        for record in records:
+            clipping = _mapping(_mapping(record["runtime_diagnostics"], "runtime diagnostics").get("clipping"), "runtime clipping")
+            total_phi += _number(clipping.get("segment_total_phi_clip_count"), "segment phi clipping")
+            total_xB += _number(clipping.get("segment_total_xB_clip_count"), "segment xB clipping")
+            total_y += _number(clipping.get("segment_total_Y_clip_count"), "segment Y clipping")
+        clipping_coverage[case] = {
+            "native_coverage": "persistent native CUDA ledger across every primary accepted PF segment; R0 is zero-step",
+            "all_step_phi_projection_count": total_phi,
+            "all_step_xB_projection_count": total_xB,
+            "all_step_Y_projection_count": total_y,
+            "composition_clipping_status": "PASS_NO_COMPOSITION_PROJECTION_IN_ALL_ACCEPTED_STEPS" if total_xB == 0.0 and total_y == 0.0 else "FAIL_COMPOSITION_PROJECTION_IN_ACCEPTED_STEPS",
+            "all_accepted_step_bound_status": "PF_CONSERVED_Y_ZERO_MODE_V1 validates Y bounds before each accepted update and rejects invalid states; no composition-clamp path is enabled",
+            "phi_projection_status": "ACCOUNTED_NATIVE_PHASE_REPRESENTATION_PROJECTION_COUNTER",
+        }
 
     if runtime_failures:
         status = "FAIL_CUDA_AE_RUNTIME_AUDIT"
@@ -1045,8 +2164,11 @@ def audit_runtime(
     elif missing:
         status = "INCOMPLETE_CUDA_AE_RUNTIME_AUDIT"
         exit_code = 1 if required_stage else 0
-    elif required_stage in ("R3", "R4"):
-        status = f"PASS_{required_stage}_CUDA_AE_RUNTIME_GATE_DIAGNOSTICS_PENDING"
+    elif required_stage == "R4":
+        status = "PASS_CUDA_AE_SMOKE"
+        exit_code = 0
+    elif required_stage == "R3":
+        status = "PASS_R3_CUDA_AE_RUNTIME_GATE"
         exit_code = 0
     elif required_stage in ("R0", "R1", "R2"):
         status = f"PASS_{required_stage}_CUDA_AE_RUNTIME_GATE"
@@ -1059,7 +2181,7 @@ def audit_runtime(
         exit_code = 0
 
     payload: dict[str, Any] = {
-        "schema_version": "PF_CUDA_AE_RUNTIME_AUDIT_V1",
+        "schema_version": "PF_CUDA_AE_RUNTIME_AUDIT_V2",
         "status": status,
         "validation_only": True,
         "historical_as_run_claim": False,
@@ -1070,6 +2192,8 @@ def audit_runtime(
         "contract_hash": contract.contract_hash,
         "fixture_hash": fixture_hash,
         "profile_library_manifest_sha256": profile_library_sha256,
+        "checkpoint_replay_diagnostic_provenance": DIAGNOSTIC_PROVENANCE,
+        "shared_energy_reference": energy_reference,
         "observed_checkpoints": observations,
         "available_steps_by_case": per_case_available,
         "missing_required_artifacts": missing,
@@ -1078,25 +2202,27 @@ def audit_runtime(
         "A_B_C_local_field_comparisons": local_control_comparisons,
         "D_vs_A_R0_matrix_to_GP_control": d_r0_control,
         "matrix_inventory_pulse_summary": matrix_inventory_pulse_summary,
-        "matrix_inventory_pulse_R0_to_R2": {
+        "matrix_inventory_pulse": {
             "seconds_per_step": seconds_per_step,
             "per_case": pulse_by_case,
             "A_vs_B": a_b_pulse_comparison,
         },
         "restart_comparisons": restart_comparisons,
-        "not_captured": {
-            "component_identity_lineage": "NOT_CAPTURED_BY_CURRENT_CUDA_AE_RUNNER",
-            "specific_interfacial_area": "NOT_CAPTURED_BY_CURRENT_CUDA_AE_RUNNER",
-            "chemical_potential_field": "NOT_CAPTURED_BY_CURRENT_CUDA_AE_RUNNER",
-            "full_free_energy_decomposition": "NOT_CAPTURED_BY_CURRENT_CUDA_AE_RUNNER",
-        },
+        "case_E_runtime_closure": case_e_runtime_closure,
+        "clipping_coverage": clipping_coverage,
+        "component_history_row_count": len(component_history),
     }
     _write_json(out_dir / "cuda_ae_runtime_audit.json", payload)
-    _write_csv_summaries(out_dir, observations, restart_comparisons)
+    _write_csv_summaries(out_dir, observations, restart_comparisons, component_history)
     return payload, exit_code
 
 
-def _write_csv_summaries(out_dir: Path, observations: Sequence[Mapping[str, Any]], restart_comparisons: Sequence[Mapping[str, Any]]) -> None:
+def _write_csv_summaries(
+    out_dir: Path,
+    observations: Sequence[Mapping[str, Any]],
+    restart_comparisons: Sequence[Mapping[str, Any]],
+    component_history: Sequence[Mapping[str, Any]],
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     inventory_path = out_dir / "cuda_ae_inventory.csv"
     with inventory_path.open("w", newline="", encoding="utf-8") as handle:
@@ -1105,6 +2231,114 @@ def _write_csv_summaries(out_dir: Path, observations: Sequence[Mapping[str, Any]
         for record in observations:
             inventory = _mapping(record["inventory_mol"], "observation inventory")
             writer.writerow((record["case"], record["accepted_step"], *(inventory[name] for name in ("Q_B_total_mol", "Q_B_matrix_mol", "Q_B_GP_mol", "Q_B_beta_subgrid_mol", "Q_B_beta_resolved_fixed_mol", "relative_error_vs_case_t0"))))
+
+    trajectory_path = out_dir / "cuda_ae_trajectories.csv"
+    trajectory_columns = (
+        "case", "step", "time_h", "diagnostic_provenance", "checkpoint_sha256",
+        "validation_contract_hash", "fixture_manifest_sha256", "package_handoff_hash",
+        "Q_B_total_mol", "Q_B_matrix_mol", "Q_B_GP_mol", "Q_B_beta_subgrid_mol",
+        "Q_B_beta_resolved_fixed_mol", "four_bucket_relative_residual",
+        "xB_alpha_mean", "xB_alpha_min", "xB_alpha_max", "phi_min", "phi_max",
+        "matrix_xB_h_lt_0p005_mean", "matrix_xB_h_lt_0p005_min", "matrix_xB_h_lt_0p005_max",
+        "chemical_potential_mean", "chemical_potential_min", "chemical_potential_max",
+        "phi_clip_count_low", "phi_clip_count_high", "Y_clip_count_low", "Y_clip_count_high",
+        "xB_clip_count_low", "xB_clip_count_high", "segment_total_phi_clip_count",
+        "segment_total_xB_clip_count", "segment_total_Y_clip_count", "nan_count", "inf_count",
+        "beta_volume_fraction", "connected_particle_count", "equivalent_radius_min_nm",
+        "equivalent_radius_mean_nm", "S_v_equivalent_sphere_nm_inverse",
+        "S_v_threshold_faces_nm_inverse", "immediate_component_loss_from_R0",
+        "component_disappearance_candidate_count", "periodic_component_status",
+        "chemical_excess_hat", "gradient_hat", "barrier_hat", "elastic_hat", "total_excess_hat",
+        "GP_inventory_mol", "beta_subgrid_inventory_mol", "GP_PSD_checksum",
+        "beta_subgrid_PSD_checksum", "auxiliary_frozen",
+    )
+    with trajectory_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=trajectory_columns, lineterminator="\n")
+        writer.writeheader()
+        for record in sorted(observations, key=lambda value: (str(value["case"]), int(value["accepted_step"]))):
+            runtime = _mapping(record.get("runtime_diagnostics"), "trajectory runtime diagnostics")
+            fields = _mapping(runtime.get("local_fields"), "trajectory local fields")
+            chemical = _mapping(runtime.get("chemical_potential"), "trajectory chemical potential")
+            clipping = _mapping(runtime.get("clipping"), "trajectory clipping")
+            micro = _mapping(runtime.get("microstructure"), "trajectory microstructure")
+            energy = _mapping(runtime.get("energy"), "trajectory energy")
+            auxiliary = _mapping(runtime.get("auxiliary"), "trajectory auxiliary")
+            inventory = _mapping(record["inventory_mol"], "trajectory inventory")
+            header = _mapping(record["header"], "trajectory checkpoint header")
+            writer.writerow(
+                {
+                    "case": record["case"],
+                    "step": record["accepted_step"],
+                    "time_h": runtime["time_h"],
+                    "diagnostic_provenance": runtime["provenance"],
+                    "checkpoint_sha256": record["checkpoint_sha256"],
+                    "validation_contract_hash": header["validation_contract_hash"],
+                    "fixture_manifest_sha256": header["fixture_manifest_sha256"],
+                    "package_handoff_hash": header["package_handoff_hash"],
+                    "Q_B_total_mol": inventory["Q_B_total_mol"],
+                    "Q_B_matrix_mol": inventory["Q_B_matrix_mol"],
+                    "Q_B_GP_mol": inventory["Q_B_GP_mol"],
+                    "Q_B_beta_subgrid_mol": inventory["Q_B_beta_subgrid_mol"],
+                    "Q_B_beta_resolved_fixed_mol": inventory["Q_B_beta_resolved_fixed_mol"],
+                    "four_bucket_relative_residual": inventory["relative_error_vs_case_t0"],
+                    "xB_alpha_mean": fields["xB_alpha_mean"],
+                    "xB_alpha_min": fields["xB_alpha_min"],
+                    "xB_alpha_max": fields["xB_alpha_max"],
+                    "phi_min": fields["phi_min"],
+                    "phi_max": fields["phi_max"],
+                    "matrix_xB_h_lt_0p005_mean": fields["matrix_xB_h_lt_0p005_mean"],
+                    "matrix_xB_h_lt_0p005_min": fields["matrix_xB_h_lt_0p005_min"],
+                    "matrix_xB_h_lt_0p005_max": fields["matrix_xB_h_lt_0p005_max"],
+                    "chemical_potential_mean": chemical["mean"],
+                    "chemical_potential_min": chemical["min"],
+                    "chemical_potential_max": chemical["max"],
+                    "phi_clip_count_low": clipping["phi_clip_count_low"],
+                    "phi_clip_count_high": clipping["phi_clip_count_high"],
+                    "Y_clip_count_low": clipping["Y_clip_count_low"],
+                    "Y_clip_count_high": clipping["Y_clip_count_high"],
+                    "xB_clip_count_low": clipping["xB_clip_count_low"],
+                    "xB_clip_count_high": clipping["xB_clip_count_high"],
+                    "segment_total_phi_clip_count": clipping["segment_total_phi_clip_count"],
+                    "segment_total_xB_clip_count": clipping["segment_total_xB_clip_count"],
+                    "segment_total_Y_clip_count": clipping["segment_total_Y_clip_count"],
+                    "nan_count": fields["nan_count"],
+                    "inf_count": fields["inf_count"],
+                    "beta_volume_fraction": micro["beta_volume_fraction"],
+                    "connected_particle_count": micro["connected_particle_count"],
+                    "equivalent_radius_min_nm": micro["equivalent_radius_min_nm"],
+                    "equivalent_radius_mean_nm": micro["equivalent_radius_mean_nm"],
+                    "S_v_equivalent_sphere_nm_inverse": micro["S_v_equivalent_sphere_nm_inverse"],
+                    "S_v_threshold_faces_nm_inverse": micro["S_v_threshold_faces_nm_inverse"],
+                    "immediate_component_loss_from_R0": micro["immediate_component_loss_from_R0"],
+                    "component_disappearance_candidate_count": micro["component_disappearance_candidate_count"],
+                    "periodic_component_status": micro["periodic_component_status"],
+                    "chemical_excess_hat": energy["chemical_excess_hat"],
+                    "gradient_hat": energy["gradient_hat"],
+                    "barrier_hat": energy["barrier_hat"],
+                    "elastic_hat": energy["elastic_hat"],
+                    "total_excess_hat": energy["total_excess_hat"],
+                    "GP_inventory_mol": auxiliary["GP_inventory_mol"],
+                    "beta_subgrid_inventory_mol": auxiliary["beta_subgrid_inventory_mol"],
+                    "GP_PSD_checksum": auxiliary["GP_PSD_checksum"],
+                    "beta_subgrid_PSD_checksum": auxiliary["beta_subgrid_PSD_checksum"],
+                    "auxiliary_frozen": auxiliary["frozen"],
+                }
+            )
+
+    component_path = out_dir / "cuda_component_history.csv"
+    component_columns = (
+        "case", "step", "time_h", "particle_id", "previous_step", "dense_component_label",
+        "component_cell_count", "h_volume_nm3", "equivalent_radius_nm", "centroid_x_nm",
+        "centroid_y_nm", "centroid_z_nm", "wraps_periodic_x", "wraps_periodic_y",
+        "wraps_periodic_z", "overlap_parent_ids", "overlap_parent_count", "identity_event",
+        "unresolved_merge", "unresolved_split", "unresolved_new_component",
+    )
+    with component_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=component_columns, lineterminator="\n")
+        writer.writeheader()
+        for row in sorted(component_history, key=lambda value: (str(value["case"]), int(value["step"]), int(value["particle_id"]))):
+            writer.writerow({key: row.get(key) for key in component_columns})
+
     restart_path = out_dir / "cuda_ae_restart_comparison.csv"
     with restart_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)

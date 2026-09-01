@@ -3969,6 +3969,43 @@ static void write_mass_drift_summary_json(const char *path, const DynamicsMassDi
     fclose(fp);
 }
 
+static int write_dynamics_clip_ledger_json(
+    const char *path,
+    int segment_start_accepted_step,
+    int segment_end_accepted_step,
+    const unsigned long long *clip_ledger)
+{
+    if (!path || !clip_ledger) return 0;
+    FILE *fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "[warn] cannot open dynamics clip ledger json %s\n", path);
+        return 0;
+    }
+    fprintf(fp,
+            "{\n"
+            "  \"schema\": \"DYNAMICS_ALL_STEP_CLIP_LEDGER_V1\",\n"
+            "  \"segment_start_accepted_step\": %d,\n"
+            "  \"segment_end_accepted_step\": %d,\n"
+            "  \"accepted_step_count\": %d,\n"
+            "  \"phi_projection_lower_count\": %llu,\n"
+            "  \"phi_projection_upper_count\": %llu,\n"
+            "  \"mu_x_logit_Y_projection_lower_count\": %llu,\n"
+            "  \"mu_x_logit_Y_projection_upper_count\": %llu,\n"
+            "  \"mu_x_logit_xB_projection_lower_count\": %llu,\n"
+            "  \"mu_x_logit_xB_projection_upper_count\": %llu\n"
+            "}\n",
+            segment_start_accepted_step,
+            segment_end_accepted_step,
+            segment_end_accepted_step - segment_start_accepted_step,
+            clip_ledger[DYNAMICS_CLIP_LEDGER_PHI_LOWER],
+            clip_ledger[DYNAMICS_CLIP_LEDGER_PHI_UPPER],
+            clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_Y_LOWER],
+            clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_Y_UPPER],
+            clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_XB_LOWER],
+            clip_ledger[DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_XB_UPPER]);
+    return fclose(fp) == 0;
+}
+
 static int compare_double_asc(const void *a, const void *b) {
     const double da = *(const double *)a;
     const double db = *(const double *)b;
@@ -28446,6 +28483,7 @@ int main(int argc, char **argv) {
     double *d_divJ_r, *d_xB_prev_r;
     double *d_xB_gp_old_r = NULL;
     double *d_xB_old_diag_r = NULL;
+    unsigned long long *d_dynamics_clip_ledger = NULL;
     // Optimization: d_phi_rhs_r 在步骤1完成后可复用为 d_lapY_r
     double *d_lapY_r, *d_Y_rhs_r;
 
@@ -28570,6 +28608,12 @@ int main(int argc, char **argv) {
     d_xB_prev_r = d_divJ_r;
     if (P.dynamics_mass_diag_enabled && P.mode == 0) {
         CUDA_CHECK(cudaMalloc(&d_xB_old_diag_r, size_r));
+        CUDA_CHECK(cudaMalloc(&d_dynamics_clip_ledger,
+                              DYNAMICS_CLIP_LEDGER_COUNT *
+                                  sizeof(unsigned long long)));
+        CUDA_CHECK(cudaMemset(d_dynamics_clip_ledger, 0,
+                              DYNAMICS_CLIP_LEDGER_COUNT *
+                                  sizeof(unsigned long long)));
     }
     // 优化：不再分配d_DY_values，节省1GB显存
 
@@ -29348,7 +29392,7 @@ int main(int argc, char **argv) {
                 P.Vm_compound, P.Vm_alpha_0, P.dVm_alpha_dxB,
                 P.Y_clip, P.xB_eps,
                 d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
-                P.eps_iso_over_vB, total_r, P.elastic_enabled);
+                P.eps_iso_over_vB, total_r, P.elastic_enabled, NULL);
             const int use_backward_euler =
                 strcmp(P.pf_conservative_flux_strategy,
                        "pairwise_backward_euler") == 0;
@@ -30274,7 +30318,8 @@ int main(int argc, char **argv) {
                                               d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
                                               P.eps_iso_over_vB,
                                               total_r,
-                                              P.elastic_enabled);
+                                              P.elastic_enabled,
+                                              NULL);
                 }
 
                 // g_explicit = chem + W*g'(phi) + elastic（不含梯度项）
@@ -30404,7 +30449,8 @@ int main(int argc, char **argv) {
             launch_dealias_kernel(d_phi_k, P.Nx, P.Ny, P.Nz, NzC,
                                  P.dx, P.dy, P.dz, total_k);
             CUFFT_CHECK(cufftExecZ2D(plan_c2r_phi, d_phi_k, d_phi_r));
-            launch_phi_normalize_and_clamp_kernel(d_phi_r, invN, total_r);
+            launch_phi_normalize_and_clamp_kernel(
+                d_phi_r, invN, total_r, NULL);
             if (pf_conservative_runtime) {
                 launch_constrain_phase_and_reconstruct_conservative_kernel(
                     d_phi_r, d_phi_n_saved, d_pf_conservative_storage_r,
@@ -30489,7 +30535,8 @@ int main(int argc, char **argv) {
                                               d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
                                               P.eps_iso_over_vB,
                                               total_r,
-                                              P.elastic_enabled);
+                                              P.elastic_enabled,
+                                              NULL);
                 }
 
                 // 2) 使用 (phi_r, xB_tmp) 计算 g_explicit，再后续减 Lap/加 λh'
@@ -30745,7 +30792,8 @@ int main(int argc, char **argv) {
                 mass_diag_row.delta_mass_phi_clip =
                     mass_diag_row.mean_xBtot_after_phi_clip - mass_diag_row.mean_xBtot_before_phi_clip;
             }
-            launch_phi_normalize_and_clamp_kernel(d_phi_r, invN, total_r);
+            launch_phi_normalize_and_clamp_kernel(
+                d_phi_r, invN, total_r, d_dynamics_clip_ledger);
             if (pf_conservative_runtime) {
                 launch_constrain_phase_and_reconstruct_conservative_kernel(
                     d_phi_r, d_phi_n_saved, d_pf_conservative_storage_r,
@@ -31200,7 +31248,8 @@ int main(int argc, char **argv) {
                                       d_sigma_xx_r, d_sigma_yy_r, d_sigma_zz_r,
                                       P.eps_iso_over_vB,
                                       total_r,
-                                      P.elastic_enabled);
+                                      P.elastic_enabled,
+                                      d_dynamics_clip_ledger);
         }
         if (do_mass_diag && is_gp_zone_mode(&P)) {
             compute_scalar_field_stats(d_mu_x_r, total_r,
@@ -33072,7 +33121,8 @@ gp_post_birth_skip_to_finalize:
                 launch_dealias_kernel(d_phi_k, P.Nx, P.Ny, P.Nz, NzC,
                                      P.dx, P.dy, P.dz, total_k);
                 CUFFT_CHECK(cufftExecZ2D(plan_c2r_phi, d_phi_k, d_phi_r));
-                launch_phi_normalize_and_clamp_kernel(d_phi_r, invN, total_r);
+                launch_phi_normalize_and_clamp_kernel(
+                    d_phi_r, invN, total_r, NULL);
                 // e) 后投影子步只更新 φ，不额外更新 Y
             }
             // 后投影后 φ 已变，重算 mean_h 供收敛/CSV 使用
@@ -35132,6 +35182,29 @@ gp_post_birth_skip_to_finalize:
         char summary_json_path[4096];
         snprintf(summary_json_path, sizeof(summary_json_path), "%s/mass_drift_summary.json", case_output_dir);
         write_mass_drift_summary_json(summary_json_path, &mass_diag_summary, &P);
+        unsigned long long dynamics_clip_ledger_host[DYNAMICS_CLIP_LEDGER_COUNT] = {0ULL};
+        CUDA_CHECK(cudaMemcpy(dynamics_clip_ledger_host,
+                              d_dynamics_clip_ledger,
+                              sizeof(dynamics_clip_ledger_host),
+                              cudaMemcpyDeviceToHost));
+        const int dynamics_clip_segment_start =
+            pf_restart_loaded ? pf_restart_step : 0;
+        const int dynamics_clip_segment_end =
+            dynamics_clip_segment_start + steps_completed;
+        char dynamics_clip_ledger_path[4096];
+        snprintf(dynamics_clip_ledger_path, sizeof(dynamics_clip_ledger_path),
+                 "%s/dynamics_clip_ledger.json", case_output_dir);
+        if (!write_dynamics_clip_ledger_json(
+                dynamics_clip_ledger_path,
+                dynamics_clip_segment_start,
+                dynamics_clip_segment_end,
+                dynamics_clip_ledger_host)) {
+            fprintf(stderr, "[fatal] cannot write required dynamics clip ledger %s\n",
+                    dynamics_clip_ledger_path);
+            return 2;
+        }
+        log_kv_text("dynamics_clip_ledger_json", "%s",
+                    dynamics_clip_ledger_path);
         if (is_gp_zone_mode(&P)) {
             printf("[mass-drift-summary] initial=<xBtot_gp>=%.8e final=<xBtot_gp>=%.8e rel_drift=%.6e primary=%s\n",
                    mass_diag_summary.initial_mean_xBtot,
@@ -35351,6 +35424,7 @@ gp_post_birth_skip_to_finalize:
     CUDA_CHECK(cudaFree(d_divJ_r));
     if (gp_buffers_enabled && d_xB_gp_old_r) CUDA_CHECK(cudaFree(d_xB_gp_old_r));
     if (d_xB_old_diag_r) CUDA_CHECK(cudaFree(d_xB_old_diag_r));
+    if (d_dynamics_clip_ledger) CUDA_CHECK(cudaFree(d_dynamics_clip_ledger));
     // 优化：不再需要释放d_DY_values
     CUDA_CHECK(cudaFree(d_phi_k));
     if (gp_buffers_enabled && d_eta_k) CUDA_CHECK(cudaFree(d_eta_k));

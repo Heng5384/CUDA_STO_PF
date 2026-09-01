@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Controlled GPU validation of the frozen 96^3 CUDA A--E fixture.
 # This file only runs a supplied job allocation; it never calls sbatch.
+#
+# In addition to checkpoint-ledger validation, every staged accepted state is
+# paired with an accepted-field mechanics bundle.  R0 uses a synchronized
+# online probe before its first PF update; later states use the registered
+# checkpoint replay path, which advances neither time nor PF fields.  These
+# are diagnostics only: no thermodynamic, kinetic, or coupling option is
+# changed by this runner.
 
 #SBATCH --job-name=kwn_pf_cuda_ae_v1
 #SBATCH --partition=gpu_uvip
@@ -28,7 +35,11 @@ CUDA_ARCH="${CUDA_ARCH:-sm_80}"
 
 case "${MAX_STAGE}" in R0|R1|R2|R3|R4) ;; *) echo "[fatal] MAX_STAGE must be R0..R4" >&2; exit 2 ;; esac
 [[ "${CUDA_ARCH}" == "sm_80" ]] || { echo "[fatal] this validation is pinned to CUDA_ARCH=sm_80" >&2; exit 2; }
-[[ -d "${SOURCE_ROOT}/.git" && -f "${SOURCE_ROOT}/main_cuda.cu" ]] || { echo "[fatal] invalid SOURCE_ROOT" >&2; exit 2; }
+[[ -f "${SOURCE_ROOT}/main_cuda.cu" ]] || { echo "[fatal] invalid SOURCE_ROOT" >&2; exit 2; }
+git -C "${SOURCE_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  echo "[fatal] SOURCE_ROOT is not a Git worktree" >&2
+  exit 2
+}
 [[ -f "${PARAM_FILE}" && -f "${ASSET_ROOT}/cuda_ae_asset_index.json" && -f "${CONTRACT_PATH}" ]] || { echo "[fatal] missing PF input, assets, or contract" >&2; exit 2; }
 [[ ! -e "${RUN_ROOT}" ]] || { echo "[fatal] refusing to overwrite RUN_ROOT: ${RUN_ROOT}" >&2; exit 2; }
 
@@ -108,6 +119,7 @@ document={
  "controlled_binary_manifest":json.load(open(root/"build/controlled_binary_manifest.json")),
  "embedded_binary_provenance":json.load(open(root/"build/main_cuda.embedded_provenance.json")),
  "prohibited_dynamics":{"GP_release":"OFF","GP_to_beta_conversion":"OFF","beta_birth":"OFF","online_KWN_callback":"OFF","matrix_global_reset":"OFF","composition_clamp":"FORBIDDEN"},
+ "runtime_diagnostics":{"native_step_mass_diagnostics":"checkpoint endpoints only","native_all_step_clip_ledger":"every accepted PF step in primary segments","accepted_field_mechanics":"R0 online sync plus V6 checkpoint replay","vtk_output":"suppressed"},
 }
 (root/"run_manifest.json").write_text(json.dumps(document,indent=2,sort_keys=True)+"\n")
 ' "${RUN_ROOT}" "${SOURCE_ROOT}" "${RUN_ROOT}/staged_assets" "${MAX_STAGE}" "${ASSET_CONTRACT_HASH}" "${FIXTURE_HASH}" "${PROFILE_LIBRARY_MANIFEST_SHA256}"
@@ -153,7 +165,14 @@ fresh() {
   if [[ "${SIDECAR[$case]}" != "-" ]]; then
     a+=(--pf-auxiliary-sidecar "${SIDECAR[$case]}" --pf-auxiliary-source-handoff-sha256 "${SOURCE_HASH[$case]}" --pf-auxiliary-package-sha256 "${PACKAGE_HASH[$case]}" --pf-auxiliary-fixture-sha256 "${FIXTURE_HASH}")
   fi
-  CUDA_STO_RESULTS_ROOT="${RUN_ROOT}/results/${case}/${tag}" run_logged "${case}:${tag}" "${base}.stdout.log" "${base}.stderr.log" "${a[@]}"
+  # This flag emits one native mass-diagnostic row at the endpoint and a small
+  # persistent all-step clipping ledger, avoiding a dense 48 h diagnostics CSV.
+  # R0 is intentionally zero-step and has no accepted-step diagnostic row.
+  if [[ "${initial_only}" != 1 ]]; then
+    a+=(--enable-dynamics-mass-diagnostics --dynamics-mass-diag-interval "${step}")
+  fi
+  CUDA_STO_RESULTS_ROOT="${RUN_ROOT}/results/${case}/${tag}" CUDA_STO_SUPPRESS_VTK_OUTPUT=1 \
+    run_logged "${case}:${tag}" "${base}.stdout.log" "${base}.stderr.log" "${a[@]}"
 }
 
 restart() {
@@ -165,7 +184,44 @@ restart() {
     --pf-restart-from "${prior}" --pf-checkpoint-every "${step}" --pf-checkpoint-path "${checkpoint}"
     --pf-initial-state-class MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1 --pf-fixture-manifest-sha256 "${FIXTURE_HASH}"
     --pf-profile-library-manifest-sha256 "${PROFILE_LIBRARY_MANIFEST_SHA256}" --init-case-tag "cuda_ae_${case}_${tag}")
-  CUDA_STO_RESULTS_ROOT="${RUN_ROOT}/results/${case}/${tag}" run_logged "${case}:${tag}" "${base}.stdout.log" "${base}.stderr.log" "${a[@]}"
+  a+=(--enable-dynamics-mass-diagnostics --dynamics-mass-diag-interval "${step}")
+  CUDA_STO_RESULTS_ROOT="${RUN_ROOT}/results/${case}/${tag}" CUDA_STO_SUPPRESS_VTK_OUTPUT=1 \
+    run_logged "${case}:${tag}" "${base}.stdout.log" "${base}.stderr.log" "${a[@]}"
+}
+
+mechanics_sync_r0() {
+  local case="$1"
+  local out="${RUN_ROOT}/mechanics_sync/${case}/step_0"
+  local base; base="$(log_base "${case}" 0 mechanics_sync)"
+  mkdir -p "$(dirname "${base}")" "$(dirname "${out}")" "${RUN_ROOT}/results/${case}/mechanics_sync"
+  local a=("${BIN}" 96 96 96 0.02 1 1 1 1 --pf-param-file "${PARAM_USED}" --mode dynamics
+    --init-mode raw_fields --init-phi-raw "${PHI[$case]}" --init-xB-raw "${XB[$case]}" --init-meta "${META[$case]}"
+    --pf-zero-mode PF_CONSERVED_Y_ZERO_MODE_V1 --pf-zero-mode-backend HOST_NEWTON_BISECTION_V1 --pf-zero-mode-tol-rel 1e-12 --pf-zero-mode-max-iter 24
+    --pf-checkpoint-every 0
+    --pf-initial-state-class MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1 --pf-fixture-manifest-sha256 "${FIXTURE_HASH}"
+    --pf-profile-library-manifest-sha256 "${PROFILE_LIBRARY_MANIFEST_SHA256}" --init-case-tag "cuda_ae_${case}_mechanics_sync"
+    --mechanics-sync-diagnostic-dir "${out}" --mechanics-sync-diagnostic-step 1)
+  if [[ "${SIDECAR[$case]}" != "-" ]]; then
+    a+=(--pf-auxiliary-sidecar "${SIDECAR[$case]}" --pf-auxiliary-source-handoff-sha256 "${SOURCE_HASH[$case]}" --pf-auxiliary-package-sha256 "${PACKAGE_HASH[$case]}" --pf-auxiliary-fixture-sha256 "${FIXTURE_HASH}")
+  fi
+  CUDA_STO_RESULTS_ROOT="${RUN_ROOT}/results/${case}/mechanics_sync" CUDA_STO_SUPPRESS_VTK_OUTPUT=1 \
+    run_logged "${case}:mechanics_sync" "${base}.stdout.log" "${base}.stderr.log" "${a[@]}"
+}
+
+mechanics_replay() {
+  local case="$1" step="$2" checkpoint="$3"
+  local out="${RUN_ROOT}/mechanics_replay/${case}/step_${step}"
+  local base; base="$(log_base "${case}" "${step}" mechanics_replay)"
+  local nsteps=$((step + 1))
+  mkdir -p "$(dirname "${base}")" "$(dirname "${out}")" "${RUN_ROOT}/results/${case}/mechanics_replay_step_${step}"
+  local a=("${BIN}" 96 96 96 0.02 "${nsteps}" "${nsteps}" "${nsteps}" 1 --pf-param-file "${PARAM_USED}" --mode dynamics
+    --pf-zero-mode PF_CONSERVED_Y_ZERO_MODE_V1 --pf-zero-mode-backend HOST_NEWTON_BISECTION_V1 --pf-zero-mode-tol-rel 1e-12 --pf-zero-mode-max-iter 24
+    --pf-restart-from "${checkpoint}" --pf-checkpoint-every 0
+    --pf-initial-state-class MASS_CONSERVING_LIBRARY_ASSEMBLED_CONDITIONAL_HANDOFF_V1 --pf-fixture-manifest-sha256 "${FIXTURE_HASH}"
+    --pf-profile-library-manifest-sha256 "${PROFILE_LIBRARY_MANIFEST_SHA256}" --init-case-tag "cuda_ae_${case}_mechanics_replay_step_${step}"
+    --mechanics-only-replay-dir "${out}" --mechanics-replay-initialization checkpoint_warm)
+  CUDA_STO_RESULTS_ROOT="${RUN_ROOT}/results/${case}/mechanics_replay_step_${step}" CUDA_STO_SUPPRESS_VTK_OUTPUT=1 \
+    run_logged "${case}:mechanics_replay_step_${step}" "${base}.stdout.log" "${base}.stderr.log" "${a[@]}"
 }
 
 gate() {
@@ -173,12 +229,15 @@ gate() {
 }
 
 for case in A B C D E; do fresh "${case}" 0 "${RUN_ROOT}/checkpoints/${case}/step_0.pfzck" R0 1; done
+for case in A B C D E; do mechanics_sync_r0 "${case}"; done
 gate R0
 [[ "${MAX_STAGE}" == R0 ]] && { echo PASS_R0_CUDA_AE_RUNTIME_GATE >"${RUN_ROOT}/status.txt"; exit 0; }
 
 for case in A B C D E; do
   restart "${case}" 1 "${RUN_ROOT}/checkpoints/${case}/step_0.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_1.pfzck" R1a
   restart "${case}" 10 "${RUN_ROOT}/checkpoints/${case}/step_1.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_10.pfzck" R1b
+  mechanics_replay "${case}" 1 "${RUN_ROOT}/checkpoints/${case}/step_1.pfzck"
+  mechanics_replay "${case}" 10 "${RUN_ROOT}/checkpoints/${case}/step_10.pfzck"
 done
 gate R1
 [[ "${MAX_STAGE}" == R1 ]] && { echo PASS_R1_CUDA_AE_RUNTIME_GATE >"${RUN_ROOT}/status.txt"; exit 0; }
@@ -186,6 +245,8 @@ gate R1
 for case in A B C D E; do
   restart "${case}" 36 "${RUN_ROOT}/checkpoints/${case}/step_10.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_36.pfzck" R2a
   restart "${case}" 363 "${RUN_ROOT}/checkpoints/${case}/step_36.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_363.pfzck" R2b
+  mechanics_replay "${case}" 36 "${RUN_ROOT}/checkpoints/${case}/step_36.pfzck"
+  mechanics_replay "${case}" 363 "${RUN_ROOT}/checkpoints/${case}/step_363.pfzck"
 done
 gate R2
 [[ "${MAX_STAGE}" == R2 ]] && { echo PASS_R2_CUDA_AE_RUNTIME_GATE >"${RUN_ROOT}/status.txt"; exit 0; }
@@ -194,6 +255,9 @@ for case in A B C D E; do
   restart "${case}" 3633 "${RUN_ROOT}/checkpoints/${case}/step_363.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_3633.pfzck" R3a
   restart "${case}" 10899 "${RUN_ROOT}/checkpoints/${case}/step_3633.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_10899.pfzck" R3b
   restart "${case}" 21798 "${RUN_ROOT}/checkpoints/${case}/step_10899.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_21798.pfzck" R3c
+  mechanics_replay "${case}" 3633 "${RUN_ROOT}/checkpoints/${case}/step_3633.pfzck"
+  mechanics_replay "${case}" 10899 "${RUN_ROOT}/checkpoints/${case}/step_10899.pfzck"
+  mechanics_replay "${case}" 21798 "${RUN_ROOT}/checkpoints/${case}/step_21798.pfzck"
 done
 for case in A B E; do
   q="${RUN_ROOT}/restart_qualification/${case}"
@@ -202,16 +266,23 @@ for case in A B E; do
   restart "${case}" 21798 "${q}/first_3h.pfzck" "${q}/restart_6h.pfzck" restart_6h
 done
 gate R3
-[[ "${MAX_STAGE}" == R3 ]] && { echo PASS_R3_CUDA_AE_RUNTIME_GATE_DIAGNOSTICS_PENDING >"${RUN_ROOT}/status.txt"; exit 0; }
+[[ "${MAX_STAGE}" == R3 ]] && { echo PASS_R3_CUDA_AE_RUNTIME_GATE >"${RUN_ROOT}/status.txt"; exit 0; }
 
 for case in A B C D E; do
   restart "${case}" 43596 "${RUN_ROOT}/checkpoints/${case}/step_21798.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_43596.pfzck" R4a
   restart "${case}" 87191 "${RUN_ROOT}/checkpoints/${case}/step_43596.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_87191.pfzck" R4b
   restart "${case}" 174382 "${RUN_ROOT}/checkpoints/${case}/step_87191.pfzck" "${RUN_ROOT}/checkpoints/${case}/step_174382.pfzck" R4c
+  mechanics_replay "${case}" 43596 "${RUN_ROOT}/checkpoints/${case}/step_43596.pfzck"
+  mechanics_replay "${case}" 87191 "${RUN_ROOT}/checkpoints/${case}/step_87191.pfzck"
+  mechanics_replay "${case}" 174382 "${RUN_ROOT}/checkpoints/${case}/step_174382.pfzck"
 done
 q="${RUN_ROOT}/restart_qualification/E"
-fresh E 174382 "${q}/continuous_48h.pfzck" continuous_48h 0
-fresh E 87191 "${q}/first_24h.pfzck" first_24h 0
-restart E 174382 "${q}/first_24h.pfzck" "${q}/restart_48h.pfzck" restart_48h
+# The 48 h restart qualification begins from the established accepted 6 h
+# state.  It explicitly compares the uninterrupted 6->48 h trajectory with
+# a 6->24 h checkpoint followed by 24->48 h restart; the primary staged E
+# checkpoints are compared by the auditor as an additional continuity check.
+restart E 174382 "${RUN_ROOT}/checkpoints/E/step_21798.pfzck" "${q}/continuous_6to48h.pfzck" continuous_6to48h
+restart E 87191 "${RUN_ROOT}/checkpoints/E/step_21798.pfzck" "${q}/checkpoint_24h_from_6h.pfzck" checkpoint_24h_from_6h
+restart E 174382 "${q}/checkpoint_24h_from_6h.pfzck" "${q}/restart_48h_from_24h.pfzck" restart_48h_from_24h
 gate R4
-echo PASS_R4_CUDA_AE_RUNTIME_GATE_DIAGNOSTICS_PENDING >"${RUN_ROOT}/status.txt"
+echo PASS_CUDA_AE_SMOKE >"${RUN_ROOT}/status.txt"

@@ -33,6 +33,19 @@ enum {
     MASS_DIAG_Y_STATS_COUNT
 };
 
+// Persistent, all-step native projection ledger used only by the optional
+// dynamics mass diagnostics.  Counters are uint64-compatible unsigned long
+// long values on device so a full production segment cannot overflow.
+enum {
+    DYNAMICS_CLIP_LEDGER_PHI_LOWER = 0,
+    DYNAMICS_CLIP_LEDGER_PHI_UPPER,
+    DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_Y_LOWER,
+    DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_Y_UPPER,
+    DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_XB_LOWER,
+    DYNAMICS_CLIP_LEDGER_MU_X_LOGIT_XB_UPPER,
+    DYNAMICS_CLIP_LEDGER_COUNT
+};
+
 enum {
     MASS_DIAG_Y_RHS_SUM_H_OLD = 0,
     MASS_DIAG_Y_RHS_SUM_H_NEW,
@@ -298,7 +311,8 @@ void launch_gp_eta_feasibility_and_limiter_kernel(double *eta_r,
                                                   int total_size);
 
 // phi归一化和截断
-void launch_phi_normalize_and_clamp_kernel(double *phi_r, double invN, int total_size);
+void launch_phi_normalize_and_clamp_kernel(double *phi_r, double invN, int total_size,
+                                           unsigned long long *clip_ledger);
 // 仅归一化（无截断）供非phi/Y数组使用
 void launch_normalize_only_kernel(double *arr, double invN, int total_size);
 void launch_add_arrays_kernel(const double *a, const double *b, double *out, int total_size);
@@ -387,7 +401,8 @@ void launch_compute_mu_x_kernel(const double *Y_r, const double *phi_r,
                                 const float *sigma_zz_r,
                                 double eps_iso_over_vB,
                                 int total_size,
-                                int elastic_enabled);
+                                int elastic_enabled,
+                                unsigned long long *clip_ledger);
 
 // gp_zone: 计算 matrix composition 的 mu_C，不把 h_alpha 乘进 chemical potential
 void launch_compute_mu_C_gp_kernel(const double *Y_r,
