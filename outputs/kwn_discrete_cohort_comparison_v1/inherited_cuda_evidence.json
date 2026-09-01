@@ -1,0 +1,22 @@
+{
+  "case_a_max_four_bucket_relative_residual": 9.060913990808192e-14,
+  "case_e_max_four_bucket_relative_residual": 1.3896377122191874e-13,
+  "checks": {
+    "case_a_four_bucket_residual": true,
+    "case_e_four_bucket_residual": true,
+    "controlled_binary_provenance": true,
+    "cuda_ae_smoke": true,
+    "four_bucket_no_double_count": true,
+    "runtime_failures_empty": true
+  },
+  "cuda_rerun": false,
+  "pf_source_modified": false,
+  "schema_version": "INHERITED_CUDA_AE_EVIDENCE_REUSE_V1",
+  "source_files": {
+    "build_manifest": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-discrete-cohort-comparison-v1/outputs/kwn_pf_cuda_runtime_closure_v1/build_manifest.json",
+    "build_manifest_sha256": "76c995314287bf55b03a729afd161b5bd844ab957fa9773be130169c645be425",
+    "runtime_audit": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-discrete-cohort-comparison-v1/outputs/kwn_pf_cuda_runtime_closure_v1/cuda_ae_runtime_audit.json",
+    "runtime_audit_sha256": "a0d44e4e9ca5acc793766530b3e9a010aa204977aa4f97502145ce4b655e3040"
+  },
+  "status": "PASS_INHERITED_CUDA_AE_EVIDENCE"
+}

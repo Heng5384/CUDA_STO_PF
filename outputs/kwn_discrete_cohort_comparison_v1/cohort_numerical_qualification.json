@@ -1,0 +1,89 @@
+{
+  "atol_radius_m": 1e-18,
+  "event_times_s": {
+    "1e-10": {
+      "MP001": null,
+      "MP002": null,
+      "MP003": 18557.777961092575,
+      "MP004": 18557.781986111328,
+      "MP005": 4644.591610364366,
+      "MP006": 4644.596334739286
+    },
+    "1e-08": {
+      "MP001": null,
+      "MP002": null,
+      "MP003": 18557.777969772334,
+      "MP004": 18557.781994789362,
+      "MP005": 4644.591614356105,
+      "MP006": 4644.596338729709
+    },
+    "1e-06": {
+      "MP001": null,
+      "MP002": null,
+      "MP003": 18557.780198320266,
+      "MP004": 18557.784223281247,
+      "MP005": 4644.592479362334,
+      "MP006": 4644.597203701372
+    }
+  },
+  "initial_state_identity": {
+    "checks": {
+      "beta_inventory": false,
+      "contract_hash": true,
+      "fixture_hash": true,
+      "matrix_xB": false,
+      "radii_exact_pf_t0_equivalent": true,
+      "resolved_equivalent_weight_formula": true,
+      "six_component_identity_resolved": true,
+      "temperature": true,
+      "total_inventory": true,
+      "weights_exact_one_particle_per_box": true
+    },
+    "cohort_matrix_xB": 0.006221071234813393,
+    "cohort_radii_m": {
+      "MP001": 1.049993948124773e-08,
+      "MP002": 1.0499939315689504e-08,
+      "MP003": 9.49995816215454e-09,
+      "MP004": 9.499958271209501e-09,
+      "MP005": 7.99993108603241e-09,
+      "MP006": 7.999932118399894e-09
+    },
+    "cohort_to_pf_particle_id": {
+      "MP001": "2",
+      "MP002": "4",
+      "MP003": "5",
+      "MP004": "3",
+      "MP005": "6",
+      "MP006": "1"
+    },
+    "common_weight_scale": 1.000020223307197,
+    "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+    "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+    "global_pf_to_sharp_component_beta_volume_relative_difference": 2.02228982231195e-05,
+    "physical_weight_per_particle_m3": 1.1302806712962962e+21,
+    "sharp_sphere_volume_m3": 2.116977298576542e-23,
+    "status": "FAIL_BETA_ONLY_INITIAL_STATE_IDENTITY",
+    "strict_pf_matrix_xB": 0.006220578557312318,
+    "target_beta_volume_m3": 2.1170201108587803e-23,
+    "weight_per_cohort_m3": 1.1302806712962962e+21,
+    "weight_representation": "exact physical representation: one cohort equals one PF particle per box; no diffuse-volume-derived number-density scale is applied"
+  },
+  "integrator": "RADAU_WITH_ONE_SIDED_RMIN_CHARACTERISTIC_EVENT_COORDINATE",
+  "max_inventory_relative_residual": 0.0,
+  "restart_checkpoint": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-discrete-cohort-comparison-v1/outputs/kwn_discrete_cohort_comparison_v1/cohort_restart_24h.json",
+  "restart_checkpoint_sha256": "08347845b8a86a789e7013f806ce372f81b119da7ccb84221c62d2ad9f0b7c28",
+  "restart_pass": true,
+  "rtol_values": [
+    1e-06,
+    1e-08,
+    1e-10
+  ],
+  "schema_version": "KWN_DISCRETE_COHORT_NUMERICAL_QUALIFICATION_V1",
+  "status": "PASS_DISCRETE_COHORT_NUMERICS",
+  "tolerance_pass": true,
+  "unit_tests": {
+    "output": ".........\n----------------------------------------------------------------------\nRan 9 tests in 0.531s\n\nOK\n",
+    "pass": true,
+    "returncode": 0
+  }
+}

@@ -1,0 +1,466 @@
+{
+  "authority_maximum_errors": {
+    "M0_m3": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 4.7554054164825604e+20,
+      "eulerian_authority_value": 4.6424963249593326e+20,
+      "gate_method": "relative_2_percent",
+      "metric": "M0_m3",
+      "pass": false,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.024320771330759616,
+      "target_time_h": 48.0
+    },
+    "M1_m2": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 10470287916354.668,
+      "eulerian_authority_value": 10355320211121.686,
+      "gate_method": "relative_2_percent",
+      "metric": "M1_m2",
+      "pass": true,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.011102283936087878,
+      "target_time_h": 48.0
+    },
+    "M2_m": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 244752.47174074056,
+      "eulerian_authority_value": 243448.02296371676,
+      "gate_method": "relative_2_percent",
+      "metric": "M2_m",
+      "pass": true,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.0053582229222629745,
+      "target_time_h": 48.0
+    },
+    "M3_dimensionless": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 0.005947123818576371,
+      "eulerian_authority_value": 0.005948446146373126,
+      "gate_method": "relative_2_percent",
+      "metric": "M3_dimensionless",
+      "pass": true,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.00022229801938461629,
+      "target_time_h": 48.0
+    },
+    "N_m0_m3": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 4.7554054164825604e+20,
+      "eulerian_authority_value": 4.6424963249593326e+20,
+      "gate_method": "relative_2_percent",
+      "metric": "N_m0_m3",
+      "pass": false,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.024320771330759616,
+      "target_time_h": 48.0
+    },
+    "Rmean3_m3": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 1.2506029029540223e-23,
+      "eulerian_authority_value": 1.2813033613818172e-23,
+      "gate_method": "relative_2_percent",
+      "metric": "Rmean3_m3",
+      "pass": false,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.023960335509216318,
+      "target_time_h": 48.0
+    },
+    "Rmean_m": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 2.2017655697795888e-08,
+      "eulerian_authority_value": 2.2305500072124228e-08,
+      "gate_method": "relative_2_percent",
+      "metric": "Rmean_m",
+      "pass": true,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.012904636676945264,
+      "target_time_h": 48.0
+    },
+    "Sv_m_inv": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 3075650.268674616,
+      "eulerian_authority_value": 3059258.0818950874,
+      "gate_method": "relative_2_percent",
+      "metric": "Sv_m_inv",
+      "pass": true,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.005358222922262933,
+      "target_time_h": 48.0
+    },
+    "cumulative_dissolution_inventory_mol_m3": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 4.3253878920875485e-08,
+      "eulerian_authority_value": 5.490374272981049e-08,
+      "gate_method": "relative_2_percent",
+      "metric": "cumulative_dissolution_inventory_mol_m3",
+      "pass": false,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.2121870610217909,
+      "target_time_h": 0.1
+    },
+    "f_beta": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 0.02491125399790454,
+      "eulerian_authority_value": 0.024916792951627104,
+      "gate_method": "relative_2_percent",
+      "metric": "f_beta",
+      "pass": true,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.0002222980193845695,
+      "target_time_h": 48.0
+    },
+    "matrix_xB": {
+      "cohort_count": 3200,
+      "cohort_inventory_relative_residual": 0.0,
+      "cohort_value": 0.005218751650000613,
+      "eulerian_authority_value": 0.005213100801684433,
+      "gate_method": "relative_2_percent",
+      "metric": "matrix_xB",
+      "pass": true,
+      "record_type": "cohort_vs_eulerian",
+      "relative_error": 0.0010839706599100965,
+      "target_time_h": 48.0
+    }
+  },
+  "cohort_authority_count": 3200,
+  "cohort_quadrature": {
+    "400": {
+      "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+      "count": 400,
+      "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+      "log_radius_bounds_m": [
+        1.7286997433514543e-09,
+        4.9767866884242816e-08
+      ],
+      "log_sigma": 0.14,
+      "median_radius_m": 9.275435230216418e-09,
+      "quadrature": "DETERMINISTIC_GAUSS_LEGENDRE_IN_LOG_RADIUS_NO_BINS",
+      "quadrature_M3_dimensionless": 0.005712453465239243,
+      "smooth_benchmark": {
+        "kind": "LOGNORMAL_FIXED_NUMERICAL_QUALIFICATION_ONLY",
+        "log_sigma": 0.14,
+        "median_radius_m": 9.275435230216418e-09,
+        "not_used_for_pf_comparison": true,
+        "same_fixed_pivot_M3_as_fixture": 0.005712453465239243,
+        "same_matrix_xB_as_fixture": 0.006220578557312318
+      },
+      "source_config_hash": "99fc75fd32f155f7afdb87c4141846b3a65ae763eab80ca2b37c4769ab1c14dd",
+      "target_M3_dimensionless": 0.005712453465239241
+    },
+    "800": {
+      "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+      "count": 800,
+      "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+      "log_radius_bounds_m": [
+        1.7286997433514543e-09,
+        4.9767866884242816e-08
+      ],
+      "log_sigma": 0.14,
+      "median_radius_m": 9.275435230216418e-09,
+      "quadrature": "DETERMINISTIC_GAUSS_LEGENDRE_IN_LOG_RADIUS_NO_BINS",
+      "quadrature_M3_dimensionless": 0.0057124534652392405,
+      "smooth_benchmark": {
+        "kind": "LOGNORMAL_FIXED_NUMERICAL_QUALIFICATION_ONLY",
+        "log_sigma": 0.14,
+        "median_radius_m": 9.275435230216418e-09,
+        "not_used_for_pf_comparison": true,
+        "same_fixed_pivot_M3_as_fixture": 0.005712453465239243,
+        "same_matrix_xB_as_fixture": 0.006220578557312318
+      },
+      "source_config_hash": "99fc75fd32f155f7afdb87c4141846b3a65ae763eab80ca2b37c4769ab1c14dd",
+      "target_M3_dimensionless": 0.005712453465239241
+    },
+    "1600": {
+      "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+      "count": 1600,
+      "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+      "log_radius_bounds_m": [
+        1.7286997433514543e-09,
+        4.9767866884242816e-08
+      ],
+      "log_sigma": 0.14,
+      "median_radius_m": 9.275435230216418e-09,
+      "quadrature": "DETERMINISTIC_GAUSS_LEGENDRE_IN_LOG_RADIUS_NO_BINS",
+      "quadrature_M3_dimensionless": 0.005712453465239242,
+      "smooth_benchmark": {
+        "kind": "LOGNORMAL_FIXED_NUMERICAL_QUALIFICATION_ONLY",
+        "log_sigma": 0.14,
+        "median_radius_m": 9.275435230216418e-09,
+        "not_used_for_pf_comparison": true,
+        "same_fixed_pivot_M3_as_fixture": 0.005712453465239243,
+        "same_matrix_xB_as_fixture": 0.006220578557312318
+      },
+      "source_config_hash": "99fc75fd32f155f7afdb87c4141846b3a65ae763eab80ca2b37c4769ab1c14dd",
+      "target_M3_dimensionless": 0.005712453465239241
+    },
+    "3200": {
+      "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+      "count": 3200,
+      "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+      "log_radius_bounds_m": [
+        1.7286997433514543e-09,
+        4.9767866884242816e-08
+      ],
+      "log_sigma": 0.14,
+      "median_radius_m": 9.275435230216418e-09,
+      "quadrature": "DETERMINISTIC_GAUSS_LEGENDRE_IN_LOG_RADIUS_NO_BINS",
+      "quadrature_M3_dimensionless": 0.005712453465239241,
+      "smooth_benchmark": {
+        "kind": "LOGNORMAL_FIXED_NUMERICAL_QUALIFICATION_ONLY",
+        "log_sigma": 0.14,
+        "median_radius_m": 9.275435230216418e-09,
+        "not_used_for_pf_comparison": true,
+        "same_fixed_pivot_M3_as_fixture": 0.005712453465239243,
+        "same_matrix_xB_as_fixture": 0.006220578557312318
+      },
+      "source_config_hash": "99fc75fd32f155f7afdb87c4141846b3a65ae763eab80ca2b37c4769ab1c14dd",
+      "target_M3_dimensionless": 0.005712453465239241
+    }
+  },
+  "crosscheck_pass": false,
+  "direction_pass": true,
+  "directions": {
+    "M0": {
+      "cohort": "DECREASE",
+      "eulerian": "DECREASE"
+    },
+    "M1": {
+      "cohort": "DECREASE",
+      "eulerian": "DECREASE"
+    },
+    "M2": {
+      "cohort": "DECREASE",
+      "eulerian": "DECREASE"
+    },
+    "M3": {
+      "cohort": "INCREASE",
+      "eulerian": "INCREASE"
+    },
+    "N": {
+      "cohort": "DECREASE",
+      "eulerian": "DECREASE"
+    },
+    "Rmean": {
+      "cohort": "INCREASE",
+      "eulerian": "INCREASE"
+    },
+    "Rmean3": {
+      "cohort": "INCREASE",
+      "eulerian": "INCREASE"
+    },
+    "Sv": {
+      "cohort": "DECREASE",
+      "eulerian": "DECREASE"
+    },
+    "cumulative_dissolution_inventory": {
+      "cohort": "INCREASE",
+      "eulerian": "INCREASE"
+    },
+    "f_beta": {
+      "cohort": "INCREASE",
+      "eulerian": "INCREASE"
+    },
+    "matrix_xB": {
+      "cohort": "DECREASE",
+      "eulerian": "DECREASE"
+    }
+  },
+  "eulerian_authority_grid": 3200,
+  "failed_authority_metrics": [
+    {
+      "gate_method": "relative_2_percent",
+      "metric": "M0_m3",
+      "relative_error": 0.024320771330759616,
+      "target_time_h": 48.0
+    },
+    {
+      "gate_method": "relative_2_percent",
+      "metric": "N_m0_m3",
+      "relative_error": 0.024320771330759616,
+      "target_time_h": 48.0
+    },
+    {
+      "gate_method": "relative_2_percent",
+      "metric": "Rmean3_m3",
+      "relative_error": 0.023960335509216318,
+      "target_time_h": 48.0
+    },
+    {
+      "gate_method": "relative_2_percent",
+      "metric": "cumulative_dissolution_inventory_mol_m3",
+      "relative_error": 0.2121870610217909,
+      "target_time_h": 0.1
+    }
+  ],
+  "quadrature_refinement_pass": true,
+  "representation_note": "deterministic log-radius quadrature cohorts; no radius bins, projection, splitting, or smoothing after t=0",
+  "requalified_authority_binding": {
+    "authority_grid": true,
+    "beta_parameters": true,
+    "initial_total_inventory_mol_m3": true,
+    "legacy_contract_hash": true,
+    "legacy_fixture_hash": true,
+    "max_dt_s": true,
+    "radius_edges": true,
+    "requalified_contract_hash": true,
+    "requalified_fixture_hash": true
+  },
+  "schema_version": "KWN_COHORT_EULERIAN_SMOOTH_CROSSCHECK_V1",
+  "status": "FAIL_COHORT_EULERIAN_PHYSICS_MISMATCH",
+  "terminal_quadrature_refinement_maximum_errors": {
+    "M0_m3": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 2.48881579423752e+21,
+      "cohort_value": 2.459384760535295e+21,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "M0_m3",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.011966827710121686,
+      "target_time_h": 6.0,
+      "threshold_relative": 0.02
+    },
+    "M1_m2": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 10499704640241.455,
+      "cohort_value": 10470287916354.668,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "M1_m2",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.0028095429774035122,
+      "target_time_h": 48.0,
+      "threshold_relative": 0.02
+    },
+    "M2_m": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 245007.57351385176,
+      "cohort_value": 244752.47174074056,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "M2_m",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.0010422847675321133,
+      "target_time_h": 48.0,
+      "threshold_relative": 0.02
+    },
+    "M3_dimensionless": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 0.005879533374773346,
+      "cohort_value": 0.005878850760208656,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "M3_dimensionless",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.00011611360664406829,
+      "target_time_h": 12.0,
+      "threshold_relative": 0.02
+    },
+    "N_m0_m3": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 2.48881579423752e+21,
+      "cohort_value": 2.459384760535295e+21,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "N_m0_m3",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.011966827710121686,
+      "target_time_h": 6.0,
+      "threshold_relative": 0.02
+    },
+    "Rmean3_m3": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 2.3446237991069798e-24,
+      "cohort_value": 2.372729765118481e-24,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "Rmean3_m3",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.011845413845557706,
+      "target_time_h": 6.0,
+      "threshold_relative": 0.02
+    },
+    "Rmean_m": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 1.2583933007667416e-08,
+      "cohort_value": 1.270157917890878e-08,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "Rmean_m",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.00926232632842368,
+      "target_time_h": 6.0,
+      "threshold_relative": 0.02
+    },
+    "Sv_m_inv": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 3078855.9720999114,
+      "cohort_value": 3075650.268674616,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "Sv_m_inv",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.0010422847675321287,
+      "target_time_h": 48.0,
+      "threshold_relative": 0.02
+    },
+    "cumulative_dissolution_inventory_mol_m3": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 0.043776460674714635,
+      "cohort_value": 0.04409338247187685,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "cumulative_dissolution_inventory_mol_m3",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.007187513848917159,
+      "target_time_h": 6.0,
+      "threshold_relative": 0.02
+    },
+    "f_beta": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 0.024628131808965264,
+      "cohort_value": 0.02462527247976305,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "f_beta",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.0001161136066439376,
+      "target_time_h": 12.0,
+      "threshold_relative": 0.02
+    },
+    "matrix_xB": {
+      "coarse_cohort_count": 1600,
+      "coarse_cohort_value": 0.005507507819553616,
+      "cohort_value": 0.005510423192839435,
+      "fine_cohort_count": 3200,
+      "gate_method": "relative_2_percent",
+      "metric": "matrix_xB",
+      "pass": true,
+      "record_type": "cohort_quadrature_refinement",
+      "relative_error": 0.0005290652249009411,
+      "target_time_h": 12.0,
+      "threshold_relative": 0.02
+    }
+  }
+}

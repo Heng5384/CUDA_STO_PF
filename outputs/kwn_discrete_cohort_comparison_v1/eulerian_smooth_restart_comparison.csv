@@ -1,0 +1,11 @@
+comparison,state_array,maximum_absolute_difference,maximum_relative_difference,threshold_relative,pass,threshold_absolute
+direct_0_48h_vs_restart_0_24_48h_numerical_equivalence,g_number_density_per_m4,0.0,0.0,1e-09,True,
+direct_0_48h_vs_restart_0_24_48h_numerical_equivalence,beta_number_density_per_m4,3.5939472694323446e+18,9.480479373182136e-11,1e-09,True,
+direct_0_48h_vs_restart_0_24_48h_numerical_equivalence,matrix_xb,1.203976154884323e-12,2.3095201885927926e-10,1e-09,True,
+direct_0_48h_vs_restart_0_24_48h_numerical_equivalence,time_s,0.0,0.0,1e-09,True,
+direct_0_48h_vs_restart_0_24_48h_numerical_equivalence,step,0.0,0.0,1e-09,True,
+checkpoint_save_load_at_24h_exact_serialization,g_number_density_per_m4,0.0,,,True,0.0
+checkpoint_save_load_at_24h_exact_serialization,beta_number_density_per_m4,0.0,,,True,0.0
+checkpoint_save_load_at_24h_exact_serialization,matrix_xb,0.0,,,True,0.0
+checkpoint_save_load_at_24h_exact_serialization,time_s,0.0,,,True,0.0
+checkpoint_save_load_at_24h_exact_serialization,step,0.0,,,True,0.0

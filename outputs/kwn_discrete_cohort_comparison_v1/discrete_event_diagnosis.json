@@ -1,0 +1,169 @@
+{
+  "cohort_exact_events": [
+    {
+      "active_at_48h": true,
+      "dissolution_time_h": "",
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP001",
+      "initial_radius_m": 1.049993948124773e-08,
+      "post_event_ledger_relative_residual": null,
+      "radius_before_event_m": null,
+      "returned_inventory_mol_m3": 0.0,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active_at_48h": true,
+      "dissolution_time_h": "",
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP002",
+      "initial_radius_m": 1.0499939315689504e-08,
+      "post_event_ledger_relative_residual": null,
+      "radius_before_event_m": null,
+      "returned_inventory_mol_m3": 0.0,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active_at_48h": false,
+      "dissolution_time_h": 5.154938322532052,
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP003",
+      "initial_radius_m": 9.49995816215454e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active_at_48h": false,
+      "dissolution_time_h": 5.154939440592809,
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP004",
+      "initial_radius_m": 9.499958271209501e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active_at_48h": false,
+      "dissolution_time_h": 1.2901643362125637,
+      "initial_growth_sign": "DISSOLUTION",
+      "initial_id": "MP005",
+      "initial_radius_m": 7.99993108603241e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active_at_48h": false,
+      "dissolution_time_h": 1.2901656485389443,
+      "initial_growth_sign": "DISSOLUTION",
+      "initial_id": "MP006",
+      "initial_radius_m": 7.999932118399894e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    }
+  ],
+  "event_responsible_for_1600_3200_gap": "R10.5nm lower-bound numerical tail survival/leakage",
+  "event_timing_adjudication": {
+    "R10.5nm": {
+      "eulerian_first_lower_boundary_crossing_h": {
+        "1600": {
+          "classification": "SPURIOUS_NUMERICAL_LOWER_TAIL_FOR_SURVIVING_SHARP_COHORT",
+          "minus_exact_event_h": null,
+          "time_h": 1.6323514109868487
+        },
+        "3200": {
+          "classification": "SPURIOUS_NUMERICAL_LOWER_TAIL_FOR_SURVIVING_SHARP_COHORT",
+          "minus_exact_event_h": null,
+          "time_h": 1.5438461310897618
+        }
+      },
+      "exact_cohort_event_time_h": null,
+      "exact_cohort_survivor_count": 2
+    },
+    "R8nm": {
+      "eulerian_first_lower_boundary_crossing_h": {
+        "1600": {
+          "classification": "ADVANCED_NUMERICAL_LOWER_TAIL_LEAKAGE",
+          "minus_exact_event_h": -1.275828388099329,
+          "time_h": 0.0143366042764249
+        },
+        "3200": {
+          "classification": "ADVANCED_NUMERICAL_LOWER_TAIL_LEAKAGE",
+          "minus_exact_event_h": -1.282857019022326,
+          "time_h": 0.007307973353427786
+        }
+      },
+      "exact_cohort_event_time_h": 1.2901649923757539,
+      "exact_cohort_survivor_count": 0
+    },
+    "R9.5nm": {
+      "eulerian_first_lower_boundary_crossing_h": {
+        "1600": {
+          "classification": "ADVANCED_NUMERICAL_LOWER_TAIL_LEAKAGE",
+          "minus_exact_event_h": -3.730646106682725,
+          "time_h": 1.4242927748797054
+        },
+        "3200": {
+          "classification": "ADVANCED_NUMERICAL_LOWER_TAIL_LEAKAGE",
+          "minus_exact_event_h": -3.6225255099663345,
+          "time_h": 1.532413371596096
+        }
+      },
+      "exact_cohort_event_time_h": 5.154938881562431,
+      "exact_cohort_survivor_count": 0
+    }
+  },
+  "exact_vs_eulerian_endpoint_envelope": {
+    "N_m0_m3": {
+      "eulerian_maximum": 6.446208028388957e+20,
+      "eulerian_minimum": 3.444492733895912e+20,
+      "exact_cohort_value": 2.2605613425925924e+21,
+      "exact_within_eulerian_refinement_range": false
+    },
+    "Rmean3_m3": {
+      "eulerian_maximum": 1.7303109223685973e-23,
+      "eulerian_minimum": 9.203556819410479e-24,
+      "exact_cohort_value": 2.5921191321825245e-24,
+      "exact_within_eulerian_refinement_range": false
+    },
+    "Sv_m_inv": {
+      "eulerian_maximum": 3422444.44957769,
+      "eulerian_minimum": 2714201.759408925,
+      "exact_cohort_value": 5360386.83816966,
+      "exact_within_eulerian_refinement_range": false
+    }
+  },
+  "exact_vs_eulerian_endpoint_envelope_status": "EXACT_COHORT_OUTSIDE_EULERIAN_REFINEMENT_RANGE",
+  "final_class_survival_gaps": [
+    {
+      "absolute_survival_weight_gap": 0.021911037050457438,
+      "class_label": "R10.5nm",
+      "survival_weight_fraction_1600": 0.2632478318464584,
+      "survival_weight_fraction_3200": 0.28515886889691583
+    },
+    {
+      "absolute_survival_weight_gap": 0.0,
+      "class_label": "R8nm",
+      "survival_weight_fraction_1600": 0.0,
+      "survival_weight_fraction_3200": 0.0
+    },
+    {
+      "absolute_survival_weight_gap": 5.661166748361009e-10,
+      "class_label": "R9.5nm",
+      "survival_weight_fraction_1600": 5.661166983117095e-10,
+      "survival_weight_fraction_3200": 2.3475608606744776e-17
+    }
+  ],
+  "interpretation": {
+    "N_Rmean3_Sv": "The class with the largest 1600\u21923200 final survival-weight gap is reported explicitly and is the direct discrete-event contributor to N, Rmean3 and Sv divergence.",
+    "envelope": "The endpoint range is reported only as a diagnostic relation; legacy Eulerian sequences remain non-authority diagnostics rather than a replacement comparator.",
+    "event_timing": "The per-class table gives a signed Eulerian first-lower-boundary time minus the sharp cohort event; it distinguishes advanced numerical leakage from spurious leakage of cohorts that physically survive.",
+    "f_beta_matrix_xB": "M3-weighted beta inventory is far less sensitive to a low-radius number tail, and conservative lower-bound return keeps f_beta and matrix_xB inventory closed and comparatively convergent."
+  },
+  "primary_discrete_event_root_cause": "IMPLICIT_UPWIND_NUMERICAL_DIFFUSION"
+}

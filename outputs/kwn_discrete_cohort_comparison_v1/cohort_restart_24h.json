@@ -1,0 +1,83 @@
+{
+  "cohorts": [
+    {
+      "active": true,
+      "dissolution_time_s": null,
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP001",
+      "initial_radius_m": 1.049993948124773e-08,
+      "post_event_ledger_relative_residual": null,
+      "radius_before_event_m": null,
+      "radius_m": 1.3736786179195503e-08,
+      "returned_inventory_mol_m3": 0.0,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active": true,
+      "dissolution_time_s": null,
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP002",
+      "initial_radius_m": 1.0499939315689504e-08,
+      "post_event_ledger_relative_residual": null,
+      "radius_before_event_m": null,
+      "radius_m": 1.3736776538126198e-08,
+      "returned_inventory_mol_m3": 0.0,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active": false,
+      "dissolution_time_s": 18557.777961092575,
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP003",
+      "initial_radius_m": 9.49995816215454e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "radius_m": 4.724027182871601e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active": false,
+      "dissolution_time_s": 18557.781986111328,
+      "initial_growth_sign": "GROWTH",
+      "initial_id": "MP004",
+      "initial_radius_m": 9.499958271209501e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "radius_m": 4.724027182871601e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active": false,
+      "dissolution_time_s": 4644.591610364366,
+      "initial_growth_sign": "DISSOLUTION",
+      "initial_id": "MP005",
+      "initial_radius_m": 7.99993108603241e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "radius_m": 4.724027182871601e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    },
+    {
+      "active": false,
+      "dissolution_time_s": 4644.596334739286,
+      "initial_growth_sign": "DISSOLUTION",
+      "initial_id": "MP006",
+      "initial_radius_m": 7.999932118399894e-09,
+      "post_event_ledger_relative_residual": 0.0,
+      "radius_before_event_m": 4.724027182871602e-10,
+      "radius_m": 4.724027182871601e-10,
+      "returned_inventory_mol_m3": 0.0121711858737013,
+      "weight_m3": 1.1302806712962962e+21
+    }
+  ],
+  "contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "r_diss_m": 4.724027182871601e-10,
+  "schema_version": "KWN_DISCRETE_COHORT_CHECKPOINT_V1",
+  "solver_version": "kwn_discrete_cohort_characteristic_v1",
+  "source_config_hash": "c5cc21dd2ece168ad39da3ad4edf53ae67e790835a8a670a097bd5982d2ee67a",
+  "time_s": 86400.0,
+  "total_b_mol_m3": 731.5467336438344
+}

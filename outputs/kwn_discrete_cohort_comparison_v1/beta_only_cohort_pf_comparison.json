@@ -1,0 +1,7 @@
+{
+  "authority_status": "PASS_EULERIAN_SMOOTH_POPULATION_AUTHORITY",
+  "crosscheck_status": "FAIL_COHORT_EULERIAN_PHYSICS_MISMATCH",
+  "no_cuda_rerun": true,
+  "numeric_status": "PASS_DISCRETE_COHORT_NUMERICS",
+  "status": "BLOCKED_PREREQUISITE_GATE"
+}
