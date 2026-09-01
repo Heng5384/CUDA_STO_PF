@@ -32,6 +32,7 @@ def _config(
             "max_dt_s": max_dt_s,
             "min_dt_s": 1.0e-12,
             "size_cfl": 0.35,
+            "cfl_active_inventory_relative_threshold": 1.0e-6,
             "rmax_outflow_relative_tolerance": 1.0e-10,
         },
         "matrix": {
