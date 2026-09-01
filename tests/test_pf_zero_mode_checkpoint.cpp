@@ -1,5 +1,6 @@
 #include "../pf_zero_mode_checkpoint.h"
 
+#include <cstddef>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -48,6 +49,7 @@ bool exact_equal(const pf_zero_mode::AuxPopulationState& left,
 bool exact_equal(const pf_zero_mode::Checkpoint& left,
                  const pf_zero_mode::Checkpoint& right) {
     return left.accepted_step == right.accepted_step &&
+           left.initial_zero_step == right.initial_zero_step &&
            left.nx == right.nx && left.ny == right.ny &&
            left.nz == right.nz && left.dt_code == right.dt_code &&
            left.temperature_K == right.temperature_K &&
@@ -261,6 +263,25 @@ struct LegacyDiskHeaderV5 {
     char gp_population_provenance[kIdentityBytes];
     char beta_subgrid_population_provenance[kIdentityBytes];
     std::uint64_t payload_checksum;
+};
+
+// This prefix is deliberately limited to the already-existing V6 reserved
+// word.  R0 uses that word instead of changing the V6 header size.
+struct DiskHeaderV6PrefixForTest {
+    char magic[8];
+    std::uint32_t version;
+    std::uint32_t header_bytes;
+    std::uint64_t element_count;
+    std::uint64_t k_element_count;
+    std::uint64_t accepted_step;
+    std::int32_t nx;
+    std::int32_t ny;
+    std::int32_t nz;
+    std::int32_t elastic_state_present;
+    std::uint32_t aux_state_present;
+    std::uint32_t aux_schema_version;
+    std::uint32_t aux_frozen;
+    std::uint32_t reserved;
 };
 
 bool copy_text(char* destination, std::size_t bytes,
@@ -479,6 +500,10 @@ int main() {
         "/tmp/pf_zero_mode_checkpoint_elastic_test.chk";
     const std::string auxiliary_path =
         "/tmp/pf_zero_mode_checkpoint_auxiliary_test.chk";
+    const std::string initial_zero_step_path =
+        "/tmp/pf_zero_mode_checkpoint_initial_zero_step_test.chk";
+    const std::string initial_auxiliary_path =
+        "/tmp/pf_zero_mode_checkpoint_initial_auxiliary_test.chk";
     const std::string legacy_v2_path =
         "/tmp/pf_zero_mode_checkpoint_legacy_v2_test.chk";
     const std::string legacy_v3_path =
@@ -495,6 +520,10 @@ int main() {
     std::remove((elastic_path + ".tmp").c_str());
     std::remove(auxiliary_path.c_str());
     std::remove((auxiliary_path + ".tmp").c_str());
+    std::remove(initial_zero_step_path.c_str());
+    std::remove((initial_zero_step_path + ".tmp").c_str());
+    std::remove(initial_auxiliary_path.c_str());
+    std::remove((initial_auxiliary_path + ".tmp").c_str());
     std::remove(legacy_v2_path.c_str());
     std::remove(legacy_v3_path.c_str());
     std::remove(legacy_v4_path.c_str());
@@ -548,6 +577,64 @@ int main() {
             path, source.provenance, &loaded, &error) ||
         !exact_equal(source, loaded)) {
         std::cerr << "round-trip failed: " << error << "\n";
+        return 1;
+    }
+
+    // R0 is an exact t=0 serialization.  It may retain an elastic solver
+    // provenance contract, but it cannot claim a warm displacement state
+    // before any physical step has been accepted.
+    pf_zero_mode::Checkpoint initial_zero_step = source;
+    initial_zero_step.accepted_step = 0U;
+    initial_zero_step.initial_zero_step = true;
+    initial_zero_step.zero_mode.last_lambda = 0.0;
+    initial_zero_step.zero_mode.last_residual_code = 0.0;
+    initial_zero_step.zero_mode.last_derivative_code = 0.0;
+    initial_zero_step.zero_mode.last_iterations = 0U;
+    initial_zero_step.zero_mode.accepted_zero_mode_steps = 0U;
+    initial_zero_step.provenance.elastic_solver_mode =
+        pf_zero_mode::kElasticWarmStartResidualV1;
+    initial_zero_step.provenance.elastic_solver_fingerprint =
+        0x2468ace02468ace0ULL;
+    if (!pf_zero_mode::write_checkpoint(
+            initial_zero_step_path, initial_zero_step, &error) ||
+        !pf_zero_mode::read_checkpoint(
+            initial_zero_step_path, initial_zero_step.provenance, &loaded,
+            &error) ||
+        !exact_equal(initial_zero_step, loaded) ||
+        !loaded.initial_zero_step || loaded.elastic.present) {
+        std::cerr << "initial zero-step V6 round-trip failed: " << error
+                  << "\n";
+        return 1;
+    }
+    pf_zero_mode::Checkpoint unflagged_zero_step = initial_zero_step;
+    unflagged_zero_step.initial_zero_step = false;
+    if (pf_zero_mode::write_checkpoint(
+            "/tmp/pf_zero_mode_checkpoint_unflagged_zero_step.chk",
+            unflagged_zero_step, &error)) {
+        std::cerr << "unflagged step-zero checkpoint was accepted\n";
+        return 1;
+    }
+    pf_zero_mode::Checkpoint initial_with_elastic = initial_zero_step;
+    initial_with_elastic.elastic.present = true;
+    initial_with_elastic.elastic.displacement_k.resize(48U, 0.0f);
+    if (pf_zero_mode::validate_checkpoint(initial_with_elastic, &error)) {
+        std::cerr << "initial zero-step checkpoint accepted elastic warm state\n";
+        return 1;
+    }
+    {
+        std::fstream stream(initial_zero_step_path,
+                            std::ios::in | std::ios::out | std::ios::binary);
+        const std::uint32_t unknown_reserved_bit =
+            pf_zero_mode::kV6InitialZeroStepFlag << 1U;
+        stream.seekp(static_cast<std::streamoff>(
+            offsetof(DiskHeaderV6PrefixForTest, reserved)));
+        stream.write(reinterpret_cast<const char*>(&unknown_reserved_bit),
+                     sizeof(unknown_reserved_bit));
+    }
+    if (pf_zero_mode::read_checkpoint(
+            initial_zero_step_path, initial_zero_step.provenance, &loaded,
+            &error)) {
+        std::cerr << "unknown V6 reserved bit was not rejected\n";
         return 1;
     }
 
@@ -732,6 +819,31 @@ int main() {
                   << "\n";
         return 1;
     }
+    pf_zero_mode::Checkpoint initial_auxiliary = auxiliary_source;
+    initial_auxiliary.accepted_step = 0U;
+    initial_auxiliary.initial_zero_step = true;
+    initial_auxiliary.zero_mode.last_lambda = 0.0;
+    initial_auxiliary.zero_mode.last_residual_code = 0.0;
+    initial_auxiliary.zero_mode.last_derivative_code = 0.0;
+    initial_auxiliary.zero_mode.last_iterations = 0U;
+    initial_auxiliary.zero_mode.accepted_zero_mode_steps = 0U;
+    initial_auxiliary.provenance.elastic_solver_mode =
+        pf_zero_mode::kElasticWarmStartResidualV1;
+    initial_auxiliary.provenance.elastic_solver_fingerprint =
+        0x13579bdf13579bdfULL;
+    if (!pf_zero_mode::write_checkpoint(
+            initial_auxiliary_path, initial_auxiliary, &error) ||
+        !pf_zero_mode::read_checkpoint(
+            initial_auxiliary_path, initial_auxiliary.provenance,
+            &auxiliary_loaded, &error) ||
+        !exact_equal(initial_auxiliary, auxiliary_loaded) ||
+        !auxiliary_loaded.initial_zero_step || !auxiliary_loaded.aux.present ||
+        auxiliary_loaded.aux.gp_bins.size() != 2U ||
+        auxiliary_loaded.aux.beta_subgrid_bins.size() != 1U) {
+        std::cerr << "initial zero-step auxiliary V6 round-trip failed: "
+                  << error << "\n";
+        return 1;
+    }
 
     pf_zero_mode::Checkpoint legacy_v2_source = source;
     legacy_v2_source.provenance.initial_state_class =
@@ -823,6 +935,9 @@ int main() {
     std::remove(path.c_str());
     std::remove(elastic_path.c_str());
     std::remove(auxiliary_path.c_str());
+    std::remove(initial_zero_step_path.c_str());
+    std::remove(initial_auxiliary_path.c_str());
+    std::remove("/tmp/pf_zero_mode_checkpoint_unflagged_zero_step.chk");
     std::remove(legacy_v2_path.c_str());
     std::remove(legacy_v3_path.c_str());
     std::remove(legacy_v4_path.c_str());

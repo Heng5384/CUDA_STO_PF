@@ -26,6 +26,11 @@ constexpr const char* kAuxiliaryInventoryUnitsMolB = "mol_B";
 constexpr const char* kLegacyUnboundValidationContractHash =
     "LEGACY_UNBOUND_VALIDATION_CONTRACT";
 constexpr std::uint32_t kAuxiliaryPopulationSchemaV1 = 1U;
+// V6 retains its on-disk header layout.  Bit 0 of its historical reserved
+// field marks a deliberately zero-step R0 snapshot: fields and frozen
+// auxiliary state have been serialized and checksum-verified, but no PF step
+// (and therefore no elastic warm state) has been accepted yet.
+constexpr std::uint32_t kV6InitialZeroStepFlag = 1U;
 
 struct Provenance {
     std::string zero_mode;
@@ -114,6 +119,10 @@ struct AuxPopulationState {
 
 struct Checkpoint {
     std::uint64_t accepted_step = 0U;
+    // This is serialized in the existing V6 header reserved field.  It is
+    // intentionally distinct from accepted_step==0 so a zero-step snapshot
+    // cannot be mistaken for an ordinary post-step restart.
+    bool initial_zero_step = false;
     int nx = 0;
     int ny = 0;
     int nz = 0;

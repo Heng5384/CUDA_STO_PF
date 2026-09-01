@@ -67,6 +67,8 @@ def records_from_history(solver: KWNSolver, history: Iterable[StepDiagnostics]) 
             "time_h": seconds_to_hours(item.time_s),
             "dt_s": item.dt_s,
             "size_cfl": item.size_cfl,
+            "positivity_utilization": item.positivity_utilization,
+            "roundoff_zeroed_bin_count": float(item.roundoff_zeroed_bin_count),
             "matrix_xB": item.matrix_xb,
             "C_B_total_mol_m3": item.inventory.total_mol_m3,
             "C_B_matrix_mol_m3": item.inventory.matrix_mol_m3,

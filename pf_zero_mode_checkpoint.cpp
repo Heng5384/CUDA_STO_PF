@@ -342,6 +342,10 @@ bool elastic_state_expected(const Provenance& provenance) {
            provenance.elastic_solver_fingerprint != 0U;
 }
 
+bool v6_reserved_bits_are_known(std::uint32_t reserved) {
+    return (reserved & ~kV6InitialZeroStepFlag) == 0U;
+}
+
 bool finite_auxiliary_bin(const AuxiliaryPopulationBin& bin) {
     return std::isfinite(bin.radius_lower_m) &&
            std::isfinite(bin.radius_upper_m) &&
@@ -502,9 +506,38 @@ bool validate_checkpoint(const Checkpoint& checkpoint, std::string* error) {
         checkpoint.provenance.parameter_fingerprint == 0U) {
         return set_error(error, "checkpoint zero-mode provenance is incomplete");
     }
+    if (checkpoint.initial_zero_step) {
+        // R0 is a serialized t=0 state, not a partially accepted physical
+        // step.  Keeping these values exact makes the semantic bit useful to
+        // the restart path instead of merely annotating a file.
+        if (checkpoint.accepted_step != 0U ||
+            checkpoint.zero_mode.accepted_zero_mode_steps != 0U ||
+            checkpoint.zero_mode.last_lambda != 0.0 ||
+            checkpoint.zero_mode.last_residual_code != 0.0 ||
+            checkpoint.zero_mode.last_derivative_code != 0.0 ||
+            checkpoint.zero_mode.last_iterations != 0U) {
+            return set_error(error,
+                             "initial zero-step checkpoint has accepted-step state");
+        }
+    } else if (checkpoint.accepted_step == 0U) {
+        return set_error(error,
+                         "step-zero checkpoint requires the V6 initial-state flag");
+    }
     const bool expects_elastic =
         elastic_state_expected(checkpoint.provenance);
-    if (expects_elastic != checkpoint.elastic.present) {
+    if (checkpoint.initial_zero_step) {
+        // No mechanical solve has been accepted for R0.  The provenance is
+        // retained so the first resumed step uses the exact same solver
+        // contract, but it must cold-start rather than claim a warm state.
+        if (checkpoint.elastic.present ||
+            !checkpoint.elastic.displacement_k.empty() ||
+            checkpoint.elastic.source_field_step != 0U ||
+            checkpoint.elastic.last_iterations != 0U ||
+            checkpoint.elastic.last_relative_residual != 0.0) {
+            return set_error(error,
+                             "initial zero-step checkpoint has elastic warm state");
+        }
+    } else if (expects_elastic != checkpoint.elastic.present) {
         return set_error(
             error,
             "checkpoint elastic state/provenance presence mismatch");
@@ -577,6 +610,9 @@ bool write_checkpoint(const std::string& path, const Checkpoint& checkpoint,
     header.aux_state_present = checkpoint.aux.present ? 1U : 0U;
     header.aux_schema_version = checkpoint.aux.schema_version;
     header.aux_frozen = checkpoint.aux.frozen ? 1U : 0U;
+    header.reserved = checkpoint.initial_zero_step
+                          ? kV6InitialZeroStepFlag
+                          : 0U;
     header.dt_code = checkpoint.dt_code;
     header.temperature_K = checkpoint.temperature_K;
     header.target_mass_code = checkpoint.zero_mode.target_mass_code;
@@ -735,6 +771,7 @@ bool read_checkpoint(const std::string& path,
     std::uint64_t elastic_last_iterations = 0U;
     double elastic_last_relative_residual = 0.0;
     bool has_elastic_state = false;
+    bool initial_zero_step = false;
     std::uint64_t gp_bin_count = 0U;
     std::uint64_t beta_subgrid_bin_count = 0U;
     bool has_auxiliary_state = false;
@@ -749,11 +786,27 @@ bool read_checkpoint(const std::string& path,
         ok = read_exact(fp, &header, sizeof(header));
         const bool header_has_elastic = header.elastic_state_present == 1;
         const bool header_has_auxiliary = header.aux_state_present == 1U;
-        if (!ok || (header.elastic_state_present != 0 &&
+        const bool header_is_initial_zero_step =
+            (header.reserved & kV6InitialZeroStepFlag) != 0U;
+        const bool header_expects_elastic =
+            elastic_state_expected(expected_provenance) &&
+            !header_is_initial_zero_step;
+        if (!ok || !v6_reserved_bits_are_known(header.reserved) ||
+            (header.elastic_state_present != 0 &&
                     header.elastic_state_present != 1) ||
             header.aux_state_present > 1U || header.aux_frozen > 1U ||
-            elastic_state_expected(expected_provenance) !=
-                header_has_elastic ||
+            header_expects_elastic != header_has_elastic ||
+            (header_is_initial_zero_step &&
+             (header.accepted_step != 0U ||
+              header.accepted_zero_mode_steps != 0U ||
+              header.last_lambda != 0.0 ||
+              header.last_residual_code != 0.0 ||
+              header.last_derivative_code != 0.0 ||
+              header.last_iterations != 0U || header_has_elastic ||
+              header.elastic_source_field_step != 0U ||
+              header.elastic_last_iterations != 0U ||
+              header.elastic_last_relative_residual != 0.0)) ||
+            (!header_is_initial_zero_step && header.accepted_step == 0U) ||
             !selector_equal(header.zero_mode,
                             expected_provenance.zero_mode) ||
             !selector_equal(header.backend,
@@ -840,6 +893,7 @@ bool read_checkpoint(const std::string& path,
         elastic_last_iterations = header.elastic_last_iterations;
         elastic_last_relative_residual = header.elastic_last_relative_residual;
         has_elastic_state = header_has_elastic;
+        initial_zero_step = header_is_initial_zero_step;
         expected_checksum = header.payload_checksum;
         header.payload_checksum = 0U;
         checksum = fnv1a64(&header, sizeof(header));
@@ -1146,6 +1200,7 @@ bool read_checkpoint(const std::string& path,
 
     Checkpoint loaded;
     loaded.accepted_step = accepted_step;
+    loaded.initial_zero_step = initial_zero_step;
     loaded.nx = nx;
     loaded.ny = ny;
     loaded.nz = nz;

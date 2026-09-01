@@ -37,6 +37,25 @@
 #include "io_vtk_cuda.h"
 #include "pf_auxiliary_handoff_v2.h"
 #include "pf_zero_mode_checkpoint.h"
+#include "pf_cuda_build_provenance_v1.h"
+
+// This query is intentionally handled before PF parameter loading, CUDA
+// allocation, or any numerical dispatch.  The JSON is generated at build
+// time and compiled into the binary, so a scheduler can bind a submitted
+// executable to its source/contract identity without manufacturing a run.
+static int cuda_build_provenance_requested(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--provenance") == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void write_cuda_build_provenance_json(void) {
+    fputs(PF_CUDA_BUILD_PROVENANCE_JSON, stdout);
+    fputc('\n', stdout);
+}
 
 __global__ void diagnostic_rsmd_gather_double_kernel(const double *src,
                                                      const int *indices,
@@ -22841,6 +22860,11 @@ int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
 
+    if (cuda_build_provenance_requested(argc, argv)) {
+        write_cuda_build_provenance_json();
+        return 0;
+    }
+
     const double wall_t0 = wall_time_sec_monotonic();
 
     // 解析命令行参数
@@ -22877,6 +22901,7 @@ int main(int argc, char **argv) {
     double pf_zero_mode_tolerance_relative = 1.0e-12;
     int pf_zero_mode_max_iterations = 24;
     int pf_checkpoint_every = 0;
+    int pf_initial_checkpoint_only = 0;
     snprintf(pf_zero_mode_selector, sizeof(pf_zero_mode_selector),
              "%s", pf_zero_mode::kModeOff);
     snprintf(pf_zero_mode_backend, sizeof(pf_zero_mode_backend),
@@ -22985,6 +23010,7 @@ int main(int argc, char **argv) {
             printf("  ./main_cuda Nx Ny Nz dt nsteps out_every csv_out_every elastic_enabled(0/1)\n");
             printf("    注: dt 位置参数仅作 legacy 回退；若 --pf-param-file 中提供 dt，则以参数文件为准。\n");
             printf("\nFlags (optional):\n");
+            printf("  --provenance  print embedded controlled-build provenance JSON and exit\n");
             printf("  --mode=dynamics|dynamics-continue|minimize|minimize-continue\n");
             printf("  --pf-param-file <path>  required: load complete physical PF inputs (key=value)\n");
             printf("  --minimize-max-iter <n>\n");
@@ -23041,6 +23067,7 @@ int main(int argc, char **argv) {
             printf("  --pf-zero-mode-max-iter <n>          default 24\n");
             printf("  --pf-checkpoint-every <n>            0 disables periodic checkpoints\n");
             printf("  --pf-checkpoint-path <path>          atomic full-state checkpoint\n");
+            printf("  --pf-initial-checkpoint-only         write/reload an R0 zero-step checkpoint and exit\n");
             printf("  --pf-restart-from <path>             provenance-strict restart\n");
             printf("  --pf-auxiliary-sidecar <path>        frozen compact GP/subgrid storage for a fresh raw-field start\n");
             printf("  --pf-auxiliary-source-handoff-sha256 <hex> expected fixture-conditioned source identity\n");
@@ -23123,6 +23150,10 @@ int main(int argc, char **argv) {
         if ((v = get_flag_value(argc, argv, &i, "--pf-checkpoint-path")) != NULL ||
             (v = get_flag_value(argc, argv, &i, "--pf_checkpoint_path")) != NULL) {
             snprintf(pf_checkpoint_path, sizeof(pf_checkpoint_path), "%s", v);
+            continue;
+        }
+        if (strcmp(argv[i], "--pf-initial-checkpoint-only") == 0) {
+            pf_initial_checkpoint_only = 1;
             continue;
         }
         if ((v = get_flag_value(argc, argv, &i, "--pf-restart-from")) != NULL ||
@@ -25006,6 +25037,17 @@ int main(int argc, char **argv) {
         mechanics_sync_diagnostic_step != 0) {
         fprintf(stderr,
                 "[fatal] --mechanics-sync-diagnostic-step requires an output directory\n");
+        return 2;
+    }
+    if (pf_initial_checkpoint_only &&
+        (!pf_zero_mode_enabled || P.mode != 0 ||
+         pf_checkpoint_path[0] == '\0' || pf_checkpoint_every != 0 ||
+         pf_restart_from[0] != '\0' || mechanics_only_replay_enabled ||
+         mechanics_sync_diagnostic_enabled)) {
+        fprintf(stderr,
+                "[fatal] --pf-initial-checkpoint-only requires fresh "
+                "zero-mode dynamics, --pf-checkpoint-path, no periodic "
+                "checkpointing/restart, and no mechanics replay/diagnostic\n");
         return 2;
     }
     const auto is_lowercase_sha256 = [](const char* value) -> bool {
@@ -28046,6 +28088,8 @@ int main(int argc, char **argv) {
         log_kv_text("checkpoint_auxiliary_Q_B_beta_subgrid_mol", "%.17e",
                     pf_auxiliary_population_state.Q_B_beta_subgrid_mol);
         log_kv_text("accepted_step", "%d", pf_restart_step);
+        log_kv_text("initial_zero_step", "%s",
+                    pf_restart_checkpoint.initial_zero_step ? "true" : "false");
         log_kv_text("zero_mode", "%s",
                     pf_zero_mode_provenance.zero_mode.c_str());
         log_kv_text("backend", "%s",
@@ -28662,52 +28706,67 @@ int main(int argc, char **argv) {
         CUDA_CHECK(cudaMalloc(&d_uyz_k, size_k_float));
 
         if (elastic_accelerated_solver_enabled && pf_restart_loaded) {
-            if (!pf_restart_checkpoint.elastic.present ||
-                pf_restart_checkpoint.elastic.displacement_k.size() !=
-                    static_cast<std::size_t>(6U) *
-                        static_cast<std::size_t>(total_k)) {
-                fprintf(stderr,
-                        "[fatal] accelerated elastic restart lacks the "
-                        "registered V4 warm state\n");
-                return 2;
-            }
-            const float *packed =
-                pf_restart_checkpoint.elastic.displacement_k.data();
-            CUDA_CHECK(cudaMemcpy(
-                d_ux_k, packed, size_k_float, cudaMemcpyHostToDevice));
-            CUDA_CHECK(cudaMemcpy(
-                d_uy_k, packed + 2 * total_k, size_k_float,
-                cudaMemcpyHostToDevice));
-            CUDA_CHECK(cudaMemcpy(
-                d_uz_k, packed + 4 * total_k, size_k_float,
-                cudaMemcpyHostToDevice));
-            elastic_warm_state_valid = 1;
-            elastic_warm_source_field_step =
-                pf_restart_checkpoint.elastic.source_field_step;
-            elastic_last_iterations =
-                pf_restart_checkpoint.elastic.last_iterations;
-            elastic_last_relative_residual =
-                pf_restart_checkpoint.elastic.last_relative_residual;
-            printf("PF_ELASTIC_WARM_STATE_RESTORED "
-                   "accepted_step=%d source_field_step=%llu "
-                   "iterations=%llu residual=%.17e\n",
-                   pf_restart_step,
-                   static_cast<unsigned long long>(
-                       elastic_warm_source_field_step),
-                   static_cast<unsigned long long>(
-                       elastic_last_iterations),
-                   elastic_last_relative_residual);
-            if (mechanics_only_replay_enabled &&
-                mechanics_replay_force_zero_initial) {
+            if (pf_restart_checkpoint.initial_zero_step) {
+                if (mechanics_only_replay_enabled) {
+                    fprintf(stderr,
+                            "[fatal] mechanics-only replay requires an "
+                            "accepted elastic warm state, not an R0 "
+                            "initial checkpoint\n");
+                    return 2;
+                }
                 CUDA_CHECK(cudaMemset(d_ux_k, 0, size_k_float));
                 CUDA_CHECK(cudaMemset(d_uy_k, 0, size_k_float));
                 CUDA_CHECK(cudaMemset(d_uz_k, 0, size_k_float));
-                elastic_warm_state_valid = 0;
-                elastic_warm_source_field_step = 0U;
-                elastic_last_iterations = 0U;
-                elastic_last_relative_residual = NAN;
-                printf("PF_ELASTIC_REPLAY_INITIALIZATION_ZERO accepted_step=%d\n",
-                       pf_restart_step);
+                printf("PF_ELASTIC_R0_RESTART_COLD_START accepted_step=0 "
+                       "warm_state_restored=false\n");
+            } else {
+                if (!pf_restart_checkpoint.elastic.present ||
+                    pf_restart_checkpoint.elastic.displacement_k.size() !=
+                        static_cast<std::size_t>(6U) *
+                            static_cast<std::size_t>(total_k)) {
+                    fprintf(stderr,
+                            "[fatal] accelerated elastic restart lacks the "
+                            "registered V6 warm state\n");
+                    return 2;
+                }
+                const float *packed =
+                    pf_restart_checkpoint.elastic.displacement_k.data();
+                CUDA_CHECK(cudaMemcpy(
+                    d_ux_k, packed, size_k_float, cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(
+                    d_uy_k, packed + 2 * total_k, size_k_float,
+                    cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(
+                    d_uz_k, packed + 4 * total_k, size_k_float,
+                    cudaMemcpyHostToDevice));
+                elastic_warm_state_valid = 1;
+                elastic_warm_source_field_step =
+                    pf_restart_checkpoint.elastic.source_field_step;
+                elastic_last_iterations =
+                    pf_restart_checkpoint.elastic.last_iterations;
+                elastic_last_relative_residual =
+                    pf_restart_checkpoint.elastic.last_relative_residual;
+                printf("PF_ELASTIC_WARM_STATE_RESTORED "
+                       "accepted_step=%d source_field_step=%llu "
+                       "iterations=%llu residual=%.17e\n",
+                       pf_restart_step,
+                       static_cast<unsigned long long>(
+                           elastic_warm_source_field_step),
+                       static_cast<unsigned long long>(
+                           elastic_last_iterations),
+                       elastic_last_relative_residual);
+                if (mechanics_only_replay_enabled &&
+                    mechanics_replay_force_zero_initial) {
+                    CUDA_CHECK(cudaMemset(d_ux_k, 0, size_k_float));
+                    CUDA_CHECK(cudaMemset(d_uy_k, 0, size_k_float));
+                    CUDA_CHECK(cudaMemset(d_uz_k, 0, size_k_float));
+                    elastic_warm_state_valid = 0;
+                    elastic_warm_source_field_step = 0U;
+                    elastic_last_iterations = 0U;
+                    elastic_last_relative_residual = NAN;
+                    printf("PF_ELASTIC_REPLAY_INITIALIZATION_ZERO accepted_step=%d\n",
+                           pf_restart_step);
+                }
             }
         }
 
@@ -28792,6 +28851,105 @@ int main(int argc, char **argv) {
                pf_zero_mode_runtime.target_mass_code,
                static_cast<unsigned long long>(
                    pf_zero_mode_provenance.parameter_fingerprint));
+    }
+    if (pf_initial_checkpoint_only) {
+        // R0 intentionally serializes the fully materialized t=0 fields and
+        // frozen auxiliary ledger before the first PF or elastic step.  The
+        // V6 semantic bit records that no elastic warm state exists yet; a
+        // later normal restart must cold-start that solver at step 1.
+        const double checkpoint_t0 = wall_time_sec_monotonic();
+        pf_zero_mode::Checkpoint checkpoint;
+        checkpoint.accepted_step = 0U;
+        checkpoint.initial_zero_step = true;
+        checkpoint.nx = P.Nx;
+        checkpoint.ny = P.Ny;
+        checkpoint.nz = P.Nz;
+        checkpoint.dt_code = P.dt;
+        checkpoint.temperature_K = P.temperature_C + 273.15;
+        checkpoint.provenance = pf_zero_mode_provenance;
+        checkpoint.zero_mode = pf_zero_mode_runtime;
+        checkpoint.aux = pf_auxiliary_population_state;
+        checkpoint.phi.resize(static_cast<std::size_t>(total_r));
+        checkpoint.Y.resize(static_cast<std::size_t>(total_r));
+        checkpoint.xB.resize(static_cast<std::size_t>(total_r));
+        checkpoint.dY_dt_prev.resize(static_cast<std::size_t>(total_r));
+        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaMemcpy(checkpoint.phi.data(), d_phi_r, size_r,
+                              cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(checkpoint.Y.data(), d_Y_r, size_r,
+                              cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(checkpoint.xB.data(), d_xB_r, size_r,
+                              cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(checkpoint.dY_dt_prev.data(), d_dY_dt_prev_r,
+                              size_r, cudaMemcpyDeviceToHost));
+        std::string checkpoint_error;
+        if (!pf_zero_mode::write_checkpoint(pf_checkpoint_path, checkpoint,
+                                            &checkpoint_error)) {
+            fprintf(stderr,
+                    "[fatal] PF R0 initial checkpoint write failed: %s\n",
+                    checkpoint_error.c_str());
+            return 2;
+        }
+        pf_zero_mode::Checkpoint reloaded;
+        if (!pf_zero_mode::read_checkpoint(pf_checkpoint_path,
+                                           pf_zero_mode_provenance,
+                                           &reloaded, &checkpoint_error)) {
+            fprintf(stderr,
+                    "[fatal] PF R0 initial checkpoint reload failed: %s\n",
+                    checkpoint_error.c_str());
+            return 2;
+        }
+        const bool fields_match =
+            reloaded.phi == checkpoint.phi && reloaded.Y == checkpoint.Y &&
+            reloaded.xB == checkpoint.xB &&
+            reloaded.dY_dt_prev == checkpoint.dY_dt_prev;
+        const bool auxiliary_metadata_match =
+            reloaded.aux.present == checkpoint.aux.present &&
+            reloaded.aux.state == checkpoint.aux.state &&
+            reloaded.aux.validation_contract_hash ==
+                checkpoint.aux.validation_contract_hash &&
+            reloaded.aux.source_handoff_hash ==
+                checkpoint.aux.source_handoff_hash &&
+            reloaded.aux.package_handoff_hash ==
+                checkpoint.aux.package_handoff_hash &&
+            reloaded.aux.gp_bins.size() == checkpoint.aux.gp_bins.size() &&
+            reloaded.aux.beta_subgrid_bins.size() ==
+                checkpoint.aux.beta_subgrid_bins.size() &&
+            pf_zero_mode::auxiliary_total_inventory_mol(reloaded.aux) ==
+                pf_zero_mode::auxiliary_total_inventory_mol(checkpoint.aux);
+        if (!reloaded.initial_zero_step || reloaded.accepted_step != 0U ||
+            reloaded.zero_mode.accepted_zero_mode_steps != 0U ||
+            reloaded.elastic.present ||
+            reloaded.provenance.validation_contract_hash !=
+                PF_KWN_VALIDATION_CONTRACT_HASH ||
+            !fields_match || !auxiliary_metadata_match) {
+            fprintf(stderr,
+                    "[fatal] PF R0 initial checkpoint round-trip did not "
+                    "preserve the zero-step state\n");
+            return 2;
+        }
+        log_section_header("PF Zero-Mode R0 Initial Checkpoint");
+        log_kv_text("checkpoint", "%s", pf_checkpoint_path);
+        log_kv_text("accepted_step", "%d", 0);
+        log_kv_text("initial_zero_step", "%s", "true");
+        log_kv_text("payload_checksum_verified", "%s", "true");
+        log_kv_text("validation_contract_hash", "%s",
+                    PF_KWN_VALIDATION_CONTRACT_HASH);
+        log_kv_text("auxiliary_state", "%s", checkpoint.aux.state.c_str());
+        log_kv_text("auxiliary_package_hash", "%s",
+                    checkpoint.aux.package_handoff_hash.c_str());
+        log_kv_text("auxiliary_Q_B_GP_mol", "%.17e",
+                    checkpoint.aux.Q_B_GP_mol);
+        log_kv_text("auxiliary_Q_B_beta_subgrid_mol", "%.17e",
+                    checkpoint.aux.Q_B_beta_subgrid_mol);
+        printf("PF_ZERO_MODE_R0_INITIAL_CHECKPOINT_PASS "
+               "path=%s accepted_step=0 payload_checksum_verified=true "
+               "fields_exact=true auxiliary_metadata_exact=true "
+               "validation_contract_hash=%s checkpoint_wall_s=%.9f\n",
+               pf_checkpoint_path, PF_KWN_VALIDATION_CONTRACT_HASH,
+               wall_time_sec_monotonic() - checkpoint_t0);
+        fflush(stdout);
+        return 0;
     }
     if (minimize_mass_constraint_enabled) {
         const double current_mass_code =

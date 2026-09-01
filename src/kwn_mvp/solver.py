@@ -44,6 +44,8 @@ class SolverConfig:
     max_dt_s: float
     min_dt_s: float
     size_cfl: float
+    positivity_safety: float
+    cfl_active_inventory_relative_threshold: float
     rmax_outflow_relative_tolerance: float
     thermo_mode: str
     planar_reference_xb: float | None
@@ -106,6 +108,16 @@ class SolverConfig:
         initial_xb = require_number(matrix, "initial_xB")
         if not 0.0 <= initial_xb <= 1.0:
             raise ConfigurationError("matrix.initial_xB must be in [0, 1]")
+        positivity_safety = float(simulation.get("positivity_safety", 0.95))
+        if not 0.0 < positivity_safety <= 1.0:
+            raise ConfigurationError("simulation.positivity_safety must lie in (0, 1]")
+        cfl_support_threshold = float(
+            simulation.get("cfl_active_inventory_relative_threshold", 1.0e-30)
+        )
+        if not 0.0 < cfl_support_threshold <= 1.0:
+            raise ConfigurationError(
+                "simulation.cfl_active_inventory_relative_threshold must lie in (0, 1]"
+            )
         return cls(
             temperature_k=temperature,
             grid=grid,
@@ -116,6 +128,8 @@ class SolverConfig:
             max_dt_s=require_number(simulation, "max_dt_s", positive=True),
             min_dt_s=require_number(simulation, "min_dt_s", positive=True),
             size_cfl=require_number(simulation, "size_cfl", positive=True),
+            positivity_safety=positivity_safety,
+            cfl_active_inventory_relative_threshold=cfl_support_threshold,
             rmax_outflow_relative_tolerance=require_number(
                 simulation, "rmax_outflow_relative_tolerance", positive=True
             ),
@@ -158,6 +172,8 @@ class StepDiagnostics:
     time_s: float
     dt_s: float
     size_cfl: float
+    positivity_utilization: float
+    roundoff_zeroed_bin_count: int
     matrix_xb: float
     inventory: InventorySnapshot
     gp_nucleation_rate_m3_s: float
@@ -231,6 +247,10 @@ class KWNSolver:
 
         if not 0.0 < config.size_cfl <= 0.4:
             raise ConfigurationError("size_cfl must lie in (0, 0.4] for positivity preservation")
+        if not 0.0 < config.positivity_safety <= 1.0:
+            raise ConfigurationError("positivity_safety must lie in (0, 1]")
+        if not 0.0 < config.cfl_active_inventory_relative_threshold <= 1.0:
+            raise ConfigurationError("cfl_active_inventory_relative_threshold must lie in (0, 1]")
         if config.min_dt_s > config.max_dt_s:
             raise ConfigurationError("min_dt_s cannot exceed max_dt_s")
         self.config = config
@@ -262,6 +282,7 @@ class KWNSolver:
         self.ledger.snapshot(matrix_xb=self.matrix_xb, populations=self.population_list())
         self.time_s = 0.0
         self.step = 0
+        self.roundoff_zeroed_bin_count = 0
         self.history: List[StepDiagnostics] = []
 
     @classmethod
@@ -335,24 +356,51 @@ class KWNSolver:
             )
         return rates
 
-    def _choose_dt(self, velocities: Mapping[str, NDArray[np.float64]], maximum_s: float | None) -> Tuple[float, float]:
-        """Choose a CFL-limited adaptive macro-step and report its actual CFL."""
+    @staticmethod
+    def _upwind_face_fluxes(
+        density_per_m4: NDArray[np.float64], velocity_m_s: NDArray[np.float64]
+    ) -> NDArray[np.float64]:
+        """Return the exact first-order face fluxes used by the FV update."""
+
+        faces = np.empty(density_per_m4.size + 1, dtype=np.float64)
+        faces[0] = (
+            velocity_m_s[0] * density_per_m4[0] if velocity_m_s[0] < 0.0 else 0.0
+        )
+        internal_velocity = 0.5 * (velocity_m_s[:-1] + velocity_m_s[1:])
+        faces[1:-1] = np.where(
+            internal_velocity >= 0.0,
+            internal_velocity * density_per_m4[:-1],
+            internal_velocity * density_per_m4[1:],
+        )
+        faces[-1] = (
+            velocity_m_s[-1] * density_per_m4[-1] if velocity_m_s[-1] > 0.0 else 0.0
+        )
+        return faces
+
+    def _choose_dt(
+        self, velocities: Mapping[str, NDArray[np.float64]], maximum_s: float | None
+    ) -> Tuple[float, float]:
+        """Choose a CFL-limited adaptive macro-step for the active PSD support."""
 
         cfl_rates: List[float] = []
         for name, velocity in velocities.items():
             population = self.populations[name]
             cell_number = population.number_density_per_m4 * population.grid.widths_m
-            total_number = float(np.sum(cell_number))
-            if total_number == 0.0:
+            cell_volume = cell_number * (4.0 * np.pi / 3.0) * population.grid.centres_m**3
+            total_volume = float(np.sum(cell_volume))
+            if total_volume == 0.0:
                 continue
-            # Empty/round-off cells do not carry a flux and must not force an
-            # artificial micro-step merely because Gibbs--Thomson velocity is
-            # large at an unused Rmin.  The threshold is relative to the
-            # represented population and has no mass-correction role.
-            active = cell_number > max(total_number * 1.0e-30, 1.0e-300)
-            # Include immediate receivers/donors at each active face.  This
-            # retains the positivity guarantee while avoiding unused Rmin/Rmax
-            # velocities imposing a CFL restriction on an empty population.
+            # The CFL support is based on conserved precipitate volume, not
+            # particle count: a numerically transported tiny-radius tail can
+            # carry many count-weighted particles but negligible inventory.
+            # It remains in the conservative face update; it simply cannot
+            # impose a global timestep unrelated to its B inventory.
+            active = cell_volume > max(
+                total_volume * self.config.cfl_active_inventory_relative_threshold, 1.0e-300
+            )
+            # Include immediate receivers/donors at each active face.  The
+            # conservative face limiter below protects the tiny transported
+            # tails that are intentionally excluded from this support test.
             active[:-1] |= active[1:]
             active[1:] |= active[:-1]
             if np.any(active):
@@ -362,9 +410,10 @@ class KWNSolver:
         max_rate = max(cfl_rates, default=0.0)
         cap = self.config.max_dt_s if maximum_s is None else min(self.config.max_dt_s, maximum_s)
         if max_rate == 0.0:
-            dt = cap
-            return dt, 0.0
-        dt = min(cap, self.config.size_cfl / max_rate)
+            cfl_dt = cap
+        else:
+            cfl_dt = min(cap, self.config.size_cfl / max_rate)
+        dt = cfl_dt
         if dt < self.config.min_dt_s:
             raise SolverStateError(
                 f"CFL-limited step {dt:.3e} s is below configured min_dt_s={self.config.min_dt_s:.3e} s"
@@ -372,9 +421,66 @@ class KWNSolver:
         cfl = max_rate * dt
         return dt, cfl
 
+    def _limit_outgoing_face_fluxes(
+        self,
+        *,
+        density_per_m4: NDArray[np.float64],
+        widths_m: NDArray[np.float64],
+        raw_faces_m3_s: NDArray[np.float64],
+        dt_s: float,
+        population_name: str,
+    ) -> Tuple[NDArray[np.float64], float]:
+        """Limit each donor's total outgoing flux without breaking face conservation.
+
+        The raw upwind face values are first assigned to their unique donor.
+        Every donor's outward faces receive one common scale so at most
+        ``positivity_safety`` of that cell's available population leaves in a
+        macro-step.  An internal face is still represented by exactly one
+        limited value in both adjacent updates, hence the limiter does not
+        create or destroy particle inventory.  It is not a negative-bin clamp.
+        """
+
+        if dt_s <= 0.0:
+            raise SolverStateError("finite-volume limiter requires a positive timestep")
+        cell_number = density_per_m4 * widths_m
+        outgoing = np.maximum(raw_faces_m3_s[1:], 0.0) + np.maximum(
+            -raw_faces_m3_s[:-1], 0.0
+        )
+        active = outgoing > 0.0
+        if np.any(cell_number[active] <= 0.0):
+            raise SolverStateError(
+                f"{population_name} has outgoing finite-volume flux without an available donor population"
+            )
+        donor_scale = np.ones_like(cell_number)
+        with np.errstate(over="ignore", under="ignore", divide="ignore", invalid="ignore"):
+            donor_dt_limit = cell_number[active] / outgoing[active]
+            donor_scale[active] = np.minimum(
+                1.0, self.config.positivity_safety * donor_dt_limit / dt_s
+            )
+        face_scale = np.ones_like(raw_faces_m3_s)
+        if raw_faces_m3_s[0] < 0.0:
+            face_scale[0] = donor_scale[0]
+        internal = raw_faces_m3_s[1:-1]
+        face_scale[1:-1] = np.where(
+            internal >= 0.0,
+            donor_scale[:-1],
+            donor_scale[1:],
+        )
+        if raw_faces_m3_s[-1] > 0.0:
+            face_scale[-1] = donor_scale[-1]
+        limited = raw_faces_m3_s * face_scale
+        limited_outgoing = np.maximum(limited[1:], 0.0) + np.maximum(-limited[:-1], 0.0)
+        utilization = np.divide(
+            dt_s * limited_outgoing,
+            cell_number,
+            out=np.zeros_like(cell_number),
+            where=cell_number > 0.0,
+        )
+        return limited, float(np.max(utilization))
+
     def _advect_population(
         self, population: Population, velocity_m_s: NDArray[np.float64], dt_s: float
-    ) -> Tuple[float, float]:
+    ) -> Tuple[float, float, float, int]:
         """Apply one first-order upwind finite-volume update.
 
         Returns lower-boundary dissolution and Rmax outflow number fluxes in
@@ -383,24 +489,24 @@ class KWNSolver:
 
         density = population.number_density_per_m4
         widths = population.grid.widths_m
-        faces = np.empty(population.grid.bins + 1, dtype=np.float64)
-        faces[0] = velocity_m_s[0] * density[0] if velocity_m_s[0] < 0.0 else 0.0
-        internal_velocity = 0.5 * (velocity_m_s[:-1] + velocity_m_s[1:])
-        faces[1:-1] = np.where(
-            internal_velocity >= 0.0,
-            internal_velocity * density[:-1],
-            internal_velocity * density[1:],
-        )
-        faces[-1] = velocity_m_s[-1] * density[-1] if velocity_m_s[-1] > 0.0 else 0.0
-        lower_dissolution_flux = max(-faces[0], 0.0)
-        rmax_outflow_flux = max(faces[-1], 0.0)
+        raw_faces = self._upwind_face_fluxes(density, velocity_m_s)
+        raw_rmax_outflow_flux = max(raw_faces[-1], 0.0)
         existing_number = max(population.number_density_m3(), 1.0e-300)
-        relative_outflow = rmax_outflow_flux * dt_s / existing_number
+        relative_outflow = raw_rmax_outflow_flux * dt_s / existing_number
         if relative_outflow > self.config.rmax_outflow_relative_tolerance:
             raise RadiusGridOverflowError(
                 f"{population.parameters.name} would lose {relative_outflow:.3e} of its number density "
                 "through Rmax. Expand the configured radius grid; material was not discarded."
             )
+        faces, positivity_utilization = self._limit_outgoing_face_fluxes(
+            density_per_m4=density,
+            widths_m=widths,
+            raw_faces_m3_s=raw_faces,
+            dt_s=dt_s,
+            population_name=population.parameters.name,
+        )
+        lower_dissolution_flux = max(-faces[0], 0.0)
+        rmax_outflow_flux = max(faces[-1], 0.0)
         updated = density - dt_s * (faces[1:] - faces[:-1]) / widths
         roundoff_floor = -1.0e-280
         if np.any(updated < roundoff_floor) or not np.all(np.isfinite(updated)):
@@ -408,9 +514,11 @@ class KWNSolver:
                 f"{population.parameters.name} finite-volume update violated positivity or finiteness"
             )
         # Only eliminate subnormal round-off; this is not a mass-correction path.
-        updated[(updated < 0.0) & (updated >= roundoff_floor)] = 0.0
+        roundoff_mask = (updated < 0.0) & (updated >= roundoff_floor)
+        roundoff_zeroed = int(np.count_nonzero(roundoff_mask))
+        updated[roundoff_mask] = 0.0
         population.number_density_per_m4[:] = updated
-        return lower_dissolution_flux, rmax_outflow_flux
+        return lower_dissolution_flux, rmax_outflow_flux, positivity_utilization, roundoff_zeroed
 
     def _inject_nucleation(self, population: Population, result: NucleationResult, dt_s: float) -> None:
         """Insert a source into one finite-volume bin; mass is drawn via the ledger."""
@@ -440,10 +548,17 @@ class KWNSolver:
         )
         lower_flux = 0.0
         upper_flux = 0.0
+        positivity_utilization = 0.0
+        roundoff_zeroed_bin_count = 0
         for name in ("g", "beta"):
-            lower, upper = self._advect_population(self.populations[name], velocities[name], dt_s)
+            lower, upper, utilization, zeroed = self._advect_population(
+                self.populations[name], velocities[name], dt_s
+            )
             lower_flux += lower
             upper_flux += upper
+            positivity_utilization = max(positivity_utilization, utilization)
+            roundoff_zeroed_bin_count += zeroed
+        self.roundoff_zeroed_bin_count += roundoff_zeroed_bin_count
         self._inject_nucleation(self.populations["g"], g_source, dt_s)
         self._inject_nucleation(self.populations["beta"], beta_source, dt_s)
         state_changed = (
@@ -464,6 +579,8 @@ class KWNSolver:
             time_s=self.time_s,
             dt_s=dt_s,
             size_cfl=cfl,
+            positivity_utilization=positivity_utilization,
+            roundoff_zeroed_bin_count=roundoff_zeroed_bin_count,
             matrix_xb=self.matrix_xb,
             inventory=inventory,
             gp_nucleation_rate_m3_s=g_source.rate_m3_s,

@@ -1,6 +1,7 @@
 # CUDA相场模拟Makefile
 NVCC = nvcc
 CUDA_ROOT ?= /usr/local/cuda-12.9
+CXX ?= c++
 
 # 编译选项
 # 默认架构：RTX 5080 (compute capability 12.0) -> sm_120
@@ -12,6 +13,40 @@ INCLUDES = -I$(CUDA_ROOT)/include
 LDFLAGS = -L$(CUDA_ROOT)/lib64
 LDLIBS = -lcufft -lcudart -lm
 
+# Build-time identity for the 96^3 CUDA validation control.  The ordinary
+# target remains usable for local debugging, but its embedded record is marked
+# uncontrolled.  Only `make controlled_cuda` accepts a clean source tree and
+# emits a manifest that binds the final binary SHA-256.
+CONTRACT_JSON = contracts/pf_kwn_validation_contract_v1.json
+CONTRACT_HEADER = generated/pf_kwn_validation_contract_v1.h
+VALIDATION_FIXTURE_SPEC = data/qualification/pf_mass_conserving_library_handoff_v1/six_particle_96cube_spec.json
+CUDA_BUILD_PROVENANCE_GENERATOR = tools/generate_pf_cuda_build_provenance.py
+CUDA_BUILD_PROVENANCE_FINALIZER = tools/finalize_pf_cuda_build_provenance.py
+CUDA_BUILD_PRECISION ?= IEEE754_BINARY64
+CUDA_DEFAULT_PROVENANCE_DIR ?= build/pf_cuda_default_provenance
+CUDA_DEFAULT_PROVENANCE_HEADER = $(CUDA_DEFAULT_PROVENANCE_DIR)/pf_cuda_build_provenance_v1.h
+CUDA_DEFAULT_PROVENANCE_JSON = $(CUDA_DEFAULT_PROVENANCE_DIR)/main_cuda.provenance.json
+CUDA_CONTROLLED_BUILD_DIR ?= build/pf_cuda_validation_controlled
+CUDA_CONTROLLED_BIN = $(CUDA_CONTROLLED_BUILD_DIR)/main_cuda
+CUDA_CONTROLLED_PROVENANCE_HEADER = $(CUDA_CONTROLLED_BUILD_DIR)/pf_cuda_build_provenance_v1.h
+CUDA_CONTROLLED_PROVENANCE_JSON = $(CUDA_CONTROLLED_BUILD_DIR)/main_cuda.provenance.json
+CUDA_CONTROLLED_MANIFEST = $(CUDA_CONTROLLED_BUILD_DIR)/controlled_binary_manifest.json
+
+CUDA_PROVENANCE_COMMON_ARGS = \
+	--source-root . \
+	--contract $(CONTRACT_JSON) \
+	--contract-header $(CONTRACT_HEADER) \
+	--fixture-spec $(VALIDATION_FIXTURE_SPEC) \
+	--nvcc "$(NVCC)" \
+	--host-cxx "$(CXX)" \
+	--cuda-root "$(CUDA_ROOT)" \
+	--cuda-arch "$(CUDA_ARCH)" \
+	--nvccflags="$(NVCCFLAGS)" \
+	--includes="$(INCLUDES)" \
+	--ldflags="$(LDFLAGS)" \
+	--ldlibs="$(LDLIBS)" \
+	--precision "$(CUDA_BUILD_PRECISION)"
+
 # 目标程序
 BIN_MAIN = main_cuda
 BIN_TEST = test_memory_ledger
@@ -21,13 +56,13 @@ SRC_MAIN = main_cuda.cu cuda_kernels.cu cuda_common.cu pf_zero_mode_checkpoint.c
 SRC_TEST = test_memory_ledger.cu
 
 # 头文件
-HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h pf_zero_mode_checkpoint.h pf_auxiliary_handoff_v2.h generated/pf_kwn_validation_contract_v1.h
+HDR = cuda_common.h cuda_kernels.h pf_params.h phase_functions.h thermo_utils.h io_vtk_cuda.h pf_zero_mode_checkpoint.h pf_auxiliary_handoff_v2.h $(CONTRACT_HEADER)
 
 BIN_ZERO_MODE_CHECKPOINT_TEST = test_pf_zero_mode_checkpoint_bin
 BIN_THERMO_PROBE = pf_thermo_probe
 BIN_AUXILIARY_HANDOFF_V2_TEST = test_pf_auxiliary_handoff_v2_bin
 
-.PHONY: all clean test test_circle test_pf_zero_mode_checkpoint test_pf_thermo_probe test_pf_auxiliary_handoff_v2 help
+.PHONY: all clean test test_circle test_pf_zero_mode_checkpoint test_pf_thermo_probe test_pf_auxiliary_handoff_v2 controlled_cuda test_pf_cuda_build_provenance FORCE help
 
 all: $(BIN_MAIN)
 
@@ -39,14 +74,45 @@ help:
 	@echo "  make test_pf_zero_mode_checkpoint # host-only restart provenance test"
 	@echo "  make test_pf_thermo_probe # build generated-contract host thermo probe"
 	@echo "  make test_pf_auxiliary_handoff_v2 # host-only compact v2 auxiliary-state materializer"
+	@echo "  make controlled_cuda     # clean-source CUDA binary plus SHA-bound manifest"
+	@echo "  make test_pf_cuda_build_provenance # host-only provenance generator check"
 	@echo ""
 	@echo "Variables:"
 	@echo "  CUDA_ROOT=/usr/local/cuda-12.9 # CUDA toolkit path (must contain include/ and lib64/)"
 	@echo "  CUDA_ARCH=sm_120              # GPU arch, e.g. sm_120 for RTX 5080"
+	@echo "  CUDA_CONTROLLED_BUILD_DIR=build/pf_cuda_validation_controlled # controlled artifact directory"
+
+$(CONTRACT_HEADER): $(CONTRACT_JSON) tools/generate_pf_contract_header.py
+	@mkdir -p generated
+	python3 tools/generate_pf_contract_header.py --contract $(CONTRACT_JSON) --header $@
 
 # 主程序
 $(BIN_MAIN): $(SRC_MAIN) $(HDR)
-	$(NVCC) $(NVCCFLAGS) $(INCLUDES) -o $@ $(SRC_MAIN) $(LDFLAGS) $(LDLIBS)
+	@mkdir -p $(CUDA_DEFAULT_PROVENANCE_DIR)
+	python3 $(CUDA_BUILD_PROVENANCE_GENERATOR) $(CUDA_PROVENANCE_COMMON_ARGS) \
+		--output-header $(CUDA_DEFAULT_PROVENANCE_HEADER) \
+		--output-json $(CUDA_DEFAULT_PROVENANCE_JSON)
+	$(NVCC) $(NVCCFLAGS) -I$(CUDA_DEFAULT_PROVENANCE_DIR) $(INCLUDES) -o $@ $(SRC_MAIN) $(LDFLAGS) $(LDLIBS)
+
+controlled_cuda: $(CUDA_CONTROLLED_BIN)
+
+$(CUDA_CONTROLLED_BIN): FORCE $(SRC_MAIN) $(HDR) $(CUDA_BUILD_PROVENANCE_GENERATOR) $(CUDA_BUILD_PROVENANCE_FINALIZER)
+	@mkdir -p $(CUDA_CONTROLLED_BUILD_DIR)
+	python3 $(CUDA_BUILD_PROVENANCE_GENERATOR) $(CUDA_PROVENANCE_COMMON_ARGS) \
+		--output-header $(CUDA_CONTROLLED_PROVENANCE_HEADER) \
+		--output-json $(CUDA_CONTROLLED_PROVENANCE_JSON) \
+		--require-clean
+	$(NVCC) $(NVCCFLAGS) -I$(CUDA_CONTROLLED_BUILD_DIR) $(INCLUDES) -o $@ $(SRC_MAIN) $(LDFLAGS) $(LDLIBS)
+	python3 $(CUDA_BUILD_PROVENANCE_FINALIZER) \
+		--binary $@ \
+		--build-provenance $(CUDA_CONTROLLED_PROVENANCE_JSON) \
+		--build-header $(CUDA_CONTROLLED_PROVENANCE_HEADER) \
+		--output $(CUDA_CONTROLLED_MANIFEST)
+
+test_pf_cuda_build_provenance:
+	python3 tools/test_pf_cuda_build_provenance.py
+
+FORCE:
 
 # 测试程序：当前使用不依赖 GPU 运行时的显存账本 smoke test
 $(BIN_TEST): $(SRC_TEST)
