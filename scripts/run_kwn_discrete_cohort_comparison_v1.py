@@ -51,6 +51,9 @@ PRIMARY_METRICS = (
 SMOOTH_TIMES_H = (0.0, 0.1, 1.0, 3.0, 6.0, 12.0, 24.0, 48.0)
 EXACT_TIMES_H = (0.0, 0.01, 0.1, 0.39317699499770825, 1.0, 3.0, 6.0, 12.0, 24.0, 48.0)
 PF_REQUESTED_TIMES_H = (0.0, 0.1, 1.0, 3.0, 6.0, 12.0, 24.0, 48.0)
+SMOOTH_COHORT_COUNTS = (400, 800, 1600, 3200)
+CONTINUOUS_RELATIVE_GATE = 0.02
+NEAR_ZERO_CUMULATIVE_TOTAL_INVENTORY_GATE = 1.0e-10
 HUMAN_GATE_EXPECTED = {
     "LEGACY_SIX_PARTICLE_EULERIAN_P5": "FAIL_RETAINED",
     "SMOOTH_POPULATION_EULERIAN_P5": "ACCEPTED_AS_KWN_POPULATION_BACKEND_QUALIFICATION",
@@ -132,6 +135,30 @@ def _float(value: str | float | int | None) -> float:
     if value in (None, ""):
         return float("nan")
     return float(value)
+
+
+def _smooth_crosscheck_metric_gate(
+    metric: str, left: float, right: float, *, total_inventory_mol_m3: float
+) -> dict[str, Any]:
+    """Use relative error except for a cumulative quantity at its zero limit."""
+
+    relative_error = _relative_error(left, right)
+    absolute_over_total_inventory = (
+        abs(left - right) / max(abs(total_inventory_mol_m3), 1.0e-300)
+        if metric == "cumulative_dissolution_inventory_mol_m3"
+        else None
+    )
+    zero_safe = (
+        metric == "cumulative_dissolution_inventory_mol_m3"
+        and absolute_over_total_inventory is not None
+        and absolute_over_total_inventory <= NEAR_ZERO_CUMULATIVE_TOTAL_INVENTORY_GATE
+    )
+    return {
+        "relative_error": relative_error,
+        "absolute_difference_over_total_inventory": absolute_over_total_inventory,
+        "gate_method": "total_inventory_zero_safe" if zero_safe else "relative_2_percent",
+        "pass": relative_error <= CONTINUOUS_RELATIVE_GATE or zero_safe,
+    }
 
 
 def _load_radius_audit_module() -> Any:
@@ -1162,7 +1189,7 @@ def _legacy_smooth_row(legacy_root: Path, target_time_h: float, *, bins: int) ->
 def _legacy_smooth_psd(legacy_root: Path, target_time_h: float, *, bins: int) -> tuple[np.ndarray, np.ndarray]:
     path = legacy_root / "runs" / f"ladder_smooth_{bins}_uniform" / "psd_snapshots.npz"
     with np.load(path) as archive:
-        times = np.asarray(archive["target_time_h"], dtype=np.float64)
+        times = np.asarray(archive["time_h"], dtype=np.float64)
         matches = np.flatnonzero(np.isclose(times, target_time_h, rtol=0.0, atol=1.0e-12))
         if matches.size != 1:
             raise RuntimeError(f"smooth {bins} PSD lacks unique {target_time_h} h snapshot")
@@ -1214,7 +1241,7 @@ def _cohort_eulerian_smooth_crosscheck(
     trajectories: dict[int, dict[float, CohortSnapshot]] = {}
     metadata: dict[int, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
-    for count in (400, 800, 1600):
+    for count in SMOOTH_COHORT_COUNTS:
         solver, meta = _smooth_quadrature_cohorts(audit, count, authority_grid=authority_grid)
         snapshots, _, trajectory_cohort_rows = _run_cohort_trajectory(
             solver, SMOOTH_TIMES_H, cohort_count=count
@@ -1259,6 +1286,12 @@ def _cohort_eulerian_smooth_crosscheck(
                     eulerian_value = float(legacy_eulerian[eulerian_key])
                 else:
                     eulerian_value = float(eulerian[eulerian_key])
+                gate = _smooth_crosscheck_metric_gate(
+                    metric,
+                    float(cohort_value),
+                    eulerian_value,
+                    total_inventory_mol_m3=float(legacy_eulerian["total_inventory_mol_m3"]),
+                )
                 rows.append(
                     {
                         "record_type": "cohort_vs_eulerian",
@@ -1267,7 +1300,7 @@ def _cohort_eulerian_smooth_crosscheck(
                         "metric": metric,
                         "cohort_value": cohort_value,
                         "eulerian_authority_value": eulerian_value,
-                        "relative_error": _relative_error(cohort_value, eulerian_value),
+                        **gate,
                         "cohort_inventory_relative_residual": snapshot.inventory_relative_residual,
                     }
                 )
@@ -1307,11 +1340,22 @@ def _cohort_eulerian_smooth_crosscheck(
         "Rmean_m", "Rmean3_m3", "Sv_m_inv", "f_beta", "matrix_xB",
         "cumulative_dissolution_inventory_mol_m3",
     }
-    for coarse_count, fine_count in ((400, 800), (800, 1600)):
+    for coarse_count, fine_count in zip(SMOOTH_COHORT_COUNTS, SMOOTH_COHORT_COUNTS[1:]):
         for time_h in SMOOTH_TIMES_H:
             coarse = trajectories[coarse_count][time_h]
             fine = trajectories[fine_count][time_h]
             for metric in refinement_metrics:
+                coarse_value = float(getattr(coarse, metric))
+                fine_value = float(getattr(fine, metric))
+                gate = _smooth_crosscheck_metric_gate(
+                    metric,
+                    coarse_value,
+                    fine_value,
+                    total_inventory_mol_m3=min(
+                        float(coarse.total_inventory_mol_m3),
+                        float(fine.total_inventory_mol_m3),
+                    ),
+                )
                 rows.append(
                     {
                         "record_type": "cohort_quadrature_refinement",
@@ -1319,15 +1363,18 @@ def _cohort_eulerian_smooth_crosscheck(
                         "fine_cohort_count": fine_count,
                         "target_time_h": time_h,
                         "metric": metric,
-                        "cohort_value": float(getattr(fine, metric)),
-                        "coarse_cohort_value": float(getattr(coarse, metric)),
-                        "relative_error": _relative_error(
-                            float(getattr(coarse, metric)), float(getattr(fine, metric))
-                        ),
-                        "threshold": 0.02,
+                        "cohort_value": fine_value,
+                        "coarse_cohort_value": coarse_value,
+                        **gate,
+                        "threshold_relative": CONTINUOUS_RELATIVE_GATE,
+                        "near_zero_total_inventory_threshold": NEAR_ZERO_CUMULATIVE_TOTAL_INVENTORY_GATE,
                     }
                 )
-    authority_rows = [row for row in rows if row["record_type"] == "cohort_vs_eulerian" and row["cohort_count"] == 1600]
+    cohort_authority_count = SMOOTH_COHORT_COUNTS[-1]
+    authority_rows = [
+        row for row in rows
+        if row["record_type"] == "cohort_vs_eulerian" and row["cohort_count"] == cohort_authority_count
+    ]
     continuous_metrics = {
         "N_m0_m3", "M0_m3", "M1_m2", "M2_m", "M3_dimensionless",
         "Rmean_m", "Rmean3_m3", "Sv_m_inv", "f_beta", "matrix_xB",
@@ -1337,17 +1384,41 @@ def _cohort_eulerian_smooth_crosscheck(
         row
         for row in rows
         if row["record_type"] == "cohort_quadrature_refinement"
-        and row["coarse_cohort_count"] == 800
-        and row["fine_cohort_count"] == 1600
+        and row["coarse_cohort_count"] == SMOOTH_COHORT_COUNTS[-2]
+        and row["fine_cohort_count"] == cohort_authority_count
     ]
-    quadrature_pass = all(float(row["relative_error"]) <= 0.02 for row in refinement_rows)
+    quadrature_pass = all(bool(row["pass"]) for row in refinement_rows)
     crosscheck_pass = all(
-        float(row["relative_error"]) <= 0.02
+        bool(row["pass"])
         for row in authority_rows
         if row["metric"] in continuous_metrics
     ) and quadrature_pass and all(
-        snapshot.inventory_relative_residual <= 1.0e-10 for snapshot in trajectories[1600].values()
+        snapshot.inventory_relative_residual <= 1.0e-10 for snapshot in trajectories[cohort_authority_count].values()
     )
+    authority_maximum_errors = {
+        metric: max(
+            (row for row in authority_rows if row["metric"] == metric),
+            key=lambda row: float(row["relative_error"]),
+        )
+        for metric in continuous_metrics
+    }
+    refinement_maximum_errors = {
+        metric: max(
+            (row for row in refinement_rows if row["metric"] == metric),
+            key=lambda row: float(row["relative_error"]),
+        )
+        for metric in refinement_metrics
+    }
+    failed_authority_metrics = [
+        {
+            "metric": metric,
+            "target_time_h": float(row["target_time_h"]),
+            "relative_error": float(row["relative_error"]),
+            "gate_method": row["gate_method"],
+        }
+        for metric, row in authority_maximum_errors.items()
+        if not bool(row["pass"])
+    ]
     directions = {}
     direction_metrics = {
         "N": ("N_m0_m3", "N_m0_m3"),
@@ -1367,8 +1438,8 @@ def _cohort_eulerian_smooth_crosscheck(
     }
     for metric, (cohort_key, eulerian_key) in direction_metrics.items():
         cohort_direction = _sign(
-            float(getattr(trajectories[1600][48.0], cohort_key))
-            - float(getattr(trajectories[1600][0.0], cohort_key))
+            float(getattr(trajectories[cohort_authority_count][48.0], cohort_key))
+            - float(getattr(trajectories[cohort_authority_count][0.0], cohort_key))
         )
         start = authority_by_time[0.0]
         end = authority_by_time[48.0]
@@ -1384,11 +1455,14 @@ def _cohort_eulerian_smooth_crosscheck(
     result = {
         "schema_version": "KWN_COHORT_EULERIAN_SMOOTH_CROSSCHECK_V1",
         "status": status,
-        "cohort_authority_count": 1600,
+        "cohort_authority_count": cohort_authority_count,
         "eulerian_authority_grid": authority_grid,
         "crosscheck_pass": crosscheck_pass,
         "quadrature_refinement_pass": quadrature_pass,
         "direction_pass": direction_pass,
+        "authority_maximum_errors": authority_maximum_errors,
+        "terminal_quadrature_refinement_maximum_errors": refinement_maximum_errors,
+        "failed_authority_metrics": failed_authority_metrics,
         "directions": directions,
         "requalified_authority_binding": authority_binding,
         "cohort_quadrature": metadata,
@@ -1399,11 +1473,21 @@ def _cohort_eulerian_smooth_crosscheck(
     _write_report(
         "06_cohort_eulerian_smooth_crosscheck.md",
         "Cohort–Eulerian smooth-PSD crosscheck",
-        f"Status: `{status}`.  The 1600-node deterministic quadrature is the cohort comparison authority. "
-        f"800→1600 quadrature refinement: `{quadrature_pass}`; global direction agreement: `{direction_pass}`; "
-        f"2% continuous-metric gate (including cumulative dissolution inventory): `{crosscheck_pass}`.  "
+        f"Status: `{status}`.  The terminal 3200-node deterministic quadrature is the cohort comparison authority. "
+        f"1600→3200 quadrature refinement: `{quadrature_pass}`; global direction agreement: `{direction_pass}`; "
+        f"2% continuous-metric gate (with total-inventory scaling only for a near-zero cumulative dissolution quantity): `{crosscheck_pass}`.  "
         f"Requalified-authority binding: `{all(authority_binding.values())}`.\n\n"
-        "All three cohort representations use the same frozen beta growth law, curvature equilibrium, D(T), "
+        + (
+            "The crosscheck fails on: "
+            + ", ".join(
+                f"`{item['metric']}` at {item['target_time_h']:.6g} h ({100.0 * item['relative_error']:.6g}%)"
+                for item in failed_authority_metrics
+            )
+            + ".\n\n"
+            if failed_authority_metrics
+            else "All continuous metrics satisfy their declared crosscheck gate.\n\n"
+        )
+        + "All deterministic cohort representations use the same frozen beta growth law, curvature equilibrium, D(T), "
         "molar volumes, total inventory and matrix inverse as Eulerian KWN.  Differences are therefore reported as "
         "representation differences, not physical retuning.",
     )
