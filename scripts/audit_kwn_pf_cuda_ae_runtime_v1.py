@@ -61,6 +61,14 @@ EXPLICIT_CONTEXT = "SM_EXPLICIT_CONTEXT_N_V1"
 REACTION_DISCRETIZATION = "SM_TANGENT_N_V1"
 REL_TOL = 1.0e-10
 FIELD_EQ_TOL = 1.0e-14
+# The CUDA PF state is stored after the solver's established phase-field
+# representation projection, not after a separate physical-field rewrite.
+# PROJECT_CORE_MEMORY.md §13.11 freezes this as the cross-language analysis
+# contract.  Physical phase-storage evaluations use clamp01(phi), exactly as
+# the CUDA kernels do; xB remains subject to its strict physical [0, 1]
+# bound.  This is distinct from (and must not enable) a composition clamp.
+PHI_REPRESENTATION_LOWER = -1.0e-6
+PHI_REPRESENTATION_UPPER = 1.0 + 1.0e-6
 
 
 class AuditError(RuntimeError):
@@ -469,6 +477,49 @@ def _array_at(path: Path, offset: int, count: int) -> np.memmap:
     return np.memmap(path, mode="r", dtype="<f8", offset=offset, shape=(count,))
 
 
+def _phase_storage_values(phi: np.ndarray, *, path: Path) -> tuple[np.ndarray, dict[str, Any]]:
+    """Validate the frozen CUDA representation interval and return clamp01(phi).
+
+    The returned array is used only for phase-storage/inventory evaluation.
+    The raw checkpoint field remains the source of identity hashes and all
+    reported extrema, so the audit cannot conceal a representation excursion.
+    """
+
+    values = np.asarray(phi, dtype=np.float64)
+    minimum = float(np.min(values))
+    maximum = float(np.max(values))
+    if (
+        minimum < PHI_REPRESENTATION_LOWER - FIELD_EQ_TOL
+        or maximum > PHI_REPRESENTATION_UPPER + FIELD_EQ_TOL
+    ):
+        raise AuditError(
+            "checkpoint phi leaves the frozen CUDA representation interval "
+            f"[{PHI_REPRESENTATION_LOWER}, {PHI_REPRESENTATION_UPPER}]: {path}"
+        )
+    negative = int(np.count_nonzero(values < 0.0))
+    above_one = int(np.count_nonzero(values > 1.0))
+    floor = int(
+        np.count_nonzero(
+            np.isclose(values, PHI_REPRESENTATION_LOWER, rtol=0.0, atol=FIELD_EQ_TOL)
+        )
+    )
+    ceiling = int(
+        np.count_nonzero(
+            np.isclose(values, PHI_REPRESENTATION_UPPER, rtol=0.0, atol=FIELD_EQ_TOL)
+        )
+    )
+    return np.clip(values, 0.0, 1.0), {
+        "frozen_interval": [PHI_REPRESENTATION_LOWER, PHI_REPRESENTATION_UPPER],
+        "raw_phi_min": minimum,
+        "raw_phi_max": maximum,
+        "negative_raw_cell_count": negative,
+        "above_one_raw_cell_count": above_one,
+        "lower_floor_cell_count": floor,
+        "upper_ceiling_cell_count": ceiling,
+        "storage_evaluation": "h_of_phi(clamp01(phi))",
+    }
+
+
 def _bin_inventory(path: Path, offset: int, count: int) -> tuple[float, list[dict[str, float]]]:
     if count == 0:
         return 0.0, []
@@ -569,11 +620,10 @@ def _checkpoint_observation(
             raise AuditError(f"checkpoint {name} contains NaN/Inf: {path}")
     phi = fields["phi"]
     xb = fields["xB"]
-    if float(np.min(phi)) < -FIELD_EQ_TOL or float(np.max(phi)) > 1.0 + FIELD_EQ_TOL:
-        raise AuditError(f"checkpoint phi leaves [0,1]: {path}")
+    phase_storage_phi, phase_representation = _phase_storage_values(phi, path=path)
     if float(np.min(xb)) < -FIELD_EQ_TOL or float(np.max(xb)) > 1.0 + FIELD_EQ_TOL:
         raise AuditError(f"checkpoint xB leaves [0,1]: {path}")
-    h = h_of_phi(phi)
+    h = h_of_phi(phase_storage_phi)
     alpha = 1.0 - h
     q_matrix = field_matrix_inventory_mol(alpha, xb, contract.dx_m**3, contract.vm_alpha_m3_mol)
     q_resolved = field_resolved_inventory_mol(h, contract.v_B, contract.dx_m**3, contract.vm_beta_m3_mol)
@@ -658,6 +708,7 @@ def _checkpoint_observation(
             "phi_sha256": hashlib.sha256(np.ascontiguousarray(phi, dtype="<f8").tobytes()).hexdigest(),
             "xB_sha256": hashlib.sha256(np.ascontiguousarray(xb, dtype="<f8").tobytes()).hexdigest(),
         },
+        "phase_representation": phase_representation,
         "auxiliary_bins": {"GP": gp_bins, "beta_subgrid": subgrid_bins},
         "diagnostics_not_captured": [
             "component_identity_lineage",
