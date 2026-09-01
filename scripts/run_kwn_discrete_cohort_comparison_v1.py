@@ -53,7 +53,6 @@ EXACT_TIMES_H = (0.0, 0.01, 0.1, 0.39317699499770825, 1.0, 3.0, 6.0, 12.0, 24.0,
 PF_REQUESTED_TIMES_H = (0.0, 0.1, 1.0, 3.0, 6.0, 12.0, 24.0, 48.0)
 SMOOTH_COHORT_COUNTS = (400, 800, 1600, 3200)
 CONTINUOUS_RELATIVE_GATE = 0.02
-NEAR_ZERO_CUMULATIVE_TOTAL_INVENTORY_GATE = 1.0e-10
 HUMAN_GATE_EXPECTED = {
     "LEGACY_SIX_PARTICLE_EULERIAN_P5": "FAIL_RETAINED",
     "SMOOTH_POPULATION_EULERIAN_P5": "ACCEPTED_AS_KWN_POPULATION_BACKEND_QUALIFICATION",
@@ -137,27 +136,14 @@ def _float(value: str | float | int | None) -> float:
     return float(value)
 
 
-def _smooth_crosscheck_metric_gate(
-    metric: str, left: float, right: float, *, total_inventory_mol_m3: float
-) -> dict[str, Any]:
-    """Use relative error except for a cumulative quantity at its zero limit."""
+def _smooth_crosscheck_metric_gate(left: float, right: float) -> dict[str, Any]:
+    """Apply the declared 2% relative gate to every crosscheck metric."""
 
     relative_error = _relative_error(left, right)
-    absolute_over_total_inventory = (
-        abs(left - right) / max(abs(total_inventory_mol_m3), 1.0e-300)
-        if metric == "cumulative_dissolution_inventory_mol_m3"
-        else None
-    )
-    zero_safe = (
-        metric == "cumulative_dissolution_inventory_mol_m3"
-        and absolute_over_total_inventory is not None
-        and absolute_over_total_inventory <= NEAR_ZERO_CUMULATIVE_TOTAL_INVENTORY_GATE
-    )
     return {
         "relative_error": relative_error,
-        "absolute_difference_over_total_inventory": absolute_over_total_inventory,
-        "gate_method": "total_inventory_zero_safe" if zero_safe else "relative_2_percent",
-        "pass": relative_error <= CONTINUOUS_RELATIVE_GATE or zero_safe,
+        "gate_method": "relative_2_percent",
+        "pass": relative_error <= CONTINUOUS_RELATIVE_GATE,
     }
 
 
@@ -399,12 +385,26 @@ def _kwn_snapshot(solver: KWNSolver) -> dict[str, float]:
 
 def _advance_kwn(solver: KWNSolver, target_s: float) -> dict[str, float]:
     maximum_residual = 0.0
+    cumulative_lower_boundary_beta_inventory_mol_m3 = 0.0
+    beta = solver.population("beta")
     while solver.time_s < target_s:
         diagnostic = solver.advance_one(maximum_dt_s=target_s - solver.time_s)
         maximum_residual = max(maximum_residual, float(diagnostic.inventory.relative_residual))
+        released_number_m3 = (
+            float(diagnostic.rmin_dissolution_flux_m3_s) * float(diagnostic.dt_s)
+        )
+        cumulative_lower_boundary_beta_inventory_mol_m3 += (
+            released_number_m3
+            * sphere_volume_m3(float(beta.grid.centres_m[0]))
+            * beta.parameters.x_b
+            / beta.parameters.molar_volume_m3_mol
+        )
         if solver.history:
             solver.history.pop()
-    return {"maximum_inventory_relative_residual": maximum_residual}
+    return {
+        "maximum_inventory_relative_residual": maximum_residual,
+        "interval_lower_boundary_beta_inventory_mol_m3": cumulative_lower_boundary_beta_inventory_mol_m3,
+    }
 
 
 def _run_smooth_kwn(
@@ -415,13 +415,18 @@ def _run_smooth_kwn(
     )
     rows: list[dict[str, float]] = []
     maximum_residual = 0.0
+    cumulative_lower_boundary_beta_inventory_mol_m3 = 0.0
     for target_h in output_times_h:
-        maximum_residual = max(
-            maximum_residual,
-            _advance_kwn(solver, float(target_h) * 3600.0)["maximum_inventory_relative_residual"],
-        )
+        advance = _advance_kwn(solver, float(target_h) * 3600.0)
+        maximum_residual = max(maximum_residual, advance["maximum_inventory_relative_residual"])
+        cumulative_lower_boundary_beta_inventory_mol_m3 += advance[
+            "interval_lower_boundary_beta_inventory_mol_m3"
+        ]
         row = _kwn_snapshot(solver)
         row["target_time_h"] = float(target_h)
+        row["cumulative_lower_boundary_beta_inventory_mol_m3"] = (
+            cumulative_lower_boundary_beta_inventory_mol_m3
+        )
         rows.append(row)
     return solver, construction, contract, fixture, rows, maximum_residual
 
@@ -1174,18 +1179,6 @@ def _smooth_quadrature_cohorts(
     }
 
 
-def _legacy_smooth_row(legacy_root: Path, target_time_h: float, *, bins: int) -> dict[str, str]:
-    rows = _read_csv(legacy_root / "runs" / f"ladder_smooth_{bins}_uniform" / "trajectory.csv")
-    matches = [
-        row
-        for row in rows
-        if math.isclose(float(row["target_time_h"]), target_time_h, rel_tol=0.0, abs_tol=1.0e-12)
-    ]
-    if len(matches) != 1:
-        raise RuntimeError(f"smooth {bins} legacy trajectory lacks unique {target_time_h} h row")
-    return matches[0]
-
-
 def _legacy_smooth_psd(legacy_root: Path, target_time_h: float, *, bins: int) -> tuple[np.ndarray, np.ndarray]:
     path = legacy_root / "runs" / f"ladder_smooth_{bins}_uniform" / "psd_snapshots.npz"
     with np.load(path) as archive:
@@ -1250,7 +1243,6 @@ def _cohort_eulerian_smooth_crosscheck(
         metadata[count] = meta
         for time_h, snapshot in snapshots.items():
             eulerian = authority_by_time[time_h]
-            legacy_eulerian = _legacy_smooth_row(legacy_root, time_h, bins=authority_grid)
             current_cohorts = [
                 row
                 for row in trajectory_cohort_rows
@@ -1280,18 +1272,13 @@ def _cohort_eulerian_smooth_crosscheck(
                 "cumulative_dissolution_inventory_mol_m3": snapshot.cumulative_dissolution_inventory_mol_m3,
             }
             for metric, cohort_value in values.items():
-                eulerian_key = metric
-                if metric == "cumulative_dissolution_inventory_mol_m3":
-                    eulerian_key = "cumulative_lower_boundary_beta_inventory_mol_m3"
-                    eulerian_value = float(legacy_eulerian[eulerian_key])
-                else:
-                    eulerian_value = float(eulerian[eulerian_key])
-                gate = _smooth_crosscheck_metric_gate(
-                    metric,
-                    float(cohort_value),
-                    eulerian_value,
-                    total_inventory_mol_m3=float(legacy_eulerian["total_inventory_mol_m3"]),
+                eulerian_key = (
+                    "cumulative_lower_boundary_beta_inventory_mol_m3"
+                    if metric == "cumulative_dissolution_inventory_mol_m3"
+                    else metric
                 )
+                eulerian_value = float(eulerian[eulerian_key])
+                gate = _smooth_crosscheck_metric_gate(float(cohort_value), eulerian_value)
                 rows.append(
                     {
                         "record_type": "cohort_vs_eulerian",
@@ -1347,15 +1334,7 @@ def _cohort_eulerian_smooth_crosscheck(
             for metric in refinement_metrics:
                 coarse_value = float(getattr(coarse, metric))
                 fine_value = float(getattr(fine, metric))
-                gate = _smooth_crosscheck_metric_gate(
-                    metric,
-                    coarse_value,
-                    fine_value,
-                    total_inventory_mol_m3=min(
-                        float(coarse.total_inventory_mol_m3),
-                        float(fine.total_inventory_mol_m3),
-                    ),
-                )
+                gate = _smooth_crosscheck_metric_gate(coarse_value, fine_value)
                 rows.append(
                     {
                         "record_type": "cohort_quadrature_refinement",
@@ -1367,7 +1346,6 @@ def _cohort_eulerian_smooth_crosscheck(
                         "coarse_cohort_value": coarse_value,
                         **gate,
                         "threshold_relative": CONTINUOUS_RELATIVE_GATE,
-                        "near_zero_total_inventory_threshold": NEAR_ZERO_CUMULATIVE_TOTAL_INVENTORY_GATE,
                     }
                 )
     cohort_authority_count = SMOOTH_COHORT_COUNTS[-1]
@@ -1443,9 +1421,6 @@ def _cohort_eulerian_smooth_crosscheck(
         )
         start = authority_by_time[0.0]
         end = authority_by_time[48.0]
-        if eulerian_key == "cumulative_lower_boundary_beta_inventory_mol_m3":
-            start = _legacy_smooth_row(legacy_root, 0.0, bins=authority_grid)
-            end = _legacy_smooth_row(legacy_root, 48.0, bins=authority_grid)
         directions[metric] = {
             "cohort": cohort_direction,
             "eulerian": _sign(float(end[eulerian_key]) - float(start[eulerian_key])),
@@ -1475,7 +1450,7 @@ def _cohort_eulerian_smooth_crosscheck(
         "Cohort–Eulerian smooth-PSD crosscheck",
         f"Status: `{status}`.  The terminal 3200-node deterministic quadrature is the cohort comparison authority. "
         f"1600→3200 quadrature refinement: `{quadrature_pass}`; global direction agreement: `{direction_pass}`; "
-        f"2% continuous-metric gate (with total-inventory scaling only for a near-zero cumulative dissolution quantity): `{crosscheck_pass}`.  "
+        f"2% continuous-metric gate (including cumulative dissolution inventory): `{crosscheck_pass}`.  "
         f"Requalified-authority binding: `{all(authority_binding.values())}`.\n\n"
         + (
             "The crosscheck fails on: "
