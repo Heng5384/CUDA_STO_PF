@@ -15,6 +15,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -381,6 +382,73 @@ def _run_smooth_kwn(
     return solver, construction, contract, fixture, rows, maximum_residual
 
 
+def _smooth_authority_worker(role: str, authority_grid: int) -> dict[str, Any]:
+    """Run one independent authority qualification segment in a fresh process."""
+
+    audit = _load_radius_audit_module()
+    if role == "continuous":
+        solver, construction, contract, fixture, rows, residual = _run_smooth_kwn(
+            audit,
+            bins=authority_grid,
+            max_dt_factor=1.0,
+            output_times_h=SMOOTH_TIMES_H,
+        )
+        return {
+            "role": role,
+            "construction": construction,
+            "contract_hash": contract.contract_hash,
+            "fixture_hash": fixture.fixture_hash,
+            "source_config_hash": solver.config.source_config_hash,
+            "rows": rows,
+            "residual": residual,
+        }
+    if role == "half_dt":
+        _, _, _, _, rows, residual = _run_smooth_kwn(
+            audit,
+            bins=authority_grid,
+            max_dt_factor=0.5,
+            output_times_h=SMOOTH_TIMES_H,
+        )
+        return {"role": role, "rows": rows, "residual": residual}
+    if role == "direct":
+        solver, _, _, _, _, residual = _run_smooth_kwn(
+            audit, bins=authority_grid, max_dt_factor=1.0, output_times_h=(48.0,)
+        )
+        return {
+            "role": role,
+            "state_arrays": solver.state_arrays(),
+            "residual": residual,
+        }
+    if role == "restart":
+        restart, _, _, _, _, residual_before = _run_smooth_kwn(
+            audit, bins=authority_grid, max_dt_factor=1.0, output_times_h=(24.0,)
+        )
+        checkpoint = OUTPUT_ROOT / "smooth_authority_restart_24h.npz"
+        restart.save_checkpoint(checkpoint)
+        resumed = KWNSolver.load_checkpoint(config=restart.config, path=checkpoint)
+        residual_after = _advance_kwn(resumed, 48.0 * 3600.0)["maximum_inventory_relative_residual"]
+        return {
+            "role": role,
+            "state_arrays": resumed.state_arrays(),
+            "residual_before": residual_before,
+            "residual_after": residual_after,
+            "checkpoint": str(checkpoint),
+            "checkpoint_sha256": _sha256_file(checkpoint),
+        }
+    raise RuntimeError(f"unknown smooth-authority worker role {role!r}")
+
+
+def _smooth_authority_worker_process(
+    role: str, authority_grid: int, result_queue: Any
+) -> None:
+    """Fork-safe process wrapper that returns data or a readable failure."""
+
+    try:
+        result_queue.put((role, True, _smooth_authority_worker(role, authority_grid)))
+    except BaseException as error:  # pragma: no cover - exercised by process orchestration
+        result_queue.put((role, False, f"{type(error).__name__}: {error}"))
+
+
 def _authority_requalification(legacy_root: Path) -> dict[str, Any]:
     selection = _smooth_authority_selection(legacy_root)
     if selection["status"] != "PENDING_REQUALIFICATION":
@@ -391,20 +459,47 @@ def _authority_requalification(legacy_root: Path) -> dict[str, Any]:
             "`FAIL_EULERIAN_SMOOTH_POPULATION_AUTHORITY`: no registered smooth-grid pair satisfies the full-time 2% gate.",
         )
         return selection
-    audit = _load_radius_audit_module()
     authority = int(selection["authority_grid"])
-    continuous, construction, contract, fixture, rows, continuous_residual = _run_smooth_kwn(
-        audit,
-        bins=authority,
-        max_dt_factor=1.0,
-        output_times_h=SMOOTH_TIMES_H,
-    )
-    half, _, _, _, half_rows, half_residual = _run_smooth_kwn(
-        audit,
-        bins=authority,
-        max_dt_factor=0.5,
-        output_times_h=SMOOTH_TIMES_H,
-    )
+    # The four qualifications share no mutable KWN state.  Run them in
+    # isolated processes so local execution has the same independent-run
+    # semantics as distinct cluster jobs, without changing any numerical
+    # control or physical configuration.
+    context = multiprocessing.get_context("fork")
+    result_queue = context.Queue()
+    roles = ("continuous", "half_dt", "direct", "restart")
+    processes = [
+        context.Process(
+            target=_smooth_authority_worker_process,
+            args=(role, authority, result_queue),
+        )
+        for role in roles
+    ]
+    for process in processes:
+        process.start()
+    worker_results: dict[str, dict[str, Any]] = {}
+    worker_failures: list[str] = []
+    for _ in roles:
+        role, passed, payload = result_queue.get()
+        if passed:
+            worker_results[str(role)] = payload
+        else:
+            worker_failures.append(f"{role}: {payload}")
+    for process in processes:
+        process.join()
+    if worker_failures or any(process.exitcode != 0 for process in processes):
+        raise RuntimeError(
+            "smooth authority worker failure: "
+            + "; ".join(worker_failures or [f"exitcode={process.exitcode}" for process in processes])
+        )
+    continuous_result = worker_results["continuous"]
+    half_result = worker_results["half_dt"]
+    direct_result = worker_results["direct"]
+    restart_result = worker_results["restart"]
+    construction = continuous_result["construction"]
+    rows = list(continuous_result["rows"])
+    half_rows = list(half_result["rows"])
+    continuous_residual = float(continuous_result["residual"])
+    half_residual = float(half_result["residual"])
     endpoint = rows[-1]
     timestep_errors: dict[str, float] = {metric: 0.0 for metric in PRIMARY_METRICS}
     tolerance_rows: list[dict[str, Any]] = []
@@ -429,18 +524,12 @@ def _authority_requalification(legacy_root: Path) -> dict[str, Any]:
             )
     timestep_pass = all(value <= 0.02 for value in timestep_errors.values())
 
-    direct, _, _, _, _, direct_residual = _run_smooth_kwn(
-        audit, bins=authority, max_dt_factor=1.0, output_times_h=(48.0,)
-    )
-    restart, _, _, _, _, restart_residual_a = _run_smooth_kwn(
-        audit, bins=authority, max_dt_factor=1.0, output_times_h=(24.0,)
-    )
-    checkpoint = OUTPUT_ROOT / "smooth_authority_restart_24h.npz"
-    restart.save_checkpoint(checkpoint)
-    resumed = KWNSolver.load_checkpoint(config=restart.config, path=checkpoint)
-    restart_residual_b = _advance_kwn(resumed, 48.0 * 3600.0)["maximum_inventory_relative_residual"]
-    direct_arrays = direct.state_arrays()
-    resumed_arrays = resumed.state_arrays()
+    direct_residual = float(direct_result["residual"])
+    restart_residual_a = float(restart_result["residual_before"])
+    restart_residual_b = float(restart_result["residual_after"])
+    checkpoint = Path(str(restart_result["checkpoint"]))
+    direct_arrays = direct_result["state_arrays"]
+    resumed_arrays = restart_result["state_arrays"]
     restart_differences = {
         key: float(np.max(np.abs(direct_arrays[key] - resumed_arrays[key])) if np.asarray(direct_arrays[key]).size else 0.0)
         for key in direct_arrays
@@ -482,15 +571,15 @@ def _authority_requalification(legacy_root: Path) -> dict[str, Any]:
         "schema_version": "KWN_EULERIAN_SMOOTH_AUTHORITY_V1",
         **{key: value for key, value in selection.items() if key != "status"},
         "status": status,
-        "authority_config_hash": continuous.config.source_config_hash,
+        "authority_config_hash": continuous_result["source_config_hash"],
         "semantic_config_hash": _canonical_hash(construction["config_mapping"]),
-        "contract_hash": contract.contract_hash,
-        "fixture_hash": fixture.fixture_hash,
+        "contract_hash": continuous_result["contract_hash"],
+        "fixture_hash": continuous_result["fixture_hash"],
         "timestep_convergence": {"pass": timestep_pass, "errors": timestep_errors},
         "restart": {
             "status": "PASS" if restart_pass else "FAIL",
             "checkpoint": str(checkpoint),
-            "checkpoint_sha256": _sha256_file(checkpoint),
+            "checkpoint_sha256": restart_result["checkpoint_sha256"],
             "relative_differences": restart_relative,
         },
         "state_gate": {
@@ -510,7 +599,7 @@ def _authority_requalification(legacy_root: Path) -> dict[str, Any]:
         "02_eulerian_smooth_authority.md",
         "Eulerian smooth-population authority",
         f"Status: `{status}`.  Authority grid: `{authority}`; config hash: "
-        f"`{continuous.config.source_config_hash}`.\n\n"
+        f"`{continuous_result['source_config_hash']}`.\n\n"
         f"Selection: {selection['selection_rationale']}  The inherited 800→1600 smooth pair fails, "
         "so 1600 is not authority; registered 1600→3200 is the qualifying full-time pair.\n\n"
         f"Timestep gate: `{timestep_pass}`; restart gate: `{restart_pass}`; maximum inventory residual: `{max_residual:.6e}`.",
