@@ -872,6 +872,21 @@ def _advance_eulerian(
                 )
             )
     except Exception as error:
+        # Preserve the actually accepted terminal state when a bounded
+        # diagnostic stops between scheduled output times.  Without this
+        # snapshot the initial t=0 row would overwrite the run-level step
+        # count in the ladder report, making real partial progress look like
+        # an unattempted policy.
+        if not snapshots or float(snapshots[-1]["time_s"]) != float(solver.time_s):
+            partial = _eulerian_snapshot(
+                solver,
+                policy=policy,
+                cumulative_number_m3=cumulative_number,
+                cumulative_beta_volume=cumulative_volume,
+                cumulative_mol_b_mol_m3=cumulative_mol_b,
+            )
+            partial["snapshot_status"] = "INCOMPLETE_TERMINAL"
+            snapshots.append(partial)
         active = _cfl_audit(solver, dt_s=1.0)
         required_rate = max(
             float(active["population_active_cfl"]),
@@ -1529,11 +1544,15 @@ def _implicit_accuracy_ladder(
             "status": item.status,
             "evaluation_mode": (
                 "accepted_short_trajectory"
-                if item.cfl_rows
+                if item.status == "PASS_EULERIAN_SHORT_RUN"
                 else (
-                    "solver_reported_min_dt_rejection"
-                    if item.status == "BRUTE_FORCE_CFL_NOT_PRACTICAL"
-                    else "incomplete_diagnostic_budget"
+                    "incomplete_partial_trajectory"
+                    if item.cfl_rows
+                    else (
+                        "solver_reported_min_dt_rejection"
+                        if item.status == "BRUTE_FORCE_CFL_NOT_PRACTICAL"
+                        else "incomplete_diagnostic_budget"
+                    )
                 )
             ),
             "reason": item.reason or "",
@@ -2092,11 +2111,20 @@ def _final_summary(
         row for row in (implicit or {}).get("cfl_rows", [])
         if bool(row.get("boundary_active", False))
     ]
+    capped_boundary_rows = [
+        row for row in accepted_boundary_rows
+        if row.get("policy") != "current_implicit_policy"
+    ]
     boundary_active_summary: dict[str, Any] = {
         "first_accepted_step_cfl": first_cfl.get("boundary_active_cfl", "NOT_RUN"),
-        "accepted_boundary_active_step_count": len(accepted_boundary_rows),
-        "max_accepted_boundary_active_cfl": max(
+        "all_policies_accepted_boundary_active_step_count": len(accepted_boundary_rows),
+        "all_policies_max_accepted_boundary_active_cfl": max(
             (float(row.get("boundary_active_cfl", 0.0)) for row in accepted_boundary_rows),
+            default=0.0,
+        ),
+        "capped_policies_accepted_boundary_active_step_count": len(capped_boundary_rows),
+        "capped_policies_max_accepted_boundary_active_cfl": max(
+            (float(row.get("boundary_active_cfl", 0.0)) for row in capped_boundary_rows),
             default=0.0,
         ),
         "terminal_dt_1_s_audit_boundary_cfl": terminal_audit.get("boundary_active_cfl", "NOT_RUN"),
