@@ -984,11 +984,16 @@ class KWNSolver:
                 limiter = "accuracy_radius_cfl"
         active_by_population: dict[str, ActiveCFLDiagnostics] = {}
         if self.config.accuracy_active_radius_cfl is not None:
-            # Reachability depends on the proposed timestep.  This monotone
-            # fixed-point loop can only shrink dt and thus cannot manufacture
-            # a support/face activation by numerical iteration.
-            for _ in range(8):
-                active_by_population = {
+            # Reachability is defined at the *candidate* timestep.  A lower
+            # physical face can therefore be active for the legacy macrostep
+            # but inactive after a smaller candidate subdivides the same
+            # characteristic path.  The fixed point must be allowed to grow
+            # again in that situation; a shrink-only iteration would retain
+            # an obsolete Rmin face and manufacture a false micro-step.
+            base_dt = dt
+
+            def active_diagnostics_at(candidate_dt: float) -> dict[str, ActiveCFLDiagnostics]:
+                return {
                     name: self.active_cfl_diagnostics(
                         self.populations[name],
                         face_velocity_m_s=(
@@ -996,47 +1001,76 @@ class KWNSolver:
                             if face_velocities is None
                             else face_velocities[name]
                         ),
-                        dt_s=dt,
+                        dt_s=candidate_dt,
                     )
                     for name, velocity in velocities.items()
                 }
-                active_rate = max(
+
+            def active_rate_for(
+                diagnostics: Mapping[str, ActiveCFLDiagnostics]
+            ) -> float:
+                return max(
                     (
                         max(
                             item.population_active_rate_s_inv,
                             item.lower_tail_rate_s_inv,
                             item.boundary_active_rate_s_inv,
                         )
-                        for item in active_by_population.values()
+                        for item in diagnostics.values()
                     ),
                     default=0.0,
                 )
-                active_dt = (
-                    cap
-                    if active_rate == 0.0
-                    else self.config.accuracy_active_radius_cfl / active_rate
+
+            def active_candidate_dt(candidate_dt: float) -> tuple[float, dict[str, ActiveCFLDiagnostics]]:
+                diagnostics = active_diagnostics_at(candidate_dt)
+                rate = active_rate_for(diagnostics)
+                limited = base_dt if rate == 0.0 else min(
+                    base_dt, self.config.accuracy_active_radius_cfl / rate
                 )
-                candidate = min(dt, active_dt)
-                if candidate >= dt * (1.0 - 1.0e-14):
+                return limited, diagnostics
+
+            # Picard iteration is fast in the normal case and, unlike the
+            # former implementation, reaches the self-consistent subdivided
+            # state after a candidate Rmin face deactivates.  A discontinuous
+            # reachability threshold can make a short cycle; the conservative
+            # bisection fallback then returns the largest admissible step.
+            seen: list[float] = []
+            converged = False
+            for _ in range(12):
+                candidate, active_by_population = active_candidate_dt(dt)
+                if math.isclose(candidate, dt, rel_tol=1.0e-13, abs_tol=0.0):
+                    dt = candidate
+                    converged = True
                     break
+                if any(math.isclose(candidate, previous, rel_tol=1.0e-13, abs_tol=0.0) for previous in seen):
+                    break
+                seen.append(dt)
                 dt = candidate
+            if not converged:
+                # ``rate(dt)`` is non-decreasing as the reachable-face set
+                # grows with dt, so dt*rate(dt) has a monotone admissible
+                # predicate.  Bisection avoids committing a non-self-
+                # consistent reachability classification at a discontinuity.
+                lower_dt = 0.0
+                upper_dt = base_dt
+                for _ in range(64):
+                    middle_dt = 0.5 * (lower_dt + upper_dt)
+                    middle_diagnostics = active_diagnostics_at(middle_dt)
+                    middle_rate = active_rate_for(middle_diagnostics)
+                    if middle_dt * middle_rate <= self.config.accuracy_active_radius_cfl:
+                        lower_dt = middle_dt
+                    else:
+                        upper_dt = middle_dt
+                dt = lower_dt
+                active_by_population = active_diagnostics_at(dt)
+            # Record masks at the exact accepted candidate and make the
+            # contract explicit rather than relying on an iteration history.
+            active_by_population = active_diagnostics_at(dt)
+            final_active_rate = active_rate_for(active_by_population)
+            if dt * final_active_rate > self.config.accuracy_active_radius_cfl * (1.0 + 1.0e-12):
+                raise SolverStateError("active-CFL fixed point did not satisfy its declared candidate-step contract")
+            if dt < base_dt * (1.0 - 1.0e-14):
                 limiter = "accuracy_active_radius_cfl"
-            else:
-                raise SolverStateError("active-CFL timestep fixed point did not converge")
-            # The accepted dt may have changed after the final reachability
-            # pass above.  Refresh the recorded masks at its exact value.
-            active_by_population = {
-                name: self.active_cfl_diagnostics(
-                    self.populations[name],
-                    face_velocity_m_s=(
-                        self._face_velocities(velocity)
-                        if face_velocities is None
-                        else face_velocities[name]
-                    ),
-                    dt_s=dt,
-                )
-                for name, velocity in velocities.items()
-            }
         else:
             active_by_population = {
                 name: self.active_cfl_diagnostics(

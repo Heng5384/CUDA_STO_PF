@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
+
+from kwn_mvp.radius_grid import RadiusGrid
 from kwn_mvp.solver import SolverConfig
 
 from tests.kwn.test_lower_boundary_contract import (
@@ -13,6 +16,18 @@ from tests.kwn.test_lower_boundary_contract import (
     _mapping,
     _smooth_initial_definition,
 )
+
+
+class _BoundarySpikeEulerian(_ConstantVelocityEulerian):
+    """Test-only state with a fast physical Rmin face and slow interior."""
+
+    def __init__(self, *args, boundary_velocity_m_s: float, **kwargs) -> None:
+        self.boundary_velocity_m_s = float(boundary_velocity_m_s)
+        super().__init__(*args, **kwargs)
+
+    def lower_boundary_growth_velocity(self, population) -> float:
+        item = self.population(population) if isinstance(population, str) else population
+        return self.boundary_velocity_m_s if item.parameters.name == "beta" else 0.0
 
 
 class ActiveCFLContractTests(unittest.TestCase):
@@ -68,6 +83,50 @@ class ActiveCFLContractTests(unittest.TestCase):
         self.assertLessEqual(controlled, 0.05 * (1.0 + 1.0e-12))
         self.assertGreater(diagnostic.radius_courant_max, controlled)
         self.assertEqual(diagnostic.timestep_limiter, "accuracy_active_radius_cfl")
+
+    def test_candidate_step_releases_a_boundary_that_becomes_unreachable(self) -> None:
+        """A shrink-only active-CFL loop must not retain an obsolete Rmin face.
+
+        The large legacy candidate lets the tail cross a deliberately fast
+        physical lower face.  The active cap subdivides before that crossing,
+        so the accepted candidate has a normal interior-tail rate rather than
+        a fictitious boundary micro-step.
+        """
+
+        bins = 64
+        grid = RadiusGrid.logarithmic(5.0e-9, 2.0e-8, bins)
+        values = np.zeros(bins, dtype=np.float64)
+        values[1] = 1.0e18
+        initial = {
+            "kind": "cell_integrated",
+            "radius_edges_m": [float(value) for value in grid.edges_m],
+            "cell_number_density_m3": [float(value) for value in values],
+        }
+        mapping = _mapping(bins=bins, beta_initial=initial, max_dt_s=1.0e6)
+        # Keep the production positivity contract: the legacy candidate is
+        # still long enough to reach the deliberately fast lower face.
+        mapping["simulation"]["size_cfl"] = 0.4
+        mapping["simulation"]["accuracy_active_radius_cfl"] = 1.0e-5
+        solver = _BoundarySpikeEulerian(
+            SolverConfig.from_mapping(mapping),
+            constant_velocity_m_s=-1.0e-12,
+            boundary_velocity_m_s=-1.0e-8,
+        )
+        faces = solver.face_velocities("beta", solver.growth_rates()["beta"])
+        legacy_audit = solver.active_cfl_diagnostics("beta", face_velocity_m_s=faces, dt_s=1.0)
+        self.assertTrue(legacy_audit.boundary_face_is_active)
+        false_boundary_dt = 1.0e-5 / legacy_audit.boundary_candidate_rate_s_inv
+
+        diagnostic = solver.advance_one()
+
+        self.assertFalse(diagnostic.boundary_face_is_active)
+        self.assertGreater(diagnostic.dt_s, false_boundary_dt * 1.0e3)
+        controlled = max(
+            diagnostic.active_population_courant,
+            diagnostic.lower_tail_active_courant,
+            diagnostic.boundary_active_courant,
+        )
+        self.assertLessEqual(controlled, 1.0e-5 * (1.0 + 1.0e-12))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ boundary failure as immutable baseline evidence, then permits later stages
 only after the physical lower-face/operator tests pass.
 
 The default ``all`` command runs the finite lower-boundary gates and, only on
-success, the 0--1 h implicit active-CFL ladder.  A full canonical cohort
+success, the first-significant-lower-tail implicit active-CFL ladder.  A full canonical cohort
 crosscheck is deliberately opt-in because it is a long CPU calculation; the
 runner writes a fail-closed provenance-backed stub until that calculation is
 explicitly authorized with ``--allow-long-cohort``.
@@ -75,12 +75,10 @@ TWO_PERCENT = 0.02
 SUPPORT_FRACTION = 0.999999
 LOWER_TAIL_QUANTILES = (1.0e-8, 1.0e-6)
 SMOOTH_TIMES_H = (0.0, 0.1, 0.39317699499770825, 1.0, 3.0, 6.0, 12.0, 24.0, 48.0)
-SHORT_TIME_H = (0.0, 0.1, 0.39317699499770825, 1.0)
-# The frozen runner may stop after 0.1 h only when this exact state already
-# proves that an active physical-Rmin event makes every requested accuracy
-# cap smaller than the solver's configured minimum timestep.  This satisfies
-# the task's "or at least cover the first significant lower-tail dissolution"
-# alternative without pretending that an unrun 0--1 h ladder converged.
+# Every policy uses this same horizon.  It covers the task contract's
+# first-significant-lower-tail-dissolution alternative while ensuring that a
+# frozen-state boundary audit cannot be substituted for a source-owned,
+# self-consistent active-CFL step decision.
 FIRST_SIGNIFICANT_BOUNDARY_TIME_H = (0.0, 0.1)
 IMPLICIT_ACTIVE_CFL_CAPS = (4.0, 2.0, 1.0, 0.5, 0.25, 0.125)
 REQUIRED_REPORTS = {
@@ -880,41 +878,31 @@ def _advance_eulerian(
             float(active["lower_tail_active_cfl"]),
             float(active["boundary_active_cfl"]),
         )
-        required_dt = (
+        audit_implied_dt = (
             float("inf") if active_cfl_cap is None or required_rate == 0.0
             else float(active_cfl_cap / required_rate)
         )
         error_text = str(error)
         min_dt_match = re.search(r"CFL-limited step\s+([0-9.+-eE]+)\s+s\s+is below configured min_dt", error_text)
         solver_limited_dt = None if min_dt_match is None else float(min_dt_match.group(1))
-        if solver_limited_dt is not None:
-            required_dt = solver_limited_dt
-        # A wall-clock diagnostic budget is deliberately not evidence that a
-        # numerical policy is mathematically infeasible.  Reserve the
-        # ``BRUTE_FORCE`` label for an actual donor/active-CFL step below the
-        # configured minimum step (or an explicitly derived physical-boundary
-        # feasibility calculation below).  This distinction matters here:
-        # active-tail transport may be expensive before it reaches Rmin, but
-        # expense alone does not establish a temporal error or a physical
-        # lower-face failure.
-        infeasible = active_cfl_cap is not None and (
-            required_dt < float(solver.config.min_dt_s)
-            or min_dt_match is not None
-        )
+        # A wall-clock diagnostic budget, accepted-state audit, or static
+        # ``cap / rate`` calculation is not evidence that the source-owned
+        # active-CFL fixed point is infeasible: reducing a candidate step can
+        # make the Rmin tail unreachable and release the boundary limiter.
+        # Reserve ``BRUTE_FORCE`` exclusively for a min-dt rejection emitted
+        # by the actual candidate-step chooser.
+        infeasible = active_cfl_cap is not None and min_dt_match is not None
         feasibility = {
-            "active_rate_s_inv": required_rate,
-            "required_dt_s_at_requested_active_cfl": required_dt,
+            "terminal_audit_active_rate_s_inv": required_rate,
+            "terminal_audit_implied_candidate_dt_s": audit_implied_dt,
             "configured_min_dt_s": float(solver.config.min_dt_s),
             "solver_reported_cfl_limited_dt_s": solver_limited_dt,
             "boundary_active": bool(active["boundary_active"]),
-            # This is a frozen-state rate audit at dt=1 s, not an accepted
-            # timestep row.  It permits a later feasibility decision even
-            # when the diagnostic stopped exactly at a requested output time.
+            # This is a frozen-state rate audit at dt=1 s.  It is telemetry
+            # only, never a substitute for an accepted candidate-step
+            # decision or a universal feasibility bound.
             "terminal_cfl_audit": active,
-            "projected_48h_steps_at_current_required_dt": (
-                "UNBOUNDED" if not math.isfinite(required_dt) or required_dt <= 0.0
-                else 48.0 * 3600.0 / required_dt
-            ),
+            "static_audit_is_not_a_feasibility_bound": True,
         }
         return EulerianRun(
             policy=policy,
@@ -952,12 +940,24 @@ def _advance_eulerian(
         cumulative_beta_volume=cumulative_volume,
         cumulative_mol_b_mol_m3=cumulative_mol_b,
         feasibility={
-            "active_rate_s_inv": None,
-            "required_dt_s_at_requested_active_cfl": None,
+            "terminal_audit_active_rate_s_inv": max(
+                float(terminal_audit["population_active_cfl"]),
+                float(terminal_audit["lower_tail_active_cfl"]),
+                float(terminal_audit["boundary_active_cfl"]),
+            ),
+            "terminal_audit_implied_candidate_dt_s": (
+                None
+                if active_cfl_cap is None
+                else float(active_cfl_cap) / max(
+                    float(terminal_audit["population_active_cfl"]),
+                    float(terminal_audit["lower_tail_active_cfl"]),
+                    float(terminal_audit["boundary_active_cfl"]),
+                )
+            ),
             "configured_min_dt_s": float(solver.config.min_dt_s),
             "boundary_active": bool(terminal_audit["boundary_active"]),
             "terminal_cfl_audit": terminal_audit,
-            "projected_48h_steps_at_current_required_dt": None,
+            "static_audit_is_not_a_feasibility_bound": True,
         },
     )
 
@@ -1471,226 +1471,49 @@ def _lower_boundary_operator_gate(
     }
 
 
-def _boundary_active_cap_feasibility(
-    run: EulerianRun,
-    *,
-    active_cfl_cap: float,
-    min_dt_s: float,
-) -> dict[str, Any] | None:
-    """Derive an exact active-CFL bound at an observed physical Rmin event.
-
-    The requested active policy is not allowed to evade a declared
-    lower-tail/Rmin crossing by calling the raw face "empty".  Once an
-    accepted current-policy trajectory demonstrates that the same frozen
-    physical operator has ``boundary_active=True``, the active-CFL formula is
-    algebraic: ``dt <= cap / rate``.  This helper makes that implication
-    explicit instead of wasting millions of progressively smaller implicit
-    steps merely to rediscover a sub-``min_dt`` rejection.
-    """
-
-    observations: list[dict[str, Any]] = []
-    for row in run.cfl_rows:
-        dt_s = float(row.get("dt_s", 0.0))
-        boundary_cfl = float(row.get("boundary_active_cfl", 0.0))
-        if bool(row.get("boundary_active", False)) and dt_s > 0.0 and boundary_cfl > 0.0:
-            observations.append({
-                "source": "accepted_step",
-                "step": int(row.get("step", -1)),
-                "time_s": float(row.get("time_start_s", row.get("time_end_s", 0.0))),
-                "boundary_rate_s_inv": boundary_cfl / dt_s,
-                "boundary_velocity_m_s": row.get("lower_boundary_velocity_m_s", "NOT_RECORDED"),
-            })
-    terminal = run.feasibility.get("terminal_cfl_audit", {})
-    if bool(terminal.get("boundary_active", False)):
-        rate = float(terminal.get("boundary_active_cfl", 0.0))
-        if rate > 0.0:
-            observations.append({
-                "source": "terminal_state_audit_dt_1_s",
-                "step": int(run.accepted_steps),
-                "time_s": float(run.snapshots[-1]["time_s"]) if run.snapshots else float("nan"),
-                "boundary_rate_s_inv": rate,
-                "boundary_velocity_m_s": terminal.get("lower_boundary_velocity_m_s", "NOT_RECORDED"),
-            })
-    if not observations:
-        return None
-    observed = max(observations, key=lambda item: float(item["boundary_rate_s_inv"]))
-    rate = float(observed["boundary_rate_s_inv"])
-    required_dt = float(active_cfl_cap / rate)
-    return {
-        "feasibility_kind": "observed_physical_Rmin_active_CFL_bound",
-        "observed_from_policy": run.policy,
-        "observed_boundary_state": observed,
-        "active_rate_s_inv": rate,
-        "required_dt_s_at_requested_active_cfl": required_dt,
-        "configured_min_dt_s": float(min_dt_s),
-        "boundary_active": True,
-        "projected_48h_steps_at_current_required_dt": 48.0 * 3600.0 / required_dt,
-        "below_configured_min_dt": required_dt < float(min_dt_s),
-    }
-
-
-def _blocked_by_boundary_feasibility(
-    *,
-    policy: str,
-    active_cfl_cap: float,
-    feasibility: Mapping[str, Any],
-) -> EulerianRun:
-    """Make a no-run cap decision traceable to the observed physical event."""
-
-    required_dt = float(feasibility["required_dt_s_at_requested_active_cfl"])
-    min_dt = float(feasibility["configured_min_dt_s"])
-    rate = float(feasibility["active_rate_s_inv"])
-    return EulerianRun(
-        policy=policy,
-        requested_active_cfl=active_cfl_cap,
-        status="BRUTE_FORCE_CFL_NOT_PRACTICAL",
-        reason=(
-            "Observed physical-Rmin active-tail state from "
-            f"{feasibility['observed_from_policy']} requires dt <= {required_dt:.17e} s "
-            f"for active CFL <= {active_cfl_cap:g} at {rate:.17e} s^-1, below "
-            f"configured min_dt_s={min_dt:.17e} s."
-        ),
-        snapshots=[], cfl_rows=[], lower_tail_rows=[], accepted_steps=0,
-        rejected_steps=0, runtime_s=0.0, cumulative_number_m3=0.0,
-        cumulative_beta_volume=0.0, cumulative_mol_b_mol_m3=0.0,
-        feasibility=dict(feasibility),
-    )
-
-
-def _probe_observed_boundary_state_with_active_cap(
-    context: CanonicalContext,
-    source_solver: KWNSolver,
-    *,
-    active_cfl_cap: float,
-) -> dict[str, Any]:
-    """Exercise the source-owned active-CFL fixed point at a copied state.
-
-    This is a one-step, no-commit probe.  It verifies that the runner's
-    algebraic cap calculation agrees with the actual production timestep
-    chooser, while keeping the accepted current-policy trajectory intact for
-    its recorded 0.1 h evidence.
-    """
-
-    probe = _build_canonical_solver_from_context(context, active_cfl_cap=active_cfl_cap)
-    for name in ("g", "beta"):
-        probe.population(name).number_density_per_m4[:] = source_solver.population(name).number_density_per_m4
-    probe.matrix_xb = float(source_solver.matrix_xb)
-    probe.time_s = float(source_solver.time_s)
-    probe.step = int(source_solver.step)
-    started = time.monotonic()
-    try:
-        diagnostic = probe.advance_one()
-    except Exception as error:
-        message = str(error)
-        match = re.search(r"CFL-limited step\s+([0-9.+-eE]+)\s+s\s+is below configured min_dt", message)
-        return {
-            "status": "REJECTED_BELOW_MIN_DT" if match is not None else "UNEXPECTED_PROBE_EXCEPTION",
-            "runtime_s": time.monotonic() - started,
-            "error": f"{type(error).__name__}: {message}",
-            "solver_reported_cfl_limited_dt_s": None if match is None else float(match.group(1)),
-        }
-    return {
-        "status": "UNEXPECTED_ACCEPTED_STEP",
-        "runtime_s": time.monotonic() - started,
-        "accepted_dt_s": float(diagnostic.dt_s),
-        "accepted_boundary_active_cfl": float(diagnostic.boundary_active_courant),
-        "accepted_boundary_is_active": bool(diagnostic.boundary_face_is_active),
-    }
-
-
 def _implicit_accuracy_ladder(
     context: CanonicalContext,
     *,
     max_steps: int,
     max_wall_s: float,
 ) -> dict[str, Any]:
-    """Run the active-CFL ladder, stopping only on an exact physical bound."""
+    """Run actual, self-consistent policies over one common short horizon."""
 
     runs: list[EulerianRun] = []
-    current_solver = _build_canonical_solver_from_context(context)
-    current = _advance_eulerian(
-        current_solver,
-        policy="current_implicit_policy",
-        target_times_h=FIRST_SIGNIFICANT_BOUNDARY_TIME_H,
-        active_cfl_cap=None,
-        max_steps=max_steps,
-        max_wall_s=max_wall_s,
+    policies: list[tuple[str, float | None]] = [("current_implicit_policy", None)]
+    policies.extend(
+        (f"implicit_active_CFL_lte_{cap:g}", float(cap))
+        for cap in IMPLICIT_ACTIVE_CFL_CAPS
     )
-    runs.append(current)
-    boundary_feasibility = _boundary_active_cap_feasibility(
-        current,
-        active_cfl_cap=float(IMPLICIT_ACTIVE_CFL_CAPS[0]),
-        min_dt_s=float(context.solver.config.min_dt_s),
-    )
-    if boundary_feasibility is not None and bool(boundary_feasibility["below_configured_min_dt"]):
-        fixed_point_probe = _probe_observed_boundary_state_with_active_cap(
-            context, current_solver, active_cfl_cap=float(IMPLICIT_ACTIVE_CFL_CAPS[0])
+    unattempted_caps: list[float] = []
+    for index, (policy, cap) in enumerate(policies):
+        run = _advance_eulerian(
+            _build_canonical_solver_from_context(context, active_cfl_cap=cap),
+            policy=policy,
+            target_times_h=FIRST_SIGNIFICANT_BOUNDARY_TIME_H,
+            active_cfl_cap=cap,
+            max_steps=max_steps,
+            max_wall_s=max_wall_s,
         )
-        boundary_feasibility["source_owned_active_CFL_fixed_point_probe"] = fixed_point_probe
-    else:
-        fixed_point_probe = None
-    if (
-        boundary_feasibility is not None
-        and bool(boundary_feasibility["below_configured_min_dt"])
-        and fixed_point_probe is not None
-        and fixed_point_probe["status"] == "REJECTED_BELOW_MIN_DT"
-    ):
-        # The current direct run covered the requested first significant
-        # lower-tail dissolution.  Each tighter cap is then mathematically
-        # stricter at the same observed physical state, so a full 0--1 h
-        # brute-force ladder would add cost without creating new evidence.
-        first_cap = float(IMPLICIT_ACTIVE_CFL_CAPS[0])
-        runs.append(_blocked_by_boundary_feasibility(
-            policy=f"implicit_active_CFL_lte_{first_cap:g}",
-            active_cfl_cap=first_cap,
-            feasibility=boundary_feasibility,
-        ))
-        for cap in IMPLICIT_ACTIVE_CFL_CAPS[1:]:
-            tighter = dict(boundary_feasibility)
-            tighter["required_dt_s_at_requested_active_cfl"] = float(cap) / float(tighter["active_rate_s_inv"])
-            tighter["projected_48h_steps_at_current_required_dt"] = 48.0 * 3600.0 / float(tighter["required_dt_s_at_requested_active_cfl"])
-            runs.append(EulerianRun(
-                policy=f"implicit_active_CFL_lte_{cap:g}",
-                requested_active_cfl=float(cap),
-                status="BLOCKED_BY_BRUTE_FORCE_CFL_NOT_PRACTICAL",
-                reason=(
-                    f"active CFL <= {first_cap:g} is already below min_dt at the observed "
-                    "physical-Rmin active-tail state; this tighter cap cannot be run by the current solver."
-                ),
-                snapshots=[], cfl_rows=[], lower_tail_rows=[], accepted_steps=0,
-                rejected_steps=0, runtime_s=0.0, cumulative_number_m3=0.0,
-                cumulative_beta_volume=0.0, cumulative_mol_b_mol_m3=0.0,
-                feasibility=tighter,
-            ))
-    else:
-        # If the short direct trajectory does not yet exhibit a physical
-        # boundary-active tail, retain the ordinary 0--1 h cap ladder.
-        for index, cap in enumerate(IMPLICIT_ACTIVE_CFL_CAPS):
-            policy = f"implicit_active_CFL_lte_{cap:g}"
-            run = _advance_eulerian(
-                _build_canonical_solver_from_context(context, active_cfl_cap=cap),
-                policy=policy,
-                target_times_h=SHORT_TIME_H,
-                active_cfl_cap=cap,
-                max_steps=max_steps,
-                max_wall_s=max_wall_s,
-            )
-            runs.append(run)
-            if run.status == "BRUTE_FORCE_CFL_NOT_PRACTICAL":
-                for blocked_cap in IMPLICIT_ACTIVE_CFL_CAPS[index + 1:]:
-                    runs.append(EulerianRun(
-                        policy=f"implicit_active_CFL_lte_{blocked_cap:g}",
-                        requested_active_cfl=float(blocked_cap),
-                        status="BLOCKED_BY_BRUTE_FORCE_CFL_NOT_PRACTICAL",
-                        reason=f"preceding policy {policy} was infeasible under the same physical active-face contract",
-                        snapshots=[], cfl_rows=[], lower_tail_rows=[], accepted_steps=0,
-                        rejected_steps=0, runtime_s=0.0, cumulative_number_m3=0.0,
-                        cumulative_beta_volume=0.0, cumulative_mol_b_mol_m3=0.0,
-                        feasibility=run.feasibility,
-                    ))
-                break
+        runs.append(run)
+        if run.status == "BRUTE_FORCE_CFL_NOT_PRACTICAL":
+            # This is the only allowed early stop: the source-owned
+            # candidate-step chooser actually rejected a step below min_dt.
+            # Do not synthesize feasibility conclusions for tighter caps;
+            # their support masks may change with their own candidate dt.
+            unattempted_caps = [
+                float(later_cap)
+                for _, later_cap in policies[index + 1:]
+                if later_cap is not None
+            ]
+            break
     completed = [item for item in runs if item.status == "PASS_EULERIAN_SHORT_RUN" and item.snapshots]
     finest = next((item for item in reversed(completed) if item.requested_active_cfl is not None), None)
+    cap_runs = [item for item in runs if item.requested_active_cfl is not None]
+    all_caps_completed = (
+        len(cap_runs) == len(IMPLICIT_ACTIVE_CFL_CAPS)
+        and all(item.status == "PASS_EULERIAN_SHORT_RUN" and item.snapshots for item in cap_runs)
+    )
     rows: list[dict[str, Any]] = []
     cfl_rows = [row for item in runs for row in item.cfl_rows]
     tail_rows = [row for item in runs for row in item.lower_tail_rows]
@@ -1707,23 +1530,29 @@ def _implicit_accuracy_ladder(
             "evaluation_mode": (
                 "accepted_short_trajectory"
                 if item.cfl_rows
-                else str(item.feasibility.get("feasibility_kind", "blocked_or_not_run"))
+                else (
+                    "solver_reported_min_dt_rejection"
+                    if item.status == "BRUTE_FORCE_CFL_NOT_PRACTICAL"
+                    else "incomplete_diagnostic_budget"
+                )
             ),
             "reason": item.reason or "",
             "accepted_steps": item.accepted_steps,
             "rejected_steps": item.rejected_steps,
             "runtime_s": item.runtime_s,
-            # A 0.1 h unqualified trajectory is useful for observing the
-            # first physical boundary event, but it cannot supply a credible
-            # 48 h runtime forecast because the active support changes by
-            # orders of magnitude.  The only reported 48 h cost is therefore
-            # the exact physical-Rmin active-CFL feasibility projection.
+            # The support is dynamic, so this short diagnostic does not make
+            # a credible 48 h runtime forecast.
             "estimated_48h_steps": "NOT_PROJECTED_FROM_UNQUALIFIED_SHORT_RUN",
             "estimated_48h_runtime_s": "NOT_PROJECTED_FROM_UNQUALIFIED_SHORT_RUN",
-            "brute_force_active_rate_s_inv": item.feasibility.get("active_rate_s_inv"),
-            "brute_force_required_dt_s": item.feasibility.get("required_dt_s_at_requested_active_cfl"),
-            "brute_force_projected_48h_steps": item.feasibility.get("projected_48h_steps_at_current_required_dt"),
-            "brute_force_boundary_active": item.feasibility.get("boundary_active"),
+            "terminal_audit_active_rate_s_inv": item.feasibility.get("terminal_audit_active_rate_s_inv"),
+            "terminal_audit_implied_candidate_dt_s": item.feasibility.get(
+                "terminal_audit_implied_candidate_dt_s"
+            ),
+            "solver_reported_cfl_limited_dt_s": item.feasibility.get("solver_reported_cfl_limited_dt_s"),
+            "terminal_audit_boundary_active": item.feasibility.get("boundary_active"),
+            "terminal_audit_is_not_a_feasibility_bound": item.feasibility.get(
+                "static_audit_is_not_a_feasibility_bound", False
+            ),
         }
         if item.snapshots:
             final = item.snapshots[-1]
@@ -1743,7 +1572,7 @@ def _implicit_accuracy_ladder(
     if finest is not None:
         numeric = [item for item in runs if item.policy in error_map and item.requested_active_cfl is not None]
         ordered = sorted(numeric, key=lambda item: float(item.requested_active_cfl), reverse=True)
-        convergence = all(
+        convergence = all_caps_completed and all(
             _monotone_nonincreasing([error_map[item.policy][metric] for item in ordered])
             for metric in primary
         )
@@ -1753,16 +1582,41 @@ def _implicit_accuracy_ladder(
             item for item in ordered
             if max(error_map[item.policy].values(), default=float("inf")) <= TWO_PERCENT
         ]
-        if passing:
+        if convergence and passing:
             # Largest allowable cap is the cheapest candidate; it remains a
             # candidate until the cohort reference and original 2% gate run.
             candidate_passing = passing[0].policy
-    status = "INCOMPLETE_NO_COHORT_REFERENCE"
     brute_force = [item for item in runs if item.status == "BRUTE_FORCE_CFL_NOT_PRACTICAL"]
     if brute_force:
         status = "BRUTE_FORCE_CFL_NOT_PRACTICAL"
-    elif not completed:
+    elif any(item.status == "INCOMPLETE_DIAGNOSTIC_BUDGET" for item in runs):
+        status = "INCOMPLETE_DIAGNOSTIC_BUDGET"
+    elif not all_caps_completed or not completed:
+        status = "INCOMPLETE_DIAGNOSTIC_BUDGET"
+    elif candidate_passing is None:
         status = "FAIL_EULERIAN_TIME_ACCURACY"
+    else:
+        status = "INCOMPLETE_NO_COHORT_REFERENCE"
+    if brute_force:
+        reference_limit = (
+            "The source-owned active-CFL chooser emitted a below-min_dt rejection; "
+            "no tighter policy is inferred from a frozen-state boundary audit."
+        )
+    elif status == "INCOMPLETE_DIAGNOSTIC_BUDGET":
+        reference_limit = (
+            "At least one actual policy exhausted its diagnostic budget.  No self-convergence, "
+            "2% cohort, or production-cost conclusion is claimed."
+        )
+    elif status == "FAIL_EULERIAN_TIME_ACCURACY":
+        reference_limit = (
+            "All requested policies completed the common horizon, but the active-CFL self-convergence "
+            "criterion did not identify a cohort-eligible candidate."
+        )
+    else:
+        reference_limit = (
+            "All requested policies completed the common first-significant-lower-tail horizon; "
+            "the selected candidate remains provisional until the exact canonical cohort 2% crosscheck."
+        )
     return {
         "status": status,
         "runs": runs,
@@ -1773,10 +1627,11 @@ def _implicit_accuracy_ladder(
         "temporal_self_convergence_monotonic": convergence,
         "measurable_difference_vs_finest_implicit": measurable,
         "candidate_active_cfl": candidate_passing,
+        "all_requested_caps_completed": all_caps_completed,
         "brute_force_policies": [item.policy for item in brute_force],
         "brute_force_feasibility": {item.policy: item.feasibility for item in brute_force},
-        "boundary_active_feasibility": boundary_feasibility,
-        "reference_limit": "No qualified finer implicit trajectory exists after the physical-Rmin active-CFL bound; no cohort reference or 2% pass is claimed.",
+        "unattempted_active_cfl_caps_after_actual_brute_force": unattempted_caps,
+        "reference_limit": reference_limit,
     }
 
 
@@ -1954,9 +1809,6 @@ def _explicit_stub(
     audit = _cfl_audit(solver, dt_s=1.0)
     donor_rate = float(audit["global_max_cfl"])
     donor_dt = 1.0 / donor_rate if donor_rate > 0.0 else float("inf")
-    observed = implicit.get("boundary_active_feasibility")
-    observed_rate = None if observed is None else observed.get("active_rate_s_inv")
-    observed_cap4_dt = None if observed_rate in (None, 0.0) else 4.0 / float(observed_rate)
     return {
         "status": "BRUTE_FORCE_DONOR_BOUND_NOT_PRACTICAL",
         "reason": (
@@ -1972,9 +1824,8 @@ def _explicit_stub(
         "whole_domain_donor_bound_projected_48h_steps": 48.0 * 3600.0 / donor_dt,
         "initial_global_face_index": audit.get("global_face_index"),
         "initial_lower_boundary_velocity_m_s": audit.get("lower_boundary_velocity_m_s"),
-        "observed_active_boundary_rate_s_inv": observed_rate,
-        "observed_active_CFL_4_dt_s": observed_cap4_dt,
         "implicit_ladder_status": implicit.get("status"),
+        "actual_implicit_brute_force_policies": implicit.get("brute_force_policies", []),
     }
 
 
@@ -2119,13 +1970,15 @@ def _write_stage_reports(
             "06_implicit_time_accuracy.md",
             REQUIRED_REPORTS["06_implicit_time_accuracy.md"],
             f"Status: `{implicit.get('status')}`.  The reference limit is `{implicit.get('reference_limit', '')}`.  "
+            "The current policy and every attempted cap use the same 0--0.1 h first-significant-lower-tail horizon; "
+            "each accepted timestep comes from the solver's self-consistent candidate-step decision.  A frozen dt=1 s "
+            "boundary audit is reported only as telemetry and never promoted to a universal cap feasibility bound.  "
+            f"All requested caps completed: `{implicit.get('all_requested_caps_completed')}`.  "
             f"Candidate cheapest cap: `{implicit.get('candidate_active_cfl')}`.  Measurable current-vs-finest implicit "
             f"difference: `{implicit.get('measurable_difference_vs_finest_implicit')}`.  "
-            f"Brute-force policies: `{implicit.get('brute_force_policies', [])}`.\n\n"
-            "Observed physical-boundary feasibility (where present):\n\n```json\n"
-            + json.dumps(_json_safe(implicit.get("boundary_active_feasibility")), indent=2, sort_keys=True)
-            + "\n```\n\n"
-            + _report_body_table(implicit.get("rows", []), ("policy", "requested_active_cfl", "evaluation_mode", "status", "accepted_steps", "runtime_s", "estimated_48h_steps", "estimated_48h_runtime_s", "brute_force_active_rate_s_inv", "brute_force_required_dt_s", "brute_force_projected_48h_steps", "brute_force_boundary_active")),
+            f"Actual solver-reported brute-force policies: `{implicit.get('brute_force_policies', [])}`.  "
+            f"Unattempted caps after an actual brute-force rejection: `{implicit.get('unattempted_active_cfl_caps_after_actual_brute_force', [])}`.\n\n"
+            + _report_body_table(implicit.get("rows", []), ("policy", "requested_active_cfl", "evaluation_mode", "status", "accepted_steps", "runtime_s", "estimated_48h_steps", "estimated_48h_runtime_s", "terminal_audit_active_rate_s_inv", "terminal_audit_implied_candidate_dt_s", "solver_reported_cfl_limited_dt_s", "terminal_audit_boundary_active", "terminal_audit_is_not_a_feasibility_bound")),
         )
         completed["06_implicit_time_accuracy.md"] = "done"
     if explicit is not None:
@@ -2143,12 +1996,13 @@ def _write_stage_reports(
             REQUIRED_REPORTS["08_transport_scheme_decision.md"],
             "No production transport replacement is selected from an implicit-stability observation.  A donor-bound "
             "SSPRK2 reference must be whole-domain positivity-safe; an active-only cap is not presented as such a reference. "
-            "The active physical-Rmin feasibility record and donor-bound reference record are below.  They block the current "
-            "implicit upwind operator from a 2% cohort qualification; they do not themselves prove a measured backward-Euler "
-            "temporal-diffusion error.  The next allowed evaluation is a conservative characteristic or semi-Lagrangian remap "
-            "with the same shared boundary contract.\n\n```json\n"
+            "The actual active-CFL ladder and donor-bound reference record are below.  A frozen boundary-state rate is not "
+            "a universal feasibility bound and does not by itself establish backward-Euler temporal diffusion.  The next "
+            "action depends on the actual ladder result: complete its diagnostic budget when incomplete, or evaluate a "
+            "conservative characteristic or semi-Lagrangian remap only after a genuine source-reported min-dt block.\n\n```json\n"
             + json.dumps(_json_safe({
-                "implicit_boundary_feasibility": implicit.get("boundary_active_feasibility"),
+                "implicit_ladder_status": implicit.get("status"),
+                "actual_implicit_brute_force_policies": implicit.get("brute_force_policies", []),
                 "explicit_reference": explicit,
             }), indent=2, sort_keys=True)
             + "\n```",
@@ -2201,7 +2055,7 @@ def _write_stage_reports(
         "14_reproduction_commands.md",
         REQUIRED_REPORTS["14_reproduction_commands.md"],
         "```bash\n"
-        "# Finite lower-boundary gates and 0--1 h active-CFL ladder\n"
+        "# Finite lower-boundary gates and common 0--0.1 h active-CFL ladder\n"
         f"PYTHONPATH=src python3 scripts/run_kwn_lower_boundary_time_accuracy_v1.py all\n\n"
         "# Explicitly authorize the expensive exact canonical cohort path\n"
         f"PYTHONPATH=src python3 scripts/run_kwn_lower_boundary_time_accuracy_v1.py crosscheck --allow-long-cohort --cohort-points-per-cell 2\n"
@@ -2228,27 +2082,29 @@ def _final_summary(
     first_cfl = (implicit or {}).get("cfl_rows", [{}])[0] if (implicit or {}).get("cfl_rows") else {}
     rows = (implicit or {}).get("rows", [])
     candidate = (implicit or {}).get("candidate_active_cfl")
-    estimated = next((row.get("estimated_48h_runtime_s") for row in rows if row.get("policy") == candidate), "NOT_RUN")
-    boundary_feasibility = (implicit or {}).get("boundary_active_feasibility")
-    if boundary_feasibility is not None:
-        estimated = {
-            "basis": "observed physical-Rmin active-tail state",
-            "active_CFL_4_required_dt_s": boundary_feasibility.get("required_dt_s_at_requested_active_cfl"),
-            "active_CFL_4_projected_48h_steps": boundary_feasibility.get("projected_48h_steps_at_current_required_dt"),
-            "configured_min_dt_s": boundary_feasibility.get("configured_min_dt_s"),
-        }
+    estimated = next(
+        (row.get("estimated_48h_runtime_s") for row in rows if row.get("policy") == candidate),
+        "NOT_PROJECTED_FROM_SHORT_DIAGNOSTIC",
+    )
     runs = (implicit or {}).get("runs", [])
     terminal_audit = runs[0].feasibility.get("terminal_cfl_audit", {}) if runs else {}
+    accepted_boundary_rows = [
+        row for row in (implicit or {}).get("cfl_rows", [])
+        if bool(row.get("boundary_active", False))
+    ]
     boundary_active_summary: dict[str, Any] = {
-        "initial_accepted_step": first_cfl.get("boundary_active_cfl", "NOT_RUN"),
-        "terminal_state_rate_s_inv": terminal_audit.get("boundary_active_cfl", "NOT_RUN"),
-        "terminal_state_active": terminal_audit.get("boundary_active", "NOT_RUN"),
+        "first_accepted_step_cfl": first_cfl.get("boundary_active_cfl", "NOT_RUN"),
+        "accepted_boundary_active_step_count": len(accepted_boundary_rows),
+        "max_accepted_boundary_active_cfl": max(
+            (float(row.get("boundary_active_cfl", 0.0)) for row in accepted_boundary_rows),
+            default=0.0,
+        ),
+        "terminal_dt_1_s_audit_boundary_cfl": terminal_audit.get("boundary_active_cfl", "NOT_RUN"),
+        "terminal_dt_1_s_audit_boundary_active": terminal_audit.get("boundary_active", "NOT_RUN"),
     }
-    if boundary_feasibility is not None:
-        boundary_active_summary["observed_physical_Rmin_rate_s_inv"] = boundary_feasibility.get("active_rate_s_inv")
-        boundary_active_summary["CFL_4_required_dt_s"] = boundary_feasibility.get("required_dt_s_at_requested_active_cfl")
     lower_status = (lower or {}).get("status", "FAIL_LOWER_BOUNDARY_OPERATOR_PARITY")
     cross_status = (crosscheck or {}).get("status", "BLOCKED_PREREQUISITE_GATE")
+    implicit_status = (implicit or {}).get("status", "NOT_RUN")
     top = _top_status(
         lower={"status": lower_status},
         implicit=implicit or {"status": "FAIL_EULERIAN_TIME_ACCURACY"},
@@ -2262,6 +2118,45 @@ def _final_summary(
         if lower_status == "PASS_LOWER_BOUNDARY_OPERATOR_PARITY"
         else "EULERIAN_LOWER_FACE_PREVIOUSLY_USED_G_FIRST_CELL_CENTER_WHILE_COHORT_EVENT_USED_PHYSICAL_RMIN"
     )
+    if lower_status != "PASS_LOWER_BOUNDARY_OPERATOR_PARITY":
+        secondary_root_cause = "NOT_REACHED_BEFORE_LOWER_BOUNDARY_GATE"
+    elif implicit_status == "BRUTE_FORCE_CFL_NOT_PRACTICAL":
+        secondary_root_cause = "SOURCE_REPORTED_ACTIVE_CFL_MIN_DT_LIMIT"
+    elif implicit_status == "INCOMPLETE_DIAGNOSTIC_BUDGET":
+        secondary_root_cause = "IMPLICIT_TIME_ACCURACY_UNQUALIFIED_DIAGNOSTIC_BUDGET"
+    elif implicit_status == "FAIL_EULERIAN_TIME_ACCURACY":
+        secondary_root_cause = "IMPLICIT_ACTIVE_CFL_SELF_CONVERGENCE_NOT_QUALIFIED"
+    else:
+        secondary_root_cause = "IMPLICIT_ACTIVE_CFL_CANDIDATE_PENDING_EXACT_COHORT_CROSSCHECK"
+    if implicit_status == "BRUTE_FORCE_CFL_NOT_PRACTICAL":
+        next_action = (
+            "Preserve the source-reported min-dt evidence and evaluate a conservative characteristic or "
+            "semi-Lagrangian remap with the same physical-Rmin contract before the cohort crosscheck, authority ladder, "
+            "PF comparison, or local GP release."
+        )
+    elif implicit_status == "INCOMPLETE_DIAGNOSTIC_BUDGET":
+        next_action = (
+            "Continue the actual shared-horizon active-CFL ladder with a sufficient diagnostic budget; do not infer "
+            "a transport-scheme block or run the cohort crosscheck, authority ladder, PF comparison, or local GP release yet."
+        )
+    elif implicit_status == "FAIL_EULERIAN_TIME_ACCURACY":
+        next_action = (
+            "Inspect the completed self-convergence evidence before selecting a different accuracy policy or a transport "
+            "scheme upgrade; do not run the cohort crosscheck, authority ladder, PF comparison, or local GP release yet."
+        )
+    else:
+        next_action = (
+            "Run the explicitly authorized exact canonical cohort--Eulerian 2% crosscheck for the provisional active-CFL "
+            "candidate before the authority ladder, PF comparison, or local GP release."
+        )
+    p0_blockers = [
+        f"IMPLICIT_ACCURACY_LADDER_{implicit_status}",
+        cross_status,
+        "No time-qualified Eulerian solver/policy exists for the retained 2% cohort gate or v2 authority.",
+        "No frozen beta-only PF direction comparison before cohort--Eulerian shared-operator parity passes.",
+    ]
+    if implicit_status == "BRUTE_FORCE_CFL_NOT_PRACTICAL":
+        p0_blockers.insert(1, "BRUTE_FORCE_CFL_NOT_PRACTICAL_FROM_ACTUAL_SOLVER_MIN_DT_REJECTION")
     return {
         "STATUS": top,
         "BRANCH": launch.get("git_branch_at_launch"),
@@ -2280,12 +2175,8 @@ def _final_summary(
         "LOWER_TAIL_ACTIVE_CFL": first_cfl.get("lower_tail_active_cfl", "NOT_RUN"),
         "BOUNDARY_ACTIVE_CFL": boundary_active_summary,
         "PRIMARY_ROOT_CAUSE": root_cause,
-        "SECONDARY_ROOT_CAUSE": (
-            "IMPLICIT_TIME_ACCURACY_UNQUALIFIED_AT_PHYSICAL_RMIN_ACTIVE_BOUNDARY"
-            if lower_status == "PASS_LOWER_BOUNDARY_OPERATOR_PARITY"
-            else "NOT_REACHED_BEFORE_LOWER_BOUNDARY_GATE"
-        ),
-        "IMPLICIT_ACCURACY_LADDER": None if implicit is None else implicit.get("status"),
+        "SECONDARY_ROOT_CAUSE": secondary_root_cause,
+        "IMPLICIT_ACCURACY_LADDER": implicit_status,
         "PASSING_ACTIVE_CFL": candidate or "NOT_ASSIGNED_UNTIL_COHORT_2_PERCENT_CROSSCHECK",
         "ESTIMATED_48H_COST": estimated,
         "DIAGNOSTIC_EXPLICIT": None if explicit is None else explicit.get("status"),
@@ -2319,15 +2210,10 @@ def _final_summary(
             "Rmin is frozen as one exact binary64 grid edge for helper, FV face, and cohort event paths.",
             "Raw global CFL and active-population CFL are reported separately; a negligible tail is not silently made an accuracy limiter.",
             "Boundary flux diagnostics are not an additional matrix source; matrix composition is algebraically closed from current beta inventory.",
-            "Once the declared lower tail is physically Rmin-active, every requested active-CFL cap falls below min_dt; no 2% crosscheck or PF comparison is claimed.",
+            "Each active-CFL policy is advanced with the source-owned self-consistent candidate step; a frozen boundary audit is telemetry, not a universal feasibility bound.",
         ],
-        "P0_BLOCKERS": [
-            "BRUTE_FORCE_CFL_NOT_PRACTICAL_AT_OBSERVED_PHYSICAL_RMIN_ACTIVE_TAIL",
-            cross_status,
-            "No time-qualified Eulerian solver/policy exists for the retained 2% cohort gate or v2 authority.",
-            "No frozen beta-only PF direction comparison before cohort--Eulerian shared-operator parity passes.",
-        ],
-        "NEXT_ACTION": "Evaluate a conservative characteristic or semi-Lagrangian remap with the same physical-Rmin contract; do not run the cohort crosscheck, authority ladder, PF comparison, or local GP release until it is time-qualified.",
+        "P0_BLOCKERS": p0_blockers,
+        "NEXT_ACTION": next_action,
         "LOCAL_GP_RELEASE_AUTHORIZED": "LOCAL_GP_RELEASE_NOT_AUTHORIZED",
         "KEY_REPORTS": [str(DEFAULT_REPORT_ROOT / name) for name in (
             "00_baseline_boundary_reproduction.md", "01_physical_lower_boundary_contract.md",
@@ -2480,7 +2366,7 @@ def _run_workflow(arguments: argparse.Namespace) -> dict[str, Any]:
             crosscheck_reason = (
                 "no time-qualified Eulerian policy exists: "
                 f"implicit ladder status is {implicit.get('status')}"
-                if implicit.get("status") == "BRUTE_FORCE_CFL_NOT_PRACTICAL"
+                if implicit.get("status") != "INCOMPLETE_NO_COHORT_REFERENCE"
                 else "full canonical cohort--Eulerian crosscheck is not part of this invocation; use the explicit crosscheck command after lower parity and time-accuracy qualification."
             )
             crosscheck = _blocked_crosscheck(
@@ -2568,7 +2454,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--max-wall-s", type=float, default=20.0,
-        help="per-policy wall-time ceiling for a diagnostic; tighter policies stop fail-closed after an infeasible predecessor",
+        help="per-policy wall-time ceiling for a diagnostic; budget exhaustion is recorded without inferring a feasibility bound",
     )
     parser.add_argument(
         "--analytic-fast", action="store_true", default=True,
