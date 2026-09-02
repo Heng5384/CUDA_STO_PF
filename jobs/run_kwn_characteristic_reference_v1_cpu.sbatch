@@ -44,6 +44,9 @@ mkdir -p "${RUN_ROOT}/logs"
 exec >"${RUN_ROOT}/logs/driver.stdout.log" 2>"${RUN_ROOT}/logs/driver.stderr.log"
 
 export PYTHONPATH="${SOURCE_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
+# Some compute-node batch shells omit /usr/bin even though the runner needs
+# the system Git binary to bind source provenance before numerical work.
+export PATH="/usr/bin:/bin${PATH:+:${PATH}}"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
