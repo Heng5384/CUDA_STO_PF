@@ -76,6 +76,8 @@ max_steps="${MAX_STEPS:-2000000}"
 {
   printf 'hostname=%s\n' "$(hostname)"
   printf 'slurm_job_id=%s\n' "${SLURM_JOB_ID:-UNSCHEDULED}"
+  printf 'slurm_partition=%s\n' "${SLURM_JOB_PARTITION:-UNSPECIFIED}"
+  printf 'slurm_qos=%s\n' "${SLURM_JOB_QOS:-UNSPECIFIED}"
   printf 'slurm_memory_per_node_mb=%s\n' "${SLURM_MEM_PER_NODE:-UNSPECIFIED}"
   printf 'source_root=%s\n' "${SOURCE_ROOT}"
   printf 'source_commit=%s\n' "$(git -C "${SOURCE_ROOT}" rev-parse HEAD)"
