@@ -80,11 +80,22 @@ class SolverConfig:
         thermo = require_mapping(root, "thermodynamics")
         populations_data = require_mapping(root, "populations")
         try:
-            grid = RadiusGrid.logarithmic(
-                require_number(grid_data, "minimum_m", positive=True),
-                require_number(grid_data, "maximum_m", positive=True),
-                int(require_number(grid_data, "bins", positive=True)),
-            )
+            minimum_m = require_number(grid_data, "minimum_m", positive=True)
+            maximum_m = require_number(grid_data, "maximum_m", positive=True)
+            bins = int(require_number(grid_data, "bins", positive=True))
+            declared_edges = grid_data.get("edges_m")
+            if declared_edges is None:
+                grid = RadiusGrid.logarithmic(minimum_m, maximum_m, bins)
+            else:
+                if not isinstance(declared_edges, list):
+                    raise ConfigurationError("radius_grid.edges_m must be a list when supplied")
+                grid = RadiusGrid(np.asarray(declared_edges, dtype=np.float64))
+                if grid.bins != bins:
+                    raise ConfigurationError("radius_grid.edges_m bin count must match radius_grid.bins")
+                if grid.edges_m[0] != minimum_m or grid.edges_m[-1] != maximum_m:
+                    raise ConfigurationError(
+                        "radius_grid.edges_m endpoints must exactly match minimum_m and maximum_m"
+                    )
         except (TypeError, ValueError) as exc:
             raise ConfigurationError(f"Invalid radius_grid: {exc}") from exc
         parsed: List[PopulationParameters] = []

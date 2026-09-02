@@ -73,6 +73,10 @@ from kwn_mvp.population_metrics import (  # noqa: E402
     positive_cell_quadrature,
 )
 from kwn_mvp.solver import KWNSolver, RadiusGridOverflowError, SolverConfig, SolverStateError  # noqa: E402
+from scripts.frozen_canonical_smooth_population_v1 import (  # noqa: E402
+    build_frozen_canonical_context,
+    frozen_canonical_snapshot_provenance,
+)
 
 
 TASK_NAME = "kwn_characteristic_reference_v1"
@@ -337,6 +341,7 @@ def _launch_context() -> dict[str, Any]:
         "cuda_rerun": False,
         "physical_retuning": False,
         "local_gp_release": False,
+        "frozen_canonical_snapshot": frozen_canonical_snapshot_provenance(),
     }
 
 
@@ -1710,6 +1715,7 @@ def _grid_context(legacy: Any, base: Any, *, bins: int) -> GridContext:
     mapping = deepcopy(base.mapping)
     beta = source.population("beta")
     mapping["radius_grid"]["bins"] = int(bins)
+    mapping["radius_grid"].pop("edges_m", None)
     mapping["populations"]["beta"]["initial"] = {
         "kind": "cell_integrated",
         "radius_edges_m": [float(item) for item in beta.grid.edges_m],
@@ -1963,6 +1969,7 @@ def _write_outputs(
     _write_csv(output_root / "beta_only_cohort_pf.csv", beta.get("rows", [beta]), fallback_fields=("status", "reason"))
     source_paths = (
         "scripts/run_kwn_characteristic_reference_v1.py",
+        "scripts/frozen_canonical_smooth_population_v1.py",
         "scripts/run_kwn_lower_boundary_time_accuracy_v1.py",
         "scripts/run_kwn_time_accuracy_closure_v1.py",
         "src/kwn_mvp/characteristic_reference.py",
@@ -1981,6 +1988,7 @@ def _write_outputs(
         "canonical_config_hash": context.solver.config.source_config_hash,
         "validation_contract_hash": context.contract_hash,
         "fixture_hash": context.fixture_hash,
+        "frozen_canonical_snapshot": dict(context.snapshot_provenance),
         "binary_provenance": {
             "python_executable": sys.executable,
             "python_version": sys.version,
@@ -2048,7 +2056,9 @@ def _write_reports(
             "physical `Rmin`: there is no ghost inflow, and crossings leave the resolved domain.  Rmax outflow fails closed.\n\n"
             "For every nonzero step, CR1 iterates matrix composition and remapped population to a joint fixed point; a frozen-x "
             "single step is never labeled a full dynamic reference.  `Q_beta` is recomputed from the new cell measure and matrix "
-            "composition comes only from the algebraic total-inventory ledger.  CR1 is scoped to smooth beta-only post-nucleation "
+            "composition comes only from the algebraic total-inventory ledger.  The exact canonical cell measure and frozen "
+            "matrix inventory are loaded from the verified archived `canonical_smooth_population_v1` input, rather than being "
+            "recomputed with platform-dependent transcendental reductions.  CR1 is scoped to smooth beta-only post-nucleation "
             "numerical reference work, not GP production."
         ),
         "02_characteristic_unit_tests.md": f"Status: `{characteristic_tests.get('status')}`.\n\n" + _report_table(characteristic_tests.get("rows", []), ("case", "test_id", "status", "reason")),
@@ -2276,7 +2286,7 @@ def _workflow(arguments: argparse.Namespace) -> dict[str, Any]:
     _require_formal_launch(output_root, report_root)
     launch = _launch_context()
     legacy = _load_legacy_lower(); time_legacy = _load_time_closure()
-    context = legacy._build_canonical_context(bins=3200)
+    context = build_frozen_canonical_context()
     identity = {
         "validation_contract_hash": context.contract_hash == EXPECTED_CONTRACT_HASH,
         "canonical_state_hash": context.canonical_hash == EXPECTED_CANONICAL_STATE_HASH,

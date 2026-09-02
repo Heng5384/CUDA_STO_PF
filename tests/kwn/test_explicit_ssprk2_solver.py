@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import importlib.util
 import math
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,9 +15,9 @@ from kwn_mvp.explicit_solver import ExplicitSSPRK2Solver
 from kwn_mvp.lower_boundary import boundary_growth_velocity
 from kwn_mvp.radius_grid import RadiusGrid
 from kwn_mvp.solver import RadiusGridOverflowError, SolverConfig, SolverStateError
+from scripts.frozen_canonical_smooth_population_v1 import build_frozen_canonical_context
 
 
-ROOT = Path(__file__).resolve().parents[2]
 RMIN_M = 5.0e-9
 RMAX_M = 2.0e-8
 
@@ -313,14 +311,7 @@ class ExplicitSSPRK2SolverTests(unittest.TestCase):
         self.assertLess(error_fine, error_medium)
 
     def test_canonical_frozen_first_step_is_honestly_blocked_below_min_dt(self) -> None:
-        path = ROOT / "scripts" / "run_kwn_lower_boundary_time_accuracy_v1.py"
-        specification = importlib.util.spec_from_file_location("explicit_ssprk2_canonical_fixture", path)
-        if specification is None or specification.loader is None:
-            self.fail("cannot load frozen canonical context builder")
-        module = importlib.util.module_from_spec(specification)
-        sys.modules[specification.name] = module
-        specification.loader.exec_module(module)
-        context = module._build_canonical_context(bins=3200)
+        context = build_frozen_canonical_context()
         solver = ExplicitSSPRK2Solver(SolverConfig.from_mapping(context.mapping), donor_safety=1.0)
         expected = 6.723883286860197e-20
         self.assertTrue(math.isclose(solver.exact_donor_bound_s(), expected, rel_tol=5.0e-15))

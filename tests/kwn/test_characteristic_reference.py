@@ -158,6 +158,21 @@ class _RestartVelocityCharacteristic(CharacteristicReferenceSolver):
 class CharacteristicReferenceContracts(unittest.TestCase):
     """CR1--CR9: conservative remapping, closure, restart, and no-CFL behavior."""
 
+    def test_declared_frozen_grid_edges_are_preserved_exactly(self) -> None:
+        """A hash-bound cell measure can carry its exact archived face locations."""
+
+        bins = 40
+        numbers = _numbers(bins=bins)
+        mapping = _mapping(bins=bins, beta_numbers_m3=numbers)
+        edges = RadiusGrid.logarithmic(RMIN_M, RMAX_M, bins).edges_m.copy()
+        edges[9] = np.nextafter(edges[9], np.inf)
+        mapping["radius_grid"]["edges_m"] = [float(value) for value in edges]
+        mapping["populations"]["beta"]["initial"]["radius_edges_m"] = [
+            float(value) for value in edges
+        ]
+        config = SolverConfig.from_mapping(mapping)
+        np.testing.assert_array_equal(config.grid.edges_m, edges)
+
     def test_cr1_zero_velocity_is_bitwise_identity(self) -> None:
         numbers = _numbers(bins=40)
         solver = _ConstantVelocityCharacteristic(

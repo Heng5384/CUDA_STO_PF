@@ -9,12 +9,8 @@ leaving time-policy work free to change only its intended policy controls.
 from __future__ import annotations
 
 from copy import deepcopy
-import importlib.util
 import math
-from pathlib import Path
-import sys
 import unittest
-from typing import Any
 
 import numpy as np
 
@@ -29,9 +25,8 @@ from kwn_mvp.lower_boundary import (
 from kwn_mvp.populations import Population
 from kwn_mvp.radius_grid import RadiusGrid
 from kwn_mvp.solver import KWNSolver, SolverConfig
+from scripts.frozen_canonical_smooth_population_v1 import build_frozen_canonical_context
 
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 FROZEN_BINS = 3200
 FROZEN_CONTRACT_HASH = "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
@@ -45,23 +40,6 @@ FROZEN_TOTAL_B_MOL_M3 = 731.5467336438344
 
 BENCHMARK_NUMBER_M3 = 2.0e20
 BENCHMARK_VELOCITY_M_S = -1.0e-12
-
-
-def _load_radius_grid_qualification_runner() -> Any:
-    """Load the established smooth-measure constructor without new-runner coupling."""
-
-    module_name = "_kwn_frozen_radius_grid_qualification"
-    module = sys.modules.get(module_name)
-    if module is not None:
-        return module
-    path = REPOSITORY_ROOT / "scripts" / "run_kwn_radius_grid_convergence_v1.py"
-    specification = importlib.util.spec_from_file_location(module_name, path)
-    if specification is None or specification.loader is None:
-        raise RuntimeError(f"cannot load frozen smooth-measure constructor: {path}")
-    module = importlib.util.module_from_spec(specification)
-    sys.modules[module_name] = module
-    specification.loader.exec_module(module)
-    return module
 
 
 def _smooth_cdf_fraction(radius_m: float, *, low_m: float, high_m: float) -> float:
@@ -112,10 +90,8 @@ class FrozenLowerBoundaryContractTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        runner = _load_radius_grid_qualification_runner()
-        cls.solver, cls.construction, cls.contract, _fixture = runner._build_smooth_solver(
-            bins=FROZEN_BINS
-        )
+        cls.context = build_frozen_canonical_context()
+        cls.solver = cls.context.solver
 
     def _benchmark_solver(self, *, bins: int, dt_fraction: float) -> _ConstantVelocityEulerian:
         """Build the B4-style test problem at the frozen physical lower edge."""
@@ -138,8 +114,9 @@ class FrozenLowerBoundaryContractTests(unittest.TestCase):
             ],
             dtype=np.float64,
         )
-        mapping = deepcopy(self.construction["config_mapping"])
+        mapping = deepcopy(self.context.mapping)
         mapping["radius_grid"]["bins"] = bins
+        mapping["radius_grid"].pop("edges_m", None)
         mapping["simulation"]["max_dt_s"] = (
             float(dt_fraction) * float(np.min(grid.widths_m)) / abs(BENCHMARK_VELOCITY_M_S)
         )
@@ -210,7 +187,7 @@ class FrozenLowerBoundaryContractTests(unittest.TestCase):
             beta_resolved_fraction=1.0,
         )
 
-        self.assertEqual(self.contract.contract_hash, FROZEN_CONTRACT_HASH)
+        self.assertEqual(self.context.contract_hash, FROZEN_CONTRACT_HASH)
         self.assertEqual(rmin, FROZEN_RMIN_M)
         self.assertEqual(rmin.hex(), FROZEN_RMIN_HEX)
         self.assertEqual(float(beta.grid.edges_m[0]).hex(), FROZEN_RMIN_HEX)
