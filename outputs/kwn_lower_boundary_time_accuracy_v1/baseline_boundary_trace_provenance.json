@@ -1,0 +1,15 @@
+{
+  "baseline_status": "FAIL_LOWER_BOUNDARY_OPERATOR_PARITY",
+  "eulerian_accepted_state_count": 250,
+  "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+  "local_cohort_representation": "first_canonical_cell_four_point_physical_Rmin_control; not a full-smooth crosscheck",
+  "local_cohort_rmin_event_count": 4,
+  "physical_rmin_hex": "0x1.03b4c5a5fbe5ep-31",
+  "physical_rmin_m": 4.724027182871601e-10,
+  "schema_version": "KWN_BOUNDARY_BASELINE_TRACE_V1",
+  "source_commit": "78b6745767607dcdbcf069ce4498744fbef612df",
+  "state_npz_sha256": "8eb1d9ee75e8c21281164ce6e0d11ffe9eb05b08d1ffbeb91ed6e993324a7c15",
+  "trace_csv_sha256": "9849acdff2fc46ef32b0753d66376978bc2c7dba475b7d0c6a22527a1ebf82f2",
+  "trace_end_time_h": 0.1,
+  "validation_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+}

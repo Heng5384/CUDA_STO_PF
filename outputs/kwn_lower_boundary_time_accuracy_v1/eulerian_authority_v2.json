@@ -1,0 +1,8 @@
+{
+  "authority_grid": null,
+  "reason": "800/1600/3200 v2 authority is not inherited before the exact shared-operator crosscheck passes.",
+  "schema_version": "EULERIAN_SMOOTH_AUTHORITY_GRID_V2",
+  "solver": "CONSERVATIVE_IMPLICIT_UPWIND_FACE_SOLVE",
+  "status": "BLOCKED_COHORT_EULERIAN_SHARED_OPERATOR_PARITY",
+  "validation_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+}

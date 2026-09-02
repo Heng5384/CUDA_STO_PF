@@ -1,0 +1,81 @@
+{
+  "baseline": {
+    "checks": {
+      "contract": true,
+      "historical_status": true,
+      "physical_rmin_binary64": true,
+      "source_commit": true,
+      "state_sha256": true,
+      "trace_sha256": true
+    },
+    "provenance": {
+      "baseline_status": "FAIL_LOWER_BOUNDARY_OPERATOR_PARITY",
+      "eulerian_accepted_state_count": 250,
+      "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+      "local_cohort_representation": "first_canonical_cell_four_point_physical_Rmin_control; not a full-smooth crosscheck",
+      "local_cohort_rmin_event_count": 4,
+      "physical_rmin_hex": "0x1.03b4c5a5fbe5ep-31",
+      "physical_rmin_m": 4.724027182871601e-10,
+      "schema_version": "KWN_BOUNDARY_BASELINE_TRACE_V1",
+      "source_commit": "78b6745767607dcdbcf069ce4498744fbef612df",
+      "state_npz_sha256": "8eb1d9ee75e8c21281164ce6e0d11ffe9eb05b08d1ffbeb91ed6e993324a7c15",
+      "trace_csv_sha256": "9849acdff2fc46ef32b0753d66376978bc2c7dba475b7d0c6a22527a1ebf82f2",
+      "trace_end_time_h": 0.1,
+      "validation_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+    },
+    "schema_version": "KWN_LOWER_BOUNDARY_BASELINE_REPRODUCTION_V1",
+    "state": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-lower-boundary-time-accuracy-v1/outputs/kwn_lower_boundary_time_accuracy_v1/baseline_boundary_state.npz",
+    "status": "PASS_BASELINE_REPRODUCTION",
+    "trace": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-lower-boundary-time-accuracy-v1/outputs/kwn_lower_boundary_time_accuracy_v1/baseline_boundary_trace.csv"
+  },
+  "binary": {
+    "python_executable": "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "python_version": "3.9.6 (default, Apr 17 2026, 18:15:52) \n[Clang 21.0.0 (clang-2100.1.1.101)]"
+  },
+  "configuration": {
+    "canonical_hash": "45fc9cdd1a2e2ddfe357122dff26b202fb42893a627202c43904017e428aac95",
+    "canonical_mapping_hash": "db6caf32de9586b148e5ac72e55be8129124d760da9f739d552a2eb6c2c35531",
+    "cell_number_roundtrip_relative_error": 1.963327689036814e-16,
+    "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+    "source_initial_psd_hash": "f9bb99dab64de15b946fba8904efab30d1881833577b8a5b28c8ea46a5ccf608",
+    "validation_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+  },
+  "final_status": "BLOCKED_PRODUCTION_TRANSPORT_SCHEME_UPGRADE",
+  "forbidden_actions": {
+    "cuda_rerun": false,
+    "local_gp_release": false,
+    "pf_source_modified": false,
+    "physical_retuning": false
+  },
+  "launch": {
+    "baseline_commit": "78b6745767607dcdbcf069ce4498744fbef612df",
+    "baseline_commit_resolved": "78b6745767607dcdbcf069ce4498744fbef612df",
+    "cuda_rerun": false,
+    "git_branch_at_launch": "codex/kwn-lower-boundary-time-accuracy-v1",
+    "git_head_at_launch": "b82fa46af940d7529d2ccaf2f06db3591f4b4ddd",
+    "git_status_at_launch": "?? reports/kwn_lower_boundary_time_accuracy_v1/",
+    "local_gp_release": false,
+    "pf_source_modified": false,
+    "pf_source_paths_changed_from_baseline": [],
+    "physical_input_paths_modified": [],
+    "physical_retuning": false,
+    "source_paths_changed_from_baseline": [
+      "scripts/run_kwn_lower_boundary_time_accuracy_v1.py",
+      "src/kwn_mvp/cohort_solver.py",
+      "src/kwn_mvp/diagnostics.py",
+      "src/kwn_mvp/lower_boundary.py",
+      "src/kwn_mvp/solver.py",
+      "tests/kwn/test_active_cfl_contract.py",
+      "tests/kwn/test_lower_boundary_contract.py"
+    ]
+  },
+  "schema_version": "KWN_LOWER_BOUNDARY_TIME_ACCURACY_ANALYSIS_PROVENANCE_V1",
+  "source_sha256": {
+    "scripts/run_kwn_lower_boundary_time_accuracy_v1.py": "f28f27513018518e87ba74bfe9c4bcf739e3e5611f30a828caee29cb20086130",
+    "src/kwn_mvp/cohort_solver.py": "ada99992b3fe8f174098ede6597c8471f570ee394cba81ee1f53dec463071fc7",
+    "src/kwn_mvp/ledger.py": "1c37b6c640bce0ec996605d01a8c8ebbffc05d7596cc4ffd4b2f355fa5992d4d",
+    "src/kwn_mvp/lower_boundary.py": "1f241807ddfaacc82459ea1617e1a0729f9cfa78a57cb769d058cf8af3483756",
+    "src/kwn_mvp/population_metrics.py": "5441711d9879db00f19ffa825273c2d4d7755f07fd88c5921b13d8ef11560593",
+    "src/kwn_mvp/solver.py": "567b11d3285c0ff502bb623113e5197ca56ff04a30d245c2713e7faa26b0d445"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "Eulerian_initialization": "direct_cell_number_density_read",
+  "analytic_psd_definition": "LOGNORMAL_FIXED_NUMERICAL_QUALIFICATION_ONLY",
+  "canonical_hash": "45fc9cdd1a2e2ddfe357122dff26b202fb42893a627202c43904017e428aac95",
+  "canonical_radius_cell_count": 3200,
+  "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+  "log_sigma": 0.14,
+  "matrix_inventory_mol_m3": 148.05849641561088,
+  "matrix_xB": 0.006220578557312318,
+  "median_radius_m": 9.275435230216418e-09,
+  "moments": {
+    "M0_m3": 6.554111031100799e+21,
+    "M1_m2": 61390953694483.89,
+    "M2_m": 586418.0647641419,
+    "M3_dimensionless": 0.005712453465239244,
+    "N_m0_m3": 6.554111031100799e+21,
+    "Rmean_cubed_m3": 8.218106351846683e-25,
+    "Rmean_number_m": 9.366785732370014e-09,
+    "Sv_m_inv": 7369146.736781487,
+    "f_beta": 0.02392826912049222,
+    "mean_R3_m3": 8.71583260968926e-25
+  },
+  "name": "smooth_population_canonical_v1",
+  "normalization_policy": "global_scale_of_analytic_cell_M0_to_preserve_frozen_M3_under_piecewise_constant_cell_measure",
+  "npz_sha256": "207e6bcef4ced2eab8a6239931ceadfe73a682e7d952f9f9d4750d5966e50d5d",
+  "number_density_units": "m^-3 per radius cell",
+  "number_normalization_m3": 6.554111031100799e+21,
+  "production_measure": "cell_integrated",
+  "radius_support_m": [
+    4.724027182871601e-10,
+    1e-07
+  ],
+  "raw_analytic_cell_M0_m3_before_normalization": 1.0,
+  "raw_piecewise_M3_before_normalization": 8.715832609689258e-25,
+  "representation": "piecewise_constant_number_density_per_canonical_radius_cell",
+  "schema_version": "SMOOTH_POPULATION_CANONICAL_V1",
+  "source_initial_psd_hash": "f9bb99dab64de15b946fba8904efab30d1881833577b8a5b28c8ea46a5ccf608",
+  "total_beta_inventory_mol_m3": 583.4882372282235,
+  "total_inventory_mol_m3": 731.5467336438344,
+  "validation_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+}

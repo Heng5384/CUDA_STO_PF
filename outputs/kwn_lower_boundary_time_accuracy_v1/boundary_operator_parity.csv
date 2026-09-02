@@ -1,0 +1,12 @@
+record_type,quantity,left,right,relative_error,pass_1e-12,Rmin_m,Rmin_binary64_hex
+physical_boundary_parity,growth_velocity_eulerian_vs_helper,-11767189.594675226,-11767189.594675226,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,growth_velocity_fv_face_vs_helper,-11767189.594675226,-11767189.594675226,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,number_flux_fv_vs_helper,3.2876747406250725e-60,3.2876747406250725e-60,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,growth_velocity_cohort_vs_helper,-11767189.594675226,-11767189.594675226,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,number_flux_cohort_vs_helper,3.2876747406250725e-60,3.2876747406250725e-60,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,cohort_first_cell_density_vs_eulerian,2.7939336866916626e-67,2.7939336866916626e-67,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,particle_volume_cohort_vs_helper,4.415966530881012e-28,4.415966530881012e-28,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,particle_beta_moles_cohort_vs_helper,1.0768286305154996e-23,1.0768286305154996e-23,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,particle_B_moles_cohort_vs_helper,1.0768286305154996e-23,1.0768286305154996e-23,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,volume_flux_cohort_vs_helper,1.4518261619023232e-87,1.4518261619023232e-87,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
+physical_boundary_parity,mol_B_flux_cohort_vs_helper,3.540262288527697e-83,3.540262288527697e-83,0.0,True,4.724027182871601e-10,0x1.03b4c5a5fbe5ep-31
