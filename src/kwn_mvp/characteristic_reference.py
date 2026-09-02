@@ -41,9 +41,10 @@ from .solver import KWNSolver, RadiusGridOverflowError, SolverConfig, SolverStat
 
 REMAP_ORDER = "CR1_piecewise_constant"
 TRACE_INTEGRATOR = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BACKWARD_V1"
-FIXED_POINT_CLOSURE = "PICARD_WITH_EXACT_TWO_CYCLE_BRACKETED_ROOT_V1"
+FIXED_POINT_CLOSURE = "PICARD_WITH_EXACT_PERIOD_2_OR_4_CYCLE_BRACKETED_ROOT_V2"
 FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT = 128
 FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS = 64
+FIXED_POINT_PERIODIC_CYCLE_PERIODS = (2, 4)
 
 
 class CharacteristicReferenceError(SolverStateError):
@@ -66,6 +67,7 @@ class CharacteristicStepDiagnostics:
     fixed_point_cell_measure_residual: float
     fixed_point_convergence_rate: float
     fixed_point_convergence_mode: str
+    fixed_point_periodic_cycle_period: int
     fixed_point_bracketed_root_iterations: int
     fixed_point_bracket_initial_width: float
     fixed_point_bracket_final_width: float
@@ -104,6 +106,7 @@ class _FixedPointResult:
     cell_measure_residual: float
     convergence_rate: float
     convergence_mode: str
+    periodic_cycle_period: int
     bracketed_root_iterations: int
     bracket_initial_width: float
     bracket_final_width: float
@@ -145,7 +148,7 @@ class CharacteristicReferenceSolver(KWNSolver):
     inventory source and no density clamp.
     """
 
-    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v3"
+    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v4"
 
     def __init__(
         self,
@@ -378,6 +381,7 @@ class CharacteristicReferenceSolver(KWNSolver):
         picard_iterations: int,
         convergence_rate: float,
         convergence_mode: str,
+        periodic_cycle_period: int = 0,
         bracketed_root_iterations: int = 0,
         bracket_initial_width: float = 0.0,
         bracket_final_width: float = 0.0,
@@ -405,6 +409,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             ),
             convergence_rate=convergence_rate,
             convergence_mode=convergence_mode,
+            periodic_cycle_period=periodic_cycle_period,
             bracketed_root_iterations=bracketed_root_iterations,
             bracket_initial_width=bracket_initial_width,
             bracket_final_width=bracket_final_width,
@@ -419,7 +424,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             remap=trial.remap,
         )
 
-    def _solve_exact_two_cycle_bracket(
+    def _solve_exact_periodic_cycle_bracket(
         self,
         *,
         old_cell_number_m3: NDArray[np.float64],
@@ -428,19 +433,26 @@ class CharacteristicReferenceSolver(KWNSolver):
         first_trial: _ClosureTrial,
         second_trial: _ClosureTrial,
         picard_iterations: int,
+        cycle_period: int,
     ) -> _FixedPointResult:
-        """Close an exact Picard two-cycle by solving the same scalar equation.
+        """Close an exact raw-Picard periodic-cycle bracket on ``T(x)-x``.
 
-        A bitwise ``A -> B -> A`` recurrence is not itself a converged state.
-        It does, however, brackets the original CR1 equation ``T(x) - x = 0``.
+        An exact recurrence of a supported raw Picard period is not itself a
+        converged state and does not certify a scalar root.  It merely supplies
+        a narrowly scoped bracket for the original CR1 equation ``T(x)-x=0``.
         This routine accepts only a full remap/inventory trial that satisfies
         the ordinary direct residual and physical-population criteria; bracket
-        width is never used as an acceptance condition.
+        width, the cycle phase, and a cycle average are never acceptance
+        conditions.
         """
 
+        if cycle_period not in FIXED_POINT_PERIODIC_CYCLE_PERIODS:
+            raise CharacteristicReferenceError(
+                f"unsupported exact raw-Picard cycle period {cycle_period}"
+            )
         if first_trial.signed_xb_residual * second_trial.signed_xb_residual >= 0.0:
             raise CharacteristicReferenceError(
-                "exact fixed-point two-cycle did not provide an oppositely signed scalar bracket"
+                f"exact fixed-point period-{cycle_period} cycle did not provide an oppositely signed scalar bracket"
             )
         initial_left, initial_right = sorted(
             (first_trial, second_trial), key=lambda item: item.x_guess
@@ -449,7 +461,7 @@ class CharacteristicReferenceSolver(KWNSolver):
         initial_width = right.x_guess - left.x_guess
         if not initial_width > 0.0:
             raise CharacteristicReferenceError(
-                "exact fixed-point two-cycle has a degenerate scalar bracket"
+                f"exact fixed-point period-{cycle_period} cycle has a degenerate scalar bracket"
             )
 
         evaluations = picard_iterations
@@ -500,6 +512,7 @@ class CharacteristicReferenceSolver(KWNSolver):
                         picard_iterations=picard_iterations,
                         convergence_rate=convergence_rate,
                         convergence_mode="BRACKETED_SCALAR_ROOT",
+                        periodic_cycle_period=cycle_period,
                         bracketed_root_iterations=root_iteration,
                         bracket_initial_width=initial_width,
                         bracket_final_width=final_width,
@@ -531,9 +544,56 @@ class CharacteristicReferenceSolver(KWNSolver):
                 right = trial
 
         raise CharacteristicReferenceError(
-            "exact fixed-point two-cycle bracket did not close the original scalar equation "
+            f"exact fixed-point period-{cycle_period} cycle bracket did not close the original scalar equation "
             f"after {attempted_root_iterations} bisection iterations ({stop_reason}; "
             f"initial_width={initial_width:.3e}, final_width={right.x_guess - left.x_guess:.3e}, {last_error})"
+        )
+
+    @staticmethod
+    def _exact_raw_periodic_cycle(
+        recent_trials: list[_ClosureTrial], *, period: int
+    ) -> tuple[_ClosureTrial, ...] | None:
+        """Return a full bitwise raw-Picard cycle only for a supported period.
+
+        Both adjacent period-length blocks must repeat exactly in scalar guess,
+        closed matrix value, and cell-integrated population.  This deliberately
+        does not identify approximate oscillations or manufacture a bracket
+        from unrelated historical iterates.
+        """
+
+        if period not in FIXED_POINT_PERIODIC_CYCLE_PERIODS:
+            raise ValueError(f"unsupported exact raw-Picard cycle period {period}")
+        if len(recent_trials) < 2 * period:
+            return None
+        prior_cycle = recent_trials[-2 * period : -period]
+        current_cycle = recent_trials[-period:]
+        if all(
+            current.x_guess == prior.x_guess
+            and current.matrix_xb == prior.matrix_xb
+            and np.array_equal(current.cell_number_m3, prior.cell_number_m3)
+            for current, prior in zip(current_cycle, prior_cycle)
+        ):
+            return tuple(current_cycle)
+        return None
+
+    @staticmethod
+    def _cycle_adjacent_scalar_bracket(
+        cycle: tuple[_ClosureTrial, ...]
+    ) -> tuple[_ClosureTrial, _ClosureTrial]:
+        """Select a deterministic adjacent opposite-sign pair from one cycle."""
+
+        period = len(cycle)
+        if period not in FIXED_POINT_PERIODIC_CYCLE_PERIODS:
+            raise ValueError(f"unsupported exact raw-Picard cycle period {period}")
+        for first, second in zip(cycle, cycle[1:] + cycle[:1]):
+            if (
+                0.0 <= first.x_guess <= 1.0
+                and 0.0 <= second.x_guess <= 1.0
+                and first.signed_xb_residual * second.signed_xb_residual < 0.0
+            ):
+                return first, second
+        raise CharacteristicReferenceError(
+            f"exact fixed-point period-{period} cycle did not provide an adjacent oppositely signed scalar bracket"
         )
 
     def _solve_fixed_point(self, *, old_cell_number_m3: NDArray[np.float64], dt_s: float) -> _FixedPointResult:
@@ -542,6 +602,7 @@ class CharacteristicReferenceSolver(KWNSolver):
         previous_trial: _ClosureTrial | None = None
         two_back_trial: _ClosureTrial | None = None
         previous_xb_residual: float | None = None
+        recent_trials: list[_ClosureTrial] = []
         last_error = "no fixed-point iteration was attempted"
         for iteration in range(1, self.fixed_point_max_iterations + 1):
             trial = self._evaluate_closure_trial(
@@ -586,6 +647,14 @@ class CharacteristicReferenceSolver(KWNSolver):
                 and 0.0 <= trial.x_guess <= 1.0
                 and previous_trial.signed_xb_residual * trial.signed_xb_residual < 0.0
             )
+            recent_trials.append(trial)
+            if len(recent_trials) > 2 * max(FIXED_POINT_PERIODIC_CYCLE_PERIODS):
+                del recent_trials[0]
+            exact_four_cycle = (
+                self._exact_raw_periodic_cycle(recent_trials, period=4)
+                if self.under_relaxation == 1.0
+                else None
+            )
             if direct_converged:
                 result = self._fixed_point_result(
                     trial,
@@ -603,19 +672,32 @@ class CharacteristicReferenceSolver(KWNSolver):
                     )
                 return result
             if exact_two_cycle:
-                return self._solve_exact_two_cycle_bracket(
+                return self._solve_exact_periodic_cycle_bracket(
                     old_cell_number_m3=old_cell_number_m3,
                     dt_s=dt_s,
                     x_start=x_start,
                     first_trial=previous_trial,
                     second_trial=trial,
                     picard_iterations=iteration,
+                    cycle_period=2,
+                )
+            if exact_four_cycle is not None:
+                first_trial, second_trial = self._cycle_adjacent_scalar_bracket(exact_four_cycle)
+                return self._solve_exact_periodic_cycle_bracket(
+                    old_cell_number_m3=old_cell_number_m3,
+                    dt_s=dt_s,
+                    x_start=x_start,
+                    first_trial=first_trial,
+                    second_trial=second_trial,
+                    picard_iterations=iteration,
+                    cycle_period=4,
                 )
             last_error = (
                 f"iteration={iteration}, xb_residual={abs(trial.signed_xb_residual):.3e}, "
                 f"xb_tolerance={trial.xb_tolerance:.3e}, population_residual={population_residual:.3e}, "
                 f"cell_measure_residual={cell_measure_residual:.3e}, "
-                f"exact_two_cycle_trigger={exact_two_cycle}"
+                f"exact_two_cycle_trigger={exact_two_cycle}, "
+                f"exact_four_cycle_trigger={exact_four_cycle is not None}"
             )
             two_back_trial = previous_trial
             previous_trial = trial
@@ -675,6 +757,7 @@ class CharacteristicReferenceSolver(KWNSolver):
                 fixed_point_cell_measure_residual=0.0,
                 fixed_point_convergence_rate=0.0,
                 fixed_point_convergence_mode="IDENTITY",
+                fixed_point_periodic_cycle_period=0,
                 fixed_point_bracketed_root_iterations=0,
                 fixed_point_bracket_initial_width=0.0,
                 fixed_point_bracket_final_width=0.0,
@@ -738,6 +821,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             fixed_point_cell_measure_residual=result.cell_measure_residual,
             fixed_point_convergence_rate=result.convergence_rate,
             fixed_point_convergence_mode=result.convergence_mode,
+            fixed_point_periodic_cycle_period=result.periodic_cycle_period,
             fixed_point_bracketed_root_iterations=result.bracketed_root_iterations,
             fixed_point_bracket_initial_width=result.bracket_initial_width,
             fixed_point_bracket_final_width=result.bracket_final_width,
@@ -818,7 +902,8 @@ class CharacteristicReferenceSolver(KWNSolver):
             "under_relaxation": self.under_relaxation,
             "fixed_point_closure": FIXED_POINT_CLOSURE,
             "fixed_point_scalar_root_max_iterations": FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
-            "fixed_point_scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_TWO_CYCLE_ONLY",
+            "fixed_point_scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_PERIOD_2_OR_4_CYCLE_ONLY",
+            "fixed_point_scalar_root_cycle_periods": list(FIXED_POINT_PERIODIC_CYCLE_PERIODS),
             "fixed_point_scalar_root_requires_original_xb_tolerance": True,
             "fixed_point_scalar_root_requires_map_verification_population_check": True,
             "remap_order": REMAP_ORDER,
@@ -857,8 +942,10 @@ class CharacteristicReferenceSolver(KWNSolver):
                 raise CharacteristicReferenceError("checkpoint fixed-point closure differs from CR1")
             if int(metadata.get("fixed_point_scalar_root_max_iterations", -1)) != FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS:
                 raise CharacteristicReferenceError("checkpoint fixed-point scalar-root iteration cap differs from CR1")
-            if metadata.get("fixed_point_scalar_root_trigger") != "EXACT_BITWISE_RAW_PICARD_TWO_CYCLE_ONLY":
+            if metadata.get("fixed_point_scalar_root_trigger") != "EXACT_BITWISE_RAW_PICARD_PERIOD_2_OR_4_CYCLE_ONLY":
                 raise CharacteristicReferenceError("checkpoint fixed-point scalar-root trigger differs from CR1")
+            if metadata.get("fixed_point_scalar_root_cycle_periods") != list(FIXED_POINT_PERIODIC_CYCLE_PERIODS):
+                raise CharacteristicReferenceError("checkpoint fixed-point scalar-root cycle periods differ from CR1")
             if metadata.get("fixed_point_scalar_root_requires_original_xb_tolerance") is not True:
                 raise CharacteristicReferenceError("checkpoint scalar-root tolerance contract differs from CR1")
             if metadata.get("fixed_point_scalar_root_requires_map_verification_population_check") is not True:

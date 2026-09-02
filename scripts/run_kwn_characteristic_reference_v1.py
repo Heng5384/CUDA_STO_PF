@@ -50,6 +50,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from kwn_mvp.characteristic_reference import (  # noqa: E402
     FIXED_POINT_CLOSURE,
     FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT,
+    FIXED_POINT_PERIODIC_CYCLE_PERIODS,
     FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
     REMAP_ORDER,
     TRACE_INTEGRATOR,
@@ -734,6 +735,7 @@ def _run_characteristic(
                         "fixed_point_cell_measure_residual": float(diagnostic.fixed_point_cell_measure_residual),
                         "fixed_point_convergence_rate": float(diagnostic.fixed_point_convergence_rate),
                         "fixed_point_convergence_mode": diagnostic.fixed_point_convergence_mode,
+                        "fixed_point_periodic_cycle_period": int(diagnostic.fixed_point_periodic_cycle_period),
                         "fixed_point_bracketed_root_iterations": int(diagnostic.fixed_point_bracketed_root_iterations),
                         "fixed_point_bracket_initial_width": float(diagnostic.fixed_point_bracket_initial_width),
                         "fixed_point_bracket_final_width": float(diagnostic.fixed_point_bracket_final_width),
@@ -801,7 +803,7 @@ def _run_characteristic(
 
 
 def _fixed_point_root_summary(runs: Mapping[str, RunResult]) -> dict[str, Any]:
-    """Summarize strict scalar-root closures, never accepted two-cycle states."""
+    """Summarize strict scalar roots, never accepting a periodic-cycle state."""
 
     roots = [
         row
@@ -811,6 +813,13 @@ def _fixed_point_root_summary(runs: Mapping[str, RunResult]) -> dict[str, Any]:
     ]
     return {
         "bracketed_scalar_root_step_count": len(roots),
+        "bracketed_scalar_root_cycle_period_counts": {
+            str(period): sum(
+                int(row.get("fixed_point_periodic_cycle_period", 0)) == period
+                for row in roots
+            )
+            for period in FIXED_POINT_PERIODIC_CYCLE_PERIODS
+        },
         "total_bisection_iterations": sum(int(row["fixed_point_bracketed_root_iterations"]) for row in roots),
         "maximum_picard_iterations": max(
             (int(row["fixed_point_picard_iterations"]) for run in runs.values() for row in run.trace_rows),
@@ -2175,8 +2184,9 @@ def _write_outputs(
                 "contract": FIXED_POINT_CLOSURE,
                 "direct_picard_max_iterations": FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT,
                 "scalar_root_max_iterations": FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
-                "scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_TWO_CYCLE_ONLY",
-                "two_cycle_is_accepted_state": False,
+                "scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_PERIOD_2_OR_4_CYCLE_ONLY",
+                "scalar_root_cycle_periods": list(FIXED_POINT_PERIODIC_CYCLE_PERIODS),
+                "periodic_cycle_is_accepted_state": False,
                 "requires_original_xb_tolerance": True,
                 "requires_map_verification_population_check": True,
                 "fixed_point_iterations_trace_field": "total_closure_map_evaluations",
@@ -2253,7 +2263,7 @@ def _write_reports(
             f"evaluated levels (s): `{convergence.get('attempted_levels_s')}`; self-convergence runtime (s): "
             f"`{convergence.get('self_convergence_runtime_s')}`.\n\n"
             f"Fixed-point scalar-root summary: `{json.dumps(_json_safe(convergence.get('fixed_point_root_summary', {})), sort_keys=True)}`. "
-            "A bitwise raw-Picard two-cycle is only a trigger for bisection of the unchanged scalar closure equation. "
+            "An exact bitwise raw-Picard period-2 or period-4 cycle is only a trigger for bisection of the unchanged scalar closure equation. "
             "The accepted candidate must still meet the ordinary xB tolerance, pass a second map evaluation, and meet the "
             "physical M0--M3 population criterion; no cycle state or averaged state is accepted.  The trace records both "
             "total closure-map evaluations and the raw-Picard count separately.\n\n"

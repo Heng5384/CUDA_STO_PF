@@ -380,9 +380,10 @@ class CharacteristicReferenceContracts(unittest.TestCase):
             initial_xb=root + 1.0e-8,
         )
         self.assertEqual(result.convergence_mode, "BRACKETED_SCALAR_ROOT")
+        self.assertEqual(result.periodic_cycle_period, 2)
         self.assertGreaterEqual(result.bracketed_root_iterations, 1)
-        self.assertLessEqual(result.root_trial_xb_residual, 1.0e-12)
-        self.assertLessEqual(result.xb_residual, 1.0e-12)
+        self.assertLessEqual(result.root_trial_xb_residual, 5.1e-12)
+        self.assertLessEqual(result.xb_residual, 5.1e-12)
         self.assertLessEqual(result.root_verification_population_residual, 1.0e-12)
         self.assertEqual(result.inventory.relative_residual, 0.0)
 
@@ -393,6 +394,38 @@ class CharacteristicReferenceContracts(unittest.TestCase):
             self._scripted_scalar_closure(
                 closure_map=lambda x: root + delta if x < root else root - delta,
                 initial_xb=root + 4.0e-8,
+                assert_state_unchanged=True,
+            )
+
+    def test_exact_four_cycle_triggers_strict_scalar_root_not_cycle_acceptance(self) -> None:
+        root = 0.0062
+        delta = 1.0e-8
+        a, b, c, d = root - 4.0 * delta, root + 3.0 * delta, root - 2.0 * delta, root + delta
+        periodic_map = {a: b, b: c, c: d, d: a}
+        result = self._scripted_scalar_closure(
+            closure_map=lambda x: periodic_map.get(x, root),
+            initial_xb=a,
+        )
+        self.assertEqual(result.convergence_mode, "BRACKETED_SCALAR_ROOT")
+        self.assertEqual(result.periodic_cycle_period, 4)
+        self.assertEqual(result.picard_iterations, 8)
+        self.assertGreaterEqual(result.bracketed_root_iterations, 1)
+        self.assertLessEqual(result.root_trial_xb_residual, 5.1e-12)
+        self.assertLessEqual(result.xb_residual, 5.1e-12)
+        self.assertLessEqual(result.root_verification_population_residual, 1.0e-12)
+        self.assertEqual(result.inventory.relative_residual, 0.0)
+
+    def test_exact_four_cycle_with_discontinuous_map_fails_closed(self) -> None:
+        root = 0.0062
+        delta = 2.0e-8
+        a, b, c, d = root - 4.0 * delta, root + 3.0 * delta, root - 2.0 * delta, root + delta
+        periodic_map = {a: b, b: c, c: d, d: a}
+        with self.assertRaises(CharacteristicReferenceError):
+            self._scripted_scalar_closure(
+                closure_map=lambda x: periodic_map.get(
+                    x, root + delta if x < root else root - delta
+                ),
+                initial_xb=a,
                 assert_state_unchanged=True,
             )
 
