@@ -165,28 +165,22 @@ class CharacteristicReferenceContracts(unittest.TestCase):
     """CR1--CR9: conservative remapping, closure, restart, and no-CFL behavior."""
 
     @staticmethod
-    def _scripted_fixed_point_cycle(
+    def _scripted_scalar_closure(
         *,
-        candidate_order: tuple[str, ...],
-        xb_span: float,
+        closure_map: Any,
+        initial_xb: float,
+        fixed_point_max_iterations: int = 128,
+        assert_state_unchanged: bool = False,
     ) -> Any:
-        """Exercise only the fixed-point acceptance logic with closed trial states."""
+        """Exercise the scalar fixed-point controller with closed trial states."""
 
         numbers = _numbers(bins=44) * 1.0e2
         solver = CharacteristicReferenceSolver(
             SolverConfig.from_mapping(_mapping(bins=44, beta_numbers_m3=numbers)),
-            fixed_point_max_iterations=len(candidate_order),
+            fixed_point_max_iterations=fixed_point_max_iterations,
         )
         candidate_a = solver._beta_cell_numbers()
-        candidate_b = candidate_a.copy()
-        candidate_c = candidate_a.copy()
-        nonzero = int(np.flatnonzero(candidate_a)[0])
-        candidate_b[nonzero] *= 1.0 + 1.0e-8
-        candidate_c[nonzero] *= 1.0 + 2.0e-8
-        candidates = {"A": candidate_a, "B": candidate_b, "C": candidate_c}
-        matrix_a = 0.0062
-        matrix_b = matrix_a + xb_span
-        solver.matrix_xb = matrix_a
+        solver.matrix_xb = float(initial_xb)
         snapshot = InventorySnapshot(
             total_mol_m3=1.0,
             matrix_mol_m3=1.0,
@@ -197,27 +191,33 @@ class CharacteristicReferenceContracts(unittest.TestCase):
             relative_residual=0.0,
             matrix_fraction=1.0,
         )
-
-        order = iter(candidate_order)
+        state: dict[str, float] = {}
 
         def remap_once(*args: Any, **kwargs: Any) -> tuple[object, SimpleNamespace]:
-            del args, kwargs
-            candidate = candidates[next(order)]
-            return object(), SimpleNamespace(cell_number_m3=candidate)
+            del args
+            midpoint = float(kwargs["midpoint_matrix_xb"])
+            state["x_guess"] = 2.0 * midpoint - float(initial_xb)
+            return object(), SimpleNamespace(cell_number_m3=candidate_a)
 
         def recover_matrix(candidate: np.ndarray) -> float:
-            return matrix_a if np.array_equal(candidate, candidate_a) else matrix_b
+            del candidate
+            return float(closure_map(state["x_guess"]))
 
+        before = solver.state_arrays() if assert_state_unchanged else {}
         with (
             patch.object(solver, "_remap_once", side_effect=remap_once),
             patch.object(solver, "_recover_matrix_xb", side_effect=recover_matrix),
             patch.object(solver, "_inventory_snapshot", return_value=snapshot),
-            patch.object(solver, "_population_observable_residual", return_value=3.8e-10),
         ):
-            return solver._solve_fixed_point(
-                old_cell_number_m3=candidate_a,
-                dt_s=1.0,
-            )
+            try:
+                return solver._solve_fixed_point(
+                    old_cell_number_m3=candidate_a,
+                    dt_s=1.0,
+                )
+            finally:
+                if assert_state_unchanged:
+                    for key, values in before.items():
+                        np.testing.assert_array_equal(values, solver.state_arrays()[key], err_msg=key)
 
     def test_declared_frozen_grid_edges_are_preserved_exactly(self) -> None:
         """A hash-bound cell measure can carry its exact archived face locations."""
@@ -373,26 +373,46 @@ class CharacteristicReferenceContracts(unittest.TestCase):
         self.assertLessEqual(diagnostic.inventory.relative_residual, 1.0e-12)
         self.assertTrue(math.isclose(diagnostic.matrix_xb, reference_xb, rel_tol=0.0, abs_tol=1.0e-13))
 
-    def test_exact_bounded_two_cycle_closes_without_relaxing_direct_tolerance(self) -> None:
-        result = self._scripted_fixed_point_cycle(
-            candidate_order=("B", "A", "B"), xb_span=9.2e-12
+    def test_exact_two_cycle_triggers_strict_scalar_root_not_cycle_acceptance(self) -> None:
+        root = 0.0062
+        result = self._scripted_scalar_closure(
+            closure_map=lambda x: 2.0 * root - x,
+            initial_xb=root + 1.0e-8,
         )
-        self.assertEqual(result.convergence_mode, "EXACT_TWO_CYCLE_BOUNDED")
-        self.assertEqual(result.iterations, 3)
-        self.assertGreater(result.two_cycle_xb_span, 5.0e-12)
-        self.assertLessEqual(result.two_cycle_xb_span, result.two_cycle_xb_limit)
+        self.assertEqual(result.convergence_mode, "BRACKETED_SCALAR_ROOT")
+        self.assertGreaterEqual(result.bracketed_root_iterations, 1)
+        self.assertLessEqual(result.root_trial_xb_residual, 1.0e-12)
+        self.assertLessEqual(result.xb_residual, 1.0e-12)
+        self.assertLessEqual(result.root_verification_population_residual, 1.0e-12)
         self.assertEqual(result.inventory.relative_residual, 0.0)
 
-    def test_nonrepeating_fixed_point_candidates_do_not_use_two_cycle_closure(self) -> None:
+    def test_exact_two_cycle_with_discontinuous_map_fails_closed(self) -> None:
+        root = 0.0062
+        delta = 2.0e-8
         with self.assertRaises(CharacteristicReferenceError):
-            self._scripted_fixed_point_cycle(
-                candidate_order=("B", "A", "C"), xb_span=9.2e-12
+            self._scripted_scalar_closure(
+                closure_map=lambda x: root + delta if x < root else root - delta,
+                initial_xb=root + 4.0e-8,
+                assert_state_unchanged=True,
             )
 
-    def test_large_exact_two_cycle_span_remains_rejected(self) -> None:
+    def test_nonexact_slow_picard_converges_directly_with_bounded_128_cap(self) -> None:
+        root = 0.0062
+        result = self._scripted_scalar_closure(
+            closure_map=lambda x: root + 0.9 * (x - root),
+            initial_xb=root + 1.0e-6,
+        )
+        self.assertEqual(result.convergence_mode, "DIRECT")
+        self.assertGreater(result.iterations, 64)
+        self.assertLessEqual(result.xb_residual, 5.1e-12)
+        self.assertEqual(result.bracketed_root_iterations, 0)
+
+    def test_nonexact_unclosed_map_does_not_trigger_generic_bracketing(self) -> None:
+        root = 0.0062
         with self.assertRaises(CharacteristicReferenceError):
-            self._scripted_fixed_point_cycle(
-                candidate_order=("B", "A", "B"), xb_span=1.2e-11
+            self._scripted_scalar_closure(
+                closure_map=lambda x: x + 1.0e-8,
+                initial_xb=root,
             )
 
     def test_cr7_restart_matches_continuous_state(self) -> None:

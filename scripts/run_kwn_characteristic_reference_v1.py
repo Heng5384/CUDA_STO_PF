@@ -48,7 +48,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from kwn_mvp.characteristic_reference import (  # noqa: E402
-    FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
+    FIXED_POINT_CLOSURE,
+    FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT,
+    FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
     REMAP_ORDER,
     TRACE_INTEGRATOR,
     CharacteristicReferenceSolver,
@@ -726,13 +728,21 @@ def _run_characteristic(
                         "time_h": float(diagnostic.time_s / 3600.0),
                         "dt_s": float(diagnostic.dt_s),
                         "fixed_point_iterations": int(diagnostic.fixed_point_iterations),
+                        "fixed_point_picard_iterations": int(diagnostic.fixed_point_picard_iterations),
                         "fixed_point_xb_residual": float(diagnostic.fixed_point_xb_residual),
                         "fixed_point_population_residual": float(diagnostic.fixed_point_population_residual),
                         "fixed_point_cell_measure_residual": float(diagnostic.fixed_point_cell_measure_residual),
                         "fixed_point_convergence_rate": float(diagnostic.fixed_point_convergence_rate),
                         "fixed_point_convergence_mode": diagnostic.fixed_point_convergence_mode,
-                        "fixed_point_two_cycle_xb_span": float(diagnostic.fixed_point_two_cycle_xb_span),
-                        "fixed_point_two_cycle_xb_limit": float(diagnostic.fixed_point_two_cycle_xb_limit),
+                        "fixed_point_bracketed_root_iterations": int(diagnostic.fixed_point_bracketed_root_iterations),
+                        "fixed_point_bracket_initial_width": float(diagnostic.fixed_point_bracket_initial_width),
+                        "fixed_point_bracket_final_width": float(diagnostic.fixed_point_bracket_final_width),
+                        "fixed_point_bracket_left_xb": float(diagnostic.fixed_point_bracket_left_xb),
+                        "fixed_point_bracket_right_xb": float(diagnostic.fixed_point_bracket_right_xb),
+                        "fixed_point_bracket_left_signed_residual": float(diagnostic.fixed_point_bracket_left_signed_residual),
+                        "fixed_point_bracket_right_signed_residual": float(diagnostic.fixed_point_bracket_right_signed_residual),
+                        "fixed_point_root_trial_xb_residual": float(diagnostic.fixed_point_root_trial_xb_residual),
+                        "fixed_point_root_verification_population_residual": float(diagnostic.fixed_point_root_verification_population_residual),
                         "inventory_relative_residual": float(diagnostic.inventory.relative_residual),
                         "rmin_number_loss_m3": float(diagnostic.rmin_number_loss_m3),
                         "rmin_mol_b_loss_mol_m3": float(diagnostic.rmin_mol_b_loss_mol_m3),
@@ -790,26 +800,36 @@ def _run_characteristic(
     )
 
 
-def _fixed_point_cycle_summary(runs: Mapping[str, RunResult]) -> dict[str, Any]:
-    """Summarize only explicitly accepted bounded CR1 two-cycles."""
+def _fixed_point_root_summary(runs: Mapping[str, RunResult]) -> dict[str, Any]:
+    """Summarize strict scalar-root closures, never accepted two-cycle states."""
 
-    cycles = [
+    roots = [
         row
         for run in runs.values()
         for row in run.trace_rows
-        if row.get("fixed_point_convergence_mode") == "EXACT_TWO_CYCLE_BOUNDED"
+        if row.get("fixed_point_convergence_mode") == "BRACKETED_SCALAR_ROOT"
     ]
     return {
-        "accepted_exact_two_cycle_step_count": len(cycles),
-        "maximum_two_cycle_xb_span": max(
-            (float(row["fixed_point_two_cycle_xb_span"]) for row in cycles),
-            default=0.0,
+        "bracketed_scalar_root_step_count": len(roots),
+        "total_bisection_iterations": sum(int(row["fixed_point_bracketed_root_iterations"]) for row in roots),
+        "maximum_picard_iterations": max(
+            (int(row["fixed_point_picard_iterations"]) for run in runs.values() for row in run.trace_rows),
+            default=0,
         ),
-        "minimum_two_cycle_xb_limit": min(
-            (float(row["fixed_point_two_cycle_xb_limit"]) for row in cycles),
-            default=0.0,
+        "maximum_initial_bracket_width": max(
+            (float(row["fixed_point_bracket_initial_width"]) for row in roots), default=0.0
         ),
-        "normal_fixed_point_tolerance_factor": FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
+        "maximum_final_bracket_width": max(
+            (float(row["fixed_point_bracket_final_width"]) for row in roots), default=0.0
+        ),
+        "maximum_root_trial_xb_residual": max(
+            (float(row["fixed_point_root_trial_xb_residual"]) for row in roots), default=0.0
+        ),
+        "maximum_root_verification_population_residual": max(
+            (float(row["fixed_point_root_verification_population_residual"]) for row in roots), default=0.0
+        ),
+        "closure_contract": FIXED_POINT_CLOSURE,
+        "scalar_root_max_iterations": FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
     }
 
 
@@ -1178,7 +1198,7 @@ def _characteristic_self_convergence(
             "policy": None,
             "convergence_levels_s": levels,
             "attempted_levels_s": attempted_levels_s,
-            "fixed_point_cycle_summary": _fixed_point_cycle_summary(runs),
+            "fixed_point_root_summary": _fixed_point_root_summary(runs),
             "additional_refinement_added": refinement_count > 0,
             "additional_refinement_count": refinement_count,
             "self_convergence_runtime_s": time.monotonic() - started,
@@ -1213,7 +1233,7 @@ def _characteristic_self_convergence(
                 "policy": None,
                 "convergence_levels_s": levels,
                 "attempted_levels_s": attempted_levels_s,
-                "fixed_point_cycle_summary": _fixed_point_cycle_summary(runs),
+                "fixed_point_root_summary": _fixed_point_root_summary(runs),
                 "additional_refinement_added": refinement_count > 0,
                 "additional_refinement_count": refinement_count,
                 "self_convergence_runtime_s": time.monotonic() - started,
@@ -1289,7 +1309,7 @@ def _characteristic_self_convergence(
         "full_time_maximum_reported": True,
         "convergence_levels_s": levels,
         "attempted_levels_s": attempted_levels_s,
-        "fixed_point_cycle_summary": _fixed_point_cycle_summary(runs),
+        "fixed_point_root_summary": _fixed_point_root_summary(runs),
         "additional_refinement_added": refinement_count > 0,
         "additional_refinement_count": refinement_count,
         "self_convergence_runtime_s": time.monotonic() - started,
@@ -2151,11 +2171,16 @@ def _write_outputs(
             "characteristic_time_gate": REFERENCE_TIME_GATE,
             "characteristic_remap_order": REMAP_ORDER,
             "characteristic_trace_integrator": TRACE_INTEGRATOR,
-            "characteristic_exact_two_cycle_closure": {
-                "requires_bitwise_population_and_matrix_repeat": True,
-                "maximum_xb_span_factor_of_direct_tolerance": FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
-                "requires_existing_physical_M0_to_M3_convergence": True,
-                "under_relaxation_must_equal": 1.0,
+            "characteristic_fixed_point_closure": {
+                "contract": FIXED_POINT_CLOSURE,
+                "direct_picard_max_iterations": FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT,
+                "scalar_root_max_iterations": FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
+                "scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_TWO_CYCLE_ONLY",
+                "two_cycle_is_accepted_state": False,
+                "requires_original_xb_tolerance": True,
+                "requires_map_verification_population_check": True,
+                "fixed_point_iterations_trace_field": "total_closure_map_evaluations",
+                "fixed_point_picard_iterations_trace_field": "raw_picard_evaluations_before_acceptance_or_root_trigger",
             },
             "cohort_characteristic_gate": ONE_PERCENT,
             "cohort_eulerian_gate": TWO_PERCENT,
@@ -2227,9 +2252,11 @@ def _write_reports(
             f"Dyadic refinements beyond the initial ladder: `{convergence.get('additional_refinement_count', 0)}`; "
             f"evaluated levels (s): `{convergence.get('attempted_levels_s')}`; self-convergence runtime (s): "
             f"`{convergence.get('self_convergence_runtime_s')}`.\n\n"
-            f"Fixed-point exact-two-cycle summary: `{json.dumps(_json_safe(convergence.get('fixed_point_cycle_summary', {})), sort_keys=True)}`. "
-            "A bounded two-cycle is accepted only after bitwise population/matrix repetition, physical M0--M3 convergence, "
-            "and an xB span no greater than twice the ordinary fixed-point tolerance; the selected full candidate is never averaged.\n\n"
+            f"Fixed-point scalar-root summary: `{json.dumps(_json_safe(convergence.get('fixed_point_root_summary', {})), sort_keys=True)}`. "
+            "A bitwise raw-Picard two-cycle is only a trigger for bisection of the unchanged scalar closure equation. "
+            "The accepted candidate must still meet the ordinary xB tolerance, pass a second map evaluation, and meet the "
+            "physical M0--M3 population criterion; no cycle state or averaged state is accepted.  The trace records both "
+            "total closure-map evaluations and the raw-Picard count separately.\n\n"
             + _report_table(convergence.get("rows", []), ("dt_s", "reference_dt_s", "time_h", "metric", "relative_or_absolute_error", "pass"))
         ),
         "05_cohort_characteristic_parity.md": f"Status: `{parity.get('status')}`; gated maximum error `{parity.get('gate_maximum_error')}` (1%, including normalized PSD Wasserstein); scalar-observable maximum `{parity.get('primary_maximum_error')}`; canonical positive quadrature `{parity.get('cohort_points_per_cell', COHORT_POINTS_PER_CELL)}` points per cell.\n\n" + _report_table(parity.get("rows", []), ("time_h", "metric", "relative_or_absolute_error", "pass")),

@@ -10,7 +10,7 @@ nucleation source rather than silently applying a production GP path.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import math
 from pathlib import Path
@@ -41,7 +41,9 @@ from .solver import KWNSolver, RadiusGridOverflowError, SolverConfig, SolverStat
 
 REMAP_ORDER = "CR1_piecewise_constant"
 TRACE_INTEGRATOR = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BACKWARD_V1"
-FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR = 2.0
+FIXED_POINT_CLOSURE = "PICARD_WITH_EXACT_TWO_CYCLE_BRACKETED_ROOT_V1"
+FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT = 128
+FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS = 64
 
 
 class CharacteristicReferenceError(SolverStateError):
@@ -58,13 +60,21 @@ class CharacteristicStepDiagnostics:
     matrix_xb: float
     midpoint_matrix_xb: float
     fixed_point_iterations: int
+    fixed_point_picard_iterations: int
     fixed_point_xb_residual: float
     fixed_point_population_residual: float
     fixed_point_cell_measure_residual: float
     fixed_point_convergence_rate: float
     fixed_point_convergence_mode: str
-    fixed_point_two_cycle_xb_span: float
-    fixed_point_two_cycle_xb_limit: float
+    fixed_point_bracketed_root_iterations: int
+    fixed_point_bracket_initial_width: float
+    fixed_point_bracket_final_width: float
+    fixed_point_bracket_left_xb: float
+    fixed_point_bracket_right_xb: float
+    fixed_point_bracket_left_signed_residual: float
+    fixed_point_bracket_right_signed_residual: float
+    fixed_point_root_trial_xb_residual: float
+    fixed_point_root_verification_population_residual: float
     inventory: InventorySnapshot
     rmin_number_loss_m3: float
     rmin_number_flux_m3_s: float
@@ -88,13 +98,36 @@ class _FixedPointResult:
     matrix_xb: float
     midpoint_matrix_xb: float
     iterations: int
+    picard_iterations: int
     xb_residual: float
     population_residual: float
     cell_measure_residual: float
     convergence_rate: float
     convergence_mode: str
-    two_cycle_xb_span: float
-    two_cycle_xb_limit: float
+    bracketed_root_iterations: int
+    bracket_initial_width: float
+    bracket_final_width: float
+    bracket_left_xb: float
+    bracket_right_xb: float
+    bracket_left_signed_residual: float
+    bracket_right_signed_residual: float
+    root_trial_xb_residual: float
+    root_verification_population_residual: float
+    inventory: InventorySnapshot
+    trace: CharacteristicTrace
+    remap: ConservativeRemapResult
+
+
+@dataclass(frozen=True)
+class _ClosureTrial:
+    """One uncommitted evaluation of the unchanged scalar CR1 closure map."""
+
+    x_guess: float
+    midpoint_matrix_xb: float
+    cell_number_m3: NDArray[np.float64]
+    matrix_xb: float
+    signed_xb_residual: float
+    xb_tolerance: float
     inventory: InventorySnapshot
     trace: CharacteristicTrace
     remap: ConservativeRemapResult
@@ -112,7 +145,7 @@ class CharacteristicReferenceSolver(KWNSolver):
     inventory source and no density clamp.
     """
 
-    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_cycle_v2"
+    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v3"
 
     def __init__(
         self,
@@ -120,7 +153,7 @@ class CharacteristicReferenceSolver(KWNSolver):
         *,
         fixed_point_rtol: float = 1.0e-11,
         fixed_point_atol: float = 5.0e-12,
-        fixed_point_max_iterations: int = 64,
+        fixed_point_max_iterations: int = FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT,
         under_relaxation: float = 1.0,
     ) -> None:
         super().__init__(config)
@@ -304,86 +337,290 @@ class CharacteristicReferenceSolver(KWNSolver):
         )
         return float(np.max(np.abs(candidate_moments - previous_moments) / denominator))
 
+    def _evaluate_closure_trial(
+        self,
+        *,
+        old_cell_number_m3: NDArray[np.float64],
+        dt_s: float,
+        x_start: float,
+        x_guess: float,
+    ) -> _ClosureTrial:
+        """Evaluate the documented CR1 scalar closure without state mutation."""
+
+        midpoint = 0.5 * (x_start + x_guess)
+        trace, remap = self._remap_once(
+            old_cell_number_m3, dt_s=dt_s, midpoint_matrix_xb=midpoint
+        )
+        candidate = remap.cell_number_m3
+        matrix_candidate = self._recover_matrix_xb(candidate)
+        inventory = self._inventory_snapshot(candidate, matrix_candidate)
+        xb_tolerance = self.fixed_point_atol + self.fixed_point_rtol * max(
+            abs(matrix_candidate), abs(x_guess)
+        )
+        return _ClosureTrial(
+            x_guess=float(x_guess),
+            midpoint_matrix_xb=midpoint,
+            cell_number_m3=candidate,
+            matrix_xb=matrix_candidate,
+            signed_xb_residual=matrix_candidate - x_guess,
+            xb_tolerance=xb_tolerance,
+            inventory=inventory,
+            trace=trace,
+            remap=remap,
+        )
+
+    def _fixed_point_result(
+        self,
+        trial: _ClosureTrial,
+        *,
+        previous_population: NDArray[np.float64] | None,
+        iterations: int,
+        picard_iterations: int,
+        convergence_rate: float,
+        convergence_mode: str,
+        bracketed_root_iterations: int = 0,
+        bracket_initial_width: float = 0.0,
+        bracket_final_width: float = 0.0,
+        bracket_left_xb: float = 0.0,
+        bracket_right_xb: float = 0.0,
+        bracket_left_signed_residual: float = 0.0,
+        bracket_right_signed_residual: float = 0.0,
+        root_trial_xb_residual: float = 0.0,
+        root_verification_population_residual: float = 0.0,
+    ) -> _FixedPointResult:
+        """Package one already-audited trial without altering its remap state."""
+
+        return _FixedPointResult(
+            cell_number_m3=trial.cell_number_m3,
+            matrix_xb=trial.matrix_xb,
+            midpoint_matrix_xb=trial.midpoint_matrix_xb,
+            iterations=iterations,
+            picard_iterations=picard_iterations,
+            xb_residual=abs(trial.signed_xb_residual),
+            population_residual=self._population_observable_residual(
+                trial.cell_number_m3, previous_population
+            ),
+            cell_measure_residual=self._cell_measure_relative_residual(
+                trial.cell_number_m3, previous_population
+            ),
+            convergence_rate=convergence_rate,
+            convergence_mode=convergence_mode,
+            bracketed_root_iterations=bracketed_root_iterations,
+            bracket_initial_width=bracket_initial_width,
+            bracket_final_width=bracket_final_width,
+            bracket_left_xb=bracket_left_xb,
+            bracket_right_xb=bracket_right_xb,
+            bracket_left_signed_residual=bracket_left_signed_residual,
+            bracket_right_signed_residual=bracket_right_signed_residual,
+            root_trial_xb_residual=root_trial_xb_residual,
+            root_verification_population_residual=root_verification_population_residual,
+            inventory=trial.inventory,
+            trace=trial.trace,
+            remap=trial.remap,
+        )
+
+    def _solve_exact_two_cycle_bracket(
+        self,
+        *,
+        old_cell_number_m3: NDArray[np.float64],
+        dt_s: float,
+        x_start: float,
+        first_trial: _ClosureTrial,
+        second_trial: _ClosureTrial,
+        picard_iterations: int,
+    ) -> _FixedPointResult:
+        """Close an exact Picard two-cycle by solving the same scalar equation.
+
+        A bitwise ``A -> B -> A`` recurrence is not itself a converged state.
+        It does, however, brackets the original CR1 equation ``T(x) - x = 0``.
+        This routine accepts only a full remap/inventory trial that satisfies
+        the ordinary direct residual and physical-population criteria; bracket
+        width is never used as an acceptance condition.
+        """
+
+        if first_trial.signed_xb_residual * second_trial.signed_xb_residual >= 0.0:
+            raise CharacteristicReferenceError(
+                "exact fixed-point two-cycle did not provide an oppositely signed scalar bracket"
+            )
+        initial_left, initial_right = sorted(
+            (first_trial, second_trial), key=lambda item: item.x_guess
+        )
+        left, right = initial_left, initial_right
+        initial_width = right.x_guess - left.x_guess
+        if not initial_width > 0.0:
+            raise CharacteristicReferenceError(
+                "exact fixed-point two-cycle has a degenerate scalar bracket"
+            )
+
+        evaluations = picard_iterations
+        attempted_root_iterations = 0
+        stop_reason = "scalar-root iteration cap reached"
+        last_error = "no bracketed scalar-root trial was attempted"
+        for root_iteration in range(1, FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS + 1):
+            attempted_root_iterations = root_iteration
+            midpoint = 0.5 * (left.x_guess + right.x_guess)
+            if midpoint == left.x_guess or midpoint == right.x_guess:
+                stop_reason = "binary64 midpoint coalesced with a bracket endpoint"
+                break
+            trial = self._evaluate_closure_trial(
+                old_cell_number_m3=old_cell_number_m3,
+                dt_s=dt_s,
+                x_start=x_start,
+                x_guess=midpoint,
+            )
+            evaluations += 1
+            final_width = right.x_guess - left.x_guess
+            if abs(trial.signed_xb_residual) <= trial.xb_tolerance:
+                # Verify at T(x), as a normal direct iteration would.  This
+                # makes population convergence part of the same acceptance
+                # contract and avoids accepting a merely narrow discontinuity.
+                verification = self._evaluate_closure_trial(
+                    old_cell_number_m3=old_cell_number_m3,
+                    dt_s=dt_s,
+                    x_start=x_start,
+                    x_guess=trial.matrix_xb,
+                )
+                evaluations += 1
+                population_residual = self._population_observable_residual(
+                    verification.cell_number_m3, trial.cell_number_m3
+                )
+                if (
+                    abs(verification.signed_xb_residual) <= verification.xb_tolerance
+                    and population_residual <= self._population_convergence_rtol
+                ):
+                    convergence_rate = (
+                        math.nan
+                        if trial.signed_xb_residual == 0.0
+                        else abs(verification.signed_xb_residual / trial.signed_xb_residual)
+                    )
+                    return self._fixed_point_result(
+                        verification,
+                        previous_population=trial.cell_number_m3,
+                        iterations=evaluations,
+                        picard_iterations=picard_iterations,
+                        convergence_rate=convergence_rate,
+                        convergence_mode="BRACKETED_SCALAR_ROOT",
+                        bracketed_root_iterations=root_iteration,
+                        bracket_initial_width=initial_width,
+                        bracket_final_width=final_width,
+                        bracket_left_xb=initial_left.x_guess,
+                        bracket_right_xb=initial_right.x_guess,
+                        bracket_left_signed_residual=initial_left.signed_xb_residual,
+                        bracket_right_signed_residual=initial_right.signed_xb_residual,
+                        root_trial_xb_residual=abs(trial.signed_xb_residual),
+                        root_verification_population_residual=population_residual,
+                    )
+                last_error = (
+                    f"root_iteration={root_iteration}, scalar_residual={abs(trial.signed_xb_residual):.3e}, "
+                    f"verification_residual={abs(verification.signed_xb_residual):.3e}, "
+                    f"verification_tolerance={verification.xb_tolerance:.3e}, "
+                    f"population_residual={population_residual:.3e}"
+                )
+            else:
+                last_error = (
+                    f"root_iteration={root_iteration}, scalar_residual={abs(trial.signed_xb_residual):.3e}, "
+                    f"scalar_tolerance={trial.xb_tolerance:.3e}"
+                )
+
+            if trial.signed_xb_residual == 0.0:
+                stop_reason = "exact scalar residual failed map-verification population closure"
+                break
+            if trial.signed_xb_residual * left.signed_xb_residual > 0.0:
+                left = trial
+            else:
+                right = trial
+
+        raise CharacteristicReferenceError(
+            "exact fixed-point two-cycle bracket did not close the original scalar equation "
+            f"after {attempted_root_iterations} bisection iterations ({stop_reason}; "
+            f"initial_width={initial_width:.3e}, final_width={right.x_guess - left.x_guess:.3e}, {last_error})"
+        )
+
     def _solve_fixed_point(self, *, old_cell_number_m3: NDArray[np.float64], dt_s: float) -> _FixedPointResult:
         x_start = float(self.matrix_xb)
         x_guess = x_start
-        previous_population: NDArray[np.float64] | None = None
-        two_back_population: NDArray[np.float64] | None = None
-        previous_matrix_xb: float | None = None
-        two_back_matrix_xb: float | None = None
+        previous_trial: _ClosureTrial | None = None
+        two_back_trial: _ClosureTrial | None = None
         previous_xb_residual: float | None = None
         last_error = "no fixed-point iteration was attempted"
         for iteration in range(1, self.fixed_point_max_iterations + 1):
-            midpoint = 0.5 * (x_start + x_guess)
-            trace, remap = self._remap_once(
-                old_cell_number_m3, dt_s=dt_s, midpoint_matrix_xb=midpoint
+            trial = self._evaluate_closure_trial(
+                old_cell_number_m3=old_cell_number_m3,
+                dt_s=dt_s,
+                x_start=x_start,
+                x_guess=x_guess,
             )
-            candidate = remap.cell_number_m3
-            matrix_candidate = self._recover_matrix_xb(candidate)
-            inventory = self._inventory_snapshot(candidate, matrix_candidate)
-            xb_residual = abs(matrix_candidate - x_guess)
-            xb_tolerance = self.fixed_point_atol + self.fixed_point_rtol * max(
-                abs(matrix_candidate), abs(x_guess)
+            previous_population = None if previous_trial is None else previous_trial.cell_number_m3
+            cell_measure_residual = self._cell_measure_relative_residual(
+                trial.cell_number_m3, previous_population
             )
-            cell_measure_residual = self._cell_measure_relative_residual(candidate, previous_population)
-            population_residual = self._population_observable_residual(candidate, previous_population)
+            population_residual = self._population_observable_residual(
+                trial.cell_number_m3, previous_population
+            )
             convergence_rate = (
                 math.nan
                 if previous_xb_residual is None or previous_xb_residual == 0.0
-                else xb_residual / previous_xb_residual
+                else abs(trial.signed_xb_residual) / previous_xb_residual
             )
-            unchanged = np.array_equal(candidate, old_cell_number_m3) and matrix_candidate == x_start
+            unchanged = (
+                np.array_equal(trial.cell_number_m3, old_cell_number_m3)
+                and trial.matrix_xb == x_start
+            )
             direct_converged = (
-                xb_residual <= xb_tolerance
+                abs(trial.signed_xb_residual) <= trial.xb_tolerance
                 and (
                     unchanged
                     or (iteration >= 2 and population_residual <= self._population_convergence_rtol)
                 )
             )
-            two_cycle_xb_limit = FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR * xb_tolerance
             exact_two_cycle = (
                 self.under_relaxation == 1.0
                 and iteration >= 3
-                and two_back_population is not None
-                and two_back_matrix_xb is not None
-                and np.array_equal(candidate, two_back_population)
-                and matrix_candidate == two_back_matrix_xb
+                and previous_trial is not None
+                and two_back_trial is not None
+                and trial.x_guess == two_back_trial.x_guess
+                and np.array_equal(trial.cell_number_m3, two_back_trial.cell_number_m3)
+                and trial.matrix_xb == two_back_trial.matrix_xb
+                and trial.matrix_xb != previous_trial.matrix_xb
+                and 0.0 <= previous_trial.x_guess <= 1.0
+                and 0.0 <= trial.x_guess <= 1.0
+                and previous_trial.signed_xb_residual * trial.signed_xb_residual < 0.0
             )
-            two_cycle_converged = (
-                exact_two_cycle
-                and xb_residual <= two_cycle_xb_limit
-                and population_residual <= self._population_convergence_rtol
-            )
-            if direct_converged or two_cycle_converged:
-                convergence_mode = "DIRECT" if direct_converged else "EXACT_TWO_CYCLE_BOUNDED"
-                return _FixedPointResult(
-                    cell_number_m3=candidate,
-                    matrix_xb=matrix_candidate,
-                    midpoint_matrix_xb=midpoint,
+            if direct_converged:
+                result = self._fixed_point_result(
+                    trial,
+                    previous_population=previous_population,
                     iterations=iteration,
-                    xb_residual=xb_residual,
-                    population_residual=0.0 if unchanged else population_residual,
-                    cell_measure_residual=0.0 if unchanged else cell_measure_residual,
+                    picard_iterations=iteration,
                     convergence_rate=convergence_rate,
-                    convergence_mode=convergence_mode,
-                    two_cycle_xb_span=xb_residual if two_cycle_converged else 0.0,
-                    two_cycle_xb_limit=two_cycle_xb_limit if two_cycle_converged else 0.0,
-                    inventory=inventory,
-                    trace=trace,
-                    remap=remap,
+                    convergence_mode="DIRECT",
+                )
+                if unchanged:
+                    return replace(
+                        result,
+                        population_residual=0.0,
+                        cell_measure_residual=0.0,
+                    )
+                return result
+            if exact_two_cycle:
+                return self._solve_exact_two_cycle_bracket(
+                    old_cell_number_m3=old_cell_number_m3,
+                    dt_s=dt_s,
+                    x_start=x_start,
+                    first_trial=previous_trial,
+                    second_trial=trial,
+                    picard_iterations=iteration,
                 )
             last_error = (
-                f"iteration={iteration}, xb_residual={xb_residual:.3e}, "
-                f"xb_tolerance={xb_tolerance:.3e}, population_residual={population_residual:.3e}, "
+                f"iteration={iteration}, xb_residual={abs(trial.signed_xb_residual):.3e}, "
+                f"xb_tolerance={trial.xb_tolerance:.3e}, population_residual={population_residual:.3e}, "
                 f"cell_measure_residual={cell_measure_residual:.3e}, "
-                f"exact_two_cycle={exact_two_cycle}, two_cycle_xb_limit={two_cycle_xb_limit:.3e}"
+                f"exact_two_cycle_trigger={exact_two_cycle}"
             )
-            two_back_population = previous_population
-            previous_population = candidate
-            two_back_matrix_xb = previous_matrix_xb
-            previous_matrix_xb = matrix_candidate
-            previous_xb_residual = xb_residual
-            x_guess = self.under_relaxation * matrix_candidate + (1.0 - self.under_relaxation) * x_guess
+            two_back_trial = previous_trial
+            previous_trial = trial
+            previous_xb_residual = abs(trial.signed_xb_residual)
+            x_guess = self.under_relaxation * trial.matrix_xb + (1.0 - self.under_relaxation) * x_guess
         raise CharacteristicReferenceError(
             f"characteristic matrix/population fixed point did not converge after "
             f"{self.fixed_point_max_iterations} iterations ({last_error})"
@@ -432,13 +669,21 @@ class CharacteristicReferenceSolver(KWNSolver):
                 matrix_xb=self.matrix_xb,
                 midpoint_matrix_xb=self.matrix_xb,
                 fixed_point_iterations=1,
+                fixed_point_picard_iterations=1,
                 fixed_point_xb_residual=0.0,
                 fixed_point_population_residual=0.0,
                 fixed_point_cell_measure_residual=0.0,
                 fixed_point_convergence_rate=0.0,
                 fixed_point_convergence_mode="IDENTITY",
-                fixed_point_two_cycle_xb_span=0.0,
-                fixed_point_two_cycle_xb_limit=0.0,
+                fixed_point_bracketed_root_iterations=0,
+                fixed_point_bracket_initial_width=0.0,
+                fixed_point_bracket_final_width=0.0,
+                fixed_point_bracket_left_xb=0.0,
+                fixed_point_bracket_right_xb=0.0,
+                fixed_point_bracket_left_signed_residual=0.0,
+                fixed_point_bracket_right_signed_residual=0.0,
+                fixed_point_root_trial_xb_residual=0.0,
+                fixed_point_root_verification_population_residual=0.0,
                 inventory=inventory,
                 rmin_number_loss_m3=0.0,
                 rmin_number_flux_m3_s=0.0,
@@ -487,13 +732,21 @@ class CharacteristicReferenceSolver(KWNSolver):
             matrix_xb=self.matrix_xb,
             midpoint_matrix_xb=result.midpoint_matrix_xb,
             fixed_point_iterations=result.iterations,
+            fixed_point_picard_iterations=result.picard_iterations,
             fixed_point_xb_residual=result.xb_residual,
             fixed_point_population_residual=result.population_residual,
             fixed_point_cell_measure_residual=result.cell_measure_residual,
             fixed_point_convergence_rate=result.convergence_rate,
             fixed_point_convergence_mode=result.convergence_mode,
-            fixed_point_two_cycle_xb_span=result.two_cycle_xb_span,
-            fixed_point_two_cycle_xb_limit=result.two_cycle_xb_limit,
+            fixed_point_bracketed_root_iterations=result.bracketed_root_iterations,
+            fixed_point_bracket_initial_width=result.bracket_initial_width,
+            fixed_point_bracket_final_width=result.bracket_final_width,
+            fixed_point_bracket_left_xb=result.bracket_left_xb,
+            fixed_point_bracket_right_xb=result.bracket_right_xb,
+            fixed_point_bracket_left_signed_residual=result.bracket_left_signed_residual,
+            fixed_point_bracket_right_signed_residual=result.bracket_right_signed_residual,
+            fixed_point_root_trial_xb_residual=result.root_trial_xb_residual,
+            fixed_point_root_verification_population_residual=result.root_verification_population_residual,
             inventory=result.inventory,
             rmin_number_loss_m3=lower_number_loss,
             rmin_number_flux_m3_s=boundary_flux.number_flux_out_m3_s,
@@ -563,7 +816,11 @@ class CharacteristicReferenceSolver(KWNSolver):
             "fixed_point_atol": self.fixed_point_atol,
             "fixed_point_max_iterations": self.fixed_point_max_iterations,
             "under_relaxation": self.under_relaxation,
-            "fixed_point_two_cycle_xb_tolerance_factor": FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
+            "fixed_point_closure": FIXED_POINT_CLOSURE,
+            "fixed_point_scalar_root_max_iterations": FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
+            "fixed_point_scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_TWO_CYCLE_ONLY",
+            "fixed_point_scalar_root_requires_original_xb_tolerance": True,
+            "fixed_point_scalar_root_requires_map_verification_population_check": True,
             "remap_order": REMAP_ORDER,
             "trace_integrator": TRACE_INTEGRATOR,
         }
@@ -596,8 +853,16 @@ class CharacteristicReferenceSolver(KWNSolver):
                 raise CharacteristicReferenceError("checkpoint remap order differs from CR1")
             if metadata.get("trace_integrator") != TRACE_INTEGRATOR:
                 raise CharacteristicReferenceError("checkpoint trace integrator differs from CR1")
-            if float(metadata.get("fixed_point_two_cycle_xb_tolerance_factor", math.nan)) != FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR:
-                raise CharacteristicReferenceError("checkpoint fixed-point two-cycle tolerance differs from CR1")
+            if metadata.get("fixed_point_closure") != FIXED_POINT_CLOSURE:
+                raise CharacteristicReferenceError("checkpoint fixed-point closure differs from CR1")
+            if int(metadata.get("fixed_point_scalar_root_max_iterations", -1)) != FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS:
+                raise CharacteristicReferenceError("checkpoint fixed-point scalar-root iteration cap differs from CR1")
+            if metadata.get("fixed_point_scalar_root_trigger") != "EXACT_BITWISE_RAW_PICARD_TWO_CYCLE_ONLY":
+                raise CharacteristicReferenceError("checkpoint fixed-point scalar-root trigger differs from CR1")
+            if metadata.get("fixed_point_scalar_root_requires_original_xb_tolerance") is not True:
+                raise CharacteristicReferenceError("checkpoint scalar-root tolerance contract differs from CR1")
+            if metadata.get("fixed_point_scalar_root_requires_map_verification_population_check") is not True:
+                raise CharacteristicReferenceError("checkpoint scalar-root population contract differs from CR1")
             if metadata.get("source_config_hash") != config.source_config_hash:
                 raise CharacteristicReferenceError("checkpoint config hash differs from the requested config")
             options: dict[str, Any] = {
