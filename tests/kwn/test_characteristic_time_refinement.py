@@ -137,6 +137,37 @@ class CharacteristicTimeRefinementTests(unittest.TestCase):
         self.assertEqual(result["attempted_levels_s"], [1.0, 0.5, 0.25, 0.125, 0.0625])
         self.assertEqual(called_dt_s, [1.0, 0.5, 0.25, 0.125, 0.0625])
 
+    def test_final_status_preserves_a_numerical_convergence_failure(self) -> None:
+        final = driver._final_record(
+            launch={"git_branch_at_launch": driver.REQUIRED_BRANCH, "git_head_at_launch": "c" * 40},
+            blocker={
+                "status": "BLOCKED_EXACT_DONOR_BOUND_REFERENCE",
+                "strict_donor_dt_s": 1.0e-20,
+                "frozen_min_dt_s": 1.0e-12,
+                "theoretical_steps_to_0p1h": 1.0e20,
+            },
+            inherited_tests={
+                "status": "PASS",
+                "test_count": 52,
+                "strict_ssprk2_unit_tests": {"status": "PASS", "test_count": 9},
+            },
+            boundary={"status": "PASS_LOWER_BOUNDARY_OPERATOR_PARITY"},
+            current_cap4={"status": "PASS_CURRENT_VS_CAP4_REPRODUCTION", "difference": {}},
+            characteristic_tests={"status": "PASS_CHARACTERISTIC_REFERENCE_UNIT_TESTS"},
+            convergence={"status": "FAIL_CHARACTERISTIC_REFERENCE_NUMERICS"},
+            restart={"status": "BLOCKED_PREREQUISITE_GATE"},
+            parity={"status": "BLOCKED_PREREQUISITE_GATE"},
+            frozen={"status": "BLOCKED_PREREQUISITE_GATE"},
+            ladder={"status": "BLOCKED_PREREQUISITE_GATE"},
+            one_hour={"status": "BLOCKED_PREREQUISITE_GATE"},
+            choice={},
+            qualification={"status": "BLOCKED_PREREQUISITE_GATE"},
+            authority={},
+            final_crosscheck={"status": "BLOCKED_PREREQUISITE_GATE"},
+            beta={"status": "BLOCKED_PREREQUISITE_GATE"},
+        )
+        self.assertEqual(final["STATUS"], "FAIL_CHARACTERISTIC_REFERENCE_NUMERICS")
+
 
 if __name__ == "__main__":
     unittest.main()

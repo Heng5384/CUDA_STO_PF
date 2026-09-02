@@ -41,6 +41,7 @@ from .solver import KWNSolver, RadiusGridOverflowError, SolverConfig, SolverStat
 
 REMAP_ORDER = "CR1_piecewise_constant"
 TRACE_INTEGRATOR = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BACKWARD_V1"
+FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR = 2.0
 
 
 class CharacteristicReferenceError(SolverStateError):
@@ -61,6 +62,9 @@ class CharacteristicStepDiagnostics:
     fixed_point_population_residual: float
     fixed_point_cell_measure_residual: float
     fixed_point_convergence_rate: float
+    fixed_point_convergence_mode: str
+    fixed_point_two_cycle_xb_span: float
+    fixed_point_two_cycle_xb_limit: float
     inventory: InventorySnapshot
     rmin_number_loss_m3: float
     rmin_number_flux_m3_s: float
@@ -88,6 +92,9 @@ class _FixedPointResult:
     population_residual: float
     cell_measure_residual: float
     convergence_rate: float
+    convergence_mode: str
+    two_cycle_xb_span: float
+    two_cycle_xb_limit: float
     inventory: InventorySnapshot
     trace: CharacteristicTrace
     remap: ConservativeRemapResult
@@ -105,7 +112,7 @@ class CharacteristicReferenceSolver(KWNSolver):
     inventory source and no density clamp.
     """
 
-    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_v1"
+    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_cycle_v2"
 
     def __init__(
         self,
@@ -301,6 +308,9 @@ class CharacteristicReferenceSolver(KWNSolver):
         x_start = float(self.matrix_xb)
         x_guess = x_start
         previous_population: NDArray[np.float64] | None = None
+        two_back_population: NDArray[np.float64] | None = None
+        previous_matrix_xb: float | None = None
+        two_back_matrix_xb: float | None = None
         previous_xb_residual: float | None = None
         last_error = "no fixed-point iteration was attempted"
         for iteration in range(1, self.fixed_point_max_iterations + 1):
@@ -323,14 +333,29 @@ class CharacteristicReferenceSolver(KWNSolver):
                 else xb_residual / previous_xb_residual
             )
             unchanged = np.array_equal(candidate, old_cell_number_m3) and matrix_candidate == x_start
-            converged = (
+            direct_converged = (
                 xb_residual <= xb_tolerance
                 and (
                     unchanged
                     or (iteration >= 2 and population_residual <= self._population_convergence_rtol)
                 )
             )
-            if converged:
+            two_cycle_xb_limit = FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR * xb_tolerance
+            exact_two_cycle = (
+                self.under_relaxation == 1.0
+                and iteration >= 3
+                and two_back_population is not None
+                and two_back_matrix_xb is not None
+                and np.array_equal(candidate, two_back_population)
+                and matrix_candidate == two_back_matrix_xb
+            )
+            two_cycle_converged = (
+                exact_two_cycle
+                and xb_residual <= two_cycle_xb_limit
+                and population_residual <= self._population_convergence_rtol
+            )
+            if direct_converged or two_cycle_converged:
+                convergence_mode = "DIRECT" if direct_converged else "EXACT_TWO_CYCLE_BOUNDED"
                 return _FixedPointResult(
                     cell_number_m3=candidate,
                     matrix_xb=matrix_candidate,
@@ -340,6 +365,9 @@ class CharacteristicReferenceSolver(KWNSolver):
                     population_residual=0.0 if unchanged else population_residual,
                     cell_measure_residual=0.0 if unchanged else cell_measure_residual,
                     convergence_rate=convergence_rate,
+                    convergence_mode=convergence_mode,
+                    two_cycle_xb_span=xb_residual if two_cycle_converged else 0.0,
+                    two_cycle_xb_limit=two_cycle_xb_limit if two_cycle_converged else 0.0,
                     inventory=inventory,
                     trace=trace,
                     remap=remap,
@@ -347,9 +375,13 @@ class CharacteristicReferenceSolver(KWNSolver):
             last_error = (
                 f"iteration={iteration}, xb_residual={xb_residual:.3e}, "
                 f"xb_tolerance={xb_tolerance:.3e}, population_residual={population_residual:.3e}, "
-                f"cell_measure_residual={cell_measure_residual:.3e}"
+                f"cell_measure_residual={cell_measure_residual:.3e}, "
+                f"exact_two_cycle={exact_two_cycle}, two_cycle_xb_limit={two_cycle_xb_limit:.3e}"
             )
+            two_back_population = previous_population
             previous_population = candidate
+            two_back_matrix_xb = previous_matrix_xb
+            previous_matrix_xb = matrix_candidate
             previous_xb_residual = xb_residual
             x_guess = self.under_relaxation * matrix_candidate + (1.0 - self.under_relaxation) * x_guess
         raise CharacteristicReferenceError(
@@ -404,6 +436,9 @@ class CharacteristicReferenceSolver(KWNSolver):
                 fixed_point_population_residual=0.0,
                 fixed_point_cell_measure_residual=0.0,
                 fixed_point_convergence_rate=0.0,
+                fixed_point_convergence_mode="IDENTITY",
+                fixed_point_two_cycle_xb_span=0.0,
+                fixed_point_two_cycle_xb_limit=0.0,
                 inventory=inventory,
                 rmin_number_loss_m3=0.0,
                 rmin_number_flux_m3_s=0.0,
@@ -456,6 +491,9 @@ class CharacteristicReferenceSolver(KWNSolver):
             fixed_point_population_residual=result.population_residual,
             fixed_point_cell_measure_residual=result.cell_measure_residual,
             fixed_point_convergence_rate=result.convergence_rate,
+            fixed_point_convergence_mode=result.convergence_mode,
+            fixed_point_two_cycle_xb_span=result.two_cycle_xb_span,
+            fixed_point_two_cycle_xb_limit=result.two_cycle_xb_limit,
             inventory=result.inventory,
             rmin_number_loss_m3=lower_number_loss,
             rmin_number_flux_m3_s=boundary_flux.number_flux_out_m3_s,
@@ -525,6 +563,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             "fixed_point_atol": self.fixed_point_atol,
             "fixed_point_max_iterations": self.fixed_point_max_iterations,
             "under_relaxation": self.under_relaxation,
+            "fixed_point_two_cycle_xb_tolerance_factor": FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
             "remap_order": REMAP_ORDER,
             "trace_integrator": TRACE_INTEGRATOR,
         }
@@ -557,6 +596,8 @@ class CharacteristicReferenceSolver(KWNSolver):
                 raise CharacteristicReferenceError("checkpoint remap order differs from CR1")
             if metadata.get("trace_integrator") != TRACE_INTEGRATOR:
                 raise CharacteristicReferenceError("checkpoint trace integrator differs from CR1")
+            if float(metadata.get("fixed_point_two_cycle_xb_tolerance_factor", math.nan)) != FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR:
+                raise CharacteristicReferenceError("checkpoint fixed-point two-cycle tolerance differs from CR1")
             if metadata.get("source_config_hash") != config.source_config_hash:
                 raise CharacteristicReferenceError("checkpoint config hash differs from the requested config")
             options: dict[str, Any] = {

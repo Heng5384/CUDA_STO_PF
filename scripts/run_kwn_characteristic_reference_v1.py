@@ -48,6 +48,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from kwn_mvp.characteristic_reference import (  # noqa: E402
+    FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
     REMAP_ORDER,
     TRACE_INTEGRATOR,
     CharacteristicReferenceSolver,
@@ -729,6 +730,9 @@ def _run_characteristic(
                         "fixed_point_population_residual": float(diagnostic.fixed_point_population_residual),
                         "fixed_point_cell_measure_residual": float(diagnostic.fixed_point_cell_measure_residual),
                         "fixed_point_convergence_rate": float(diagnostic.fixed_point_convergence_rate),
+                        "fixed_point_convergence_mode": diagnostic.fixed_point_convergence_mode,
+                        "fixed_point_two_cycle_xb_span": float(diagnostic.fixed_point_two_cycle_xb_span),
+                        "fixed_point_two_cycle_xb_limit": float(diagnostic.fixed_point_two_cycle_xb_limit),
                         "inventory_relative_residual": float(diagnostic.inventory.relative_residual),
                         "rmin_number_loss_m3": float(diagnostic.rmin_number_loss_m3),
                         "rmin_mol_b_loss_mol_m3": float(diagnostic.rmin_mol_b_loss_mol_m3),
@@ -784,6 +788,29 @@ def _run_characteristic(
         max_fp,
         _resident_state_bytes(solver),
     )
+
+
+def _fixed_point_cycle_summary(runs: Mapping[str, RunResult]) -> dict[str, Any]:
+    """Summarize only explicitly accepted bounded CR1 two-cycles."""
+
+    cycles = [
+        row
+        for run in runs.values()
+        for row in run.trace_rows
+        if row.get("fixed_point_convergence_mode") == "EXACT_TWO_CYCLE_BOUNDED"
+    ]
+    return {
+        "accepted_exact_two_cycle_step_count": len(cycles),
+        "maximum_two_cycle_xb_span": max(
+            (float(row["fixed_point_two_cycle_xb_span"]) for row in cycles),
+            default=0.0,
+        ),
+        "minimum_two_cycle_xb_limit": min(
+            (float(row["fixed_point_two_cycle_xb_limit"]) for row in cycles),
+            default=0.0,
+        ),
+        "normal_fixed_point_tolerance_factor": FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
+    }
 
 
 def _new_cohort_trajectory_cache(
@@ -1151,6 +1178,7 @@ def _characteristic_self_convergence(
             "policy": None,
             "convergence_levels_s": levels,
             "attempted_levels_s": attempted_levels_s,
+            "fixed_point_cycle_summary": _fixed_point_cycle_summary(runs),
             "additional_refinement_added": refinement_count > 0,
             "additional_refinement_count": refinement_count,
             "self_convergence_runtime_s": time.monotonic() - started,
@@ -1185,6 +1213,7 @@ def _characteristic_self_convergence(
                 "policy": None,
                 "convergence_levels_s": levels,
                 "attempted_levels_s": attempted_levels_s,
+                "fixed_point_cycle_summary": _fixed_point_cycle_summary(runs),
                 "additional_refinement_added": refinement_count > 0,
                 "additional_refinement_count": refinement_count,
                 "self_convergence_runtime_s": time.monotonic() - started,
@@ -1260,6 +1289,7 @@ def _characteristic_self_convergence(
         "full_time_maximum_reported": True,
         "convergence_levels_s": levels,
         "attempted_levels_s": attempted_levels_s,
+        "fixed_point_cycle_summary": _fixed_point_cycle_summary(runs),
         "additional_refinement_added": refinement_count > 0,
         "additional_refinement_count": refinement_count,
         "self_convergence_runtime_s": time.monotonic() - started,
@@ -2067,6 +2097,18 @@ def _write_outputs(
     analytic_rows = [row for row in characteristic_tests.get("rows", []) if str(row.get("case", "")).startswith(("CR2", "CR3", "CR4", "CR8", "CR9"))]
     _write_csv(output_root / "characteristic_analytic_benchmarks.csv", analytic_rows, fallback_fields=("case", "status", "reason"))
     _write_csv(output_root / "characteristic_timestep_convergence.csv", convergence.get("rows", []), fallback_fields=("status", "reason"))
+    convergence_runs = convergence.get("runs", {})
+    characteristic_trace_rows = [
+        row
+        for run in convergence_runs.values()
+        if isinstance(run, RunResult)
+        for row in run.trace_rows
+    ] if isinstance(convergence_runs, Mapping) else []
+    _write_csv(
+        output_root / "characteristic_fixed_point_trace.csv",
+        characteristic_trace_rows,
+        fallback_fields=("status", "reason"),
+    )
     _write_csv(output_root / "cohort_characteristic_parity.csv", parity.get("rows", []), fallback_fields=("status", "reason"))
     _write_csv(output_root / "frozen_matrix_three_method.csv", frozen.get("rows", []), fallback_fields=("status", "reason"))
     _write_csv(output_root / "implicit_vs_reference_01h.csv", ladder.get("rows", []), fallback_fields=("status", "reason"))
@@ -2109,6 +2151,12 @@ def _write_outputs(
             "characteristic_time_gate": REFERENCE_TIME_GATE,
             "characteristic_remap_order": REMAP_ORDER,
             "characteristic_trace_integrator": TRACE_INTEGRATOR,
+            "characteristic_exact_two_cycle_closure": {
+                "requires_bitwise_population_and_matrix_repeat": True,
+                "maximum_xb_span_factor_of_direct_tolerance": FIXED_POINT_TWO_CYCLE_XB_TOLERANCE_FACTOR,
+                "requires_existing_physical_M0_to_M3_convergence": True,
+                "under_relaxation_must_equal": 1.0,
+            },
             "cohort_characteristic_gate": ONE_PERCENT,
             "cohort_eulerian_gate": TWO_PERCENT,
             "cohort_points_per_cell": COHORT_POINTS_PER_CELL,
@@ -2179,6 +2227,9 @@ def _write_reports(
             f"Dyadic refinements beyond the initial ladder: `{convergence.get('additional_refinement_count', 0)}`; "
             f"evaluated levels (s): `{convergence.get('attempted_levels_s')}`; self-convergence runtime (s): "
             f"`{convergence.get('self_convergence_runtime_s')}`.\n\n"
+            f"Fixed-point exact-two-cycle summary: `{json.dumps(_json_safe(convergence.get('fixed_point_cycle_summary', {})), sort_keys=True)}`. "
+            "A bounded two-cycle is accepted only after bitwise population/matrix repetition, physical M0--M3 convergence, "
+            "and an xB span no greater than twice the ordinary fixed-point tolerance; the selected full candidate is never averaged.\n\n"
             + _report_table(convergence.get("rows", []), ("dt_s", "reference_dt_s", "time_h", "metric", "relative_or_absolute_error", "pass"))
         ),
         "05_cohort_characteristic_parity.md": f"Status: `{parity.get('status')}`; gated maximum error `{parity.get('gate_maximum_error')}` (1%, including normalized PSD Wasserstein); scalar-observable maximum `{parity.get('primary_maximum_error')}`; canonical positive quadrature `{parity.get('cohort_points_per_cell', COHORT_POINTS_PER_CELL)}` points per cell.\n\n" + _report_table(parity.get("rows", []), ("time_h", "metric", "relative_or_absolute_error", "pass")),
@@ -2242,10 +2293,16 @@ def _final_record(
             if characteristic_test_status.startswith(("BLOCKED", "INCOMPLETE"))
             else "FAIL_CHARACTERISTIC_REFERENCE_NUMERICS"
         )
-    elif convergence_status != "PASS_CHARACTERISTIC_SELF_CONVERGENCE" or restart_status != "PASS_CHARACTERISTIC_RESTART":
+    elif convergence_status != "PASS_CHARACTERISTIC_SELF_CONVERGENCE":
         top = (
             "BLOCKED_TIME_REFERENCE_NOT_CLOSED"
-            if convergence_status.startswith(("BLOCKED", "INCOMPLETE")) or restart_status.startswith(("BLOCKED", "INCOMPLETE"))
+            if convergence_status.startswith(("BLOCKED", "INCOMPLETE"))
+            else "FAIL_CHARACTERISTIC_REFERENCE_NUMERICS"
+        )
+    elif restart_status != "PASS_CHARACTERISTIC_RESTART":
+        top = (
+            "BLOCKED_TIME_REFERENCE_NOT_CLOSED"
+            if restart_status.startswith(("BLOCKED", "INCOMPLETE"))
             else "FAIL_CHARACTERISTIC_REFERENCE_NUMERICS"
         )
     elif parity_status != "PASS_COHORT_CHARACTERISTIC_REFERENCE_PARITY":
