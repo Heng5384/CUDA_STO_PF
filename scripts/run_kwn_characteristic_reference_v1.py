@@ -298,14 +298,80 @@ def _git_succeeds(*args: str) -> bool:
     ).returncode == 0
 
 
+def _submission_source_identity() -> dict[str, Any]:
+    """Read the source identity captured before a no-Git batch launch.
+
+    The CPU compute image intentionally has no Git executable.  The isolated
+    payload is therefore checked with Git on the submit host and that checked
+    identity is passed verbatim to the batch job.  This is a provenance
+    transport path, not a relaxed formal-launch policy.
+    """
+
+    required = (
+        "KWN_LAUNCH_GIT_HEAD",
+        "KWN_LAUNCH_GIT_BRANCH",
+        "KWN_LAUNCH_GIT_CLEAN",
+        "KWN_LAUNCH_FROZEN_START_ANCESTOR",
+        "KWN_LAUNCH_SOURCE_ROOT",
+    )
+    missing = [name for name in required if not os.environ.get(name)]
+    if missing:
+        raise WorkflowError(
+            "Git is unavailable and formal batch source provenance is missing: "
+            + ", ".join(missing)
+        )
+    head = str(os.environ["KWN_LAUNCH_GIT_HEAD"])
+    if re.fullmatch(r"[0-9a-f]{40}", head) is None:
+        raise WorkflowError("batch source provenance has an invalid Git HEAD")
+    source_root = Path(str(os.environ["KWN_LAUNCH_SOURCE_ROOT"])).resolve()
+    if source_root != ROOT.resolve():
+        raise WorkflowError("batch source provenance belongs to a different source root")
+    if str(os.environ["KWN_LAUNCH_GIT_BRANCH"]) != REQUIRED_BRANCH:
+        raise WorkflowError(f"formal launch requires branch {REQUIRED_BRANCH!r}")
+    if str(os.environ["KWN_LAUNCH_GIT_CLEAN"]) != "1":
+        raise WorkflowError("formal characteristic-reference launch requires a clean source tree")
+    if str(os.environ["KWN_LAUNCH_FROZEN_START_ANCESTOR"]) != FROZEN_START_COMMIT:
+        raise WorkflowError("batch source provenance does not prove frozen-start ancestry")
+    return {
+        "head": head,
+        "branch": REQUIRED_BRANCH,
+        "clean": True,
+        "frozen_start_is_ancestor": True,
+        "frozen_start_commit_resolved": FROZEN_START_COMMIT,
+        "mode": "SUBMISSION_GIT_PROVENANCE_NO_COMPUTE_NODE_GIT",
+    }
+
+
+def _launch_source_identity() -> dict[str, Any]:
+    """Return formal source identity from Git or its checked batch transport."""
+
+    try:
+        clean_status = _git("status", "--short")
+        head = _git("rev-parse", "HEAD")
+        branch = _git("branch", "--show-current")
+        frozen_start = _git("rev-parse", FROZEN_START_COMMIT)
+        ancestry = _git_succeeds("merge-base", "--is-ancestor", FROZEN_START_COMMIT, "HEAD")
+    except FileNotFoundError:
+        return _submission_source_identity()
+    return {
+        "head": head,
+        "branch": branch,
+        "clean": not bool(clean_status),
+        "frozen_start_is_ancestor": ancestry,
+        "frozen_start_commit_resolved": frozen_start,
+        "mode": "GIT_ON_LAUNCH_HOST",
+    }
+
+
 def _require_formal_launch(output_root: Path, report_root: Path) -> None:
     """Reject mutable sources or overwritten evidence before any numerical work."""
 
-    if _git("status", "--short"):
+    identity = _launch_source_identity()
+    if not identity["clean"]:
         raise WorkflowError("formal characteristic-reference launch requires a clean source tree")
-    if _git("branch", "--show-current") != REQUIRED_BRANCH:
+    if identity["branch"] != REQUIRED_BRANCH:
         raise WorkflowError(f"formal launch requires branch {REQUIRED_BRANCH!r}")
-    if not _git_succeeds("merge-base", "--is-ancestor", FROZEN_START_COMMIT, "HEAD"):
+    if not identity.get("frozen_start_is_ancestor", True):
         raise WorkflowError("formal launch HEAD is not descended from the frozen 9269e07 start")
     for path, label in ((output_root, "output"), (report_root, "report")):
         if path.exists() and any(path.iterdir()):
@@ -329,12 +395,14 @@ def _runtime_context() -> dict[str, Any]:
 
 
 def _launch_context() -> dict[str, Any]:
+    source_identity = _launch_source_identity()
     return {
         "frozen_start_commit": FROZEN_START_COMMIT,
-        "frozen_start_commit_resolved": _git("rev-parse", FROZEN_START_COMMIT),
-        "git_head_at_launch": _git("rev-parse", "HEAD"),
-        "git_branch_at_launch": _git("branch", "--show-current"),
-        "git_status_at_launch": _git("status", "--short"),
+        "frozen_start_commit_resolved": source_identity["frozen_start_commit_resolved"],
+        "git_head_at_launch": source_identity["head"],
+        "git_branch_at_launch": source_identity["branch"],
+        "git_status_at_launch": "" if source_identity["clean"] else "DIRTY",
+        "git_identity_mode": source_identity["mode"],
         "utc_start": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "runtime": _runtime_context(),
         "pf_source_modified": False,

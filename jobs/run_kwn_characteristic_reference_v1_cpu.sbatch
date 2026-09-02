@@ -44,12 +44,28 @@ mkdir -p "${RUN_ROOT}/logs"
 exec >"${RUN_ROOT}/logs/driver.stdout.log" 2>"${RUN_ROOT}/logs/driver.stderr.log"
 
 export PYTHONPATH="${SOURCE_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
-# Some compute-node batch shells omit /usr/bin even though the runner needs
-# the system Git binary to bind source provenance before numerical work.
+# Preserve standard utilities.  The CPU compute image has no Git executable,
+# so an exact source identity checked on the submit host is required below.
 export PATH="/usr/bin:/bin${PATH:+:${PATH}}"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
+
+if ! command -v git >/dev/null 2>&1; then
+  : "${KWN_LAUNCH_GIT_HEAD:?missing submit-host Git HEAD provenance}"
+  : "${KWN_LAUNCH_GIT_BRANCH:?missing submit-host Git branch provenance}"
+  : "${KWN_LAUNCH_GIT_CLEAN:?missing submit-host clean-tree provenance}"
+  : "${KWN_LAUNCH_FROZEN_START_ANCESTOR:?missing submit-host ancestry provenance}"
+  : "${KWN_LAUNCH_SOURCE_ROOT:?missing submit-host source-root provenance}"
+  [[ "${KWN_LAUNCH_GIT_CLEAN}" == "1" ]] || {
+    echo "[fatal] submit-host source provenance is not clean" >&2
+    exit 2
+  }
+  [[ "${KWN_LAUNCH_SOURCE_ROOT}" == "${SOURCE_ROOT}" ]] || {
+    echo "[fatal] submit-host source provenance belongs to a different root" >&2
+    exit 2
+  }
+fi
 
 if ! "${PYTHON_BIN}" -c 'import numpy, scipy'; then
   printf 'NONPASS_KWN_CHARACTERISTIC_REFERENCE_ENVIRONMENT_V1\n' >"${RUN_ROOT}/status.txt"
@@ -76,6 +92,18 @@ report_root="${RUN_ROOT}/reports/${task_name}"
 max_wall_s="${MAX_WALL_S:-82800}"
 max_steps="${MAX_STEPS:-2000000}"
 
+if command -v git >/dev/null 2>&1; then
+  source_commit="$(git -C "${SOURCE_ROOT}" rev-parse HEAD)"
+  source_branch="$(git -C "${SOURCE_ROOT}" branch --show-current)"
+  source_status="$(git -C "${SOURCE_ROOT}" status --short)"
+  source_identity_mode="GIT_ON_COMPUTE_NODE"
+else
+  source_commit="${KWN_LAUNCH_GIT_HEAD}"
+  source_branch="${KWN_LAUNCH_GIT_BRANCH}"
+  source_status="CLEAN_AT_SUBMISSION"
+  source_identity_mode="SUBMISSION_GIT_PROVENANCE_NO_COMPUTE_NODE_GIT"
+fi
+
 {
   printf 'hostname=%s\n' "$(hostname)"
   printf 'slurm_job_id=%s\n' "${SLURM_JOB_ID:-UNSCHEDULED}"
@@ -83,9 +111,11 @@ max_steps="${MAX_STEPS:-2000000}"
   printf 'slurm_qos=%s\n' "${SLURM_JOB_QOS:-UNSPECIFIED}"
   printf 'slurm_memory_per_node_mb=%s\n' "${SLURM_MEM_PER_NODE:-UNSPECIFIED}"
   printf 'source_root=%s\n' "${SOURCE_ROOT}"
-  printf 'source_commit=%s\n' "$(git -C "${SOURCE_ROOT}" rev-parse HEAD)"
-  printf 'source_branch=%s\n' "$(git -C "${SOURCE_ROOT}" branch --show-current)"
-  printf 'source_status=%s\n' "$(git -C "${SOURCE_ROOT}" status --short)"
+  printf 'source_commit=%s\n' "${source_commit}"
+  printf 'source_branch=%s\n' "${source_branch}"
+  printf 'source_status=%s\n' "${source_status}"
+  printf 'source_identity_mode=%s\n' "${source_identity_mode}"
+  printf 'source_frozen_start_ancestor=%s\n' "${KWN_LAUNCH_FROZEN_START_ANCESTOR:-CHECKED_ON_COMPUTE_NODE}"
   printf 'python_bin=%s\n' "${PYTHON_BIN}"
   printf 'python_version=%s\n' "$("${PYTHON_BIN}" -c 'import sys; print(sys.version.replace("\n", " "))')"
   printf 'numpy_version=%s\n' "$("${PYTHON_BIN}" -c 'import numpy; print(numpy.__version__)')"
