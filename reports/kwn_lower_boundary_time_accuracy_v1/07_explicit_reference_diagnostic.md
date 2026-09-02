@@ -4,11 +4,10 @@ Status: `BRUTE_FORCE_DONOR_BOUND_NOT_PRACTICAL`.  A whole-domain donor-bound SSP
 
 ```json
 {
-  "implicit_ladder_status": "BRUTE_FORCE_CFL_NOT_PRACTICAL",
+  "actual_implicit_brute_force_policies": [],
+  "implicit_ladder_status": "INCOMPLETE_DIAGNOSTIC_BUDGET",
   "initial_global_face_index": 0,
   "initial_lower_boundary_velocity_m_s": -11767189.594675226,
-  "observed_active_CFL_4_dt_s": 2.6892616479016512e-19,
-  "observed_active_boundary_rate_s_inv": 1.4873971088388063e+19,
   "reason": "A whole-domain donor-bound SSPRK2 reference would require dt <= 6.72388328686019683e-20 s from the actual physical-Rmin lower face at the canonical initial state, or at least 2.56994347801493696e+24 accepted steps for 48 h.  It is therefore not implemented or relabelled as an active-only explicit proxy.",
   "reference_solver": "EXPLICIT_UPWIND_DONOR_BOUND_SSPRK2",
   "same_physical_Rmin_contract": true,
