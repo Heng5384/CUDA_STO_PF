@@ -44,6 +44,8 @@ class SolverConfig:
     max_dt_s: float
     min_dt_s: float
     size_cfl: float
+    accuracy_radius_cfl: float | None
+    population_measure: str
     positivity_safety: float
     cfl_active_inventory_relative_threshold: float
     rmax_outflow_relative_tolerance: float
@@ -118,6 +120,17 @@ class SolverConfig:
             raise ConfigurationError(
                 "simulation.cfl_active_inventory_relative_threshold must lie in (0, 1]"
             )
+        accuracy_radius_cfl_value = simulation.get("accuracy_radius_cfl")
+        if accuracy_radius_cfl_value is not None and (
+            not isinstance(accuracy_radius_cfl_value, (int, float))
+            or float(accuracy_radius_cfl_value) <= 0.0
+        ):
+            raise ConfigurationError("simulation.accuracy_radius_cfl must be positive or null")
+        population_measure = str(simulation.get("population_measure", "fixed_pivot"))
+        if population_measure not in {"fixed_pivot", "cell_integrated"}:
+            raise ConfigurationError(
+                "simulation.population_measure must be 'fixed_pivot' or 'cell_integrated'"
+            )
         return cls(
             temperature_k=temperature,
             grid=grid,
@@ -128,6 +141,10 @@ class SolverConfig:
             max_dt_s=require_number(simulation, "max_dt_s", positive=True),
             min_dt_s=require_number(simulation, "min_dt_s", positive=True),
             size_cfl=require_number(simulation, "size_cfl", positive=True),
+            accuracy_radius_cfl=(
+                None if accuracy_radius_cfl_value is None else float(accuracy_radius_cfl_value)
+            ),
+            population_measure=population_measure,
             positivity_safety=positivity_safety,
             cfl_active_inventory_relative_threshold=cfl_support_threshold,
             rmax_outflow_relative_tolerance=require_number(
@@ -180,6 +197,16 @@ class StepDiagnostics:
     beta_nucleation_rate_m3_s: float
     rmin_dissolution_flux_m3_s: float
     rmax_outflow_flux_m3_s: float
+    beta_rmin_number_flux_m3_s: float = 0.0
+    beta_rmin_volume_flux_s: float = 0.0
+    beta_rmin_mol_b_flux_mol_m3_s: float = 0.0
+    radius_courant_max: float = 0.0
+    radius_courant_beta_max: float = 0.0
+    radius_courant_face_index: int = -1
+    radius_courant_cell_index: int = -1
+    radius_courant_face_velocity_m_s: float = 0.0
+    radius_courant_cell_width_m: float = 0.0
+    timestep_limiter: str = "legacy_active_cell_cfl"
 
 
 def _normalised_lognormal_density(
@@ -199,12 +226,18 @@ def _normalised_lognormal_density(
 
 
 def _build_initial_population(
-    *, parameters: PopulationParameters, grid: RadiusGrid, definition: Mapping[str, Any]
+    *,
+    parameters: PopulationParameters,
+    grid: RadiusGrid,
+    definition: Mapping[str, Any],
+    production_quadrature: str,
 ) -> Population:
     """Construct an initial PSD from an explicit config-owned definition."""
 
     kind = str(definition.get("kind", "empty"))
-    population = Population.empty(parameters, grid)
+    population = Population.empty(
+        parameters, grid, production_quadrature=production_quadrature
+    )
     if kind == "empty":
         return population
     if kind == "monodisperse":
@@ -228,6 +261,24 @@ def _build_initial_population(
             if not isinstance(entry, dict):
                 raise ConfigurationError("Each discrete initial entry must be a mapping")
             population.add_number_at_radius(float(entry["radius_m"]), float(entry["number_density_m3"]))
+        return population
+    if kind == "cell_integrated":
+        values = definition.get("cell_number_density_m3")
+        if not isinstance(values, list) or len(values) != grid.bins:
+            raise ConfigurationError(
+                "cell_integrated initial population requires one cell_number_density_m3 value per grid bin"
+            )
+        declared_edges = definition.get("radius_edges_m")
+        if declared_edges is not None:
+            edges = np.asarray(declared_edges, dtype=np.float64)
+            if edges.shape != grid.edges_m.shape or not np.array_equal(edges, grid.edges_m):
+                raise ConfigurationError(
+                    "cell_integrated initial population radius_edges_m must exactly match the solver grid"
+                )
+        numbers = np.asarray(values, dtype=np.float64)
+        if not np.all(np.isfinite(numbers)) or np.any(numbers < 0.0):
+            raise ConfigurationError("cell_integrated initial population numbers must be finite and non-negative")
+        population.number_density_per_m4[:] = numbers / grid.widths_m
         return population
     raise ConfigurationError(f"Unsupported initial population kind {kind!r}")
 
@@ -259,6 +310,7 @@ class KWNSolver:
                 parameters=parameters,
                 grid=config.grid,
                 definition=config.initial_population[parameters.name],
+                production_quadrature=config.population_measure,
             )
             for parameters in config.populations
         }
@@ -284,6 +336,11 @@ class KWNSolver:
         self.step = 0
         self.roundoff_zeroed_bin_count = 0
         self.history: List[StepDiagnostics] = []
+        self._last_timestep_telemetry: dict[str, Any] = {
+            "limiter": "maximum_dt",
+            "overall": (0.0, -1, -1, 0.0, 0.0),
+            "beta": (0.0, -1, -1, 0.0, 0.0),
+        }
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "KWNSolver":
@@ -357,25 +414,77 @@ class KWNSolver:
         return rates
 
     @staticmethod
+    def _face_velocities(velocity_m_s: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Return the literal face velocities used by the current FV operator."""
+
+        velocity = np.asarray(velocity_m_s, dtype=np.float64)
+        if velocity.ndim != 1 or velocity.size < 2:
+            raise SolverStateError("finite-volume velocity must have at least two cell values")
+        faces = np.empty(velocity.size + 1, dtype=np.float64)
+        faces[0] = velocity[0]
+        faces[1:-1] = 0.5 * (velocity[:-1] + velocity[1:])
+        faces[-1] = velocity[-1]
+        return faces
+
+    @classmethod
     def _upwind_face_fluxes(
-        density_per_m4: NDArray[np.float64], velocity_m_s: NDArray[np.float64]
+        cls, density_per_m4: NDArray[np.float64], velocity_m_s: NDArray[np.float64]
     ) -> NDArray[np.float64]:
         """Return the exact first-order face fluxes used by the FV update."""
 
         faces = np.empty(density_per_m4.size + 1, dtype=np.float64)
+        face_velocity = cls._face_velocities(velocity_m_s)
         faces[0] = (
-            velocity_m_s[0] * density_per_m4[0] if velocity_m_s[0] < 0.0 else 0.0
+            face_velocity[0] * density_per_m4[0] if face_velocity[0] < 0.0 else 0.0
         )
-        internal_velocity = 0.5 * (velocity_m_s[:-1] + velocity_m_s[1:])
+        internal_velocity = face_velocity[1:-1]
         faces[1:-1] = np.where(
             internal_velocity >= 0.0,
             internal_velocity * density_per_m4[:-1],
             internal_velocity * density_per_m4[1:],
         )
         faces[-1] = (
-            velocity_m_s[-1] * density_per_m4[-1] if velocity_m_s[-1] > 0.0 else 0.0
+            face_velocity[-1] * density_per_m4[-1] if face_velocity[-1] > 0.0 else 0.0
         )
         return faces
+
+    @classmethod
+    def _raw_face_operator_rate(
+        cls, velocity_m_s: NDArray[np.float64], widths_m: NDArray[np.float64]
+    ) -> tuple[float, int, int, float, float]:
+        """Return the all-grid face-Courant rate of the actual FV operator.
+
+        Each internal face is incident on two cells, so its rate is measured
+        against the smaller of the two relevant radius-cell widths.  Unlike
+        the legacy active-inventory CFL this intentionally includes every
+        grid face, even where the current density is extremely small.
+        """
+
+        widths = np.asarray(widths_m, dtype=np.float64)
+        face_velocity = cls._face_velocities(velocity_m_s)
+        if widths.ndim != 1 or face_velocity.size != widths.size + 1:
+            raise SolverStateError("face velocity and radius widths are inconsistent")
+        rates = np.empty(face_velocity.size, dtype=np.float64)
+        cells = np.empty(face_velocity.size, dtype=np.int64)
+        rates[0] = abs(face_velocity[0]) / widths[0]
+        cells[0] = 0
+        rates[-1] = abs(face_velocity[-1]) / widths[-1]
+        cells[-1] = widths.size - 1
+        if widths.size > 1:
+            left = abs(face_velocity[1:-1]) / widths[:-1]
+            right = abs(face_velocity[1:-1]) / widths[1:]
+            use_left = left >= right
+            rates[1:-1] = np.where(use_left, left, right)
+            cells[1:-1] = np.where(use_left, np.arange(widths.size - 1), np.arange(1, widths.size))
+        index = int(np.argmax(rates))
+        cell = int(cells[index])
+        return (
+            float(rates[index]),
+            index,
+            cell,
+            float(face_velocity[index]),
+            float(widths[cell]),
+        )
 
     def _choose_dt(
         self, velocities: Mapping[str, NDArray[np.float64]], maximum_s: float | None
@@ -383,8 +492,12 @@ class KWNSolver:
         """Choose a CFL-limited adaptive macro-step for the active PSD support."""
 
         cfl_rates: List[float] = []
+        raw_by_population: dict[str, tuple[float, int, int, float, float]] = {}
         for name, velocity in velocities.items():
             population = self.populations[name]
+            raw_by_population[name] = self._raw_face_operator_rate(
+                velocity, population.grid.widths_m
+            )
             cell_number = population.number_density_per_m4 * population.grid.widths_m
             cell_volume = cell_number * (4.0 * np.pi / 3.0) * population.grid.centres_m**3
             total_volume = float(np.sum(cell_volume))
@@ -415,11 +528,23 @@ class KWNSolver:
         else:
             cfl_dt = min(cap, self.config.size_cfl / max_rate)
         dt = cfl_dt
+        limiter = "legacy_active_cell_cfl" if cfl_dt < cap else "maximum_dt"
+        overall = max(raw_by_population.values(), key=lambda value: value[0], default=(0.0, -1, -1, 0.0, 0.0))
+        if self.config.accuracy_radius_cfl is not None and overall[0] > 0.0:
+            accuracy_dt = self.config.accuracy_radius_cfl / overall[0]
+            if accuracy_dt < dt:
+                dt = accuracy_dt
+                limiter = "accuracy_radius_cfl"
         if dt < self.config.min_dt_s:
             raise SolverStateError(
                 f"CFL-limited step {dt:.3e} s is below configured min_dt_s={self.config.min_dt_s:.3e} s"
             )
         cfl = max_rate * dt
+        self._last_timestep_telemetry = {
+            "limiter": limiter,
+            "overall": overall,
+            "beta": raw_by_population.get("beta", (0.0, -1, -1, 0.0, 0.0)),
+        }
         return dt, cfl
 
     def _advect_population(
@@ -459,15 +584,16 @@ class KWNSolver:
         upper = np.zeros(bin_count, dtype=np.float64)
         if velocity_m_s[0] < 0.0:
             diagonal[0] -= dt_s * velocity_m_s[0] / widths[0]
-        face_velocity = 0.5 * (velocity_m_s[:-1] + velocity_m_s[1:])
-        positive_faces = np.flatnonzero(face_velocity >= 0.0)
-        negative_faces = np.flatnonzero(face_velocity < 0.0)
+        face_velocity = self._face_velocities(velocity_m_s)
+        internal_face_velocity = face_velocity[1:-1]
+        positive_faces = np.flatnonzero(internal_face_velocity >= 0.0)
+        negative_faces = np.flatnonzero(internal_face_velocity < 0.0)
         if positive_faces.size:
-            values = face_velocity[positive_faces]
+            values = internal_face_velocity[positive_faces]
             diagonal[positive_faces] += dt_s * values / widths[positive_faces]
             lower[positive_faces + 1] -= dt_s * values / widths[positive_faces + 1]
         if negative_faces.size:
-            values = face_velocity[negative_faces]
+            values = internal_face_velocity[negative_faces]
             diagonal[negative_faces + 1] -= dt_s * values / widths[negative_faces + 1]
             upper[negative_faces] += dt_s * values / widths[negative_faces]
         if velocity_m_s[-1] > 0.0:
@@ -544,6 +670,7 @@ class KWNSolver:
         )
         lower_flux = 0.0
         upper_flux = 0.0
+        beta_lower_flux = 0.0
         positivity_utilization = 0.0
         roundoff_zeroed_bin_count = 0
         for name in ("g", "beta"):
@@ -552,6 +679,8 @@ class KWNSolver:
             )
             lower_flux += lower
             upper_flux += upper
+            if name == "beta":
+                beta_lower_flux = lower
             positivity_utilization = max(positivity_utilization, utilization)
             roundoff_zeroed_bin_count += zeroed
         self.roundoff_zeroed_bin_count += roundoff_zeroed_bin_count
@@ -570,6 +699,17 @@ class KWNSolver:
         self.time_s += dt_s
         self.step += 1
         inventory = self.ledger.snapshot(matrix_xb=self.matrix_xb, populations=self.population_list())
+        beta = self.populations["beta"]
+        beta_rmin_volume_flux = (
+            beta_lower_flux * (4.0 * np.pi / 3.0) * float(beta.grid.edges_m[0]) ** 3
+        )
+        beta_rmin_mol_b_flux = (
+            beta_rmin_volume_flux * beta.parameters.x_b / beta.parameters.molar_volume_m3_mol
+        )
+        raw_rate, face_index, cell_index, face_velocity, cell_width = self._last_timestep_telemetry[
+            "overall"
+        ]
+        beta_raw_rate = float(self._last_timestep_telemetry["beta"][0])
         diagnostic = StepDiagnostics(
             step=self.step,
             time_s=self.time_s,
@@ -583,6 +723,16 @@ class KWNSolver:
             beta_nucleation_rate_m3_s=beta_source.rate_m3_s,
             rmin_dissolution_flux_m3_s=lower_flux,
             rmax_outflow_flux_m3_s=upper_flux,
+            beta_rmin_number_flux_m3_s=beta_lower_flux,
+            beta_rmin_volume_flux_s=beta_rmin_volume_flux,
+            beta_rmin_mol_b_flux_mol_m3_s=beta_rmin_mol_b_flux,
+            radius_courant_max=raw_rate * dt_s,
+            radius_courant_beta_max=beta_raw_rate * dt_s,
+            radius_courant_face_index=int(face_index),
+            radius_courant_cell_index=int(cell_index),
+            radius_courant_face_velocity_m_s=float(face_velocity),
+            radius_courant_cell_width_m=float(cell_width),
+            timestep_limiter=str(self._last_timestep_telemetry["limiter"]),
         )
         self.history.append(diagnostic)
         return diagnostic

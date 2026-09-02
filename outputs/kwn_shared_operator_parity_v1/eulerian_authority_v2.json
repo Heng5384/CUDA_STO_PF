@@ -1,0 +1,8 @@
+{
+  "accuracy_policy": "FAIL_EULERIAN_TIME_ACCURACY",
+  "authority_grid": null,
+  "legacy_authority": "PASS_EULERIAN_SMOOTH_POPULATION_AUTHORITY_AT_3200_REQUALIFICATION_NOT_INHERITED",
+  "reason": "Canonical initialization and metric closure pass, but the lower-bound FV face is not the Rmin characteristic operator. Requalification is prohibited until this operator gate closes.",
+  "schema_version": "KWN_EULERIAN_AUTHORITY_V2",
+  "status": "BLOCKED_LOWER_BOUNDARY_OPERATOR_PARITY"
+}

@@ -1,0 +1,76 @@
+{
+  "baseline_commit": "6d6a74733a4806c86adc80a689c6f298a0741701",
+  "baseline_run_output_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF-shared-op-baseline.LKWl2o/outputs/kwn_discrete_cohort_comparison_v1",
+  "checks": {
+    "all_registered_csv_metrics": true,
+    "authority": true,
+    "cohort_numerics": true,
+    "contract_hash": true,
+    "maximum_error_map": true,
+    "reference_status": true,
+    "replay_status": true
+  },
+  "historical_output_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-discrete-cohort-comparison-v1/outputs/kwn_discrete_cohort_comparison_v1",
+  "path_only_config_hash_difference": {
+    "historical": "99fc75fd32f155f7afdb87c4141846b3a65ae763eab80ca2b37c4769ab1c14dd",
+    "physical_metric_reproduction_exact": true,
+    "replay": "3b10f3895a5b103b8b5f8e225ee5e03551ad8759c10c9c927b7860c1181588e8"
+  },
+  "registered_maximum_errors": {
+    "M0_m3": [
+      48.0,
+      0.024320771330759616
+    ],
+    "M1_m2": [
+      48.0,
+      0.011102283936087878
+    ],
+    "M2_m": [
+      48.0,
+      0.0053582229222629745
+    ],
+    "M3_dimensionless": [
+      48.0,
+      0.00022229801938461629
+    ],
+    "N_m0_m3": [
+      48.0,
+      0.024320771330759616
+    ],
+    "Rmean3_m3": [
+      48.0,
+      0.023960335509216318
+    ],
+    "Rmean_m": [
+      48.0,
+      0.012904636676945264
+    ],
+    "Sv_m_inv": [
+      48.0,
+      0.005358222922262933
+    ],
+    "cumulative_dissolution_inventory_mol_m3": [
+      0.1,
+      0.2121870610217909
+    ],
+    "f_beta": [
+      48.0,
+      0.0002222980193845695
+    ],
+    "matrix_xB": [
+      48.0,
+      0.0010839706599100965
+    ]
+  },
+  "schema_version": "KWN_SHARED_OPERATOR_BASELINE_REPRODUCTION_V1",
+  "source_sha256": {
+    "analysis_provenance.json": "827c35c86cfc0925c6133c9d4c5731f2f20a499495de3887f243fa545fd8ca70",
+    "cohort_eulerian_smooth_crosscheck.json": "56d8ef06b0a7648cda5a422473d980b41e351134fdc8e73e64058c57eca8047c",
+    "cohort_numerical_qualification.json": "08616279624c1ac3e4c0f6a4d61e315cbdb31653701baf8d5e63f8d746064b22",
+    "cohort_smooth_crosscheck.csv": "6d718da75dae17c469680ca17cbfc5a332504ae6f57d225b0172d30675e4e312",
+    "eulerian_smooth_authority.json": "5f97d49f55be801c6afd6a90959ee33074df0a117cf0c9a86c8714a2486451b3"
+  },
+  "status": "PASS_BASELINE_REPRODUCTION",
+  "validation_contract_hash_expected": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+  "validation_contract_hash_observed_from_provenance": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+}

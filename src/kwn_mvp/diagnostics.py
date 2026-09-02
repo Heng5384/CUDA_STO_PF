@@ -80,6 +80,16 @@ def records_from_history(solver: KWNSolver, history: Iterable[StepDiagnostics]) 
             "beta_nucleation_rate_m3_s": item.beta_nucleation_rate_m3_s,
             "rmin_dissolution_flux_m3_s": item.rmin_dissolution_flux_m3_s,
             "rmax_outflow_flux_m3_s": item.rmax_outflow_flux_m3_s,
+            "beta_rmin_number_flux_m3_s": item.beta_rmin_number_flux_m3_s,
+            "beta_rmin_volume_flux_s": item.beta_rmin_volume_flux_s,
+            "beta_rmin_mol_b_flux_mol_m3_s": item.beta_rmin_mol_b_flux_mol_m3_s,
+            "radius_courant_max": item.radius_courant_max,
+            "radius_courant_beta_max": item.radius_courant_beta_max,
+            "radius_courant_face_index": float(item.radius_courant_face_index),
+            "radius_courant_cell_index": float(item.radius_courant_cell_index),
+            "radius_courant_face_velocity_m_s": item.radius_courant_face_velocity_m_s,
+            "radius_courant_cell_width_m": item.radius_courant_cell_width_m,
+            "timestep_limiter": item.timestep_limiter,
         }
         rows.append(row)
     return rows

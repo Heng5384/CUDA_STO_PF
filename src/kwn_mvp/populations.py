@@ -53,6 +53,7 @@ class Population:
     parameters: PopulationParameters
     grid: RadiusGrid
     number_density_per_m4: NDArray[np.float64]
+    production_quadrature: str = "fixed_pivot"
 
     def __post_init__(self) -> None:
         density = np.asarray(self.number_density_per_m4, dtype=np.float64)
@@ -60,18 +61,36 @@ class Population:
             raise ValueError(f"{self.parameters.name} density shape must match grid bins")
         if not np.all(np.isfinite(density)) or np.any(density < 0.0):
             raise ValueError(f"{self.parameters.name} density must be finite and non-negative")
+        if self.production_quadrature not in {"fixed_pivot", "cell_integrated"}:
+            raise ValueError("production_quadrature must be 'fixed_pivot' or 'cell_integrated'")
         self.number_density_per_m4 = density
 
     @classmethod
-    def empty(cls, parameters: PopulationParameters, grid: RadiusGrid) -> "Population":
+    def empty(
+        cls,
+        parameters: PopulationParameters,
+        grid: RadiusGrid,
+        *,
+        production_quadrature: str = "fixed_pivot",
+    ) -> "Population":
         """Create a population with no particles."""
 
-        return cls(parameters, grid, np.zeros(grid.bins, dtype=np.float64))
+        return cls(
+            parameters,
+            grid,
+            np.zeros(grid.bins, dtype=np.float64),
+            production_quadrature=production_quadrature,
+        )
 
     def copy(self) -> "Population":
         """Return an independent copy suitable for deterministic restart tests."""
 
-        return Population(self.parameters, self.grid, self.number_density_per_m4.copy())
+        return Population(
+            self.parameters,
+            self.grid,
+            self.number_density_per_m4.copy(),
+            production_quadrature=self.production_quadrature,
+        )
 
     def add_number_at_radius(self, radius_m: float, number_density_m3: float) -> None:
         """Add a finite number density to the bin containing ``radius_m``."""
@@ -92,17 +111,19 @@ class Population:
     def radius_moment(self, order: int, *, quadrature: str = "fixed_pivot") -> float:
         """Return ``M_order = integral R**order n(R) dR``.
 
-        The production KWN state is a fixed-pivot finite-volume state: each
-        cell carries a cell-integrated number that evolves by conservative face
-        fluxes and is represented at that cell's geometric pivot.  Existing
-        ledger and observation methods therefore use ``fixed_pivot`` and must
-        continue to do so.
+        The historical production KWN state is a fixed-pivot finite-volume
+        state: each cell carries a cell-integrated number that evolves by
+        conservative face fluxes and is represented at that cell's geometric
+        pivot.  A parity run may instead opt into ``cell_integrated`` as its
+        explicit production measure; the configured choice is used by ledger
+        and observation methods while the historical default remains intact.
 
-        ``cell_integrated`` is provided strictly as a diagnostic reconstruction
-        for radius-grid audits.  It interprets the stored density as piecewise
-        constant in each finite-volume cell and integrates the monomial over
-        the exact cell edges.  It does not feed the solver, the inventory
-        ledger, or the production observables.
+        ``cell_integrated`` is an explicit opt-in production measure for the
+        canonical parity audit.  It interprets the stored density as
+        piecewise constant in each finite-volume cell and integrates the
+        monomial over exact cell edges; because the population methods below
+        use ``production_quadrature``, that choice consistently feeds the
+        ledger and observables for that audit only.
         """
 
         if isinstance(order, bool) or int(order) != order or int(order) < 0:
@@ -124,9 +145,9 @@ class Population:
     def volume_fraction(self) -> float:
         """Return particle volume per unit material volume (dimensionless)."""
 
-        radii = self.grid.centres_m
-        sphere_volume = (4.0 * np.pi / 3.0) * radii**3
-        return float(np.sum(self.number_density_per_m4 * self.grid.widths_m * sphere_volume))
+        return (4.0 * np.pi / 3.0) * self.radius_moment(
+            3, quadrature=self.production_quadrature
+        )
 
     def b_inventory_mol_m3(self) -> float:
         """Return pseudo-binary B inventory in mol m^-3 for this population."""
@@ -136,23 +157,20 @@ class Population:
     def mean_radius_m(self) -> float:
         """Return number-weighted mean radius in metres, or zero if empty."""
 
-        weights = self.number_density_per_m4 * self.grid.widths_m
-        total = float(np.sum(weights))
+        total = self.radius_moment(0, quadrature=self.production_quadrature)
         if total == 0.0:
             return 0.0
-        return float(np.sum(weights * self.grid.centres_m) / total)
+        return self.radius_moment(1, quadrature=self.production_quadrature) / total
 
     def mean_radius_cubed_m3(self) -> float:
         """Return number-weighted mean R^3 in m^3, or zero if empty."""
 
-        weights = self.number_density_per_m4 * self.grid.widths_m
-        total = float(np.sum(weights))
+        total = self.radius_moment(0, quadrature=self.production_quadrature)
         if total == 0.0:
             return 0.0
-        return float(np.sum(weights * self.grid.centres_m**3) / total)
+        return self.radius_moment(3, quadrature=self.production_quadrature) / total
 
     def specific_surface_area_m_inv(self) -> float:
         """Return spherical-equivalent interfacial area density in m^-1."""
 
-        radii = self.grid.centres_m
-        return float(np.sum(self.number_density_per_m4 * self.grid.widths_m * 4.0 * np.pi * radii**2))
+        return 4.0 * np.pi * self.radius_moment(2, quadrature=self.production_quadrature)

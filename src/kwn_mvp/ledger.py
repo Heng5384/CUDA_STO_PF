@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Iterable
 
+from .population_metrics import PopulationMetricError, close_matrix_from_precipitates
 from .populations import Population
 
 
@@ -72,18 +73,17 @@ class InventoryLedger:
         gp = self._population_by_name(population_list, "g")
         beta = self._population_by_name(population_list, "beta")
         fraction = 1.0 - gp.volume_fraction() - beta.volume_fraction()
-        if fraction <= 0.0:
-            raise InventoryError(
-                f"Population volume fraction leaves no matrix volume: f_matrix={fraction:.6e}"
-            )
         precipitate_b = gp.b_inventory_mol_m3() + beta.b_inventory_mol_m3()
-        matrix_xb = self.matrix_molar_volume_m3_mol * (self.total_b_mol_m3 - precipitate_b) / fraction
-        if not 0.0 <= matrix_xb <= 1.0:
-            raise InventoryError(
-                "Inventory closure would require an unphysical matrix composition "
-                f"xB_alpha={matrix_xb:.17e}; no clamping was applied"
+        try:
+            closure = close_matrix_from_precipitates(
+                total_b_mol_m3=self.total_b_mol_m3,
+                matrix_molar_volume_m3_mol=self.matrix_molar_volume_m3_mol,
+                precipitate_volume_fraction=1.0 - fraction,
+                precipitate_inventory_mol_m3=precipitate_b,
             )
-        return matrix_xb
+        except PopulationMetricError as error:
+            raise InventoryError(str(error)) from error
+        return closure.matrix_xb
 
     def snapshot(
         self,
@@ -100,9 +100,21 @@ class InventoryLedger:
         matrix_fraction = 1.0 - gp.volume_fraction() - beta.volume_fraction()
         if matrix_fraction < 0.0:
             raise InventoryError("Population volume fraction exceeds total material volume")
-        matrix = matrix_fraction * matrix_xb / self.matrix_molar_volume_m3_mol
         gp_inventory = gp.b_inventory_mol_m3()
         beta_total = beta.b_inventory_mol_m3()
+        try:
+            # The shared closure validates the physical state and defines the
+            # inverse used by both Eulerian and cohort paths.  Snapshot still
+            # evaluates the supplied matrix composition to expose any drift.
+            close_matrix_from_precipitates(
+                total_b_mol_m3=self.total_b_mol_m3,
+                matrix_molar_volume_m3_mol=self.matrix_molar_volume_m3_mol,
+                precipitate_volume_fraction=1.0 - matrix_fraction,
+                precipitate_inventory_mol_m3=gp_inventory + beta_total,
+            )
+        except PopulationMetricError as error:
+            raise InventoryError(str(error)) from error
+        matrix = matrix_fraction * matrix_xb / self.matrix_molar_volume_m3_mol
         fraction = 0.0 if beta_resolved_fraction is None else float(beta_resolved_fraction)
         if not 0.0 <= fraction <= 1.0:
             raise InventoryError("beta_resolved_fraction must lie in [0, 1]")

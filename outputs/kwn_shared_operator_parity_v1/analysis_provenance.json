@@ -1,0 +1,139 @@
+{
+  "baseline": {
+    "baseline_commit": "6d6a74733a4806c86adc80a689c6f298a0741701",
+    "baseline_run_output_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF-shared-op-baseline.LKWl2o/outputs/kwn_discrete_cohort_comparison_v1",
+    "checks": {
+      "all_registered_csv_metrics": true,
+      "authority": true,
+      "cohort_numerics": true,
+      "contract_hash": true,
+      "maximum_error_map": true,
+      "reference_status": true,
+      "replay_status": true
+    },
+    "historical_output_root": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-discrete-cohort-comparison-v1/outputs/kwn_discrete_cohort_comparison_v1",
+    "path_only_config_hash_difference": {
+      "historical": "99fc75fd32f155f7afdb87c4141846b3a65ae763eab80ca2b37c4769ab1c14dd",
+      "physical_metric_reproduction_exact": true,
+      "replay": "3b10f3895a5b103b8b5f8e225ee5e03551ad8759c10c9c927b7860c1181588e8"
+    },
+    "registered_maximum_errors": {
+      "M0_m3": [
+        48.0,
+        0.024320771330759616
+      ],
+      "M1_m2": [
+        48.0,
+        0.011102283936087878
+      ],
+      "M2_m": [
+        48.0,
+        0.0053582229222629745
+      ],
+      "M3_dimensionless": [
+        48.0,
+        0.00022229801938461629
+      ],
+      "N_m0_m3": [
+        48.0,
+        0.024320771330759616
+      ],
+      "Rmean3_m3": [
+        48.0,
+        0.023960335509216318
+      ],
+      "Rmean_m": [
+        48.0,
+        0.012904636676945264
+      ],
+      "Sv_m_inv": [
+        48.0,
+        0.005358222922262933
+      ],
+      "cumulative_dissolution_inventory_mol_m3": [
+        0.1,
+        0.2121870610217909
+      ],
+      "f_beta": [
+        48.0,
+        0.0002222980193845695
+      ],
+      "matrix_xB": [
+        48.0,
+        0.0010839706599100965
+      ]
+    },
+    "schema_version": "KWN_SHARED_OPERATOR_BASELINE_REPRODUCTION_V1",
+    "source_sha256": {
+      "analysis_provenance.json": "827c35c86cfc0925c6133c9d4c5731f2f20a499495de3887f243fa545fd8ca70",
+      "cohort_eulerian_smooth_crosscheck.json": "56d8ef06b0a7648cda5a422473d980b41e351134fdc8e73e64058c57eca8047c",
+      "cohort_numerical_qualification.json": "08616279624c1ac3e4c0f6a4d61e315cbdb31653701baf8d5e63f8d746064b22",
+      "cohort_smooth_crosscheck.csv": "6d718da75dae17c469680ca17cbfc5a332504ae6f57d225b0172d30675e4e312",
+      "eulerian_smooth_authority.json": "5f97d49f55be801c6afd6a90959ee33074df0a117cf0c9a86c8714a2486451b3"
+    },
+    "status": "PASS_BASELINE_REPRODUCTION",
+    "validation_contract_hash_expected": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333",
+    "validation_contract_hash_observed_from_provenance": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+  },
+  "binary": {
+    "python_executable": "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "python_version": "3.9.6 (default, Apr 17 2026, 18:15:52) \n[Clang 21.0.0 (clang-2100.1.1.101)]"
+  },
+  "canonical": {
+    "canonical_hash": "45fc9cdd1a2e2ddfe357122dff26b202fb42893a627202c43904017e428aac95",
+    "cohort_quadrature_archive": {
+      "file": "canonical_cohort_quadrature_v1.npz",
+      "id_scheme": "C{canonical_cell_index:04d}_Q{local_quadrature_index:02d}",
+      "points_per_cell": [
+        1,
+        2,
+        4
+      ],
+      "sha256": "3b0547cee60bfeb92935aba38f194fb0c6156595fc422df2973f4ed8926283d1"
+    },
+    "population_npz_sha256": "207e6bcef4ced2eab8a6239931ceadfe73a682e7d952f9f9d4750d5966e50d5d"
+  },
+  "configuration": {
+    "canonical_mapping_hash": "1a17d717a7d3264cc3e239ebeca69a4cb33aa07c06ca8338f8c431d607679e91",
+    "solver_source_config_hash": "1a17d717a7d3264cc3e239ebeca69a4cb33aa07c06ca8338f8c431d607679e91",
+    "validation_contract_path": "/Users/heng/Documents/GitHub/CUDA_STO_PF-kwn-discrete-cohort-comparison-v1/contracts/pf_kwn_validation_contract_v1.json"
+  },
+  "final_status": "FAIL_LOWER_BOUNDARY_OPERATOR_PARITY",
+  "fixture": {
+    "fixture_hash": "f1247cb66419af764b97de2f7843fc6de2049459d78550bc603edd8e88d9134f",
+    "source_initial_psd_hash": "f9bb99dab64de15b946fba8904efab30d1881833577b8a5b28c8ea46a5ccf608"
+  },
+  "forbidden_actions": {
+    "cuda_rerun": false,
+    "gp_release": false,
+    "pf_source_modified": false,
+    "physical_retuning": false
+  },
+  "launch": {
+    "baseline_commit_resolved": "6d6a74733a4806c86adc80a689c6f298a0741701",
+    "cuda_rerun": false,
+    "git_branch_at_launch": "codex/kwn-shared-operator-parity-v1",
+    "git_head_at_launch": "6d6a74733a4806c86adc80a689c6f298a0741701",
+    "git_status_at_launch": "M src/kwn_mvp/cohort_solver.py\n M src/kwn_mvp/diagnostics.py\n M src/kwn_mvp/ledger.py\n M src/kwn_mvp/populations.py\n M src/kwn_mvp/solver.py\n?? reports/kwn_shared_operator_parity_v1/\n?? scripts/run_kwn_shared_operator_parity_v1.py\n?? src/kwn_mvp/population_metrics.py\n?? tests/kwn/test_population_metrics.py",
+    "pf_source_modified": false,
+    "physical_input_paths_modified": [],
+    "physical_retuning": false,
+    "source_paths_changed_before_outputs": [
+      "src/kwn_mvp/cohort_solver.py",
+      "src/kwn_mvp/diagnostics.py",
+      "src/kwn_mvp/ledger.py",
+      "src/kwn_mvp/populations.py",
+      "src/kwn_mvp/solver.py"
+    ]
+  },
+  "schema_version": "KWN_SHARED_OPERATOR_PARITY_ANALYSIS_PROVENANCE_V1",
+  "source_sha256": {
+    "scripts/run_kwn_shared_operator_parity_v1.py": "3c8f1c601b03eabd4b8bbb72e70cf9cf21b12ac7e65ed4b2a4901b8031be44f6",
+    "src/kwn_mvp/cohort_solver.py": "de170575858087ecf3fdf649193586b45afce65934e9224c06682c1e80867e1f",
+    "src/kwn_mvp/ledger.py": "1c37b6c640bce0ec996605d01a8c8ebbffc05d7596cc4ffd4b2f355fa5992d4d",
+    "src/kwn_mvp/population_metrics.py": "5441711d9879db00f19ffa825273c2d4d7755f07fd88c5921b13d8ef11560593",
+    "src/kwn_mvp/populations.py": "89d0552f5febd42bd87e831328a69aae1ab635ad158cce553cce5d04eef89794",
+    "src/kwn_mvp/solver.py": "1372a5466e91ecf2e587d4c4245ddd789e5404a5ea7e47792e0254abf6a77547"
+  },
+  "validation_contract_hash": "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+}

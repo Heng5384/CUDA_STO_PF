@@ -19,6 +19,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .growth import growth_rate_m_s
+from .population_metrics import (
+    beta_fraction_from_m3,
+    beta_inventory_from_m3,
+    close_matrix_from_precipitates,
+    metrics_from_discrete_measure,
+)
 from .populations import PopulationParameters
 from .solver import KWNSolver
 from .thermo_adapter import DiluteEquilibriumAdapter, ValidationContractEquilibriumAdapter
@@ -88,6 +94,9 @@ class CohortSnapshot:
     M3_dimensionless: float
     Rmean_m: float
     Rmean3_m3: float
+    Rmean_number_m: float
+    Rmean_cubed_m3: float
+    mean_R3_m3: float
     Sv_m_inv: float
     f_beta: float
     matrix_xB: float
@@ -98,6 +107,9 @@ class CohortSnapshot:
     inventory_relative_residual: float
     active_cohort_count: int
     cumulative_dissolution_inventory_mol_m3: float
+    cumulative_number_dissolved_m3: float
+    cumulative_beta_volume_dissolved: float
+    cumulative_mol_B_returned_mol_m3: float
 
     def as_dict(self) -> dict[str, float | int]:
         return asdict(self)
@@ -262,12 +274,11 @@ class CohortSolver:
     ) -> float:
         """Return sharp-sphere beta volume fraction with a vector fast path."""
 
-        if radii_m.size > 64:
-            return float((4.0 * math.pi / 3.0) * np.dot(weights_m3, radii_m**3))
-        return math.fsum(
-            float(weight) * sphere_volume_m3(float(radius))
+        m3 = math.fsum(
+            float(weight) * float(radius) ** 3
             for weight, radius in zip(weights_m3, radii_m)
         )
+        return beta_fraction_from_m3(m3)
 
     def _matrix_xb_from_active_radii(self, radii_m: NDArray[np.float64]) -> float:
         radii = np.asarray(radii_m, dtype=np.float64)
@@ -276,21 +287,23 @@ class CohortSolver:
         weights = self._weights_for_active()
         if radii.shape != weights.shape:
             raise CohortSolverError("active radius vector does not match active cohort state")
-        beta_fraction = self._beta_fraction_from_weights_and_radii(weights, radii)
-        matrix_fraction = 1.0 - beta_fraction
-        if matrix_fraction <= 0.0:
-            raise CohortSolverError("active cohorts leave no matrix volume")
-        beta_inventory = beta_fraction * self.beta_parameters.x_b / self.beta_parameters.molar_volume_m3_mol
-        matrix_xb = (
-            self.matrix_molar_volume_m3_mol
-            * (self.total_b_mol_m3 - beta_inventory)
-            / matrix_fraction
+        metrics = metrics_from_discrete_measure(radii, weights)
+        beta_fraction = beta_fraction_from_m3(metrics.M3_dimensionless)
+        beta_inventory = beta_inventory_from_m3(
+            metrics.M3_dimensionless,
+            x_b=self.beta_parameters.x_b,
+            molar_volume_m3_mol=self.beta_parameters.molar_volume_m3_mol,
         )
-        if not math.isfinite(matrix_xb) or not 0.0 <= matrix_xb <= 1.0:
-            raise CohortSolverError(
-                "inventory closure would require an unphysical matrix composition; no clamp was applied"
+        try:
+            closure = close_matrix_from_precipitates(
+                total_b_mol_m3=self.total_b_mol_m3,
+                matrix_molar_volume_m3_mol=self.matrix_molar_volume_m3_mol,
+                precipitate_volume_fraction=beta_fraction,
+                precipitate_inventory_mol_m3=beta_inventory,
             )
-        return float(matrix_xb)
+        except ValueError as error:
+            raise CohortSolverError(str(error)) from error
+        return closure.matrix_xb
 
     @property
     def matrix_xb(self) -> float:
@@ -325,13 +338,23 @@ class CohortSolver:
     def _inventory_components(self) -> tuple[float, float, float, float]:
         radii = self._radii_for_active()
         weights = self._weights_for_active()
-        beta_fraction = self._beta_fraction_from_weights_and_radii(weights, radii)
-        matrix_fraction = 1.0 - beta_fraction
-        matrix_xb = self._matrix_xb_from_active_radii(radii)
-        beta_inventory = beta_fraction * self.beta_parameters.x_b / self.beta_parameters.molar_volume_m3_mol
-        matrix_inventory = matrix_fraction * matrix_xb / self.matrix_molar_volume_m3_mol
-        residual = matrix_inventory + beta_inventory - self.total_b_mol_m3
-        return beta_fraction, beta_inventory, matrix_inventory, residual
+        metrics = metrics_from_discrete_measure(radii, weights)
+        beta_fraction = beta_fraction_from_m3(metrics.M3_dimensionless)
+        beta_inventory = beta_inventory_from_m3(
+            metrics.M3_dimensionless,
+            x_b=self.beta_parameters.x_b,
+            molar_volume_m3_mol=self.beta_parameters.molar_volume_m3_mol,
+        )
+        try:
+            closure = close_matrix_from_precipitates(
+                total_b_mol_m3=self.total_b_mol_m3,
+                matrix_molar_volume_m3_mol=self.matrix_molar_volume_m3_mol,
+                precipitate_volume_fraction=beta_fraction,
+                precipitate_inventory_mol_m3=beta_inventory,
+            )
+        except ValueError as error:
+            raise CohortSolverError(str(error)) from error
+        return beta_fraction, beta_inventory, closure.matrix_inventory_mol_m3, closure.residual_mol_m3
 
     def _assert_inventory_closed(self) -> None:
         _, _, _, residual = self._inventory_components()
@@ -659,24 +682,37 @@ class CohortSolver:
 
         radii = self._radii_for_active()
         weights = self._weights_for_active()
-        moments = [
-            math.fsum(float(weight) * float(radius) ** order for weight, radius in zip(weights, radii))
-            for order in range(4)
-        ]
-        m0, m1, m2, m3 = (float(value) for value in moments)
+        metrics = metrics_from_discrete_measure(radii, weights)
         beta_fraction, beta_inventory, matrix_inventory, residual = self._inventory_components()
         relative = abs(residual) / max(abs(self.total_b_mol_m3), 1.0e-300)
+        cumulative_number = math.fsum(
+            item.weight_m3 for item in self.cohorts if not item.active
+        )
+        cumulative_volume = math.fsum(
+            item.weight_m3 * sphere_volume_m3(self.r_diss_m)
+            for item in self.cohorts
+            if not item.active
+        )
+        cumulative_mol_b = math.fsum(
+            item.returned_inventory_mol_m3 for item in self.cohorts
+        )
         return CohortSnapshot(
             time_s=self.time_s,
-            N_m0_m3=m0,
-            M0_m3=m0,
-            M1_m2=m1,
-            M2_m=m2,
-            M3_dimensionless=m3,
-            Rmean_m=0.0 if m0 == 0.0 else m1 / m0,
-            Rmean3_m3=0.0 if m0 == 0.0 else m3 / m0,
-            Sv_m_inv=4.0 * math.pi * m2,
-            f_beta=4.0 * math.pi * m3 / 3.0,
+            N_m0_m3=metrics.N_m0_m3,
+            M0_m3=metrics.M0_m3,
+            M1_m2=metrics.M1_m2,
+            M2_m=metrics.M2_m,
+            M3_dimensionless=metrics.M3_dimensionless,
+            Rmean_m=metrics.Rmean_number_m,
+            # Historical alias: it retains its original mean-R^3 value so
+            # legacy reports are not reinterpreted.  New outputs use the two
+            # explicit fields below.
+            Rmean3_m3=metrics.mean_R3_m3,
+            Rmean_number_m=metrics.Rmean_number_m,
+            Rmean_cubed_m3=metrics.Rmean_cubed_m3,
+            mean_R3_m3=metrics.mean_R3_m3,
+            Sv_m_inv=metrics.Sv_m_inv,
+            f_beta=metrics.f_beta,
             matrix_xB=self.matrix_xb,
             beta_inventory_mol_m3=beta_inventory,
             matrix_inventory_mol_m3=matrix_inventory,
@@ -684,9 +720,10 @@ class CohortSolver:
             inventory_residual_mol_m3=residual,
             inventory_relative_residual=relative,
             active_cohort_count=len(self._active_cohorts()),
-            cumulative_dissolution_inventory_mol_m3=math.fsum(
-                item.returned_inventory_mol_m3 for item in self.cohorts
-            ),
+            cumulative_dissolution_inventory_mol_m3=cumulative_mol_b,
+            cumulative_number_dissolved_m3=cumulative_number,
+            cumulative_beta_volume_dissolved=cumulative_volume,
+            cumulative_mol_B_returned_mol_m3=cumulative_mol_b,
         )
 
     def cohort_rows(self) -> list[dict[str, Any]]:

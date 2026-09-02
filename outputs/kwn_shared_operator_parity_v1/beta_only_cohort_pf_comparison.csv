@@ -1,0 +1,2 @@
+status,reason
+BLOCKED_PREREQUISITE_GATE,No full 48 h canonical cohort--Eulerian comparison is valid before `FAIL_LOWER_BOUNDARY_OPERATOR_PARITY` closes.
