@@ -1138,9 +1138,40 @@ def _characteristic_self_convergence(
 ) -> dict[str, Any]:
     runs: dict[str, RunResult] = {}
     levels = [float(item) for item in dt_policy["levels_s"]]
+    attempted_levels_s: list[float] = []
+    started = time.monotonic()
+    refinement_count = 0
+
+    def budget_block(reason: str) -> dict[str, Any]:
+        return {
+            "status": "BLOCKED_TIME_REFERENCE_NOT_CLOSED",
+            "reason": reason,
+            "runs": runs,
+            "rows": [{"status": "INCOMPLETE", "reason": reason}],
+            "policy": None,
+            "convergence_levels_s": levels,
+            "attempted_levels_s": attempted_levels_s,
+            "additional_refinement_added": refinement_count > 0,
+            "additional_refinement_count": refinement_count,
+            "self_convergence_runtime_s": time.monotonic() - started,
+        }
+
     def execute_level(dt_s: float) -> dict[str, Any] | None:
+        remaining_wall_s = float(max_wall_s) - (time.monotonic() - started)
+        if remaining_wall_s <= 0.0:
+            return budget_block(
+                f"characteristic self-convergence wall budget max_wall_s={max_wall_s:g} exhausted before dt={dt_s:g} s"
+            )
         name = f"CR1_dt_{dt_s:.12g}s"
-        runs[name] = _run_characteristic(context, policy=name, dt_s=dt_s, target_times_h=SHORT_TIMES_H, max_steps=max_steps, max_wall_s=max_wall_s)
+        attempted_levels_s.append(dt_s)
+        runs[name] = _run_characteristic(
+            context,
+            policy=name,
+            dt_s=dt_s,
+            target_times_h=SHORT_TIMES_H,
+            max_steps=max_steps,
+            max_wall_s=remaining_wall_s,
+        )
         if runs[name].status != "PASS_CHARACTERISTIC_RUN":
             return {
                 "status": (
@@ -1152,6 +1183,11 @@ def _characteristic_self_convergence(
                 "runs": runs,
                 "rows": [{"status": "INCOMPLETE", "dt_s": dt_s, "reason": runs[name].reason}],
                 "policy": None,
+                "convergence_levels_s": levels,
+                "attempted_levels_s": attempted_levels_s,
+                "additional_refinement_added": refinement_count > 0,
+                "additional_refinement_count": refinement_count,
+                "self_convergence_runtime_s": time.monotonic() - started,
             }
         return None
 
@@ -1182,16 +1218,17 @@ def _characteristic_self_convergence(
         return finest_name, pair_results, comparison_rows, fine_pair
 
     finest_name, pair_results, rows, fine_pair = compare_to_finest()
-    refinement_added = False
-    # The contract permits one further factor-of-two refinement when the
-    # initially finest adjacent pair does not meet the 0.25% reference gate.
-    if fine_pair["gate_maximum_error"] > REFERENCE_TIME_GATE:
+    # Each failed finest adjacent pair is evidence that the reference has not
+    # yet closed, not a completed numerical failure. Continue the prescribed
+    # dyadic ladder until it closes. The stage-wide wall budget and each
+    # trajectory's max-steps guard are the real, auditable stop conditions.
+    while fine_pair["gate_maximum_error"] > REFERENCE_TIME_GATE:
         extra_dt = levels[-1] / 2.0
         incomplete = execute_level(extra_dt)
         if incomplete is not None:
             return incomplete
         levels.append(extra_dt)
-        refinement_added = True
+        refinement_count += 1
         finest_name, pair_results, rows, fine_pair = compare_to_finest()
 
     selected_name = next(
@@ -1221,7 +1258,11 @@ def _characteristic_self_convergence(
         "max_fixed_point_residual": max_residual,
         "max_inventory_relative_residual": max_inventory,
         "full_time_maximum_reported": True,
-        "additional_refinement_added": refinement_added,
+        "convergence_levels_s": levels,
+        "attempted_levels_s": attempted_levels_s,
+        "additional_refinement_added": refinement_count > 0,
+        "additional_refinement_count": refinement_count,
+        "self_convergence_runtime_s": time.monotonic() - started,
     }
 
 
@@ -2046,6 +2087,7 @@ def _write_outputs(
         "src/kwn_mvp/solver.py",
         "src/kwn_mvp/cohort_solver.py",
         "tests/kwn/test_characteristic_reference.py",
+        "tests/kwn/test_characteristic_time_refinement.py",
         "tests/kwn/test_explicit_ssprk2_solver.py",
     )
     provenance = {
@@ -2134,6 +2176,9 @@ def _write_reports(
         "04_characteristic_self_convergence.md": (
             f"Status: `{convergence.get('status')}`.  Policy: `{json.dumps(_json_safe(convergence.get('policy')), sort_keys=True)}`. "
             f"Maximum fixed-point residual: `{convergence.get('max_fixed_point_residual')}`; inventory residual: `{convergence.get('max_inventory_relative_residual')}`; canonical restart: `{restart.get('status')}`.\n\n"
+            f"Dyadic refinements beyond the initial ladder: `{convergence.get('additional_refinement_count', 0)}`; "
+            f"evaluated levels (s): `{convergence.get('attempted_levels_s')}`; self-convergence runtime (s): "
+            f"`{convergence.get('self_convergence_runtime_s')}`.\n\n"
             + _report_table(convergence.get("rows", []), ("dt_s", "reference_dt_s", "time_h", "metric", "relative_or_absolute_error", "pass"))
         ),
         "05_cohort_characteristic_parity.md": f"Status: `{parity.get('status')}`; gated maximum error `{parity.get('gate_maximum_error')}` (1%, including normalized PSD Wasserstein); scalar-observable maximum `{parity.get('primary_maximum_error')}`; canonical positive quadrature `{parity.get('cohort_points_per_cell', COHORT_POINTS_PER_CELL)}` points per cell.\n\n" + _report_table(parity.get("rows", []), ("time_h", "metric", "relative_or_absolute_error", "pass")),
