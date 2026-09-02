@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
@@ -13,6 +14,13 @@ from numpy.typing import NDArray
 from .config import ConfigDocument, ConfigurationError, config_hash, require_mapping, require_number
 from .growth import growth_rate_m_s
 from .ledger import InventoryError, InventoryLedger, InventorySnapshot
+from .lower_boundary import (
+    boundary_growth_velocity,
+    boundary_inventory_diagnostic,
+    boundary_number_flux_diagnostic,
+    boundary_radius,
+    particle_inventory_at_radius,
+)
 from .nucleation import NucleationResult, nucleation_rate
 from .populations import Population, PopulationParameters
 from .radius_grid import RadiusGrid
@@ -45,6 +53,10 @@ class SolverConfig:
     min_dt_s: float
     size_cfl: float
     accuracy_radius_cfl: float | None
+    accuracy_active_radius_cfl: float | None
+    active_cfl_support_fraction: float
+    active_cfl_tail_lower_fraction: float
+    active_cfl_tail_upper_fraction: float
     population_measure: str
     positivity_safety: float
     cfl_active_inventory_relative_threshold: float
@@ -126,6 +138,33 @@ class SolverConfig:
             or float(accuracy_radius_cfl_value) <= 0.0
         ):
             raise ConfigurationError("simulation.accuracy_radius_cfl must be positive or null")
+        accuracy_active_radius_cfl_value = simulation.get("accuracy_active_radius_cfl")
+        if accuracy_active_radius_cfl_value is not None and (
+            not isinstance(accuracy_active_radius_cfl_value, (int, float))
+            or float(accuracy_active_radius_cfl_value) <= 0.0
+        ):
+            raise ConfigurationError(
+                "simulation.accuracy_active_radius_cfl must be positive or null"
+            )
+        active_cfl_support_fraction = float(
+            simulation.get("active_cfl_support_fraction", 1.0e-6)
+        )
+        if not 0.0 < active_cfl_support_fraction < 1.0:
+            raise ConfigurationError("simulation.active_cfl_support_fraction must lie in (0, 1)")
+        active_cfl_tail_lower_fraction = float(
+            simulation.get("active_cfl_tail_lower_fraction", 1.0e-8)
+        )
+        active_cfl_tail_upper_fraction = float(
+            simulation.get("active_cfl_tail_upper_fraction", 1.0e-6)
+        )
+        if not (
+            0.0 <= active_cfl_tail_lower_fraction
+            < active_cfl_tail_upper_fraction
+            <= 1.0
+        ):
+            raise ConfigurationError(
+                "active lower-tail fractions must satisfy 0 <= lower < upper <= 1"
+            )
         population_measure = str(simulation.get("population_measure", "fixed_pivot"))
         if population_measure not in {"fixed_pivot", "cell_integrated"}:
             raise ConfigurationError(
@@ -144,6 +183,14 @@ class SolverConfig:
             accuracy_radius_cfl=(
                 None if accuracy_radius_cfl_value is None else float(accuracy_radius_cfl_value)
             ),
+            accuracy_active_radius_cfl=(
+                None
+                if accuracy_active_radius_cfl_value is None
+                else float(accuracy_active_radius_cfl_value)
+            ),
+            active_cfl_support_fraction=active_cfl_support_fraction,
+            active_cfl_tail_lower_fraction=active_cfl_tail_lower_fraction,
+            active_cfl_tail_upper_fraction=active_cfl_tail_upper_fraction,
             population_measure=population_measure,
             positivity_safety=positivity_safety,
             cfl_active_inventory_relative_threshold=cfl_support_threshold,
@@ -200,6 +247,8 @@ class StepDiagnostics:
     beta_rmin_number_flux_m3_s: float = 0.0
     beta_rmin_volume_flux_s: float = 0.0
     beta_rmin_mol_b_flux_mol_m3_s: float = 0.0
+    beta_boundary_radius_m: float = 0.0
+    beta_boundary_growth_velocity_m_s: float = 0.0
     radius_courant_max: float = 0.0
     radius_courant_beta_max: float = 0.0
     radius_courant_face_index: int = -1
@@ -207,6 +256,53 @@ class StepDiagnostics:
     radius_courant_face_velocity_m_s: float = 0.0
     radius_courant_cell_width_m: float = 0.0
     timestep_limiter: str = "legacy_active_cell_cfl"
+    active_population_courant: float = 0.0
+    active_m0_courant: float = 0.0
+    active_m3_courant: float = 0.0
+    lower_tail_active_courant: float = 0.0
+    boundary_candidate_courant: float = 0.0
+    boundary_active_courant: float = 0.0
+    boundary_face_is_active: bool = False
+    active_m0_support_i_lo: int = -1
+    active_m0_support_i_hi: int = -1
+    active_m3_support_i_lo: int = -1
+    active_m3_support_i_hi: int = -1
+    lower_tail_i_lo: int = -1
+    lower_tail_i_hi: int = -1
+    lower_tail_m0_fraction: float = 0.0
+
+
+@dataclass(frozen=True)
+class ActiveCFLDiagnostics:
+    """Fixed, measure-aware radius-space CFL audit for one FV population.
+
+    The raw global face rate remains available for stability/telemetry, but
+    accuracy qualification is tied to physically occupied M0/M3 support and
+    a declared lower-tail CDF band.  The lower physical face is only an
+    active accuracy limiter when the tail can actually reach it in the
+    frozen-step characteristic geometry; its flux still executes every step.
+    """
+
+    population_name: str
+    global_max_rate_s_inv: float
+    population_active_rate_s_inv: float
+    m0_rate_s_inv: float
+    m3_rate_s_inv: float
+    lower_tail_rate_s_inv: float
+    boundary_candidate_rate_s_inv: float
+    boundary_active_rate_s_inv: float
+    boundary_face_is_active: bool
+    m0_support_i_lo: int
+    m0_support_i_hi: int
+    m3_support_i_lo: int
+    m3_support_i_hi: int
+    lower_tail_i_lo: int
+    lower_tail_i_hi: int
+    m0_covered_fraction: float
+    m3_covered_fraction: float
+    lower_tail_m0_fraction: float
+    active_face_indices: tuple[int, ...]
+    lower_tail_face_indices: tuple[int, ...]
 
 
 def _normalised_lognormal_density(
@@ -413,27 +509,369 @@ class KWNSolver:
             )
         return rates
 
+    def lower_boundary_growth_velocity(self, population: Population | str) -> float:
+        """Return the physical shared-kernel velocity at this population's ``Rmin``."""
+
+        item = self.population(population) if isinstance(population, str) else population
+        return boundary_growth_velocity(
+            radius_m=boundary_radius(item.grid),
+            matrix_xb=self.matrix_xb,
+            parameters=item.parameters,
+            equilibrium_adapter=self.equilibrium_adapter,
+        )
+
+    def lower_boundary_particle_inventory(self, population: Population | str):
+        """Return the shared per-particle inventory price at physical ``Rmin``."""
+
+        item = self.population(population) if isinstance(population, str) else population
+        return particle_inventory_at_radius(
+            boundary_radius(item.grid),
+            x_b=item.parameters.x_b,
+            molar_volume_m3_mol=item.parameters.molar_volume_m3_mol,
+        )
+
+    def face_velocities(
+        self, population: Population | str, velocity_m_s: NDArray[np.float64] | None = None
+    ) -> NDArray[np.float64]:
+        """Return the FV face operator with its lower face at physical ``Rmin``.
+
+        An empty, non-nucleating population has no resolved donor and therefore
+        no active lower-bound transport operator.  This does not create an
+        external inflow; it merely prevents an absent population from
+        contributing a meaningless raw CFL diagnostic.
+        """
+
+        item = self.population(population) if isinstance(population, str) else population
+        if velocity_m_s is None:
+            velocity_m_s = self.growth_rates()[item.parameters.name]
+        if (
+            item.number_density_m3() == 0.0
+            and item.parameters.nucleation.get("mode", "off") == "off"
+        ):
+            lower = 0.0
+        else:
+            lower = self.lower_boundary_growth_velocity(item)
+        return self._face_velocities(velocity_m_s, lower_boundary_velocity_m_s=lower)
+
     @staticmethod
-    def _face_velocities(velocity_m_s: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Return the literal face velocities used by the current FV operator."""
+    def _face_operator_rates(
+        face_velocity_m_s: NDArray[np.float64], widths_m: NDArray[np.float64]
+    ) -> tuple[NDArray[np.float64], NDArray[np.int64]]:
+        """Return literal face rates and the cell-width owner of each rate."""
+
+        widths = np.asarray(widths_m, dtype=np.float64)
+        face_velocity = np.asarray(face_velocity_m_s, dtype=np.float64)
+        if (
+            widths.ndim != 1
+            or widths.size < 1
+            or face_velocity.ndim != 1
+            or face_velocity.size != widths.size + 1
+            or not np.all(np.isfinite(face_velocity))
+            or not np.all(np.isfinite(widths))
+            or np.any(widths <= 0.0)
+        ):
+            raise SolverStateError("face velocity and radius widths are inconsistent")
+        rates = np.empty(face_velocity.size, dtype=np.float64)
+        cells = np.empty(face_velocity.size, dtype=np.int64)
+        rates[0] = abs(face_velocity[0]) / widths[0]
+        cells[0] = 0
+        rates[-1] = abs(face_velocity[-1]) / widths[-1]
+        cells[-1] = widths.size - 1
+        if widths.size > 1:
+            left = abs(face_velocity[1:-1]) / widths[:-1]
+            right = abs(face_velocity[1:-1]) / widths[1:]
+            use_left = left >= right
+            rates[1:-1] = np.where(use_left, left, right)
+            cells[1:-1] = np.where(
+                use_left, np.arange(widths.size - 1), np.arange(1, widths.size)
+            )
+        return rates, cells
+
+    @staticmethod
+    def _shortest_contiguous_support(
+        weights: NDArray[np.float64], edges_m: NDArray[np.float64], coverage: float
+    ) -> tuple[int, int, float] | None:
+        """Find the minimum log-radius interval carrying a fixed mass fraction.
+
+        The exact discrete cell measure is the authority.  A deterministic
+        ``(log span, cell count, lower index)`` tie-break makes the active
+        support stable across repeated diagnostics.
+        """
+
+        mass = np.asarray(weights, dtype=np.float64)
+        edges = np.asarray(edges_m, dtype=np.float64)
+        if mass.ndim != 1 or edges.shape != (mass.size + 1,):
+            raise SolverStateError("support weights and radius edges are inconsistent")
+        if np.any(~np.isfinite(mass)) or np.any(mass < 0.0):
+            raise SolverStateError("support weights must be finite and non-negative")
+        total = math.fsum(float(value) for value in mass)
+        if total <= 0.0:
+            return None
+        if not 0.0 < coverage <= 1.0:
+            raise SolverStateError("support coverage must lie in (0, 1]")
+        target = coverage * total
+        best: tuple[float, int, int, int, float] | None = None
+        left = 0
+        running = 0.0
+        for right, value in enumerate(mass):
+            running += float(value)
+            while left < right and running - float(mass[left]) >= target:
+                running -= float(mass[left])
+                left += 1
+            if running + 1.0e-15 * total < target:
+                continue
+            span = math.log(float(edges[right + 1]) / float(edges[left]))
+            candidate = (span, right - left + 1, left, right, running / total)
+            if best is None or candidate[:3] < best[:3]:
+                best = candidate
+        if best is None:
+            # A finite non-negative vector must hit its own total, but retain
+            # a clear failure rather than silently changing the support rule.
+            raise SolverStateError("unable to form requested active-support coverage")
+        return int(best[2]), int(best[3]), float(best[4])
+
+    @staticmethod
+    def _lower_tail_interval(
+        weights: NDArray[np.float64], *, lower_fraction: float, upper_fraction: float
+    ) -> tuple[int, int, float] | None:
+        """Return the fixed lower-CDF cell band used for boundary accuracy."""
+
+        mass = np.asarray(weights, dtype=np.float64)
+        if mass.ndim != 1 or np.any(~np.isfinite(mass)) or np.any(mass < 0.0):
+            raise SolverStateError("lower-tail weights must be finite and non-negative")
+        total = math.fsum(float(value) for value in mass)
+        if total <= 0.0:
+            return None
+        if not 0.0 <= lower_fraction < upper_fraction <= 1.0:
+            raise SolverStateError("invalid lower-tail CDF interval")
+        cdf = np.cumsum(mass, dtype=np.float64)
+        low_target = lower_fraction * total
+        high_target = upper_fraction * total
+        lo = int(np.searchsorted(cdf, low_target, side="left"))
+        hi = int(np.searchsorted(cdf, high_target, side="left"))
+        lo = min(max(lo, 0), mass.size - 1)
+        hi = min(max(hi, lo), mass.size - 1)
+        fraction = math.fsum(float(value) for value in mass[lo : hi + 1]) / total
+        return lo, hi, fraction
+
+    @staticmethod
+    def _faces_incident_to_interval(i_lo: int, i_hi: int) -> set[int]:
+        """Return all FV faces incident on a closed cell interval."""
+
+        return set(range(i_lo, i_hi + 2))
+
+    @staticmethod
+    def _reachable_faces_from_interval(
+        *,
+        i_lo: int,
+        i_hi: int,
+        face_velocity_m_s: NDArray[np.float64],
+        widths_m: NDArray[np.float64],
+        dt_s: float,
+    ) -> set[int]:
+        """Add frozen-characteristic downstream faces reachable in ``dt_s``.
+
+        This is deliberately a cumulative traversal-time closure rather than
+        an arbitrary halo.  It keeps an empty far tail out of the active-CFL
+        policy while including every face a support-boundary characteristic
+        can physically cross during the proposed macro-step.
+        """
+
+        face_velocity = np.asarray(face_velocity_m_s, dtype=np.float64)
+        widths = np.asarray(widths_m, dtype=np.float64)
+        if dt_s < 0.0 or not math.isfinite(float(dt_s)):
+            raise SolverStateError("candidate timestep must be finite and non-negative")
+        faces = KWNSolver._faces_incident_to_interval(i_lo, i_hi)
+        # Negative transport moves toward lower R.  Starting at the lower
+        # support edge, it first crosses face i_lo and then accumulates the
+        # time needed to traverse each lower cell to its next left face.
+        if face_velocity[i_lo] < 0.0:
+            faces.add(i_lo)
+            elapsed = 0.0
+            cell = i_lo - 1
+            while cell >= 0 and face_velocity[cell] < 0.0:
+                elapsed += float(widths[cell]) / abs(float(face_velocity[cell]))
+                if elapsed > dt_s:
+                    break
+                faces.add(cell)
+                cell -= 1
+        # Positive transport moves toward larger R by the symmetric rule.
+        right_face = i_hi + 1
+        if face_velocity[right_face] > 0.0:
+            faces.add(right_face)
+            elapsed = 0.0
+            cell = i_hi + 1
+            while cell < widths.size and face_velocity[cell + 1] > 0.0:
+                elapsed += float(widths[cell]) / abs(float(face_velocity[cell + 1]))
+                if elapsed > dt_s:
+                    break
+                faces.add(cell + 1)
+                cell += 1
+        return faces
+
+    @staticmethod
+    def _lower_boundary_reachable(
+        *,
+        tail_i_lo: int,
+        face_velocity_m_s: NDArray[np.float64],
+        widths_m: NDArray[np.float64],
+        dt_s: float,
+    ) -> bool:
+        """Whether a lower-tail characteristic can reach physical ``Rmin``."""
+
+        face_velocity = np.asarray(face_velocity_m_s, dtype=np.float64)
+        widths = np.asarray(widths_m, dtype=np.float64)
+        if face_velocity[0] >= 0.0:
+            return False
+        if tail_i_lo == 0:
+            return True
+        # Entering the first cell requires each intervening face to carry
+        # negative transport.  The tail lower edge is used, so we never
+        # claim the entire tail crosses merely because its cell has width.
+        if face_velocity[tail_i_lo] >= 0.0:
+            return False
+        elapsed = 0.0
+        for cell in range(tail_i_lo - 1, -1, -1):
+            velocity = float(face_velocity[cell])
+            if velocity >= 0.0:
+                return False
+            elapsed += float(widths[cell]) / abs(velocity)
+            if elapsed > dt_s:
+                return False
+        return True
+
+    def active_cfl_diagnostics(
+        self,
+        population: Population | str,
+        *,
+        face_velocity_m_s: NDArray[np.float64] | None = None,
+        dt_s: float = 0.0,
+    ) -> ActiveCFLDiagnostics:
+        """Evaluate the fixed V1 active-population CFL contract.
+
+        This diagnostic has no effect on flux assembly.  It is used for
+        accuracy timestep selection only when ``accuracy_active_radius_cfl``
+        is configured, and otherwise is recorded as telemetry.
+        """
+
+        item = self.population(population) if isinstance(population, str) else population
+        density = np.asarray(item.number_density_per_m4, dtype=np.float64)
+        if face_velocity_m_s is None:
+            face_velocity_m_s = self.face_velocities(item)
+        face_velocity = np.asarray(face_velocity_m_s, dtype=np.float64)
+        rates, _ = self._face_operator_rates(face_velocity, item.grid.widths_m)
+        m0 = density * item.grid.widths_m
+        m3 = density * (item.grid.edges_m[1:] ** 4 - item.grid.edges_m[:-1] ** 4) / 4.0
+        coverage = 1.0 - self.config.active_cfl_support_fraction
+        m0_support = self._shortest_contiguous_support(m0, item.grid.edges_m, coverage)
+        m3_support = self._shortest_contiguous_support(m3, item.grid.edges_m, coverage)
+        tail = self._lower_tail_interval(
+            m0,
+            lower_fraction=self.config.active_cfl_tail_lower_fraction,
+            upper_fraction=self.config.active_cfl_tail_upper_fraction,
+        )
+        active_faces: set[int] = set()
+        m0_faces: set[int] = set()
+        m3_faces: set[int] = set()
+        tail_faces: set[int] = set()
+        if m0_support is not None:
+            m0_faces = self._reachable_faces_from_interval(
+                i_lo=m0_support[0],
+                i_hi=m0_support[1],
+                face_velocity_m_s=face_velocity,
+                widths_m=item.grid.widths_m,
+                dt_s=dt_s,
+            )
+            active_faces.update(m0_faces)
+        if m3_support is not None:
+            m3_faces = self._reachable_faces_from_interval(
+                i_lo=m3_support[0],
+                i_hi=m3_support[1],
+                face_velocity_m_s=face_velocity,
+                widths_m=item.grid.widths_m,
+                dt_s=dt_s,
+            )
+            active_faces.update(m3_faces)
+        if tail is not None:
+            tail_faces = self._reachable_faces_from_interval(
+                i_lo=tail[0],
+                i_hi=tail[1],
+                face_velocity_m_s=face_velocity,
+                widths_m=item.grid.widths_m,
+                dt_s=dt_s,
+            )
+        boundary_active = bool(
+            tail is not None
+            and self._lower_boundary_reachable(
+                tail_i_lo=tail[0],
+                face_velocity_m_s=face_velocity,
+                widths_m=item.grid.widths_m,
+                dt_s=dt_s,
+            )
+        )
+
+        def maximum(face_indices: set[int]) -> float:
+            return 0.0 if not face_indices else float(np.max(rates[sorted(face_indices)]))
+
+        return ActiveCFLDiagnostics(
+            population_name=item.parameters.name,
+            global_max_rate_s_inv=float(np.max(rates)),
+            population_active_rate_s_inv=maximum(active_faces),
+            m0_rate_s_inv=maximum(m0_faces),
+            m3_rate_s_inv=maximum(m3_faces),
+            lower_tail_rate_s_inv=maximum(tail_faces),
+            boundary_candidate_rate_s_inv=float(rates[0]),
+            boundary_active_rate_s_inv=float(rates[0]) if boundary_active else 0.0,
+            boundary_face_is_active=boundary_active,
+            m0_support_i_lo=-1 if m0_support is None else m0_support[0],
+            m0_support_i_hi=-1 if m0_support is None else m0_support[1],
+            m3_support_i_lo=-1 if m3_support is None else m3_support[0],
+            m3_support_i_hi=-1 if m3_support is None else m3_support[1],
+            lower_tail_i_lo=-1 if tail is None else tail[0],
+            lower_tail_i_hi=-1 if tail is None else tail[1],
+            m0_covered_fraction=0.0 if m0_support is None else m0_support[2],
+            m3_covered_fraction=0.0 if m3_support is None else m3_support[2],
+            lower_tail_m0_fraction=0.0 if tail is None else tail[2],
+            active_face_indices=tuple(sorted(active_faces)),
+            lower_tail_face_indices=tuple(sorted(tail_faces)),
+        )
+
+    @staticmethod
+    def _face_velocities(
+        velocity_m_s: NDArray[np.float64], *, lower_boundary_velocity_m_s: float | None = None
+    ) -> NDArray[np.float64]:
+        """Return FV face velocities, optionally fixing the lower face at ``Rmin``."""
 
         velocity = np.asarray(velocity_m_s, dtype=np.float64)
         if velocity.ndim != 1 or velocity.size < 2:
             raise SolverStateError("finite-volume velocity must have at least two cell values")
         faces = np.empty(velocity.size + 1, dtype=np.float64)
-        faces[0] = velocity[0]
+        lower = float(velocity[0]) if lower_boundary_velocity_m_s is None else float(lower_boundary_velocity_m_s)
+        if not np.isfinite(lower):
+            raise SolverStateError("lower finite-volume face velocity must be finite")
+        faces[0] = lower
         faces[1:-1] = 0.5 * (velocity[:-1] + velocity[1:])
         faces[-1] = velocity[-1]
         return faces
 
     @classmethod
     def _upwind_face_fluxes(
-        cls, density_per_m4: NDArray[np.float64], velocity_m_s: NDArray[np.float64]
+        cls,
+        density_per_m4: NDArray[np.float64],
+        velocity_m_s: NDArray[np.float64],
+        *,
+        face_velocity_m_s: NDArray[np.float64] | None = None,
     ) -> NDArray[np.float64]:
         """Return the exact first-order face fluxes used by the FV update."""
 
         faces = np.empty(density_per_m4.size + 1, dtype=np.float64)
-        face_velocity = cls._face_velocities(velocity_m_s)
+        face_velocity = (
+            cls._face_velocities(velocity_m_s)
+            if face_velocity_m_s is None
+            else np.asarray(face_velocity_m_s, dtype=np.float64)
+        )
+        if face_velocity.shape != faces.shape or not np.all(np.isfinite(face_velocity)):
+            raise SolverStateError("finite-volume face velocity shape or values are invalid")
         faces[0] = (
             face_velocity[0] * density_per_m4[0] if face_velocity[0] < 0.0 else 0.0
         )
@@ -450,7 +888,11 @@ class KWNSolver:
 
     @classmethod
     def _raw_face_operator_rate(
-        cls, velocity_m_s: NDArray[np.float64], widths_m: NDArray[np.float64]
+        cls,
+        velocity_m_s: NDArray[np.float64],
+        widths_m: NDArray[np.float64],
+        *,
+        face_velocity_m_s: NDArray[np.float64] | None = None,
     ) -> tuple[float, int, int, float, float]:
         """Return the all-grid face-Courant rate of the actual FV operator.
 
@@ -461,21 +903,12 @@ class KWNSolver:
         """
 
         widths = np.asarray(widths_m, dtype=np.float64)
-        face_velocity = cls._face_velocities(velocity_m_s)
-        if widths.ndim != 1 or face_velocity.size != widths.size + 1:
-            raise SolverStateError("face velocity and radius widths are inconsistent")
-        rates = np.empty(face_velocity.size, dtype=np.float64)
-        cells = np.empty(face_velocity.size, dtype=np.int64)
-        rates[0] = abs(face_velocity[0]) / widths[0]
-        cells[0] = 0
-        rates[-1] = abs(face_velocity[-1]) / widths[-1]
-        cells[-1] = widths.size - 1
-        if widths.size > 1:
-            left = abs(face_velocity[1:-1]) / widths[:-1]
-            right = abs(face_velocity[1:-1]) / widths[1:]
-            use_left = left >= right
-            rates[1:-1] = np.where(use_left, left, right)
-            cells[1:-1] = np.where(use_left, np.arange(widths.size - 1), np.arange(1, widths.size))
+        face_velocity = (
+            cls._face_velocities(velocity_m_s)
+            if face_velocity_m_s is None
+            else np.asarray(face_velocity_m_s, dtype=np.float64)
+        )
+        rates, cells = cls._face_operator_rates(face_velocity, widths)
         index = int(np.argmax(rates))
         cell = int(cells[index])
         return (
@@ -487,16 +920,30 @@ class KWNSolver:
         )
 
     def _choose_dt(
-        self, velocities: Mapping[str, NDArray[np.float64]], maximum_s: float | None
+        self,
+        velocities: Mapping[str, NDArray[np.float64]],
+        maximum_s: float | None,
+        *,
+        face_velocities: Mapping[str, NDArray[np.float64]] | None = None,
     ) -> Tuple[float, float]:
-        """Choose a CFL-limited adaptive macro-step for the active PSD support."""
+        """Choose an adaptive step and record raw plus physical active CFLs.
+
+        ``size_cfl`` preserves the historical inventory-weighted implicit
+        policy.  The optional ``accuracy_active_radius_cfl`` is a separate,
+        fixed V1 accuracy limiter: it deliberately never applies the raw
+        all-grid face maximum to empty bins.
+        """
 
         cfl_rates: List[float] = []
         raw_by_population: dict[str, tuple[float, int, int, float, float]] = {}
         for name, velocity in velocities.items():
             population = self.populations[name]
             raw_by_population[name] = self._raw_face_operator_rate(
-                velocity, population.grid.widths_m
+                velocity,
+                population.grid.widths_m,
+                face_velocity_m_s=(
+                    None if face_velocities is None else face_velocities.get(name)
+                ),
             )
             cell_number = population.number_density_per_m4 * population.grid.widths_m
             cell_volume = cell_number * (4.0 * np.pi / 3.0) * population.grid.centres_m**3
@@ -535,6 +982,74 @@ class KWNSolver:
             if accuracy_dt < dt:
                 dt = accuracy_dt
                 limiter = "accuracy_radius_cfl"
+        active_by_population: dict[str, ActiveCFLDiagnostics] = {}
+        if self.config.accuracy_active_radius_cfl is not None:
+            # Reachability depends on the proposed timestep.  This monotone
+            # fixed-point loop can only shrink dt and thus cannot manufacture
+            # a support/face activation by numerical iteration.
+            for _ in range(8):
+                active_by_population = {
+                    name: self.active_cfl_diagnostics(
+                        self.populations[name],
+                        face_velocity_m_s=(
+                            self._face_velocities(velocity)
+                            if face_velocities is None
+                            else face_velocities[name]
+                        ),
+                        dt_s=dt,
+                    )
+                    for name, velocity in velocities.items()
+                }
+                active_rate = max(
+                    (
+                        max(
+                            item.population_active_rate_s_inv,
+                            item.lower_tail_rate_s_inv,
+                            item.boundary_active_rate_s_inv,
+                        )
+                        for item in active_by_population.values()
+                    ),
+                    default=0.0,
+                )
+                active_dt = (
+                    cap
+                    if active_rate == 0.0
+                    else self.config.accuracy_active_radius_cfl / active_rate
+                )
+                candidate = min(dt, active_dt)
+                if candidate >= dt * (1.0 - 1.0e-14):
+                    break
+                dt = candidate
+                limiter = "accuracy_active_radius_cfl"
+            else:
+                raise SolverStateError("active-CFL timestep fixed point did not converge")
+            # The accepted dt may have changed after the final reachability
+            # pass above.  Refresh the recorded masks at its exact value.
+            active_by_population = {
+                name: self.active_cfl_diagnostics(
+                    self.populations[name],
+                    face_velocity_m_s=(
+                        self._face_velocities(velocity)
+                        if face_velocities is None
+                        else face_velocities[name]
+                    ),
+                    dt_s=dt,
+                )
+                for name, velocity in velocities.items()
+            }
+        else:
+            active_by_population = {
+                name: self.active_cfl_diagnostics(
+                    self.populations[name],
+                    face_velocity_m_s=(
+                        self._face_velocities(velocity)
+                        if face_velocities is None
+                        else face_velocities[name]
+                    ),
+                    dt_s=dt,
+                )
+                for name, velocity in velocities.items()
+            }
         if dt < self.config.min_dt_s:
             raise SolverStateError(
                 f"CFL-limited step {dt:.3e} s is below configured min_dt_s={self.config.min_dt_s:.3e} s"
@@ -544,11 +1059,17 @@ class KWNSolver:
             "limiter": limiter,
             "overall": overall,
             "beta": raw_by_population.get("beta", (0.0, -1, -1, 0.0, 0.0)),
+            "active": active_by_population,
         }
         return dt, cfl
 
     def _advect_population(
-        self, population: Population, velocity_m_s: NDArray[np.float64], dt_s: float
+        self,
+        population: Population,
+        velocity_m_s: NDArray[np.float64],
+        dt_s: float,
+        *,
+        face_velocity_m_s: NDArray[np.float64] | None = None,
     ) -> Tuple[float, float, float, int]:
         """Advance one conservative first-order implicit upwind face update.
 
@@ -564,7 +1085,16 @@ class KWNSolver:
         widths = population.grid.widths_m
         if not np.any(density):
             return 0.0, 0.0, 0.0, 0
-        raw_faces = self._upwind_face_fluxes(density, velocity_m_s)
+        face_velocity = (
+            self._face_velocities(velocity_m_s)
+            if face_velocity_m_s is None
+            else np.asarray(face_velocity_m_s, dtype=np.float64)
+        )
+        if face_velocity.shape != (density.size + 1,) or not np.all(np.isfinite(face_velocity)):
+            raise SolverStateError("finite-volume face velocity shape or values are invalid")
+        raw_faces = self._upwind_face_fluxes(
+            density, velocity_m_s, face_velocity_m_s=face_velocity
+        )
         raw_rmax_outflow_flux = max(raw_faces[-1], 0.0)
         existing_number = max(population.number_density_m3(), 1.0e-300)
         relative_outflow = raw_rmax_outflow_flux * dt_s / existing_number
@@ -582,9 +1112,8 @@ class KWNSolver:
         lower = np.zeros(bin_count, dtype=np.float64)
         diagonal = np.ones(bin_count, dtype=np.float64)
         upper = np.zeros(bin_count, dtype=np.float64)
-        if velocity_m_s[0] < 0.0:
-            diagonal[0] -= dt_s * velocity_m_s[0] / widths[0]
-        face_velocity = self._face_velocities(velocity_m_s)
+        if face_velocity[0] < 0.0:
+            diagonal[0] -= dt_s * face_velocity[0] / widths[0]
         internal_face_velocity = face_velocity[1:-1]
         positive_faces = np.flatnonzero(internal_face_velocity >= 0.0)
         negative_faces = np.flatnonzero(internal_face_velocity < 0.0)
@@ -596,8 +1125,8 @@ class KWNSolver:
             values = internal_face_velocity[negative_faces]
             diagonal[negative_faces + 1] -= dt_s * values / widths[negative_faces + 1]
             upper[negative_faces] += dt_s * values / widths[negative_faces]
-        if velocity_m_s[-1] > 0.0:
-            diagonal[-1] += dt_s * velocity_m_s[-1] / widths[-1]
+        if face_velocity[-1] > 0.0:
+            diagonal[-1] += dt_s * face_velocity[-1] / widths[-1]
 
         upper_reduced = np.zeros(bin_count, dtype=np.float64)
         rhs_reduced = np.empty(bin_count, dtype=np.float64)
@@ -630,8 +1159,10 @@ class KWNSolver:
         roundoff_mask = (updated < 0.0) & (updated >= roundoff_floor)
         roundoff_zeroed = int(np.count_nonzero(roundoff_mask))
         updated[roundoff_mask] = 0.0
-        faces = self._upwind_face_fluxes(updated, velocity_m_s)
-        lower_dissolution_flux = max(-faces[0], 0.0)
+        faces = self._upwind_face_fluxes(
+            updated, velocity_m_s, face_velocity_m_s=face_velocity
+        )
+        lower_dissolution_flux = boundary_number_flux_diagnostic(face_velocity[0], updated[0])
         rmax_outflow_flux = max(faces[-1], 0.0)
         depletion = np.divide(
             np.maximum(density - updated, 0.0),
@@ -655,7 +1186,13 @@ class KWNSolver:
         """Advance exactly one adaptive, conservative KWN macro-step."""
 
         velocities = self.growth_rates()
-        dt_s, cfl = self._choose_dt(velocities, maximum_dt_s)
+        face_velocities = {
+            name: self.face_velocities(population, velocities[name])
+            for name, population in self.populations.items()
+        }
+        dt_s, cfl = self._choose_dt(
+            velocities, maximum_dt_s, face_velocities=face_velocities
+        )
         g_source = nucleation_rate(
             population=self.populations["g"].parameters,
             matrix_xb=self.matrix_xb,
@@ -675,7 +1212,10 @@ class KWNSolver:
         roundoff_zeroed_bin_count = 0
         for name in ("g", "beta"):
             lower, upper, utilization, zeroed = self._advect_population(
-                self.populations[name], velocities[name], dt_s
+                self.populations[name],
+                velocities[name],
+                dt_s,
+                face_velocity_m_s=face_velocities[name],
             )
             lower_flux += lower
             upper_flux += upper
@@ -700,16 +1240,22 @@ class KWNSolver:
         self.step += 1
         inventory = self.ledger.snapshot(matrix_xb=self.matrix_xb, populations=self.population_list())
         beta = self.populations["beta"]
-        beta_rmin_volume_flux = (
-            beta_lower_flux * (4.0 * np.pi / 3.0) * float(beta.grid.edges_m[0]) ** 3
+        beta_boundary_radius = boundary_radius(beta.grid)
+        beta_boundary_inventory = particle_inventory_at_radius(
+            beta_boundary_radius,
+            x_b=beta.parameters.x_b,
+            molar_volume_m3_mol=beta.parameters.molar_volume_m3_mol,
         )
-        beta_rmin_mol_b_flux = (
-            beta_rmin_volume_flux * beta.parameters.x_b / beta.parameters.molar_volume_m3_mol
+        beta_boundary_flux = boundary_inventory_diagnostic(
+            beta_lower_flux, beta_boundary_inventory
         )
         raw_rate, face_index, cell_index, face_velocity, cell_width = self._last_timestep_telemetry[
             "overall"
         ]
         beta_raw_rate = float(self._last_timestep_telemetry["beta"][0])
+        beta_active = self._last_timestep_telemetry["active"].get("beta")
+        if beta_active is None:
+            raise SolverStateError("accepted step is missing beta active-CFL telemetry")
         diagnostic = StepDiagnostics(
             step=self.step,
             time_s=self.time_s,
@@ -724,8 +1270,10 @@ class KWNSolver:
             rmin_dissolution_flux_m3_s=lower_flux,
             rmax_outflow_flux_m3_s=upper_flux,
             beta_rmin_number_flux_m3_s=beta_lower_flux,
-            beta_rmin_volume_flux_s=beta_rmin_volume_flux,
-            beta_rmin_mol_b_flux_mol_m3_s=beta_rmin_mol_b_flux,
+            beta_rmin_volume_flux_s=beta_boundary_flux.beta_volume_flux_out_s,
+            beta_rmin_mol_b_flux_mol_m3_s=beta_boundary_flux.b_mol_flux_out_mol_m3_s,
+            beta_boundary_radius_m=beta_boundary_radius,
+            beta_boundary_growth_velocity_m_s=float(face_velocities["beta"][0]),
             radius_courant_max=raw_rate * dt_s,
             radius_courant_beta_max=beta_raw_rate * dt_s,
             radius_courant_face_index=int(face_index),
@@ -733,6 +1281,20 @@ class KWNSolver:
             radius_courant_face_velocity_m_s=float(face_velocity),
             radius_courant_cell_width_m=float(cell_width),
             timestep_limiter=str(self._last_timestep_telemetry["limiter"]),
+            active_population_courant=beta_active.population_active_rate_s_inv * dt_s,
+            active_m0_courant=beta_active.m0_rate_s_inv * dt_s,
+            active_m3_courant=beta_active.m3_rate_s_inv * dt_s,
+            lower_tail_active_courant=beta_active.lower_tail_rate_s_inv * dt_s,
+            boundary_candidate_courant=beta_active.boundary_candidate_rate_s_inv * dt_s,
+            boundary_active_courant=beta_active.boundary_active_rate_s_inv * dt_s,
+            boundary_face_is_active=beta_active.boundary_face_is_active,
+            active_m0_support_i_lo=beta_active.m0_support_i_lo,
+            active_m0_support_i_hi=beta_active.m0_support_i_hi,
+            active_m3_support_i_lo=beta_active.m3_support_i_lo,
+            active_m3_support_i_hi=beta_active.m3_support_i_hi,
+            lower_tail_i_lo=beta_active.lower_tail_i_lo,
+            lower_tail_i_hi=beta_active.lower_tail_i_hi,
+            lower_tail_m0_fraction=beta_active.lower_tail_m0_fraction,
         )
         self.history.append(diagnostic)
         return diagnostic

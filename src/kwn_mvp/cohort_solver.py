@@ -19,6 +19,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .growth import growth_rate_m_s
+from .lower_boundary import (
+    ParticleInventory,
+    boundary_event_residual,
+    boundary_growth_velocity as shared_boundary_growth_velocity,
+    boundary_radius,
+    particle_inventory_at_radius,
+    sphere_volume_m3 as shared_sphere_volume_m3,
+)
 from .population_metrics import (
     beta_fraction_from_m3,
     beta_inventory_from_m3,
@@ -38,12 +46,12 @@ EquilibriumAdapter = Union[DiluteEquilibriumAdapter, ValidationContractEquilibri
 
 
 def sphere_volume_m3(radius_m: float) -> float:
-    """Return the volume of one spherical-equivalent particle in SI units."""
+    """Compatibility alias for the shared lower-boundary sphere volume."""
 
-    radius = float(radius_m)
-    if not math.isfinite(radius) or radius <= 0.0:
-        raise CohortSolverError(f"radius must be finite and positive; got {radius!r}")
-    return 4.0 * math.pi * radius**3 / 3.0
+    try:
+        return shared_sphere_volume_m3(radius_m)
+    except ValueError as error:
+        raise CohortSolverError(str(error)) from error
 
 
 def _sign_label(rate_m_s: float, *, tolerance: float = 0.0) -> str:
@@ -64,6 +72,7 @@ class Cohort:
     active: bool = True
     dissolution_time_s: float | None = None
     radius_before_event_m: float | None = None
+    boundary_event_residual_m: float | None = None
     post_event_ledger_relative_residual: float | None = None
     returned_inventory_mol_m3: float = 0.0
     initial_radius_m: float | None = None
@@ -110,6 +119,8 @@ class CohortSnapshot:
     cumulative_number_dissolved_m3: float
     cumulative_beta_volume_dissolved: float
     cumulative_mol_B_returned_mol_m3: float
+    continuous_beta_inventory_released_mol_m3: float
+    boundary_residual_mol_B_crossed_mol_m3: float
 
     def as_dict(self) -> dict[str, float | int]:
         return asdict(self)
@@ -174,7 +185,10 @@ class CohortSolver:
         self.total_b_mol_m3 = float(total_b_mol_m3)
         self.equilibrium_adapter = equilibrium_adapter
         self.temperature_k = float(temperature_k)
-        self.r_diss_m = float(r_diss_m)
+        try:
+            self.r_diss_m = boundary_radius(r_diss_m)
+        except ValueError as error:
+            raise CohortSolverError(str(error)) from error
         self.inventory_tolerance_relative = float(inventory_tolerance_relative)
         self.rtol = float(rtol)
         self.atol_m = float(atol_m)
@@ -225,7 +239,7 @@ class CohortSolver:
             total_b_mol_m3=kwn_solver.ledger.total_b_mol_m3,
             equilibrium_adapter=kwn_solver.equilibrium_adapter,
             temperature_k=kwn_solver.config.temperature_k,
-            r_diss_m=float(kwn_solver.config.grid.edges_m[0]),
+            r_diss_m=boundary_radius(kwn_solver.config.grid),
             inventory_tolerance_relative=kwn_solver.config.inventory_tolerance_relative,
             rtol=rtol,
             atol_m=atol_m,
@@ -311,6 +325,41 @@ class CohortSolver:
 
         return self._matrix_xb_from_active_radii(self._radii_for_active())
 
+    def _particle_inventory(self, radius_m: float) -> ParticleInventory:
+        """Return one cohort's inventory through the shared physical contract."""
+
+        try:
+            return particle_inventory_at_radius(
+                radius_m,
+                x_b=self.beta_parameters.x_b,
+                molar_volume_m3_mol=self.beta_parameters.molar_volume_m3_mol,
+            )
+        except ValueError as error:
+            raise CohortSolverError(str(error)) from error
+
+    def boundary_particle_inventory(self) -> ParticleInventory:
+        """Return the resolved-particle inventory priced exactly at ``Rmin``."""
+
+        return self._particle_inventory(self.r_diss_m)
+
+    def boundary_growth_velocity(self) -> float:
+        """Evaluate the shared physical growth law exactly at ``Rmin``.
+
+        This is a diagnostic/operator-contract value only.  Matrix inventory
+        remains algebraically closed from the active cohort radii and is not
+        updated by this lower-boundary diagnostic.
+        """
+
+        try:
+            return shared_boundary_growth_velocity(
+                radius_m=self.r_diss_m,
+                matrix_xb=self.matrix_xb,
+                parameters=self.beta_parameters,
+                equilibrium_adapter=self.equilibrium_adapter,
+            )
+        except ValueError as error:
+            raise CohortSolverError(str(error)) from error
+
     def growth_rates(self) -> NDArray[np.float64]:
         """Return current beta growth rates for active cohorts in canonical ID order."""
 
@@ -365,7 +414,13 @@ class CohortSolver:
             )
 
     def _retire_boundary_cohorts(self, radii_m: NDArray[np.float64]) -> None:
-        """Commit one accepted R_diss event and return its inventory to matrix."""
+        """Commit one accepted physical-Rmin event without a matrix source.
+
+        Removing the cohort changes the sole algebraic inventory closure.  The
+        ``returned_inventory_mol_m3`` field is consequently a diagnostic of
+        the residual particle inventory at the crossing, not a second matrix
+        update.
+        """
 
         active = self._active_cohorts()
         candidates = [
@@ -379,6 +434,7 @@ class CohortSolver:
                 candidates = [nearest]
             else:
                 raise CohortSolverError("terminal event did not identify a cohort at R_diss")
+        boundary_inventory = self.boundary_particle_inventory()
         retired: list[Cohort] = []
         for index in candidates:
             cohort = active[index]
@@ -389,13 +445,15 @@ class CohortSolver:
             # state.  It is deliberately not a clamp: the coordinate is the
             # next binary64 number above the frozen lower-radius edge.
             cohort.radius_before_event_m = float(radii_m[index])
+            try:
+                cohort.boundary_event_residual_m = boundary_event_residual(
+                    cohort.radius_before_event_m,
+                    self.r_diss_m,
+                )
+            except ValueError as error:
+                raise CohortSolverError(str(error)) from error
             cohort.radius_m = self.r_diss_m
-            returned = (
-                cohort.weight_m3
-                * sphere_volume_m3(self.r_diss_m)
-                * self.beta_parameters.x_b
-                / self.beta_parameters.molar_volume_m3_mol
-            )
+            returned = cohort.weight_m3 * boundary_inventory.b_moles_mol
             cohort.returned_inventory_mol_m3 += returned
             cohort.active = False
             cohort.dissolution_time_s = self.time_s
@@ -626,9 +684,19 @@ class CohortSolver:
                     f"observed={self.time_s:.17e} requested={target_time_s:.17e}"
                 )
             if self.time_s != target_time_s:
-                self._advance_short_time_correction(
-                    solve_ivp=solve_ivp, target_time_s=target_time_s
+                # Dense event interpolation can differ from a representable
+                # requested time by only a few floating-point ulps.  There is
+                # no physical interval to reintegrate in that case (and an
+                # ODE call over a 1e-13 s endpoint gap can itself fail to
+                # advance at metre-scale absolute tolerances).  Larger
+                # accepted gaps retain the physical correction path below.
+                roundoff_time_tolerance_s = 64.0 * np.finfo(np.float64).eps * max(
+                    abs(target_time_s), 1.0
                 )
+                if abs(self.time_s - target_time_s) > roundoff_time_tolerance_s:
+                    self._advance_short_time_correction(
+                        solve_ivp=solve_ivp, target_time_s=target_time_s
+                    )
             self.time_s = target_time_s
             self._assert_inventory_closed()
             return
@@ -688,13 +756,27 @@ class CohortSolver:
         cumulative_number = math.fsum(
             item.weight_m3 for item in self.cohorts if not item.active
         )
+        boundary_inventory = self.boundary_particle_inventory()
         cumulative_volume = math.fsum(
-            item.weight_m3 * sphere_volume_m3(self.r_diss_m)
+            item.weight_m3 * boundary_inventory.volume_m3
             for item in self.cohorts
             if not item.active
         )
-        cumulative_mol_b = math.fsum(
+        boundary_residual_mol_b = math.fsum(
             item.returned_inventory_mol_m3 for item in self.cohorts
+        )
+        initial_beta_inventory = math.fsum(
+            item.weight_m3
+            * self._particle_inventory(float(item.initial_radius_m)).b_moles_mol
+            for item in self.cohorts
+        )
+        # The algebraic closure transfers the changing active-cohort
+        # inventory continuously to/from the matrix.  At a Rmin event the
+        # finite residual below the one-sided characteristic endpoint is
+        # separately recorded above.  The signed value stays truthful for a
+        # later net-growth trajectory instead of being silently clamped.
+        continuous_beta_inventory_released = math.fsum(
+            (initial_beta_inventory, -beta_inventory, -boundary_residual_mol_b)
         )
         return CohortSnapshot(
             time_s=self.time_s,
@@ -720,10 +802,14 @@ class CohortSolver:
             inventory_residual_mol_m3=residual,
             inventory_relative_residual=relative,
             active_cohort_count=len(self._active_cohorts()),
-            cumulative_dissolution_inventory_mol_m3=cumulative_mol_b,
+            # Historical aliases retain their original meaning: the finite
+            # B inventory at physical Rmin, not a direct matrix source.
+            cumulative_dissolution_inventory_mol_m3=boundary_residual_mol_b,
             cumulative_number_dissolved_m3=cumulative_number,
             cumulative_beta_volume_dissolved=cumulative_volume,
-            cumulative_mol_B_returned_mol_m3=cumulative_mol_b,
+            cumulative_mol_B_returned_mol_m3=boundary_residual_mol_b,
+            continuous_beta_inventory_released_mol_m3=continuous_beta_inventory_released,
+            boundary_residual_mol_B_crossed_mol_m3=boundary_residual_mol_b,
         )
 
     def cohort_rows(self) -> list[dict[str, Any]]:
@@ -742,9 +828,7 @@ class CohortSolver:
                     "weight_m3": item.weight_m3,
                     "initial_inventory_mol_m3": (
                         item.weight_m3
-                        * sphere_volume_m3(float(item.initial_radius_m))
-                        * self.beta_parameters.x_b
-                        / self.beta_parameters.molar_volume_m3_mol
+                        * self._particle_inventory(float(item.initial_radius_m)).b_moles_mol
                     ),
                     "active": item.active,
                     "radius_m": item.radius_m,
@@ -754,13 +838,12 @@ class CohortSolver:
                     ),
                     "dissolution_time_s": item.dissolution_time_s,
                     "radius_before_event_m": item.radius_before_event_m,
+                    "boundary_event_residual_m": item.boundary_event_residual_m,
                     "post_event_ledger_relative_residual": item.post_event_ledger_relative_residual,
                     "returned_inventory_mol_m3": item.returned_inventory_mol_m3,
                     "current_inventory_mol_m3": (
                         item.weight_m3
-                        * sphere_volume_m3(item.radius_m)
-                        * self.beta_parameters.x_b
-                        / self.beta_parameters.molar_volume_m3_mol
+                        * self._particle_inventory(item.radius_m).b_moles_mol
                         if item.active
                         else 0.0
                     ),
@@ -772,7 +855,7 @@ class CohortSolver:
         """Return a JSON-serialisable accepted-state checkpoint for restart tests."""
 
         return {
-            "schema_version": "KWN_DISCRETE_COHORT_CHECKPOINT_V1",
+            "schema_version": "KWN_DISCRETE_COHORT_CHECKPOINT_V2",
             "solver_version": self.solver_version,
             "time_s": self.time_s,
             "r_diss_m": self.r_diss_m,
@@ -789,6 +872,7 @@ class CohortSolver:
                     "initial_growth_sign": item.initial_growth_sign,
                     "dissolution_time_s": item.dissolution_time_s,
                     "radius_before_event_m": item.radius_before_event_m,
+                    "boundary_event_residual_m": item.boundary_event_residual_m,
                     "post_event_ledger_relative_residual": item.post_event_ledger_relative_residual,
                     "returned_inventory_mol_m3": item.returned_inventory_mol_m3,
                 }
@@ -799,7 +883,7 @@ class CohortSolver:
     def restore_checkpoint(self, checkpoint: Mapping[str, Any]) -> None:
         """Restore a compatible accepted state; incompatible contracts fail closed."""
 
-        if checkpoint.get("schema_version") != "KWN_DISCRETE_COHORT_CHECKPOINT_V1":
+        if checkpoint.get("schema_version") != "KWN_DISCRETE_COHORT_CHECKPOINT_V2":
             raise CohortSolverError("unsupported cohort checkpoint schema")
         if checkpoint.get("contract_hash") != self.contract_hash:
             raise CohortSolverError("cohort checkpoint validation-contract hash mismatch")
@@ -827,6 +911,11 @@ class CohortSolver:
             )
             cohort.radius_before_event_m = (
                 None if item.get("radius_before_event_m") is None else float(item["radius_before_event_m"])
+            )
+            cohort.boundary_event_residual_m = (
+                None
+                if item.get("boundary_event_residual_m") is None
+                else float(item["boundary_event_residual_m"])
             )
             cohort.post_event_ledger_relative_residual = (
                 None
