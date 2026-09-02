@@ -6,7 +6,9 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
-#SBATCH --mem=64G
+# The fixture reconstruction peaks far below 1 GiB; 16 GiB preserves a large
+# margin while allowing the CPU-only numerical gate to use available nodes.
+#SBATCH --mem=16G
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null
 
@@ -74,6 +76,7 @@ max_steps="${MAX_STEPS:-2000000}"
 {
   printf 'hostname=%s\n' "$(hostname)"
   printf 'slurm_job_id=%s\n' "${SLURM_JOB_ID:-UNSCHEDULED}"
+  printf 'slurm_memory_per_node_mb=%s\n' "${SLURM_MEM_PER_NODE:-UNSPECIFIED}"
   printf 'source_root=%s\n' "${SOURCE_ROOT}"
   printf 'source_commit=%s\n' "$(git -C "${SOURCE_ROOT}" rev-parse HEAD)"
   printf 'source_branch=%s\n' "$(git -C "${SOURCE_ROOT}" branch --show-current)"
