@@ -67,8 +67,35 @@ LAST_ACCEPTED_STEP = 244
 FAILED_STEP = 245
 MAX_RAW_PICARD_ITERATIONS = 1024
 COARSE_SCAN_POINTS = 257
-ROOT_MAX_ITERATIONS = 96
+ROOT_MAX_ITERATIONS = 48
 MACHINE_EPS_FACTOR = 64.0
+MAX_REASONABLE_EXTENDED_PICARD_ITERATIONS = 1024
+# A closure trial retains a full conservative-remap state.  The raw Picard
+# trace already deliberately retains 1024 such trials.  The post-Picard audit
+# therefore has a hard, recorded map-evaluation budget rather than blindly
+# densifying every coarse interval or signature change.  Reaching this limit
+# is evidence of incomplete coverage, never evidence of no/one root.
+MAX_POST_RAW_MAP_EVALUATIONS = 1024
+MAX_LOCAL_REFINEMENT_DEPTH = 3
+MAX_TARGETED_LOCAL_REGIONS = 12
+MAX_SIGN_CHANGE_ROOT_BRACKETS = 8
+MAX_POINT_ROOT_CANDIDATES = 8
+MAX_SIGNATURE_TRANSITION_REGIONS = 8
+SIGNATURE_TRANSITION_MAX_ITERATIONS = 24
+RAW_ATTRACTOR_TAIL_POINTS = 16
+SIGNATURE_FACE_PREVIEW = 16
+PLANNED_MAX_POST_RAW_MAP_EVALUATIONS = (
+    COARSE_SCAN_POINTS
+    + RAW_ATTRACTOR_TAIL_POINTS
+    + MAX_TARGETED_LOCAL_REGIONS * ((1 << MAX_LOCAL_REFINEMENT_DEPTH) + 1)
+    + MAX_SIGNATURE_TRANSITION_REGIONS * SIGNATURE_TRANSITION_MAX_ITERATIONS
+    + MAX_SIGN_CHANGE_ROOT_BRACKETS * ROOT_MAX_ITERATIONS
+    + MAX_SIGN_CHANGE_ROOT_BRACKETS
+    + MAX_POINT_ROOT_CANDIDATES
+)
+PLANNED_MAX_TOTAL_RETAINED_MAP_EVALUATIONS = (
+    MAX_RAW_PICARD_ITERATIONS + PLANNED_MAX_POST_RAW_MAP_EVALUATIONS
+)
 
 
 class DiagnosticError(RuntimeError):
@@ -87,6 +114,64 @@ class Evaluation:
     state_hash_after: str
     error_type: str | None
     error_message: str | None
+
+
+@dataclass
+class EvaluationBudget:
+    """Bound post-Picard trial retention without making a coverage claim.
+
+    ``ImmutableStep245Map`` retains a complete trial for provenance and
+    immutability checks.  This object shares one deterministic budget between
+    targeted scan, signature localization, and root verification.  Cached
+    evaluations do not consume the budget; a requested uncached evaluation
+    after exhaustion returns ``None`` and is explicitly reported downstream.
+    """
+
+    closure_map: "ImmutableStep245Map"
+    maximum_new_evaluations: int
+    start_evaluation_count: int
+    exhausted: bool = False
+    exhausted_phases: set[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.maximum_new_evaluations < 0:
+            raise DiagnosticError("post-Picard evaluation budget must be non-negative")
+        if self.exhausted_phases is None:
+            self.exhausted_phases = set()
+
+    @property
+    def new_evaluation_count(self) -> int:
+        return len(self.closure_map.evaluations) - self.start_evaluation_count
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.maximum_new_evaluations - self.new_evaluation_count)
+
+    def evaluate(self, value: float, *, phase: str) -> Evaluation | None:
+        key = float(value).hex()
+        cached = key in self.closure_map._cache
+        if not cached and self.new_evaluation_count >= self.maximum_new_evaluations:
+            self.exhausted = True
+            assert self.exhausted_phases is not None
+            self.exhausted_phases.add(phase)
+            return None
+        return self.closure_map.evaluate(float(value), phase=phase, reuse=True)
+
+    def audit(self) -> dict[str, Any]:
+        return {
+            "post_raw_maximum_new_map_evaluations": self.maximum_new_evaluations,
+            "post_raw_new_map_evaluations": self.new_evaluation_count,
+            "post_raw_remaining_map_evaluations": self.remaining,
+            "planned_worst_case_post_raw_map_evaluations": PLANNED_MAX_POST_RAW_MAP_EVALUATIONS,
+            "planned_worst_case_total_retained_map_evaluations": PLANNED_MAX_TOTAL_RETAINED_MAP_EVALUATIONS,
+            "evaluation_budget_exhausted": self.exhausted,
+            "evaluation_budget_exhausted_phases": sorted(self.exhausted_phases or ()),
+            "retention_rationale": (
+                "full conservative-remap trials are retained for read-only provenance; "
+                "a bounded targeted audit prevents an unbounded dense scan from exhausting "
+                "the declared CPU job resources"
+            ),
+        }
 
 
 def _json_safe(value: Any) -> Any:
@@ -214,9 +299,12 @@ def _trial_row(
     candidate = np.asarray(trial.cell_number_m3, dtype=np.float64)
     indices = _departure_source_indices(edges_m, trial.trace.departure_faces_m)
     previous_candidate = None if previous_trial is None else np.asarray(previous_trial.cell_number_m3, dtype=np.float64)
+    moments = _moments(edges_m, candidate)
     if previous_candidate is None:
         l1_relative = math.nan
         linf = math.nan
+        population_residual = math.inf
+        moment_residuals = {f"M{order}_relative_to_previous": math.inf for order in range(4)}
         changed = 0
         first_changed = -1
         largest_changed = -1
@@ -239,7 +327,13 @@ def _trial_row(
         lower_tail_l1 = float(np.sum(absolute[: min(64, absolute.size)], dtype=np.float64))
         previous_indices = _departure_source_indices(edges_m, previous_trial.trace.departure_faces_m)
         changed_departure_faces = int(np.count_nonzero(indices != previous_indices))
-    moments = _moments(edges_m, candidate)
+        previous_moments = _moments(edges_m, previous_candidate)
+        moment_residuals = {
+            f"M{order}_relative_to_previous": abs(moments[f"M{order}"] - previous_moments[f"M{order}"])
+            / max(abs(moments[f"M{order}"]), abs(previous_moments[f"M{order}"]), 1.0e-300)
+            for order in range(4)
+        }
+        population_residual = max(moment_residuals.values())
     row.update(
         {
             "x_closure": float(trial.matrix_xb),
@@ -262,6 +356,9 @@ def _trial_row(
             "M1": moments["M1"],
             "M2": moments["M2"],
             "M3": moments["M3"],
+            "population_observable_residual_to_previous": population_residual,
+            "cell_measure_relative_residual_to_previous": l1_relative,
+            **moment_residuals,
             "cell_state_hash": _array_hash({"cell_number_m3": candidate}),
             "remap_state_hash": _array_hash(
                 {
@@ -384,6 +481,7 @@ def _replay_to_step244(*, dt_s: float, accepted_step: int) -> tuple[Characterist
                 "fixed_point_xb_residual": float(diagnostic.fixed_point_xb_residual),
                 "fixed_point_population_residual": float(diagnostic.fixed_point_population_residual),
                 "fixed_point_cell_measure_residual": float(diagnostic.fixed_point_cell_measure_residual),
+                "fixed_point_convergence_rate": float(diagnostic.fixed_point_convergence_rate),
                 "fixed_point_convergence_mode": diagnostic.fixed_point_convergence_mode,
                 "inventory_relative_residual": float(diagnostic.inventory.relative_residual),
                 "rmin_number_loss_m3": float(diagnostic.rmin_number_loss_m3),
@@ -603,6 +701,11 @@ def _raw_picard(
             rows.append(row)
             break
         row["raw_picard_terminal"] = False
+        row["population_convergence_tolerance"] = float(closure_map.solver._population_convergence_rtol)
+        row["unchanged_from_state244"] = bool(
+            np.array_equal(evaluation.trial.cell_number_m3, closure_map.old_cell_number_m3)
+            and evaluation.trial.matrix_xb == closure_map.x_start
+        )
         rows.append(row)
         cell_states.append(np.asarray(evaluation.trial.cell_number_m3, dtype=np.float64).copy())
         departure_faces.append(np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64).copy())
@@ -638,6 +741,7 @@ def _cycle_analysis(
         successful_rows = list(rows)
     count = min(len(successful_rows), len(cell_states), len(departure_faces))
     for k in range(count):
+        comparisons: list[dict[str, Any]] = []
         for period in range(1, 17):
             if k < period:
                 continue
@@ -667,7 +771,7 @@ def _cycle_analysis(
             )
             signature_equal = str(current.get("departure_signature_hash")) == str(prior.get("departure_signature_hash"))
             machine = scalar_distance <= machine_scalar and state_linf <= machine_state and signature_equal
-            results.append(
+            comparisons.append(
                 {
                     "iteration": k + 1,
                     "period": period,
@@ -684,6 +788,31 @@ def _cycle_analysis(
                     "machine_state_tolerance": machine_state,
                 }
             )
+        exact_periods = [int(row["period"]) for row in comparisons if row["exact_bitwise_period"]]
+        machine_periods = [int(row["period"]) for row in comparisons if row["machine_precision_period"]]
+        primitive_exact = min(exact_periods) if exact_periods else None
+        primitive_machine = min(machine_periods) if machine_periods else None
+        for row in comparisons:
+            period = int(row["period"])
+            phase_rows = successful_rows[k - period + 1 : k + 1]
+            phase_values = [float(item["x_guess"]) for item in phase_rows]
+            phase_bits = {value.hex() for value in phase_values}
+            phase_residuals = [float(item.get("F_signed", math.nan)) for item in phase_rows]
+            cyclic_pairs = zip(phase_residuals, phase_residuals[1:] + phase_residuals[:1])
+            row["primitive_exact_period"] = bool(
+                row["exact_bitwise_period"] and period == primitive_exact
+            )
+            row["primitive_machine_precision_period"] = bool(
+                row["machine_precision_period"] and period == primitive_machine
+            )
+            row["phase_values_distinct"] = len(phase_bits) == period
+            row["cyclic_adjacent_residual_sign_change"] = any(
+                math.isfinite(left)
+                and math.isfinite(right)
+                and left * right < 0.0
+                for left, right in cyclic_pairs
+            )
+            results.append(row)
     return results
 
 
@@ -692,16 +821,134 @@ def _window_contraction(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     for width in (16, 32, 64, 128):
         sample = [float(row["q_F"]) for row in rows[-width:] if math.isfinite(float(row.get("q_F", math.nan)))]
         delta = [float(row["q_delta"]) for row in rows[-width:] if math.isfinite(float(row.get("q_delta", math.nan)))]
+        residuals = [
+            float(row["abs_F"])
+            for row in rows[-width:]
+            if math.isfinite(float(row.get("abs_F", math.nan)))
+        ]
+        final_residual = residuals[-1] if residuals else math.nan
+        final_tolerance = float(rows[-1].get("xB_tolerance", math.nan)) if rows else math.nan
+        median_q = float(np.median(sample)) if sample else math.nan
+        monotone_nonincreasing = bool(
+            len(residuals) >= 2
+            and all(right <= left for left, right in zip(residuals, residuals[1:]))
+        )
+        predicted_remaining: int | None
+        if math.isfinite(final_residual) and math.isfinite(final_tolerance) and final_residual <= final_tolerance:
+            predicted_remaining = 0
+        elif (
+            math.isfinite(final_residual)
+            and math.isfinite(final_tolerance)
+            and final_residual > 0.0
+            and final_tolerance > 0.0
+            and math.isfinite(median_q)
+            and 0.0 < median_q < 1.0
+        ):
+            predicted_remaining = max(
+                0,
+                int(math.ceil(math.log(final_tolerance / final_residual) / math.log(median_q))),
+            )
+        else:
+            predicted_remaining = None
         summary[f"last_{width}"] = {
             "count_q_F": len(sample),
-            "median_q_F": float(np.median(sample)) if sample else math.nan,
+            "median_q_F": median_q,
             "max_q_F": float(np.max(sample)) if sample else math.nan,
             "min_q_F": float(np.min(sample)) if sample else math.nan,
             "count_q_delta": len(delta),
             "median_q_delta": float(np.median(delta)) if delta else math.nan,
             "max_q_delta": float(np.max(delta)) if delta else math.nan,
+            "monotone_residual_nonincreasing": monotone_nonincreasing,
+            "final_abs_F": final_residual,
+            "final_xB_tolerance": final_tolerance,
+            "predicted_remaining_iterations_to_xB_tolerance": predicted_remaining,
+            "predicted_total_iterations_to_xB_tolerance": (
+                len(rows) + predicted_remaining if predicted_remaining is not None else None
+            ),
+            "extended_picard_within_reasonable_budget": bool(
+                monotone_nonincreasing
+                and predicted_remaining is not None
+                and predicted_remaining <= MAX_REASONABLE_EXTENDED_PICARD_ITERATIONS
+            ),
         }
     return summary
+
+
+def _group_contiguous_interval_records(
+    records: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group overlapping/touching sampled intervals without inventing continuity."""
+
+    ordered = sorted(
+        (dict(record) for record in records),
+        key=lambda record: (float(record["left_x"]), float(record["right_x"])),
+    )
+    groups: list[dict[str, Any]] = []
+    for record in ordered:
+        left = float(record["left_x"])
+        right = float(record["right_x"])
+        if right < left:
+            raise DiagnosticError("interval record has descending endpoints")
+        if groups and left <= np.nextafter(float(groups[-1]["right_x"]), math.inf):
+            group = groups[-1]
+            group["records"].append(record)
+            group["right_x"] = max(float(group["right_x"]), right)
+        else:
+            groups.append({"left_x": left, "right_x": right, "records": [record]})
+    return groups
+
+
+def _signature_transition_evidence(
+    left: Evaluation,
+    right: Evaluation,
+    *,
+    edges_m: np.ndarray,
+) -> dict[str, Any]:
+    """Locate a sampled remap-signature transition at face/cell granularity."""
+
+    evidence: dict[str, Any] = {
+        "remap_branch": "departure_source_cell_index",
+        "changed_departure_face_count": 0,
+        "first_changed_departure_face_index": -1,
+        "last_changed_departure_face_index": -1,
+        "changed_departure_faces_preview": [],
+    }
+    if left.trial is None or right.trial is None:
+        evidence["transition_face_localization_status"] = "INVALID_ENDPOINT"
+        return evidence
+    left_indices = _departure_source_indices(edges_m, left.trial.trace.departure_faces_m)
+    right_indices = _departure_source_indices(edges_m, right.trial.trace.departure_faces_m)
+    if left_indices.shape != right_indices.shape:
+        evidence["transition_face_localization_status"] = "SOURCE_INDEX_SHAPE_MISMATCH"
+        return evidence
+    changed = np.flatnonzero(left_indices != right_indices)
+    evidence["changed_departure_face_count"] = int(changed.size)
+    if not changed.size:
+        evidence["transition_face_localization_status"] = "SIGNATURE_HASH_WITHOUT_SOURCE_INDEX_DIFFERENCE"
+        return evidence
+    evidence["first_changed_departure_face_index"] = int(changed[0])
+    evidence["last_changed_departure_face_index"] = int(changed[-1])
+    preview: list[dict[str, Any]] = []
+    for face_index in changed[:SIGNATURE_FACE_PREVIEW]:
+        index = int(face_index)
+        left_cell = int(left_indices[index])
+        right_cell = int(right_indices[index])
+        preview.append(
+            {
+                "departure_face_index": index,
+                "left_source_cell_index": left_cell,
+                "right_source_cell_index": right_cell,
+                "left_departure_radius_m": float(left.trial.trace.departure_faces_m[index]),
+                "right_departure_radius_m": float(right.trial.trace.departure_faces_m[index]),
+                "left_source_cell_left_edge_m": float(edges_m[left_cell]),
+                "left_source_cell_right_edge_m": float(edges_m[left_cell + 1]),
+                "right_source_cell_left_edge_m": float(edges_m[right_cell]),
+                "right_source_cell_right_edge_m": float(edges_m[right_cell + 1]),
+            }
+        )
+    evidence["changed_departure_faces_preview"] = preview
+    evidence["transition_face_localization_status"] = "FACE_AND_SOURCE_CELL_LOCATED"
+    return evidence
 
 
 def _scalar_scan(
@@ -710,110 +957,506 @@ def _scalar_scan(
     edges_m: np.ndarray,
     interval: Mapping[str, float],
     raw_rows: Sequence[Mapping[str, Any]],
+    cycles: Sequence[Mapping[str, Any]],
     coarse_points: int,
     refinement_depth: int,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Scan the physical interval and make deterministic local refinements."""
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, Any],
+    EvaluationBudget,
+]:
+    """Run a bounded, targeted audit of the immutable step-245 scalar map.
 
-    if coarse_points < 128:
-        raise DiagnosticError("coarse scalar-map scan must contain at least 128 points")
-    values = np.linspace(float(interval["x_min"]), float(interval["x_max"]), coarse_points, dtype=np.float64)
-    evaluations = [closure_map.evaluate(float(value), phase="scalar_scan") for value in values]
-    rows = [_trial_row(item, edges_m=edges_m, previous_trial=None) for item in evaluations]
-    candidate_intervals: set[tuple[float, float, str]] = set()
-    # Only adjacent points in the original coarse grid may form a bracket.
-    # Joining two valid values across an invalid trial would create a false
-    # sign change through an unphysical map segment.
-    for (left_eval, left_row), (right_eval, right_row) in zip(
-        zip(evaluations, rows), zip(evaluations[1:], rows[1:])
-    ):
-        if left_eval.trial is None or right_eval.trial is None:
-            continue
-        left_x = float(left_eval.x_guess)
-        right_x = float(right_eval.x_guess)
-        left_f = float(left_row["F_signed"])
-        right_f = float(right_row["F_signed"])
-        if left_f == 0.0 or right_f == 0.0 or left_f * right_f < 0.0:
-            candidate_intervals.add((left_x, right_x, "F_sign_change"))
-        if left_row["departure_signature_hash"] != right_row["departure_signature_hash"]:
-            candidate_intervals.add((left_x, right_x, "departure_signature_change"))
+    A finite sampled map can discover roots, multiple disjoint roots, branch
+    switches, or a failure to evaluate.  It cannot prove the absence or
+    uniqueness of roots without an interval/analytic enclosure.  The audit
+    records that distinction explicitly and leaves those global claims open.
+    """
 
-    raw_values = [
-        float(value)
-        for row in raw_rows
-        for value in (row.get("x_guess"), row.get("x_closure"))
-        if isinstance(value, (float, int)) and math.isfinite(float(value))
-    ]
-    if raw_values:
-        left = max(float(interval["x_min"]), min(raw_values))
-        right = min(float(interval["x_max"]), max(raw_values))
-        if right > left:
-            candidate_intervals.add((left, right, "raw_picard_attractor_span"))
+    if coarse_points != COARSE_SCAN_POINTS:
+        raise DiagnosticError(f"coarse scalar-map scan must use exactly {COARSE_SCAN_POINTS} points")
+    if refinement_depth < 0:
+        raise DiagnosticError("refinement depth must be non-negative")
+    x_min = float(interval["x_min"])
+    x_max = float(interval["x_max"])
+    if not x_max > x_min:
+        raise DiagnosticError("scalar-map scan interval must be nonempty")
 
+    budget = EvaluationBudget(
+        closure_map=closure_map,
+        maximum_new_evaluations=MAX_POST_RAW_MAP_EVALUATIONS,
+        start_evaluation_count=len(closure_map.evaluations),
+    )
+    scan_cache: dict[str, Evaluation] = {}
     refined_rows: list[dict[str, Any]] = []
-    root_brackets: list[dict[str, Any]] = []
-    cache: dict[str, Evaluation] = {item.x_guess.hex(): item for item in evaluations}
+    invalid_intervals: list[dict[str, Any]] = []
+    cross_signature_sign_changes: list[dict[str, Any]] = []
+    sign_candidates: dict[tuple[str, str], dict[str, Any]] = {}
+    point_candidates: dict[str, dict[str, Any]] = {}
+    signature_candidates: dict[tuple[str, str], dict[str, Any]] = {}
 
-    def evaluate(value: float, phase: str) -> Evaluation:
-        key = float(value).hex()
-        if key in cache:
-            cached = cache[key]
-            return Evaluation(
-                evaluation_id=cached.evaluation_id,
-                phase=f"{phase}:cached",
-                x_guess=cached.x_guess,
-                trial=cached.trial,
-                state_hash_before=cached.state_hash_before,
-                state_hash_after=cached.state_hash_after,
-                error_type=cached.error_type,
-                error_message=cached.error_message,
-            )
-        item = closure_map.evaluate(float(value), phase=phase)
-        cache[key] = item
+    def evaluate(value: float, phase: str) -> Evaluation | None:
+        item = budget.evaluate(float(value), phase=phase)
+        if item is not None:
+            scan_cache.setdefault(float(value).hex(), item)
         return item
 
-    for left0, right0, reason in sorted(candidate_intervals):
-        left = evaluate(left0, "scalar_refine_endpoint")
-        right = evaluate(right0, "scalar_refine_endpoint")
-        if left.trial is None or right.trial is None:
-            root_brackets.append(
-                {
-                    "reason": reason,
-                    "left_x": left0,
-                    "right_x": right0,
-                    "status": "INVALID_ENDPOINT",
-                }
-            )
-            continue
-        for depth in range(refinement_depth):
-            midpoint = 0.5 * (left.x_guess + right.x_guess)
-            if midpoint == left.x_guess or midpoint == right.x_guess:
-                break
-            middle = evaluate(midpoint, "scalar_refine")
-            refined_rows.append(_trial_row(middle, edges_m=edges_m, previous_trial=None))
-            if middle.trial is None:
-                break
+    def row_for(item: Evaluation) -> dict[str, Any]:
+        return _trial_row(item, edges_m=edges_m, previous_trial=None)
+
+    def add_point_candidate(item: Evaluation | None, *, reason: str, priority: int) -> None:
+        if item is None or item.trial is None:
+            return
+        key = item.x_guess.hex()
+        row = row_for(item)
+        existing = point_candidates.get(key)
+        if existing is not None:
+            existing["candidate_reasons"].append(reason)
+            existing["candidate_priority"] = min(int(existing["candidate_priority"]), priority)
+            return
+        point_candidates[key] = {
+            "bracket_kind": "POINT_CANDIDATE",
+            "reason": reason,
+            "candidate_reasons": [reason],
+            "candidate_priority": priority,
+            "left_x": item.x_guess,
+            "right_x": item.x_guess,
+            "left_F": row.get("F_signed", math.nan),
+            "right_F": row.get("F_signed", math.nan),
+            "left_signature": row.get("departure_signature_hash", ""),
+            "right_signature": row.get("departure_signature_hash", ""),
+            "final_width": 0.0,
+            "sign_change": False,
+            "status": "POINT_RESIDUAL_CANDIDATE",
+        }
+
+    def add_sign_candidate(
+        left: Evaluation | None,
+        right: Evaluation | None,
+        *,
+        reason: str,
+        priority: int,
+    ) -> None:
+        if left is None or right is None or left.trial is None or right.trial is None:
+            return
+        if right.x_guess < left.x_guess:
+            left, right = right, left
+        if not right.x_guess > left.x_guess:
+            return
+        key = (left.x_guess.hex(), right.x_guess.hex())
+        existing = sign_candidates.get(key)
+        if existing is not None:
+            existing["candidate_reasons"].append(reason)
+            existing["candidate_priority"] = min(int(existing["candidate_priority"]), priority)
+            return
+        left_row = row_for(left)
+        right_row = row_for(right)
+        sign_candidates[key] = {
+            "bracket_kind": "SIGN_CHANGE",
+            "reason": reason,
+            "candidate_reasons": [reason],
+            "candidate_priority": priority,
+            "left_x": left.x_guess,
+            "right_x": right.x_guess,
+            "left_F": float(left.trial.signed_xb_residual),
+            "right_F": float(right.trial.signed_xb_residual),
+            "left_signature": left_row.get("departure_signature_hash", ""),
+            "right_signature": right_row.get("departure_signature_hash", ""),
+            "final_width": right.x_guess - left.x_guess,
+            "sign_change": True,
+            "status": "SIGN_CHANGE_CANDIDATE",
+        }
+
+    def add_signature_candidate(
+        left: Evaluation | None,
+        right: Evaluation | None,
+        *,
+        reason: str,
+        priority: int,
+    ) -> None:
+        if left is None or right is None or left.trial is None or right.trial is None:
+            return
+        if right.x_guess < left.x_guess:
+            left, right = right, left
+        left_row = row_for(left)
+        right_row = row_for(right)
+        if left_row.get("departure_signature_hash") == right_row.get("departure_signature_hash"):
+            return
+        key = (left.x_guess.hex(), right.x_guess.hex())
+        existing = signature_candidates.get(key)
+        if existing is not None:
+            existing["candidate_reasons"].append(reason)
+            existing["candidate_priority"] = min(int(existing["candidate_priority"]), priority)
+            return
+        signature_candidates[key] = {
+            "left_x": left.x_guess,
+            "right_x": right.x_guess,
+            "candidate_reasons": [reason],
+            "candidate_priority": priority,
+            "_left": left,
+            "_right": right,
+        }
+
+    def inspect_sequence(
+        evaluations: Sequence[Evaluation],
+        *,
+        reason_prefix: str,
+        sign_priority: int,
+        point_priority: int,
+        signature_priority: int,
+    ) -> None:
+        for item in evaluations:
+            if item.trial is not None and abs(float(item.trial.signed_xb_residual)) <= float(item.trial.xb_tolerance):
+                add_point_candidate(
+                    item,
+                    reason=f"{reason_prefix}_RESIDUAL_TOLERANCE",
+                    priority=point_priority,
+                )
+        for left, right in zip(evaluations, evaluations[1:]):
+            if left.trial is None or right.trial is None:
+                invalid_intervals.append(
+                    {
+                        "bracket_kind": "INVALID_INTERVAL",
+                        "reason": f"{reason_prefix}_INVALID_TRIAL",
+                        "left_x": left.x_guess,
+                        "right_x": right.x_guess,
+                        "status": "INVALID_ENDPOINT",
+                        "sign_change": False,
+                    }
+                )
+                continue
             left_f = float(left.trial.signed_xb_residual)
-            middle_f = float(middle.trial.signed_xb_residual)
             right_f = float(right.trial.signed_xb_residual)
-            if middle_f == 0.0:
-                left = right = middle
-                break
-            if left_f * middle_f <= 0.0:
-                right = middle
-            elif middle_f * right_f <= 0.0:
-                left = middle
-            else:
-                # Signature-only refinement is centered deterministically.
-                if abs(left_f) <= abs(right_f):
-                    right = middle
+            left_signature = row_for(left).get("departure_signature_hash", "")
+            right_signature = row_for(right).get("departure_signature_hash", "")
+            sign_change = (left_f < 0.0 < right_f) or (right_f < 0.0 < left_f)
+            if sign_change:
+                if left_signature == right_signature:
+                    add_sign_candidate(
+                        left,
+                        right,
+                        reason=f"{reason_prefix}_F_SIGN_CHANGE",
+                        priority=sign_priority,
+                    )
                 else:
-                    left = middle
-        left_row = _trial_row(left, edges_m=edges_m, previous_trial=None)
-        right_row = _trial_row(right, edges_m=edges_m, previous_trial=None)
-        root_brackets.append(
+                    cross_signature_sign_changes.append(
+                        {
+                            "bracket_kind": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION",
+                            "reason": f"{reason_prefix}_F_SIGN_CHANGE",
+                            "left_x": left.x_guess,
+                            "right_x": right.x_guess,
+                            "left_F": left_f,
+                            "right_F": right_f,
+                            "left_signature": left_signature,
+                            "right_signature": right_signature,
+                            "final_width": right.x_guess - left.x_guess,
+                            "sign_change": True,
+                            "root_search_selected": False,
+                            "status": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION_UNRESOLVED",
+                        }
+                    )
+            if left_signature != right_signature:
+                add_signature_candidate(
+                    left,
+                    right,
+                    reason=f"{reason_prefix}_DEPARTURE_SIGNATURE_CHANGE",
+                    priority=min(signature_priority, 1) if sign_change else signature_priority,
+                )
+
+    coarse_values = np.linspace(x_min, x_max, coarse_points, dtype=np.float64)
+    coarse_evaluations: list[Evaluation] = []
+    for value in coarse_values:
+        item = evaluate(float(value), "scalar_coarse_scan")
+        if item is None:
+            raise DiagnosticError("post-Picard budget cannot cover the required coarse scalar scan")
+        coarse_evaluations.append(item)
+    coarse_evaluations.sort(key=lambda item: item.x_guess)
+    inspect_sequence(
+        coarse_evaluations,
+        reason_prefix="COARSE_SCAN",
+        sign_priority=0,
+        point_priority=1,
+        signature_priority=2,
+    )
+
+    coarse_spacing = (x_max - x_min) / float(coarse_points - 1)
+    successful_raw_values = [
+        min(x_max, max(x_min, float(row["x_guess"])))
+        for row in raw_rows
+        if not row.get("error_type", "")
+        and isinstance(row.get("x_guess"), (int, float))
+        and math.isfinite(float(row["x_guess"]))
+    ]
+    tail_values = successful_raw_values[-RAW_ATTRACTOR_TAIL_POINTS:]
+    target_specs: list[dict[str, Any]] = []
+
+    def add_target_spec(values: Sequence[float], *, reason: str, priority: int) -> None:
+        if not values:
+            return
+        left = max(x_min, min(values) - 0.5 * coarse_spacing)
+        right = min(x_max, max(values) + 0.5 * coarse_spacing)
+        if right < left:
+            return
+        key = (left.hex(), right.hex())
+        for existing in target_specs:
+            if existing["key"] == key:
+                existing["reasons"].append(reason)
+                existing["priority"] = min(int(existing["priority"]), priority)
+                return
+        target_specs.append(
             {
-                "reason": reason,
+                "key": key,
+                "left_x": left,
+                "right_x": right,
+                "reasons": [reason],
+                "priority": priority,
+            }
+        )
+
+    add_target_spec(tail_values, reason="RAW_PICARD_ATTRACTOR_SPAN", priority=0)
+    final_cycle_iteration = max((int(row.get("iteration", 0)) for row in cycles), default=0)
+    primitive_periods = sorted(
+        {
+            int(row["period"])
+            for row in cycles
+            if int(row.get("iteration", 0)) == final_cycle_iteration
+            and bool(row.get("primitive_exact_period"))
+        }
+    )
+    cycle_phase_values: list[float] = []
+    if primitive_periods:
+        period = primitive_periods[0]
+        cycle_phase_values = successful_raw_values[-period:]
+        add_target_spec(cycle_phase_values, reason="EXACT_CYCLE_PHASE_SPAN", priority=1)
+    raw_or_cycle_probe_values = sorted({float(item) for item in tail_values + cycle_phase_values})
+    raw_or_cycle_evaluations: list[Evaluation] = []
+    for value in raw_or_cycle_probe_values:
+        probe_phase = (
+            "exact_cycle_phase_probe" if value in set(cycle_phase_values) else "raw_picard_attractor_probe"
+        )
+        item = evaluate(value, probe_phase)
+        if item is not None:
+            raw_or_cycle_evaluations.append(item)
+    if raw_or_cycle_evaluations:
+        raw_or_cycle_evaluations.sort(key=lambda item: item.x_guess)
+        inspect_sequence(
+            raw_or_cycle_evaluations,
+            reason_prefix="RAW_TAIL_OR_EXACT_CYCLE",
+            sign_priority=0,
+            point_priority=0,
+            signature_priority=0,
+        )
+
+    local_minima: list[tuple[float, float]] = []
+    for left, middle, right in zip(
+        coarse_evaluations,
+        coarse_evaluations[1:],
+        coarse_evaluations[2:],
+    ):
+        if left.trial is None or middle.trial is None or right.trial is None:
+            continue
+        if len(
+            {
+                row_for(left).get("departure_signature_hash", ""),
+                row_for(middle).get("departure_signature_hash", ""),
+                row_for(right).get("departure_signature_hash", ""),
+            }
+        ) != 1:
+            continue
+        middle_abs = abs(float(middle.trial.signed_xb_residual))
+        if (
+            middle_abs <= abs(float(left.trial.signed_xb_residual))
+            and middle_abs <= abs(float(right.trial.signed_xb_residual))
+        ):
+            local_minima.append((middle_abs, middle.x_guess))
+    for _residual, value in sorted(local_minima, key=lambda item: (item[0], item[1])):
+        add_target_spec([value], reason="COARSE_LOCAL_ABS_F_MINIMUM", priority=2)
+    target_specs.sort(key=lambda item: (int(item["priority"]), float(item["left_x"]), float(item["right_x"])))
+    selected_target_specs = target_specs[:MAX_TARGETED_LOCAL_REGIONS]
+    omitted_target_specs = target_specs[MAX_TARGETED_LOCAL_REGIONS:]
+    subdivisions = 1 << min(int(refinement_depth), MAX_LOCAL_REFINEMENT_DEPTH)
+    targeted_region_audit: list[dict[str, Any]] = []
+    for spec in selected_target_specs:
+        before_count = budget.new_evaluation_count
+        values = np.linspace(
+            float(spec["left_x"]),
+            float(spec["right_x"]),
+            subdivisions + 1,
+            dtype=np.float64,
+        )
+        region_evaluations: list[Evaluation] = []
+        status = "TARGETED_REFINEMENT_COMPLETE"
+        for value in values:
+            item = evaluate(float(value), "targeted_scalar_refinement")
+            if item is None:
+                status = "TARGETED_REFINEMENT_EVALUATION_BUDGET_EXHAUSTED"
+                break
+            region_evaluations.append(item)
+            refined_rows.append(row_for(item))
+        if region_evaluations:
+            region_evaluations.sort(key=lambda item: item.x_guess)
+            inspect_sequence(
+                region_evaluations,
+                reason_prefix="TARGETED_REFINEMENT",
+                sign_priority=1,
+                point_priority=1,
+                signature_priority=1,
+            )
+        targeted_region_audit.append(
+            {
+                "left_x": float(spec["left_x"]),
+                "right_x": float(spec["right_x"]),
+                "reasons": list(spec["reasons"]),
+                "status": status,
+                "planned_lattice_points": int(subdivisions + 1),
+                "evaluated_lattice_points": len(region_evaluations),
+                "new_map_evaluations": budget.new_evaluation_count - before_count,
+            }
+        )
+    for spec in omitted_target_specs:
+        targeted_region_audit.append(
+            {
+                "left_x": float(spec["left_x"]),
+                "right_x": float(spec["right_x"]),
+                "reasons": list(spec["reasons"]),
+                "status": "TARGETED_REFINEMENT_UNEXAMINED_REGION_BUDGET",
+                "planned_lattice_points": int(subdivisions + 1),
+                "evaluated_lattice_points": 0,
+                "new_map_evaluations": 0,
+            }
+        )
+
+    for raw in raw_rows:
+        value = raw.get("x_guess")
+        residual = raw.get("abs_F")
+        tolerance = raw.get("xB_tolerance")
+        if (
+            isinstance(value, (float, int))
+            and isinstance(residual, (float, int))
+            and isinstance(tolerance, (float, int))
+            and math.isfinite(float(value))
+            and float(residual) <= float(tolerance)
+        ):
+            add_point_candidate(
+                evaluate(float(value), "raw_picard_root_probe"),
+                reason="RAW_PICARD_RESIDUAL_TOLERANCE",
+                priority=0,
+            )
+
+    signature_groups = _group_contiguous_interval_records(list(signature_candidates.values()))
+    signature_groups.sort(
+        key=lambda group: (
+            min(int(record["candidate_priority"]) for record in group["records"]),
+            float(group["left_x"]),
+            float(group["right_x"]),
+        )
+    )
+    signature_outputs: list[dict[str, Any]] = []
+    selected_signature_groups = signature_groups[:MAX_SIGNATURE_TRANSITION_REGIONS]
+    omitted_signature_groups = signature_groups[MAX_SIGNATURE_TRANSITION_REGIONS:]
+    for transition_id, group in enumerate(selected_signature_groups, start=1):
+        def signature_pair(record: Mapping[str, Any]) -> tuple[str, str]:
+            return (
+                str(row_for(record["_left"]).get("departure_signature_hash", "")),
+                str(row_for(record["_right"]).get("departure_signature_hash", "")),
+            )
+
+        signature_pairs_in_group = sorted({signature_pair(record) for record in group["records"]})
+        representative = min(
+            group["records"],
+            key=lambda record: float(record["right_x"]) - float(record["left_x"]),
+        )
+        left = representative["_left"]
+        right = representative["_right"]
+        initial_left = left
+        initial_right = right
+        multiple_pairs = len(signature_pairs_in_group) > 1
+        status = (
+            "MULTIPLE_SIGNATURE_TRANSITIONS_UNRESOLVED"
+            if multiple_pairs
+            else "SIGNATURE_TRANSITION_UNRESOLVED"
+        )
+        transition_iterations = 0
+        if not multiple_pairs:
+            for iteration in range(1, SIGNATURE_TRANSITION_MAX_ITERATIONS + 1):
+                transition_iterations = iteration
+                midpoint = 0.5 * (left.x_guess + right.x_guess)
+                if midpoint == left.x_guess or midpoint == right.x_guess:
+                    break
+                middle = evaluate(midpoint, "signature_transition_refinement")
+                if middle is None:
+                    status = "SIGNATURE_TRANSITION_EVALUATION_BUDGET_EXHAUSTED"
+                    break
+                middle_row = row_for(middle)
+                refined_rows.append(middle_row)
+                if middle.trial is None:
+                    status = "SIGNATURE_TRANSITION_INVALID_MIDPOINT"
+                    break
+                left_signature = row_for(left).get("departure_signature_hash", "")
+                middle_signature = middle_row.get("departure_signature_hash", "")
+                right_signature = row_for(right).get("departure_signature_hash", "")
+                if left_signature != middle_signature and middle_signature != right_signature:
+                    status = "MULTIPLE_SIGNATURE_TRANSITIONS_UNRESOLVED"
+                    break
+                if left_signature != middle_signature:
+                    right = middle
+                elif middle_signature != right_signature:
+                    left = middle
+                else:
+                    status = "SIGNATURE_TRANSITION_NOT_RETAINED"
+                    break
+        if left.trial is not None and right.trial is not None:
+            left_row = row_for(left)
+            right_row = row_for(right)
+            residual_jump = abs(float(left.trial.signed_xb_residual) - float(right.trial.signed_xb_residual))
+            jump_tolerance = 8.0 * max(float(left.trial.xb_tolerance), float(right.trial.xb_tolerance))
+            if status == "SIGNATURE_TRANSITION_UNRESOLVED":
+                status = (
+                    "CONTINUOUS_SIGNATURE_TRANSITION_OBSERVED"
+                    if residual_jump <= jump_tolerance
+                    else "SIGNATURE_TRANSITION_RESIDUAL_JUMP_OBSERVED_UNRESOLVED"
+                )
+            if (
+                float(left.trial.signed_xb_residual) < 0.0 < float(right.trial.signed_xb_residual)
+                or float(right.trial.signed_xb_residual) < 0.0 < float(left.trial.signed_xb_residual)
+            ):
+                cross_signature_sign_changes.append(
+                    {
+                        "bracket_kind": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION",
+                        "reason": "SIGNATURE_LOCALIZATION_F_SIGN_CHANGE",
+                        "left_x": left.x_guess,
+                        "right_x": right.x_guess,
+                        "left_F": float(left.trial.signed_xb_residual),
+                        "right_F": float(right.trial.signed_xb_residual),
+                        "left_signature": left_row.get("departure_signature_hash", ""),
+                        "right_signature": right_row.get("departure_signature_hash", ""),
+                        "final_width": right.x_guess - left.x_guess,
+                        "sign_change": True,
+                        "root_search_selected": False,
+                        "status": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION_UNRESOLVED",
+                    }
+                )
+            transition_evidence = _signature_transition_evidence(left, right, edges_m=edges_m)
+        else:
+            left_row = row_for(left)
+            right_row = row_for(right)
+            residual_jump = math.nan
+            jump_tolerance = math.nan
+            transition_evidence = _signature_transition_evidence(left, right, edges_m=edges_m)
+        signature_outputs.append(
+            {
+                "bracket_kind": "SIGNATURE_TRANSITION",
+                "reason": ";".join(
+                    sorted({reason for record in group["records"] for reason in record["candidate_reasons"]})
+                ),
+                "transition_id": transition_id,
+                "coarse_or_targeted_pair_count": len(group["records"]),
+                "distinct_signature_pair_count": len(signature_pairs_in_group),
+                "signature_pairs_observed": [list(pair) for pair in signature_pairs_in_group],
+                "initial_left_x": initial_left.x_guess,
+                "initial_right_x": initial_right.x_guess,
                 "left_x": left.x_guess,
                 "right_x": right.x_guess,
                 "left_F": left_row.get("F_signed", math.nan),
@@ -821,16 +1464,175 @@ def _scalar_scan(
                 "left_signature": left_row.get("departure_signature_hash", ""),
                 "right_signature": right_row.get("departure_signature_hash", ""),
                 "final_width": right.x_guess - left.x_guess,
+                "residual_jump": residual_jump,
+                "jump_tolerance": jump_tolerance,
+                "transition_iterations": transition_iterations,
                 "sign_change": (
                     left.trial is not None
                     and right.trial is not None
-                    and float(left.trial.signed_xb_residual) * float(right.trial.signed_xb_residual) <= 0.0
+                    and (
+                        float(left.trial.signed_xb_residual) < 0.0 < float(right.trial.signed_xb_residual)
+                        or float(right.trial.signed_xb_residual) < 0.0 < float(left.trial.signed_xb_residual)
+                    )
                 ),
-                "status": "REFINED",
+                "continuity_theory_status": "NOT_PROVEN_BY_READ_ONLY_SCALAR_AUDIT",
+                "status": status,
+                **transition_evidence,
             }
         )
-    all_rows = rows + refined_rows
-    return all_rows, root_brackets, refined_rows
+    for group in omitted_signature_groups:
+        representative = min(
+            group["records"],
+            key=lambda record: float(record["right_x"]) - float(record["left_x"]),
+        )
+        left = representative["_left"]
+        right = representative["_right"]
+        signature_outputs.append(
+            {
+                "bracket_kind": "SIGNATURE_TRANSITION",
+                "reason": ";".join(
+                    sorted({reason for record in group["records"] for reason in record["candidate_reasons"]})
+                ),
+                "transition_id": None,
+                "coarse_or_targeted_pair_count": len(group["records"]),
+                "initial_left_x": left.x_guess,
+                "initial_right_x": right.x_guess,
+                "left_x": left.x_guess,
+                "right_x": right.x_guess,
+                "final_width": right.x_guess - left.x_guess,
+                "transition_iterations": 0,
+                "continuity_theory_status": "NOT_PROVEN_BY_READ_ONLY_SCALAR_AUDIT",
+                "status": "SIGNATURE_TRANSITION_UNEXAMINED_REGION_BUDGET",
+                **_signature_transition_evidence(left, right, edges_m=edges_m),
+            }
+        )
+
+    def select_root_candidates(
+        candidates: Sequence[dict[str, Any]], *, maximum: int, selected_status: str, omitted_status: str
+    ) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        ordered = sorted(
+            candidates,
+            key=lambda record: (
+                int(record["candidate_priority"]),
+                float(record["left_x"]),
+                float(record["right_x"]),
+            ),
+        )
+        for index, candidate in enumerate(ordered):
+            output = dict(candidate)
+            output["reason"] = ";".join(sorted(set(output["candidate_reasons"])))
+            output["root_search_selected"] = index < maximum
+            output["status"] = selected_status if index < maximum else omitted_status
+            del output["candidate_priority"]
+            selected.append(output)
+        return selected
+
+    sign_outputs = select_root_candidates(
+        list(sign_candidates.values()),
+        maximum=MAX_SIGN_CHANGE_ROOT_BRACKETS,
+        selected_status="SELECTED_FOR_ROOT_SEARCH",
+        omitted_status="SIGN_CHANGE_UNEXAMINED_ROOT_BRACKET_BUDGET",
+    )
+    point_outputs = select_root_candidates(
+        list(point_candidates.values()),
+        maximum=MAX_POINT_ROOT_CANDIDATES,
+        selected_status="SELECTED_FOR_ROOT_SEARCH",
+        omitted_status="POINT_CANDIDATE_UNEXAMINED_ROOT_BRACKET_BUDGET",
+    )
+    root_brackets = (
+        invalid_intervals
+        + sign_outputs
+        + point_outputs
+        + cross_signature_sign_changes
+        + signature_outputs
+    )
+
+    scalar_evaluations = sorted(scan_cache.values(), key=lambda item: item.x_guess)
+    scalar_rows = [row_for(item) for item in scalar_evaluations]
+    branches: list[list[dict[str, Any]]] = []
+    current_branch: list[dict[str, Any]] = []
+    invalid_scalar_trial = False
+    for row in scalar_rows:
+        if row.get("error_type", ""):
+            invalid_scalar_trial = True
+            if current_branch:
+                branches.append(current_branch)
+                current_branch = []
+            continue
+        if current_branch and row.get("departure_signature_hash") != current_branch[-1].get("departure_signature_hash"):
+            branches.append(current_branch)
+            current_branch = []
+        current_branch.append(row)
+    if current_branch:
+        branches.append(current_branch)
+    branch_monotonicity: list[dict[str, Any]] = []
+    for branch in branches:
+        residuals = [float(row["F_signed"]) for row in branch]
+        nondecreasing = all(right >= left for left, right in zip(residuals, residuals[1:]))
+        nonincreasing = all(right <= left for left, right in zip(residuals, residuals[1:]))
+        branch_monotonicity.append(
+            {
+                "point_count": len(branch),
+                "left_x": branch[0]["x_guess"],
+                "right_x": branch[-1]["x_guess"],
+                "nondecreasing": nondecreasing,
+                "nonincreasing": nonincreasing,
+                "monotonic_on_finite_sample_only": nondecreasing or nonincreasing,
+            }
+        )
+
+    unexamined_sign_brackets = sum(not bool(row["root_search_selected"]) for row in sign_outputs)
+    unexamined_point_candidates = sum(not bool(row["root_search_selected"]) for row in point_outputs)
+    unexamined_target_regions = len(omitted_target_specs) + sum(
+        item["status"] == "TARGETED_REFINEMENT_EVALUATION_BUDGET_EXHAUSTED"
+        for item in targeted_region_audit
+    )
+    transition_statuses = [str(row["status"]) for row in signature_outputs]
+    scan_audit = {
+        "scan_strategy": "COARSE_257_PLUS_BOUNDED_TARGETED_REFINEMENT_V1",
+        "coarse_scan_points": len(coarse_evaluations),
+        "targeted_refinement_depth_requested": int(refinement_depth),
+        "targeted_refinement_depth_applied": min(int(refinement_depth), MAX_LOCAL_REFINEMENT_DEPTH),
+        "targeted_refinement_lattice_points_per_region": int(subdivisions + 1),
+        "targeted_region_candidates": len(target_specs),
+        "targeted_region_budget": MAX_TARGETED_LOCAL_REGIONS,
+        "targeted_regions": targeted_region_audit,
+        "unexamined_target_regions": int(unexamined_target_regions),
+        "coarse_local_abs_f_minimum_candidates": len(local_minima),
+        "raw_picard_attractor_tail_points": len(tail_values),
+        "primitive_exact_cycle_periods": primitive_periods,
+        "exact_cycle_phase_probe_count": len(cycle_phase_values),
+        "invalid_scalar_trial": invalid_scalar_trial,
+        "sign_change_bracket_candidates": len(sign_outputs),
+        "sign_change_root_bracket_budget": MAX_SIGN_CHANGE_ROOT_BRACKETS,
+        "unexamined_sign_change_brackets": int(unexamined_sign_brackets),
+        "cross_signature_sign_change_count": len(cross_signature_sign_changes),
+        "point_root_candidates": len(point_outputs),
+        "point_root_candidate_budget": MAX_POINT_ROOT_CANDIDATES,
+        "unexamined_point_root_candidates": int(unexamined_point_candidates),
+        "signature_transition_region_candidates": len(signature_groups),
+        "signature_transition_region_budget": MAX_SIGNATURE_TRANSITION_REGIONS,
+        "unexamined_signature_transition_regions": len(omitted_signature_groups),
+        "signature_transition_statuses": transition_statuses,
+        "finite_scan_branch_monotonicity_observed": branch_monotonicity,
+        "finite_audit_complete_under_declared_budget": bool(
+            not budget.exhausted
+            and not unexamined_target_regions
+            and not unexamined_sign_brackets
+            and not unexamined_point_candidates
+            and not omitted_signature_groups
+        ),
+        "root_count_certified": False,
+        "scan_based_root_count_certified": False,
+        "root_count_certification_status": "UNRESOLVED_NO_INTERVAL_OR_ANALYTIC_ENCLOSURE",
+        "root_count_certification_reason": (
+            "finite sampled branch behavior can discover evidence but cannot prove no or unique "
+            "physical scalar root; no interval/analytic enclosure is implemented in this diagnostic"
+        ),
+        "evaluation_budget": budget.audit(),
+    }
+    return scalar_rows, root_brackets, refined_rows, scan_audit, budget
 
 
 def _solve_brackets(
@@ -838,106 +1640,326 @@ def _solve_brackets(
     *,
     edges_m: np.ndarray,
     brackets: Sequence[Mapping[str, Any]],
+    budget: EvaluationBudget,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Bisection only on actual sign-changing brackets; never commit a trial."""
+    """Verify selected point candidates and same-branch sign brackets read-only."""
 
     solutions: list[dict[str, Any]] = []
     audit_rows: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
+
+    def location_tolerance(*items: Evaluation) -> float:
+        tolerances = [
+            float(item.trial.xb_tolerance)
+            for item in items
+            if item.trial is not None and math.isfinite(float(item.trial.xb_tolerance))
+        ]
+        scale = max((abs(item.x_guess) for item in items), default=1.0)
+        return max(8.0 * max(tolerances, default=0.0), MACHINE_EPS_FACTOR * np.finfo(np.float64).eps * scale)
+
+    def verified_solution(
+        *,
+        bracket_id: int,
+        bracket: Mapping[str, Any],
+        candidate: Evaluation | None,
+        left: Evaluation,
+        right: Evaluation,
+        stop: str,
+        signature_changed: bool,
+        signature_authoritative: bool,
+    ) -> dict[str, Any]:
+        root_row = _trial_row(candidate, edges_m=edges_m, previous_trial=None) if candidate is not None else {}
+        verification: Evaluation | None = None
+        verify_row: dict[str, Any] = {}
+        population_residual = math.nan
+        candidate_inventory_residual = math.nan
+        verification_inventory_residual = math.nan
+        candidate_nonnegative = False
+        verification_nonnegative = False
+        accepted = False
+        verification_status = "NOT_ATTEMPTED"
+        candidate_scalar_valid = bool(
+            candidate is not None
+            and candidate.trial is not None
+            and abs(float(candidate.trial.signed_xb_residual)) <= float(candidate.trial.xb_tolerance)
+        )
+        if candidate_scalar_valid and candidate is not None and candidate.trial is not None:
+            candidate_inventory_residual = float(candidate.trial.inventory.relative_residual)
+            candidate_nonnegative = bool(np.all(np.asarray(candidate.trial.cell_number_m3) >= 0.0))
+            verification = budget.evaluate(
+                float(candidate.trial.matrix_xb), phase="root_map_verification"
+            )
+            if verification is None:
+                verification_status = "EVALUATION_BUDGET_EXHAUSTED"
+            else:
+                verification_status = "COMPLETED"
+                verify_row = _trial_row(verification, edges_m=edges_m, previous_trial=None)
+            if verification is not None and verification.trial is not None:
+                verification_inventory_residual = float(verification.trial.inventory.relative_residual)
+                verification_nonnegative = bool(
+                    np.all(np.asarray(verification.trial.cell_number_m3) >= 0.0)
+                )
+                population_residual = closure_map.solver._population_observable_residual(
+                    verification.trial.cell_number_m3, candidate.trial.cell_number_m3
+                )
+                accepted = bool(
+                    signature_authoritative
+                    and abs(float(verification.trial.signed_xb_residual)) <= float(verification.trial.xb_tolerance)
+                    and population_residual <= float(closure_map.solver._population_convergence_rtol)
+                    and candidate_inventory_residual <= 1.0e-10
+                    and verification_inventory_residual <= 1.0e-10
+                    and candidate_nonnegative
+                    and verification_nonnegative
+                )
+            elif verification is not None:
+                verification_status = "INVALID_VERIFICATION_TRIAL"
+        elif candidate is not None:
+            verification_status = "NOT_ATTEMPTED_SCALAR_TOLERANCE_NOT_MET"
+        interval_left = min(left.x_guess, right.x_guess)
+        interval_right = max(left.x_guess, right.x_guess)
+        return {
+            "bracket_id": bracket_id,
+            "bracket_kind": bracket.get("bracket_kind", "SIGN_CHANGE"),
+            "scan_reason": bracket.get("reason", ""),
+            "initial_left_x": float(bracket.get("left_x", left.x_guess)),
+            "initial_right_x": float(bracket.get("right_x", right.x_guess)),
+            "final_left_x": interval_left,
+            "final_right_x": interval_right,
+            "final_width": interval_right - interval_left,
+            "root_interval_left_x": interval_left,
+            "root_interval_right_x": interval_right,
+            "root_location_tolerance": location_tolerance(left, right, *( [candidate] if candidate is not None else [] )),
+            "stop_reason": stop,
+            "signature_changed_within_bracket": signature_changed,
+            "root_authority_signature_continuous": signature_authoritative,
+            "root_found": accepted,
+            "root_candidate_within_scalar_tolerance": candidate_scalar_valid,
+            "root_candidate_within_final_interval": bool(
+                candidate is not None and interval_left <= candidate.x_guess <= interval_right
+            ),
+            "root_xB": root_row.get("x_guess", math.nan),
+            "root_residual": root_row.get("F_signed", math.nan),
+            "root_tolerance": root_row.get("xB_tolerance", math.nan),
+            "verification_residual": verify_row.get("F_signed", math.nan),
+            "verification_tolerance": verify_row.get("xB_tolerance", math.nan),
+            "verification_population_residual": population_residual,
+            "population_tolerance": float(closure_map.solver._population_convergence_rtol),
+            "candidate_inventory_relative_residual": candidate_inventory_residual,
+            "verification_inventory_relative_residual": verification_inventory_residual,
+            "inventory_relative_tolerance": 1.0e-10,
+            "candidate_nonnegative_cells": candidate_nonnegative,
+            "verification_nonnegative_cells": verification_nonnegative,
+            "verification_status": verification_status,
+            "verification_signature": verify_row.get("departure_signature_hash", ""),
+            "root_signature": root_row.get("departure_signature_hash", ""),
+        }
+
     for bracket_id, bracket in enumerate(brackets, start=1):
-        if not bracket.get("sign_change"):
+        kind = str(bracket.get("bracket_kind", "SIGN_CHANGE"))
+        if kind not in {"SIGN_CHANGE", "POINT_CANDIDATE"}:
+            continue
+        if not bool(bracket.get("root_search_selected", True)):
             continue
         left_x = float(bracket["left_x"])
         right_x = float(bracket["right_x"])
-        key = tuple(sorted((left_x.hex(), right_x.hex())))
+        key = (kind, *sorted((left_x.hex(), right_x.hex())))
         if key in seen:
             continue
         seen.add(key)
-        left = closure_map.evaluate(left_x, phase="root_endpoint", reuse=True)
-        right = closure_map.evaluate(right_x, phase="root_endpoint", reuse=True)
-        if left.trial is None or right.trial is None:
-            continue
-        initial_width = right.x_guess - left.x_guess
-        root: Evaluation | None = None
-        verification: Evaluation | None = None
-        stop = "iteration_cap"
-        signature_changed = False
-        endpoint_root = next(
-            (
-                candidate
-                for candidate in (left, right)
-                if candidate.trial is not None
-                and abs(float(candidate.trial.signed_xb_residual)) <= float(candidate.trial.xb_tolerance)
-            ),
-            None,
-        )
-        if endpoint_root is not None:
-            root = endpoint_root
-            verification = closure_map.evaluate(
-                float(endpoint_root.trial.matrix_xb), phase="root_map_verification", reuse=True
+        left = budget.evaluate(left_x, phase="root_endpoint")
+        right = budget.evaluate(right_x, phase="root_endpoint")
+        if left is None or right is None:
+            audit_rows.append(
+                {
+                    "bracket_id": bracket_id,
+                    "bracket_kind": kind,
+                    "root_search_status": "ROOT_SEARCH_EVALUATION_BUDGET_EXHAUSTED_AT_ENDPOINT",
+                    "left_x": left_x,
+                    "right_x": right_x,
+                }
             )
-            stop = "endpoint_residual_tolerance_reached"
+            continue
+        if left.trial is None or right.trial is None:
+            audit_rows.append(
+                {
+                    "bracket_id": bracket_id,
+                    "bracket_kind": kind,
+                    "root_search_status": "ROOT_SEARCH_INVALID_ENDPOINT",
+                    "left_x": left_x,
+                    "right_x": right_x,
+                }
+            )
+            continue
+        if kind == "POINT_CANDIDATE":
+            solutions.append(
+                verified_solution(
+                    bracket_id=bracket_id,
+                    bracket=bracket,
+                    candidate=left,
+                    left=left,
+                    right=right,
+                    stop="point_residual_candidate",
+                    signature_changed=False,
+                    signature_authoritative=True,
+                )
+            )
+            continue
+        if not bool(bracket.get("sign_change")):
+            continue
+        initial_signature = _trial_row(left, edges_m=edges_m, previous_trial=None).get(
+            "departure_signature_hash", ""
+        )
+        right_signature = _trial_row(right, edges_m=edges_m, previous_trial=None).get(
+            "departure_signature_hash", ""
+        )
+        if initial_signature != right_signature:
+            audit_rows.append(
+                {
+                    "bracket_id": bracket_id,
+                    "bracket_kind": kind,
+                    "root_search_status": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION_UNRESOLVED",
+                    "left_x": left.x_guess,
+                    "right_x": right.x_guess,
+                    "left_signature": initial_signature,
+                    "right_signature": right_signature,
+                }
+            )
+            continue
+        stop = "root_location_iteration_cap"
+        signature_changed = False
+        candidate: Evaluation | None = None
+        if abs(float(left.trial.signed_xb_residual)) <= float(left.trial.xb_tolerance):
+            candidate = left
+            right = left
+            stop = "left_endpoint_scalar_tolerance"
+        elif abs(float(right.trial.signed_xb_residual)) <= float(right.trial.xb_tolerance):
+            candidate = right
+            left = right
+            stop = "right_endpoint_scalar_tolerance"
         for iteration in range(1, ROOT_MAX_ITERATIONS + 1):
-            if root is not None:
+            if candidate is not None:
+                break
+            if right.x_guess - left.x_guess <= location_tolerance(left, right):
+                stop = "root_location_interval_closed"
                 break
             midpoint = 0.5 * (left.x_guess + right.x_guess)
             if midpoint == left.x_guess or midpoint == right.x_guess:
                 stop = "binary64_endpoint_coalescence"
                 break
-            middle = closure_map.evaluate(midpoint, phase="root_bisection", reuse=True)
+            middle = budget.evaluate(midpoint, phase="root_bisection")
+            if middle is None:
+                stop = "root_bisection_evaluation_budget_exhausted"
+                audit_rows.append(
+                    {
+                        "bracket_id": bracket_id,
+                        "root_iteration": iteration,
+                        "root_search_status": "ROOT_SEARCH_EVALUATION_BUDGET_EXHAUSTED",
+                    }
+                )
+                break
             row = _trial_row(middle, edges_m=edges_m, previous_trial=None)
             row.update({"bracket_id": bracket_id, "root_iteration": iteration})
             audit_rows.append(row)
             if middle.trial is None:
                 stop = "invalid_midpoint"
                 break
-            signature_changed = signature_changed or (
-                _trial_row(left, edges_m=edges_m, previous_trial=None).get("departure_signature_hash")
-                != row.get("departure_signature_hash")
-                or _trial_row(right, edges_m=edges_m, previous_trial=None).get("departure_signature_hash")
-                != row.get("departure_signature_hash")
-            )
-            if abs(float(middle.trial.signed_xb_residual)) <= float(middle.trial.xb_tolerance):
-                root = middle
-                verification = closure_map.evaluate(
-                    float(middle.trial.matrix_xb), phase="root_map_verification", reuse=True
-                )
-                stop = "residual_tolerance_reached"
+            signature_changed = row.get("departure_signature_hash") != initial_signature
+            if signature_changed:
+                stop = "signature_transition_within_sign_bracket"
                 break
-            if float(left.trial.signed_xb_residual) * float(middle.trial.signed_xb_residual) <= 0.0:
+            middle_f = float(middle.trial.signed_xb_residual)
+            if abs(middle_f) <= float(middle.trial.xb_tolerance):
+                candidate = middle
+                left = right = middle
+                stop = "midpoint_scalar_tolerance"
+                break
+            if float(left.trial.signed_xb_residual) * middle_f < 0.0:
                 right = middle
             else:
                 left = middle
-        root_row = _trial_row(root, edges_m=edges_m, previous_trial=None) if root is not None else {}
-        verify_row = _trial_row(verification, edges_m=edges_m, previous_trial=None) if verification is not None else {}
-        population_residual = math.nan
-        if root is not None and verification is not None and root.trial is not None and verification.trial is not None:
-            population_residual = closure_map.solver._population_observable_residual(
-                verification.trial.cell_number_m3, root.trial.cell_number_m3
+        if candidate is None:
+            candidate = min(
+                (left, right),
+                key=lambda item: abs(float(item.trial.signed_xb_residual)),
             )
         solutions.append(
-            {
-                "bracket_id": bracket_id,
-                "initial_left_x": left_x,
-                "initial_right_x": right_x,
-                "initial_width": initial_width,
-                "final_left_x": left.x_guess,
-                "final_right_x": right.x_guess,
-                "final_width": right.x_guess - left.x_guess,
-                "stop_reason": stop,
-                "signature_changed_within_bracket": signature_changed,
-                "root_found": root is not None,
-                "root_xB": root_row.get("x_guess", math.nan),
-                "root_residual": root_row.get("F_signed", math.nan),
-                "root_tolerance": root_row.get("xB_tolerance", math.nan),
-                "verification_residual": verify_row.get("F_signed", math.nan),
-                "verification_population_residual": population_residual,
-                "population_tolerance": float(closure_map.solver._population_convergence_rtol),
-                "verification_signature": verify_row.get("departure_signature_hash", ""),
-                "root_signature": root_row.get("departure_signature_hash", ""),
-            }
+            verified_solution(
+                bracket_id=bracket_id,
+                bracket=bracket,
+                candidate=candidate,
+                left=left,
+                right=right,
+                stop=stop,
+                signature_changed=signature_changed,
+                signature_authoritative=not signature_changed,
+            )
         )
     return solutions, audit_rows
+
+
+def _cluster_valid_roots(valid_roots: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Merge only roots whose resolved bisection intervals overlap in tolerance.
+
+    A scalar-residual acceptance point is not itself a location certificate:
+    overlapping brackets can legitimately return values many ulps apart.  The
+    final sign-bracket interval is therefore the identity evidence, rather
+    than an arbitrary ulp comparison of two tolerance-valid trial values.
+    """
+
+    ordered: list[dict[str, Any]] = []
+    for row in valid_roots:
+        value = float(row["root_xB"])
+        left = float(row.get("root_interval_left_x", value))
+        right = float(row.get("root_interval_right_x", value))
+        left, right = min(left, right), max(left, right)
+        resolution = max(
+            float(row.get("root_location_tolerance", 0.0)),
+            8.0 * float(row.get("root_tolerance", 0.0)),
+            MACHINE_EPS_FACTOR * np.finfo(np.float64).eps * max(abs(value), 1.0),
+        )
+        ordered.append(
+            {
+                "row": row,
+                "value": value,
+                "left": left,
+                "right": right,
+                "resolution": resolution,
+                "abs_residual": abs(float(row["root_residual"])),
+            }
+        )
+    ordered.sort(key=lambda item: (item["left"], item["right"], item["value"]))
+    clusters: list[dict[str, Any]] = []
+    for item in ordered:
+        if not clusters or item["left"] > clusters[-1]["right"] + max(item["resolution"], clusters[-1]["resolution"]):
+            clusters.append(
+                {
+                    "left": item["left"],
+                    "right": item["right"],
+                    "resolution": item["resolution"],
+                    "members": [item],
+                }
+            )
+            continue
+        cluster = clusters[-1]
+        cluster["left"] = min(float(cluster["left"]), item["left"])
+        cluster["right"] = max(float(cluster["right"]), item["right"])
+        cluster["resolution"] = max(float(cluster["resolution"]), item["resolution"])
+        cluster["members"].append(item)
+    for cluster in clusters:
+        representative = min(cluster["members"], key=lambda item: item["abs_residual"])
+        cluster["root_xB"] = representative["value"]
+        cluster["member_count"] = len(cluster["members"])
+        cluster["member_bracket_ids"] = [item["row"].get("bracket_id") for item in cluster["members"]]
+        cluster["member_bracket_kinds"] = sorted(
+            {str(item["row"].get("bracket_kind", "")) for item in cluster["members"]}
+        )
+        cluster["has_authoritative_sign_bracket"] = any(
+            str(item["row"].get("bracket_kind", "")) == "SIGN_CHANGE"
+            and bool(item["row"].get("root_authority_signature_continuous", False))
+            for item in cluster["members"]
+        )
+        del cluster["members"]
+    return clusters
 
 
 def _classify(
@@ -947,12 +1969,24 @@ def _classify(
     contraction: Mapping[str, Any],
     roots: Sequence[Mapping[str, Any]],
     brackets: Sequence[Mapping[str, Any]],
+    scan_audit: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Choose one required root-cause classification from recorded evidence."""
 
-    exact_cycles = [row for row in cycles if bool(row.get("exact_bitwise_period"))]
+    final_cycle_iteration = max((int(row.get("iteration", 0)) for row in cycles), default=0)
+    exact_cycles = [
+        row
+        for row in cycles
+        if int(row.get("iteration", 0)) == final_cycle_iteration
+        and bool(row.get("primitive_exact_period"))
+    ]
     exact_periods = sorted({int(row["period"]) for row in exact_cycles})
-    machine_cycles = [row for row in cycles if bool(row.get("machine_precision_period"))]
+    machine_cycles = [
+        row
+        for row in cycles
+        if int(row.get("iteration", 0)) == final_cycle_iteration
+        and bool(row.get("primitive_machine_precision_period"))
+    ]
     valid_roots = [
         row
         for row in roots
@@ -960,68 +1994,123 @@ def _classify(
         and math.isfinite(float(row.get("root_residual", math.nan)))
         and abs(float(row["root_residual"])) <= float(row.get("root_tolerance", -1.0))
         and math.isfinite(float(row.get("verification_residual", math.nan)))
-        and abs(float(row["verification_residual"])) <= float(row.get("root_tolerance", -1.0))
+        and abs(float(row["verification_residual"]))
+        <= float(row.get("verification_tolerance", row.get("root_tolerance", -1.0)))
         and math.isfinite(float(row.get("verification_population_residual", math.nan)))
         and float(row["verification_population_residual"])
         <= float(row.get("population_tolerance", math.inf))
     ]
-    unique_root_values: list[float] = []
-    for row in valid_roots:
-        value = float(row["root_xB"])
-        if not any(abs(value - prior) <= 8.0 * np.finfo(np.float64).eps * max(abs(value), abs(prior), 1.0) for prior in unique_root_values):
-            unique_root_values.append(value)
-    # A departure-cell signature transition is a diagnostic refinement trigger,
-    # not by itself a discontinuity: a piecewise-constant CDF remap can change
-    # source cells while retaining a continuous scalar residual.  It becomes a
-    # blocker only when a sign bracket cannot be closed at binary64 resolution.
-    discontinuous = any(
-        bool(row.get("signature_changed_within_bracket"))
-        and not bool(row.get("root_found"))
-        and str(row.get("stop_reason"))
-        in {"binary64_endpoint_coalescence", "iteration_cap", "invalid_midpoint"}
-        for row in roots
-    )
-    direct = [
-        row
-        for row in raw_rows
-        if math.isfinite(float(row.get("abs_F", math.nan)))
-        and float(row["abs_F"]) <= float(row.get("xB_tolerance", -1.0))
+    root_clusters = _cluster_valid_roots(valid_roots)
+    root_values = [float(cluster["root_xB"]) for cluster in root_clusters]
+    authoritative_sign_root_clusters = [
+        cluster for cluster in root_clusters if bool(cluster.get("has_authoritative_sign_bracket", False))
     ]
-    median_q = float(contraction.get("last_64", {}).get("median_q_F", math.nan))
+    scan = dict(scan_audit or {})
+    # This diagnostic deliberately has no interval/analytic enclosure.  No
+    # finite-scan flag, including a stale caller-supplied one, may turn its
+    # sampled observations into a no-root/unique-root certification.
+    root_count_certified = False
+    discontinuity_statuses = {
+        "DISCONTINUITY_CONFIRMED",
+        "SIGNATURE_TRANSITION_RESIDUAL_JUMP_OBSERVED_UNRESOLVED",
+        "MULTIPLE_SIGNATURE_TRANSITIONS_UNRESOLVED",
+        "SIGNATURE_TRANSITION_INVALID_MIDPOINT",
+        "SIGNATURE_TRANSITION_NOT_RETAINED",
+        "SIGNATURE_TRANSITION_EVALUATION_BUDGET_EXHAUSTED",
+        "SIGNATURE_TRANSITION_UNEXAMINED_REGION_BUDGET",
+    }
+    discontinuous = any(
+        str(bracket.get("status", "")) in discontinuity_statuses
+        for bracket in brackets
+        if str(bracket.get("bracket_kind", "")) == "SIGNATURE_TRANSITION"
+    ) or any(
+        str(bracket.get("bracket_kind", "")) == "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION"
+        for bracket in brackets
+    )
+    final_raw = raw_rows[-1] if raw_rows else {}
+    direct = bool(
+        math.isfinite(float(final_raw.get("abs_F", math.nan)))
+        and float(final_raw.get("abs_F", math.nan)) <= float(final_raw.get("xB_tolerance", -1.0))
+        and (
+            bool(final_raw.get("unchanged_from_state244", False))
+            or (
+                math.isfinite(float(final_raw.get("population_observable_residual_to_previous", math.nan)))
+                and float(final_raw.get("population_observable_residual_to_previous", math.inf))
+                <= float(final_raw.get("population_convergence_tolerance", -1.0))
+            )
+        )
+    )
+    tail_contraction = contraction.get("last_64", {})
+    median_q = float(tail_contraction.get("median_q_F", math.nan))
+    monotone_contraction = bool(tail_contraction.get("monotone_residual_nonincreasing", False))
+    predicted_remaining = tail_contraction.get("predicted_remaining_iterations_to_xB_tolerance")
+    extended_picard_reasonable = bool(tail_contraction.get("extended_picard_within_reasonable_budget", False))
     final_residual = float(raw_rows[-1].get("abs_F", math.nan)) if raw_rows else math.nan
     final_tolerance = float(raw_rows[-1].get("xB_tolerance", math.nan)) if raw_rows else math.nan
-    if len(unique_root_values) > 1:
+    if len(authoritative_sign_root_clusters) > 1:
         classification = "STEP245_MULTIPLE_ADMISSIBLE_ROOTS"
-    elif discontinuous and not unique_root_values:
+    elif discontinuous:
         classification = "STEP245_DISCONTINUOUS_REMAP_ROOT_UNRESOLVED"
-    elif not unique_root_values:
-        classification = "STEP245_NO_ADMISSIBLE_ROOT_AT_CURRENT_DT"
-    elif exact_periods:
+    elif direct:
+        # A direct raw-Picard convergence observation establishes a closure on
+        # that trajectory, but this finite audit still does not establish that
+        # it is the only physical root in the full interval.
+        classification = "OTHER_WITH_EXPLICIT_EVIDENCE"
+    elif exact_periods and root_clusters:
+        period = exact_periods[0]
+        detector_cycle = next(row for row in exact_cycles if int(row["period"]) == period)
         classification = (
             "STEP245_P2_OR_P4_DETECTION_FAILURE"
-            if any(period in (2, 4) for period in exact_periods)
-            else "STEP245_HIGHER_PERIOD_PICARD_BUT_UNIQUE_SCALAR_ROOT"
+            if period in (2, 4)
+            and bool(detector_cycle.get("phase_values_distinct"))
+            and bool(detector_cycle.get("cyclic_adjacent_residual_sign_change"))
+            else "OTHER_WITH_EXPLICIT_EVIDENCE"
         )
-    elif direct:
-        classification = "STEP245_SLOW_SINGLE_FIXED_POINT"
     elif machine_cycles:
         classification = "STEP245_FLOATING_POINT_STAGNATION"
-    elif math.isfinite(median_q) and median_q < 1.0:
-        classification = "STEP245_SLOW_SINGLE_FIXED_POINT"
     else:
-        classification = "STEP245_NONCONTRACTIVE_BUT_UNIQUE_SCALAR_ROOT"
+        classification = "OTHER_WITH_EXPLICIT_EVIDENCE"
+    if direct:
+        picard_regime = "DIRECT_CONVERGED"
+    elif exact_periods:
+        picard_regime = "PERIODIC_ORBIT"
+    elif monotone_contraction and math.isfinite(median_q) and 0.0 < median_q < 1.0:
+        picard_regime = (
+            "MONOTONE_CONTRACTION"
+            if extended_picard_reasonable
+            else "STAGNATING_CONTRACTION"
+        )
+    elif math.isfinite(median_q) and median_q >= 1.0:
+        picard_regime = "OSCILLATORY_OR_NONCONTRACTIVE"
+    else:
+        picard_regime = "OTHER_WITH_EXPLICIT_EVIDENCE"
     return {
         "step245_classification": classification,
         "raw_picard_final_residual": final_residual,
         "raw_picard_final_tolerance": final_tolerance,
-        "raw_picard_direct_convergence_observed": bool(direct),
+        "raw_picard_direct_convergence_observed": direct,
         "exact_periods": exact_periods,
+        "final_cycle_iteration": final_cycle_iteration,
         "machine_precision_period_rows": len(machine_cycles),
-        "scalar_root_exists": bool(unique_root_values),
-        "number_of_admissible_roots": len(unique_root_values),
-        "admissible_root_xB": unique_root_values,
+        "scalar_root_exists": True if root_clusters else None,
+        "observed_scalar_root_exists": bool(root_clusters),
+        "scalar_root_existence_status": (
+            "OBSERVED_ADMISSIBLE_ROOT" if root_clusters else "UNRESOLVED_NO_INTERVAL_OR_ANALYTIC_ENCLOSURE"
+        ),
+        "root_count_certified": root_count_certified,
+        "number_of_admissible_roots": None,
+        "observed_admissible_root_clusters": len(root_clusters),
+        "observed_authoritative_sign_bracket_root_clusters": len(authoritative_sign_root_clusters),
+        "observed_admissible_root_count_lower_bound": len(authoritative_sign_root_clusters),
+        "scalar_root_uniqueness_status": "UNRESOLVED_NO_INTERVAL_OR_ANALYTIC_ENCLOSURE",
+        "admissible_root_xB": root_values,
+        "root_clusters": root_clusters,
         "discontinuity_evidence": discontinuous,
         "asymptotic_contraction_factor": median_q,
+        "picard_regime": picard_regime,
+        "predicted_remaining_iterations_to_xB_tolerance": predicted_remaining,
+        "extended_picard_reasonable": extended_picard_reasonable,
+        "scalar_scan_audit": scan,
         "root_search_bracket_count": len(roots),
     }
 
@@ -1072,8 +2161,10 @@ def _render_reports(
         + json.dumps(
             _json_safe(
                 {
-                    "exact_periods": sorted({int(row["period"]) for row in cycles if row.get("exact_bitwise_period")}),
-                    "machine_precision_periods": sorted({int(row["period"]) for row in cycles if row.get("machine_precision_period")}),
+                    "all_exact_matching_periods": sorted({int(row["period"]) for row in cycles if row.get("exact_bitwise_period")}),
+                    "primitive_exact_periods": sorted({int(row["period"]) for row in cycles if row.get("primitive_exact_period")}),
+                    "all_machine_precision_matching_periods": sorted({int(row["period"]) for row in cycles if row.get("machine_precision_period")}),
+                    "primitive_machine_precision_periods": sorted({int(row["period"]) for row in cycles if row.get("primitive_machine_precision_period")}),
                     "cycle_rows": len(cycles),
                 }
             ),
@@ -1087,7 +2178,18 @@ def _render_reports(
         "Step-245 scalar map",
         "The scan interval is derived from frozen total inventory, the beta composition/volume bound, "
         "and the solver's [0,1] thermodynamic composition domain.\n\n```json\n"
-        + json.dumps(_json_safe({"interval": interval, "brackets": list(brackets), "roots": list(roots)}), indent=2, sort_keys=True)
+        + json.dumps(
+            _json_safe(
+                {
+                    "interval": interval,
+                    "brackets": list(brackets),
+                    "roots": list(roots),
+                    "scan_audit": classification.get("scalar_scan_audit", {}),
+                }
+            ),
+            indent=2,
+            sort_keys=True,
+        )
         + "\n```\n",
     )
     _write_markdown(
@@ -1157,8 +2259,10 @@ def _diagnose(arguments: argparse.Namespace) -> dict[str, Any]:
         raise DiagnosticError(f"diagnosis must preserve frozen dt_s={DT_S}")
     if int(arguments.accepted_step) != LAST_ACCEPTED_STEP:
         raise DiagnosticError(f"diagnosis must stop at frozen accepted step={LAST_ACCEPTED_STEP}")
-    if int(arguments.raw_picard_iterations) < MAX_RAW_PICARD_ITERATIONS:
-        raise DiagnosticError("raw diagnostic must retain the required 1024 Picard iterations")
+    if int(arguments.raw_picard_iterations) != MAX_RAW_PICARD_ITERATIONS:
+        raise DiagnosticError("raw diagnostic must use exactly 1024 Picard iterations")
+    if int(arguments.coarse_scan_points) != COARSE_SCAN_POINTS:
+        raise DiagnosticError(f"coarse scalar-map scan must use exactly {COARSE_SCAN_POINTS} points")
     started = time.monotonic()
     output_root.mkdir(parents=True, exist_ok=False)
     report_root.mkdir(parents=True, exist_ok=False)
@@ -1212,21 +2316,34 @@ def _diagnose(arguments: argparse.Namespace) -> dict[str, Any]:
     cycles = _cycle_analysis(raw_rows, cell_states, departure_faces)
     contraction = _window_contraction(raw_rows)
     interval = _physical_x_interval(solver)
-    scalar_rows, brackets, _refined_rows = _scalar_scan(
+    scalar_rows, brackets, _refined_rows, scalar_scan_audit, evaluation_budget = _scalar_scan(
         closure_map,
         edges_m=context.edges_m,
         interval=interval,
         raw_rows=raw_rows,
+        cycles=cycles,
         coarse_points=int(arguments.coarse_scan_points),
         refinement_depth=int(arguments.refinement_depth),
     )
-    roots, root_audit_rows = _solve_brackets(closure_map, edges_m=context.edges_m, brackets=brackets)
+    roots, root_audit_rows = _solve_brackets(
+        closure_map,
+        edges_m=context.edges_m,
+        brackets=brackets,
+        budget=evaluation_budget,
+    )
+    scalar_scan_audit["evaluation_budget"] = evaluation_budget.audit()
+    scalar_scan_audit["root_search_completed_within_shared_budget"] = not evaluation_budget.exhausted
+    scalar_scan_audit["finite_audit_complete_under_declared_budget"] = bool(
+        scalar_scan_audit["finite_audit_complete_under_declared_budget"]
+        and not evaluation_budget.exhausted
+    )
     classification = _classify(
         raw_rows=raw_rows,
         cycles=cycles,
         contraction=contraction,
         roots=roots,
         brackets=brackets,
+        scan_audit=scalar_scan_audit,
     )
 
     np.savez_compressed(
@@ -1257,7 +2374,13 @@ def _diagnose(arguments: argparse.Namespace) -> dict[str, Any]:
     _write_csv(output_root / "step245_root_brackets.csv", list(brackets) + root_audit_rows, fallback_fields=("bracket_id", "left_x", "right_x"))
     _write_json(
         output_root / "step245_root_solution.json",
-        {"classification": classification, "roots": roots, "contraction": contraction, "interval": interval},
+        {
+            "classification": classification,
+            "roots": roots,
+            "contraction": contraction,
+            "interval": interval,
+            "scalar_scan_audit": scalar_scan_audit,
+        },
     )
     provenance = {
         "schema_version": "KWN_CHARACTERISTIC_NONLINEAR_CLOSURE_DIAGNOSIS_V2",
@@ -1277,6 +2400,7 @@ def _diagnose(arguments: argparse.Namespace) -> dict[str, Any]:
         "formal_step244_replay_comparison": formal_replay_comparison,
         "closure_map_initial_state_hash": closure_map.initial_state_hash,
         "closure_map_evaluation_count": len(closure_map.evaluations),
+        "scalar_scan_audit": scalar_scan_audit,
         "all_closure_map_evaluations_left_state_unchanged": all(
             item.state_hash_before == item.state_hash_after == closure_map.initial_state_hash
             for item in closure_map.evaluations
@@ -1323,8 +2447,18 @@ def main() -> int:
     parser.add_argument("--report-root", type=Path, default=ROOT / "reports" / TASK_NAME)
     parser.add_argument("--dt-s", type=float, default=DT_S)
     parser.add_argument("--accepted-step", type=int, default=LAST_ACCEPTED_STEP)
-    parser.add_argument("--raw-picard-iterations", type=int, default=MAX_RAW_PICARD_ITERATIONS)
-    parser.add_argument("--coarse-scan-points", type=int, default=COARSE_SCAN_POINTS)
+    parser.add_argument(
+        "--raw-picard-iterations",
+        type=int,
+        choices=(MAX_RAW_PICARD_ITERATIONS,),
+        default=MAX_RAW_PICARD_ITERATIONS,
+    )
+    parser.add_argument(
+        "--coarse-scan-points",
+        type=int,
+        choices=(COARSE_SCAN_POINTS,),
+        default=COARSE_SCAN_POINTS,
+    )
     parser.add_argument("--refinement-depth", type=int, default=8)
     parser.add_argument("--formal-trace-csv", type=Path, default=Path(FORMAL_FAILURE_TRACE))
     arguments = parser.parse_args()

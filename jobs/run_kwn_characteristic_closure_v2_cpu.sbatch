@@ -25,25 +25,62 @@ readonly BASE_COMMIT="2ee679437421c750ccf2f2173d208df73bf28475"
 readonly REQUIRED_BRANCH="codex/kwn-characteristic-closure-v2"
 readonly TASK_NAME="kwn_characteristic_closure_v2"
 
-[[ -d "${SOURCE_ROOT}/.git" ]] || { echo "[fatal] SOURCE_ROOT must be a Git worktree" >&2; exit 2; }
 [[ ! -e "${RUN_ROOT}" ]] || { echo "[fatal] refusing to overwrite RUN_ROOT=${RUN_ROOT}" >&2; exit 2; }
-[[ -x "${PYTHON_BIN}" ]] || { echo "[fatal] PYTHON_BIN must be executable" >&2; exit 2; }
-[[ -r "${FORMAL_TRACE_CSV}" ]] || { echo "[fatal] formal step-244 trace is unavailable" >&2; exit 2; }
+mkdir -- "${RUN_ROOT}"
+mkdir -- "${RUN_ROOT}/logs"
+exec >"${RUN_ROOT}/logs/driver.stdout.log" 2>"${RUN_ROOT}/logs/driver.stderr.log"
 
-source_commit="$(git -C "${SOURCE_ROOT}" rev-parse HEAD)"
-source_branch="$(git -C "${SOURCE_ROOT}" branch --show-current)"
-source_status="$(git -C "${SOURCE_ROOT}" status --short)"
-git -C "${SOURCE_ROOT}" merge-base --is-ancestor "${BASE_COMMIT}" HEAD || {
-  echo "[fatal] source does not descend from frozen v1 closure commit" >&2
+preflight_fail() {
+  printf '[fatal] %s\n' "$*" >&2
+  printf 'NONPASS_KWN_CHARACTERISTIC_CLOSURE_DIAGNOSIS_V2_PREFLIGHT\n' >"${RUN_ROOT}/status.txt"
   exit 2
+}
+
+[[ -e "${SOURCE_ROOT}/.git" ]] || preflight_fail "SOURCE_ROOT must be a Git worktree"
+[[ -x "${PYTHON_BIN}" ]] || preflight_fail "PYTHON_BIN must be executable"
+[[ -r "${FORMAL_TRACE_CSV}" ]] || preflight_fail "formal step-244 trace is unavailable"
+
+source_commit="$(git -C "${SOURCE_ROOT}" rev-parse HEAD)" || preflight_fail "could not resolve source commit"
+source_branch="$(git -C "${SOURCE_ROOT}" branch --show-current)" || preflight_fail "could not resolve source branch"
+source_status="$(git -C "${SOURCE_ROOT}" status --short)" || preflight_fail "could not resolve source status"
+git -C "${SOURCE_ROOT}" merge-base --is-ancestor "${BASE_COMMIT}" HEAD || {
+  preflight_fail "source does not descend from frozen v1 closure commit"
 }
 [[ "${source_branch}" == "${REQUIRED_BRANCH}" ]] || {
-  echo "[fatal] source branch differs from ${REQUIRED_BRANCH}: ${source_branch}" >&2
-  exit 2
+  preflight_fail "source branch differs from ${REQUIRED_BRANCH}: ${source_branch}"
 }
-[[ -z "${source_status}" ]] || { echo "[fatal] source tree is dirty" >&2; exit 2; }
+[[ -z "${source_status}" ]] || preflight_fail "source tree is dirty"
 
 fixture_profile_root="${FIXTURE_COMPAT_ROOT}/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles"
+[[ -d "${FIXTURE_COMPAT_ROOT}" ]] || preflight_fail "declared frozen fixture root is unavailable"
+fixture_compat_realpath="$(realpath "${FIXTURE_COMPAT_ROOT}")" || preflight_fail "could not resolve frozen fixture root"
+runtime_fixture_link="${SOURCE_ROOT}/../CUDA_STO_PF"
+if [[ -e "${runtime_fixture_link}" || -L "${runtime_fixture_link}" ]]; then
+  runtime_fixture_link_created=false
+  [[ -L "${runtime_fixture_link}" ]] || preflight_fail "existing runtime fixture path must be a symbolic link"
+  runtime_fixture_link_realpath="$(realpath "${runtime_fixture_link}")" || \
+    preflight_fail "could not resolve existing runtime fixture link"
+  [[ "${runtime_fixture_link_realpath}" == "${fixture_compat_realpath}" ]] || {
+    preflight_fail "existing runtime fixture link differs from declared frozen fixture root"
+  }
+else
+  ln -s "${FIXTURE_COMPAT_ROOT}" "${runtime_fixture_link}" || \
+    preflight_fail "could not create runtime frozen-fixture compatibility link"
+  runtime_fixture_link_created=true
+  runtime_fixture_link_realpath="${fixture_compat_realpath}"
+fi
+runtime_profile_root="${runtime_fixture_link}/data/qualification/pf_elastic_target_profile_quarter_nm_v2/profiles"
+[[ -d "${runtime_profile_root}" ]] || {
+  preflight_fail "runtime profile path is unavailable: ${runtime_profile_root}"
+}
+[[ -d "${fixture_profile_root}" ]] || preflight_fail "declared frozen fixture profile path is unavailable"
+fixture_profile_realpath="$(realpath "${fixture_profile_root}")" || \
+  preflight_fail "could not resolve declared frozen fixture profile path"
+runtime_profile_realpath="$(realpath "${runtime_profile_root}")" || \
+  preflight_fail "could not resolve runtime fixture profile path"
+[[ "${runtime_profile_realpath}" == "${fixture_profile_realpath}" ]] || {
+  preflight_fail "runtime profile path differs from declared frozen fixture root"
+}
 fixture_files=(
   R10p5/profile_manifest.json R10p5/phi.raw.f64 R10p5/delta_C_relaxation.raw.f64 R10p5/h_phi.raw.f64
   R9p5/profile_manifest.json R9p5/phi.raw.f64 R9p5/delta_C_relaxation.raw.f64 R9p5/h_phi.raw.f64
@@ -51,13 +88,9 @@ fixture_files=(
 )
 for fixture_file in "${fixture_files[@]}"; do
   [[ -r "${fixture_profile_root}/${fixture_file}" ]] || {
-    echo "[fatal] missing frozen fixture input: ${fixture_profile_root}/${fixture_file}" >&2
-    exit 2
+    preflight_fail "missing frozen fixture input: ${fixture_profile_root}/${fixture_file}"
   }
 done
-
-mkdir -p "${RUN_ROOT}/logs"
-exec >"${RUN_ROOT}/logs/driver.stdout.log" 2>"${RUN_ROOT}/logs/driver.stderr.log"
 
 export PYTHONPATH="${SOURCE_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 export OMP_NUM_THREADS=1
@@ -83,6 +116,12 @@ fixture_input_hashes="${RUN_ROOT}/fixture_input_sha256.txt"
   printf 'python_version=%s\n' "$("${PYTHON_BIN}" -c 'import sys; print(sys.version.replace("\n", " "))')"
   printf 'numpy_version=%s\n' "$("${PYTHON_BIN}" -c 'import numpy; print(numpy.__version__)')"
   printf 'fixture_profile_root=%s\n' "${fixture_profile_root}"
+  printf 'fixture_profile_realpath=%s\n' "${fixture_profile_realpath}"
+  printf 'runtime_fixture_link=%s\n' "${runtime_fixture_link}"
+  printf 'runtime_fixture_link_realpath=%s\n' "${runtime_fixture_link_realpath}"
+  printf 'runtime_fixture_link_created=%s\n' "${runtime_fixture_link_created}"
+  printf 'runtime_profile_root=%s\n' "${runtime_profile_root}"
+  printf 'runtime_profile_realpath=%s\n' "${runtime_profile_realpath}"
   printf 'fixture_input_sha256_file=%s\n' "${fixture_input_hashes}"
   printf 'formal_trace_csv=%s\n' "${FORMAL_TRACE_CSV}"
   printf 'scope=KWN_STEP245_DIAGNOSTIC_ONLY_NO_PF_CUDA\n'
