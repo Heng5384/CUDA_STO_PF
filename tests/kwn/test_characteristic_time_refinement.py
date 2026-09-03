@@ -168,6 +168,42 @@ class CharacteristicTimeRefinementTests(unittest.TestCase):
         )
         self.assertEqual(final["STATUS"], "FAIL_CHARACTERISTIC_REFERENCE_NUMERICS")
 
+    def test_root_summary_counts_safeguarded_root_without_periodic_cycle_credit(self) -> None:
+        run = driver.RunResult(
+            name="CR1_dt_0.015625s",
+            status="PASS_CHARACTERISTIC_RUN",
+            reason=None,
+            snapshots=[],
+            measures=[],
+            trace_rows=[
+                {
+                    "fixed_point_convergence_mode": "SAFEGUARDED_SCALAR_ROOT_V1",
+                    "fixed_point_periodic_cycle_period": 0,
+                    "fixed_point_bracketed_root_iterations": 7,
+                    "fixed_point_picard_iterations": 128,
+                    "fixed_point_bracket_initial_width": 1.0e-12,
+                    "fixed_point_bracket_final_width": 1.0e-15,
+                    "fixed_point_root_trial_xb_residual": 4.0e-12,
+                    "fixed_point_root_verification_population_residual": 0.0,
+                    "fixed_point_root_verification_kind": "SAME_X_IMMUTABLE_REPLAY",
+                }
+            ],
+            accepted_steps=1,
+            runtime_s=0.0,
+            max_inventory_relative_residual=0.0,
+            max_fixed_point_residual=0.0,
+        )
+        summary = driver._fixed_point_root_summary({run.name: run})
+        self.assertEqual(summary["strict_scalar_root_step_count"], 1)
+        self.assertEqual(summary["bracketed_scalar_root_step_count"], 0)
+        self.assertEqual(summary["safeguarded_scalar_root_step_count"], 1)
+        self.assertEqual(summary["total_bisection_iterations"], 7)
+        self.assertEqual(summary["bracketed_scalar_root_cycle_period_counts"], {"2": 0, "4": 0})
+        self.assertEqual(summary["root_verification_kind_counts"], {
+            "MAP_SUCCESSOR": 0,
+            "SAME_X_IMMUTABLE_REPLAY": 1,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

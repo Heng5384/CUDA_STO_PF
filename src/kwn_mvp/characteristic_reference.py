@@ -21,9 +21,14 @@ from numpy.typing import NDArray
 
 from .conservative_remap import (
     CharacteristicTrace,
+    CharacteristicTraceTopology,
+    CharacteristicRemapPartition,
     ConservativeRemapError,
     ConservativeRemapResult,
+    characteristic_remap_partition,
+    characteristic_trace_topology,
     conservative_remap_piecewise_constant,
+    same_characteristic_remap_partition,
     trace_departure_faces_rk2,
 )
 from .growth import growth_rate_m_s
@@ -41,10 +46,18 @@ from .solver import KWNSolver, RadiusGridOverflowError, SolverConfig, SolverStat
 
 REMAP_ORDER = "CR1_piecewise_constant"
 TRACE_INTEGRATOR = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BACKWARD_V1"
-FIXED_POINT_CLOSURE = "PICARD_WITH_EXACT_PERIOD_2_OR_4_CYCLE_BRACKETED_ROOT_V2"
+FIXED_POINT_CLOSURE = (
+    "PICARD_WITH_EXACT_PERIOD_2_OR_4_CYCLE_BRACKETED_ROOT_OR_"
+    "FINAL_RAW_ADJACENT_SAME_BRANCH_SAFEGUARDED_SCALAR_ROOT_V3"
+)
 FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT = 128
 FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS = 64
 FIXED_POINT_PERIODIC_CYCLE_PERIODS = (2, 4)
+FIXED_POINT_PERIODIC_ROOT_TRIGGER = "EXACT_BITWISE_RAW_PICARD_PERIOD_2_OR_4_CYCLE_ONLY"
+FIXED_POINT_SAFEGUARDED_ROOT_TRIGGER = (
+    "FINAL_ADJACENT_RAW_PICARD_SAME_REMAP_BRANCH_STRICT_SIGN_BRACKET_ONLY"
+)
+FIXED_POINT_ROOT_INVENTORY_RELATIVE_TOLERANCE = 1.0e-10
 
 
 class CharacteristicReferenceError(SolverStateError):
@@ -63,6 +76,7 @@ class CharacteristicStepDiagnostics:
     fixed_point_iterations: int
     fixed_point_picard_iterations: int
     fixed_point_xb_residual: float
+    fixed_point_xb_tolerance: float
     fixed_point_population_residual: float
     fixed_point_cell_measure_residual: float
     fixed_point_convergence_rate: float
@@ -77,6 +91,7 @@ class CharacteristicStepDiagnostics:
     fixed_point_bracket_right_signed_residual: float
     fixed_point_root_trial_xb_residual: float
     fixed_point_root_verification_population_residual: float
+    fixed_point_root_verification_kind: str
     inventory: InventorySnapshot
     rmin_number_loss_m3: float
     rmin_number_flux_m3_s: float
@@ -102,6 +117,7 @@ class _FixedPointResult:
     iterations: int
     picard_iterations: int
     xb_residual: float
+    xb_tolerance: float
     population_residual: float
     cell_measure_residual: float
     convergence_rate: float
@@ -116,6 +132,7 @@ class _FixedPointResult:
     bracket_right_signed_residual: float
     root_trial_xb_residual: float
     root_verification_population_residual: float
+    root_verification_kind: str
     inventory: InventorySnapshot
     trace: CharacteristicTrace
     remap: ConservativeRemapResult
@@ -148,7 +165,7 @@ class CharacteristicReferenceSolver(KWNSolver):
     inventory source and no density clamp.
     """
 
-    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v4"
+    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v5"
 
     def __init__(
         self,
@@ -391,6 +408,7 @@ class CharacteristicReferenceSolver(KWNSolver):
         bracket_right_signed_residual: float = 0.0,
         root_trial_xb_residual: float = 0.0,
         root_verification_population_residual: float = 0.0,
+        root_verification_kind: str = "NONE",
     ) -> _FixedPointResult:
         """Package one already-audited trial without altering its remap state."""
 
@@ -401,6 +419,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             iterations=iterations,
             picard_iterations=picard_iterations,
             xb_residual=abs(trial.signed_xb_residual),
+            xb_tolerance=trial.xb_tolerance,
             population_residual=self._population_observable_residual(
                 trial.cell_number_m3, previous_population
             ),
@@ -419,6 +438,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             bracket_right_signed_residual=bracket_right_signed_residual,
             root_trial_xb_residual=root_trial_xb_residual,
             root_verification_population_residual=root_verification_population_residual,
+            root_verification_kind=root_verification_kind,
             inventory=trial.inventory,
             trace=trial.trace,
             remap=trial.remap,
@@ -522,6 +542,7 @@ class CharacteristicReferenceSolver(KWNSolver):
                         bracket_right_signed_residual=initial_right.signed_xb_residual,
                         root_trial_xb_residual=abs(trial.signed_xb_residual),
                         root_verification_population_residual=population_residual,
+                        root_verification_kind="MAP_SUCCESSOR",
                     )
                 last_error = (
                     f"root_iteration={root_iteration}, scalar_residual={abs(trial.signed_xb_residual):.3e}, "
@@ -545,6 +566,227 @@ class CharacteristicReferenceSolver(KWNSolver):
 
         raise CharacteristicReferenceError(
             f"exact fixed-point period-{cycle_period} cycle bracket did not close the original scalar equation "
+            f"after {attempted_root_iterations} bisection iterations ({stop_reason}; "
+            f"initial_width={initial_width:.3e}, final_width={right.x_guess - left.x_guess:.3e}, {last_error})"
+        )
+
+    def _cdf_source_partition(self, trial: _ClosureTrial) -> CharacteristicRemapPartition | None:
+        """Return the exact CDF/remap partition selected by one trial."""
+
+        edges = np.asarray(self.population("beta").grid.edges_m, dtype=np.float64)
+        try:
+            return characteristic_remap_partition(edges, trace=trial.trace)
+        except ConservativeRemapError:
+            return None
+
+    def _same_cdf_source_partition(self, first: _ClosureTrial, second: _ClosureTrial) -> bool:
+        """Require direct equality of the CR1 cumulative-remap partition."""
+
+        first_components = self._cdf_source_partition(first)
+        second_components = self._cdf_source_partition(second)
+        if first_components is None or second_components is None:
+            return False
+        return same_characteristic_remap_partition(first_components, second_components)
+
+    def _trace_topology(self, trial: _ClosureTrial) -> CharacteristicTraceTopology | None:
+        """Read the unchanged time-of-flight predicates for one trial."""
+
+        edges = np.asarray(self.population("beta").grid.edges_m, dtype=np.float64)
+        try:
+            return characteristic_trace_topology(
+                edges,
+                trace=trial.trace,
+                velocity_m_s=lambda radii: self._velocity_at_radii(
+                    radii, trial.midpoint_matrix_xb
+                ),
+            )
+        except (CharacteristicReferenceError, ConservativeRemapError, ValueError, FloatingPointError):
+            return None
+
+    def _same_trace_topology(self, first: _ClosureTrial, second: _ClosureTrial) -> bool:
+        """Require direct equality of all time-of-flight branch predicates."""
+
+        first_topology = self._trace_topology(first)
+        second_topology = self._trace_topology(second)
+        if first_topology is None or second_topology is None:
+            return False
+        return bool(
+            first_topology.mode == second_topology.mode
+            and np.array_equal(first_topology.node_sign, second_topology.node_sign)
+            and np.array_equal(first_topology.gauss_left_sign, second_topology.gauss_left_sign)
+            and np.array_equal(first_topology.gauss_right_sign, second_topology.gauss_right_sign)
+            and np.array_equal(first_topology.valid_interval, second_topology.valid_interval)
+            and np.array_equal(first_topology.arrival_face_run_id, second_topology.arrival_face_run_id)
+            and first_topology.lower_no_inflow_face_count
+            == second_topology.lower_no_inflow_face_count
+            and first_topology.upper_no_inflow_face_count
+            == second_topology.upper_no_inflow_face_count
+            and first_topology.identity_departure_map == second_topology.identity_departure_map
+        )
+
+    def _same_safeguarded_branch(self, first: _ClosureTrial, second: _ClosureTrial) -> bool:
+        """Keep the fallback inside one CDF partition and trace topology."""
+
+        return self._same_cdf_source_partition(first, second) and self._same_trace_topology(
+            first, second
+        )
+
+    def _same_x_trial_repeatable(self, first: _ClosureTrial, repeat: _ClosureTrial) -> bool:
+        """Require a second immutable evaluation at exactly the same x guess."""
+
+        return bool(
+            first.x_guess == repeat.x_guess
+            and first.midpoint_matrix_xb == repeat.midpoint_matrix_xb
+            and first.matrix_xb == repeat.matrix_xb
+            and first.signed_xb_residual == repeat.signed_xb_residual
+            and first.xb_tolerance == repeat.xb_tolerance
+            and np.array_equal(first.cell_number_m3, repeat.cell_number_m3)
+            and np.array_equal(first.trace.arrival_faces_m, repeat.trace.arrival_faces_m)
+            and np.array_equal(first.trace.departure_faces_m, repeat.trace.departure_faces_m)
+            and np.array_equal(first.trace.midpoint_faces_m, repeat.trace.midpoint_faces_m)
+            and first.trace.lower_no_inflow_face_count == repeat.trace.lower_no_inflow_face_count
+            and first.trace.upper_no_inflow_face_count == repeat.trace.upper_no_inflow_face_count
+            and np.array_equal(first.remap.cell_number_m3, repeat.remap.cell_number_m3)
+            and first.remap.lower_number_loss_m3 == repeat.remap.lower_number_loss_m3
+            and first.remap.upper_number_loss_m3 == repeat.remap.upper_number_loss_m3
+            and first.remap.old_number_m3 == repeat.remap.old_number_m3
+            and first.remap.new_number_m3 == repeat.remap.new_number_m3
+            and first.remap.conservation_residual_m3 == repeat.remap.conservation_residual_m3
+            and first.inventory == repeat.inventory
+            and self._same_safeguarded_branch(first, repeat)
+        )
+
+    @staticmethod
+    def _physical_scalar_root_trial(trial: _ClosureTrial) -> bool:
+        """Check the frozen physical acceptance predicates for a root trial."""
+
+        return bool(
+            np.all(np.isfinite(trial.cell_number_m3))
+            and np.all(trial.cell_number_m3 >= 0.0)
+            and math.isfinite(float(trial.inventory.relative_residual))
+            and float(trial.inventory.relative_residual)
+            <= FIXED_POINT_ROOT_INVENTORY_RELATIVE_TOLERANCE
+        )
+
+    def _solve_safeguarded_final_raw_picard_bracket(
+        self,
+        *,
+        old_cell_number_m3: NDArray[np.float64],
+        dt_s: float,
+        x_start: float,
+        first_trial: _ClosureTrial,
+        second_trial: _ClosureTrial,
+        picard_iterations: int,
+    ) -> _FixedPointResult:
+        """Close only the final adjacent raw-Picard same-branch sign bracket.
+
+        This is the v1 safeguarded scalar closure.  It deliberately has no
+        whole-domain scan, previous-step bracket, relaxation heuristic, or
+        arbitrary root-selection rule.  It can run only after the configured
+        raw Picard cap and only from the final adjacent pair actually produced
+        by this immutable macro step.
+        """
+
+        if not (
+            0.0 <= first_trial.x_guess <= 1.0
+            and 0.0 <= second_trial.x_guess <= 1.0
+            and first_trial.x_guess != second_trial.x_guess
+            and (
+                first_trial.signed_xb_residual < 0.0 < second_trial.signed_xb_residual
+                or second_trial.signed_xb_residual < 0.0 < first_trial.signed_xb_residual
+            )
+        ):
+            raise CharacteristicReferenceError(
+                "safeguarded scalar closure requires a final adjacent raw-Picard strict sign bracket"
+            )
+        initial_left, initial_right = sorted(
+            (first_trial, second_trial), key=lambda item: item.x_guess
+        )
+        if not self._same_safeguarded_branch(initial_left, initial_right):
+            raise CharacteristicReferenceError(
+                "safeguarded scalar closure final raw-Picard sign bracket crosses a CR1 CDF partition or trace topology"
+            )
+        initial_width = initial_right.x_guess - initial_left.x_guess
+        left, right = initial_left, initial_right
+        evaluations = picard_iterations
+        attempted_root_iterations = 0
+        stop_reason = "scalar-root iteration cap reached"
+        last_error = "no bracketed scalar-root trial was attempted"
+        for root_iteration in range(1, FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS + 1):
+            attempted_root_iterations = root_iteration
+            midpoint = 0.5 * (left.x_guess + right.x_guess)
+            if midpoint == left.x_guess or midpoint == right.x_guess:
+                stop_reason = "binary64 midpoint coalesced with a bracket endpoint"
+                break
+            trial = self._evaluate_closure_trial(
+                old_cell_number_m3=old_cell_number_m3,
+                dt_s=dt_s,
+                x_start=x_start,
+                x_guess=midpoint,
+            )
+            evaluations += 1
+            final_width = right.x_guess - left.x_guess
+            if not self._same_safeguarded_branch(initial_left, trial):
+                raise CharacteristicReferenceError(
+                    "safeguarded scalar closure encountered a CR1 CDF-partition or trace-topology transition within its bracket"
+                )
+            if abs(trial.signed_xb_residual) <= trial.xb_tolerance:
+                if not self._physical_scalar_root_trial(trial):
+                    raise CharacteristicReferenceError(
+                        "safeguarded scalar closure root trial failed inventory or non-negativity acceptance"
+                    )
+                # A root closes F(x)=T(x)-x.  Repeating x itself tests
+                # determinism; evaluating T(x) would wrongly require local
+                # Picard contraction and reject the diagnosed noncontractive
+                # step-245 root.
+                repeat = self._evaluate_closure_trial(
+                    old_cell_number_m3=old_cell_number_m3,
+                    dt_s=dt_s,
+                    x_start=x_start,
+                    x_guess=trial.x_guess,
+                )
+                evaluations += 1
+                population_residual = self._population_observable_residual(
+                    repeat.cell_number_m3, trial.cell_number_m3
+                )
+                if not (
+                    self._physical_scalar_root_trial(repeat)
+                    and self._same_x_trial_repeatable(trial, repeat)
+                    and population_residual <= self._population_convergence_rtol
+                ):
+                    raise CharacteristicReferenceError(
+                        "safeguarded scalar closure root failed same-x repeatability or population acceptance"
+                    )
+                return self._fixed_point_result(
+                    trial,
+                    previous_population=repeat.cell_number_m3,
+                    iterations=evaluations,
+                    picard_iterations=picard_iterations,
+                    convergence_rate=math.nan,
+                    convergence_mode="SAFEGUARDED_SCALAR_ROOT_V1",
+                    periodic_cycle_period=0,
+                    bracketed_root_iterations=root_iteration,
+                    bracket_initial_width=initial_width,
+                    bracket_final_width=final_width,
+                    bracket_left_xb=initial_left.x_guess,
+                    bracket_right_xb=initial_right.x_guess,
+                    bracket_left_signed_residual=initial_left.signed_xb_residual,
+                    bracket_right_signed_residual=initial_right.signed_xb_residual,
+                    root_trial_xb_residual=abs(trial.signed_xb_residual),
+                    root_verification_population_residual=population_residual,
+                    root_verification_kind="SAME_X_IMMUTABLE_REPLAY",
+                )
+            last_error = (
+                f"root_iteration={root_iteration}, scalar_residual={abs(trial.signed_xb_residual):.3e}, "
+                f"scalar_tolerance={trial.xb_tolerance:.3e}"
+            )
+            if trial.signed_xb_residual * left.signed_xb_residual > 0.0:
+                left = trial
+            else:
+                right = trial
+
+        raise CharacteristicReferenceError(
+            "safeguarded scalar closure final raw-Picard bracket did not close the original scalar equation "
             f"after {attempted_root_iterations} bisection iterations ({stop_reason}; "
             f"initial_width={initial_width:.3e}, final_width={right.x_guess - left.x_guess:.3e}, {last_error})"
         )
@@ -703,6 +945,23 @@ class CharacteristicReferenceSolver(KWNSolver):
             previous_trial = trial
             previous_xb_residual = abs(trial.signed_xb_residual)
             x_guess = self.under_relaxation * trial.matrix_xb + (1.0 - self.under_relaxation) * x_guess
+        # This deliberately consumes only the two evaluations immediately at
+        # the configured raw-Picard cap.  It is not a global bracket search,
+        # a history scan, or an adaptive-step policy.
+        if (
+            self.under_relaxation == 1.0
+            and two_back_trial is not None
+            and previous_trial is not None
+            and two_back_trial.signed_xb_residual * previous_trial.signed_xb_residual < 0.0
+        ):
+            return self._solve_safeguarded_final_raw_picard_bracket(
+                old_cell_number_m3=old_cell_number_m3,
+                dt_s=dt_s,
+                x_start=x_start,
+                first_trial=two_back_trial,
+                second_trial=previous_trial,
+                picard_iterations=self.fixed_point_max_iterations,
+            )
         raise CharacteristicReferenceError(
             f"characteristic matrix/population fixed point did not converge after "
             f"{self.fixed_point_max_iterations} iterations ({last_error})"
@@ -753,6 +1012,8 @@ class CharacteristicReferenceSolver(KWNSolver):
                 fixed_point_iterations=1,
                 fixed_point_picard_iterations=1,
                 fixed_point_xb_residual=0.0,
+                fixed_point_xb_tolerance=self.fixed_point_atol
+                + self.fixed_point_rtol * abs(self.matrix_xb),
                 fixed_point_population_residual=0.0,
                 fixed_point_cell_measure_residual=0.0,
                 fixed_point_convergence_rate=0.0,
@@ -767,6 +1028,7 @@ class CharacteristicReferenceSolver(KWNSolver):
                 fixed_point_bracket_right_signed_residual=0.0,
                 fixed_point_root_trial_xb_residual=0.0,
                 fixed_point_root_verification_population_residual=0.0,
+                fixed_point_root_verification_kind="NONE",
                 inventory=inventory,
                 rmin_number_loss_m3=0.0,
                 rmin_number_flux_m3_s=0.0,
@@ -817,6 +1079,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             fixed_point_iterations=result.iterations,
             fixed_point_picard_iterations=result.picard_iterations,
             fixed_point_xb_residual=result.xb_residual,
+            fixed_point_xb_tolerance=result.xb_tolerance,
             fixed_point_population_residual=result.population_residual,
             fixed_point_cell_measure_residual=result.cell_measure_residual,
             fixed_point_convergence_rate=result.convergence_rate,
@@ -831,6 +1094,7 @@ class CharacteristicReferenceSolver(KWNSolver):
             fixed_point_bracket_right_signed_residual=result.bracket_right_signed_residual,
             fixed_point_root_trial_xb_residual=result.root_trial_xb_residual,
             fixed_point_root_verification_population_residual=result.root_verification_population_residual,
+            fixed_point_root_verification_kind=result.root_verification_kind,
             inventory=result.inventory,
             rmin_number_loss_m3=lower_number_loss,
             rmin_number_flux_m3_s=boundary_flux.number_flux_out_m3_s,
@@ -902,10 +1166,14 @@ class CharacteristicReferenceSolver(KWNSolver):
             "under_relaxation": self.under_relaxation,
             "fixed_point_closure": FIXED_POINT_CLOSURE,
             "fixed_point_scalar_root_max_iterations": FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
-            "fixed_point_scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_PERIOD_2_OR_4_CYCLE_ONLY",
+            "fixed_point_periodic_scalar_root_trigger": FIXED_POINT_PERIODIC_ROOT_TRIGGER,
+            "fixed_point_safeguarded_scalar_root_trigger": FIXED_POINT_SAFEGUARDED_ROOT_TRIGGER,
             "fixed_point_scalar_root_cycle_periods": list(FIXED_POINT_PERIODIC_CYCLE_PERIODS),
             "fixed_point_scalar_root_requires_original_xb_tolerance": True,
-            "fixed_point_scalar_root_requires_map_verification_population_check": True,
+            "fixed_point_periodic_scalar_root_requires_map_successor_population_check": True,
+            "fixed_point_safeguarded_scalar_root_requires_same_cdf_source_partition": True,
+            "fixed_point_safeguarded_scalar_root_requires_same_trace_topology": True,
+            "fixed_point_safeguarded_scalar_root_verification": "SAME_X_IMMUTABLE_REPLAY",
             "remap_order": REMAP_ORDER,
             "trace_integrator": TRACE_INTEGRATOR,
         }
@@ -942,14 +1210,22 @@ class CharacteristicReferenceSolver(KWNSolver):
                 raise CharacteristicReferenceError("checkpoint fixed-point closure differs from CR1")
             if int(metadata.get("fixed_point_scalar_root_max_iterations", -1)) != FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS:
                 raise CharacteristicReferenceError("checkpoint fixed-point scalar-root iteration cap differs from CR1")
-            if metadata.get("fixed_point_scalar_root_trigger") != "EXACT_BITWISE_RAW_PICARD_PERIOD_2_OR_4_CYCLE_ONLY":
-                raise CharacteristicReferenceError("checkpoint fixed-point scalar-root trigger differs from CR1")
+            if metadata.get("fixed_point_periodic_scalar_root_trigger") != FIXED_POINT_PERIODIC_ROOT_TRIGGER:
+                raise CharacteristicReferenceError("checkpoint periodic scalar-root trigger differs from CR1")
+            if metadata.get("fixed_point_safeguarded_scalar_root_trigger") != FIXED_POINT_SAFEGUARDED_ROOT_TRIGGER:
+                raise CharacteristicReferenceError("checkpoint safeguarded scalar-root trigger differs from CR1")
             if metadata.get("fixed_point_scalar_root_cycle_periods") != list(FIXED_POINT_PERIODIC_CYCLE_PERIODS):
                 raise CharacteristicReferenceError("checkpoint fixed-point scalar-root cycle periods differ from CR1")
             if metadata.get("fixed_point_scalar_root_requires_original_xb_tolerance") is not True:
                 raise CharacteristicReferenceError("checkpoint scalar-root tolerance contract differs from CR1")
-            if metadata.get("fixed_point_scalar_root_requires_map_verification_population_check") is not True:
-                raise CharacteristicReferenceError("checkpoint scalar-root population contract differs from CR1")
+            if metadata.get("fixed_point_periodic_scalar_root_requires_map_successor_population_check") is not True:
+                raise CharacteristicReferenceError("checkpoint periodic scalar-root population contract differs from CR1")
+            if metadata.get("fixed_point_safeguarded_scalar_root_requires_same_cdf_source_partition") is not True:
+                raise CharacteristicReferenceError("checkpoint safeguarded scalar-root CDF partition contract differs from CR1")
+            if metadata.get("fixed_point_safeguarded_scalar_root_requires_same_trace_topology") is not True:
+                raise CharacteristicReferenceError("checkpoint safeguarded scalar-root trace topology contract differs from CR1")
+            if metadata.get("fixed_point_safeguarded_scalar_root_verification") != "SAME_X_IMMUTABLE_REPLAY":
+                raise CharacteristicReferenceError("checkpoint safeguarded scalar-root verification contract differs from CR1")
             if metadata.get("source_config_hash") != config.source_config_hash:
                 raise CharacteristicReferenceError("checkpoint config hash differs from the requested config")
             options: dict[str, Any] = {

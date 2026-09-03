@@ -32,6 +32,40 @@ class CharacteristicTrace:
 
 
 @dataclass(frozen=True)
+class CharacteristicTraceTopology:
+    """Directly comparable branch predicates for one CR1 face trace.
+
+    This is a read-only audit of the exact predicates used by
+    :func:`_trace_autonomous_time_of_flight`.  It neither changes the trace
+    nor the conservative remap.  A scalar-root controller can use it to
+    reject a bracket that crosses a stationary-characteristic branch even
+    when the CDF source-cell partition happens to remain unchanged.
+    """
+
+    mode: str
+    node_sign: NDArray[np.float64]
+    gauss_left_sign: NDArray[np.float64]
+    gauss_right_sign: NDArray[np.float64]
+    valid_interval: NDArray[np.bool_]
+    arrival_face_run_id: NDArray[np.int64]
+    lower_no_inflow_face_count: int
+    upper_no_inflow_face_count: int
+    identity_departure_map: bool
+
+
+@dataclass(frozen=True)
+class CharacteristicRemapPartition:
+    """The direct CDF and physical-boundary choices for one CR1 remap."""
+
+    source_cell_indices: NDArray[np.int64]
+    lower_endpoint_mask: NDArray[np.bool_]
+    upper_endpoint_mask: NDArray[np.bool_]
+    identity_departure_map: bool
+    lower_no_inflow_face_count: int
+    upper_no_inflow_face_count: int
+
+
+@dataclass(frozen=True)
 class ConservativeRemapResult:
     """One CR1 remap and its only admissible domain-boundary losses."""
 
@@ -169,6 +203,162 @@ def trace_departure_faces_rk2(
 _TRACE_SUBCELLS_PER_CELL = 16
 _ROOT_TAIL_SEGMENTS = 16
 _GAUSS_ABSCISSA = 1.0 / math.sqrt(3.0)
+
+
+def characteristic_remap_partition(
+    arrival_faces_m: NDArray[np.float64] | np.ndarray,
+    *,
+    trace: CharacteristicTrace,
+) -> CharacteristicRemapPartition:
+    """Return the exact CDF/remap partition selected by a completed trace.
+
+    This is a read-only representation of the source-cell and physical-boundary
+    decisions used by the piecewise-constant cumulative remap.  It deliberately
+    does not hash, modify, or re-evaluate the remap.
+    """
+
+    arrival = np.asarray(arrival_faces_m, dtype=np.float64)
+    departure = np.asarray(trace.departure_faces_m, dtype=np.float64)
+    trace_arrival = np.asarray(trace.arrival_faces_m, dtype=np.float64)
+    if (
+        arrival.ndim != 1
+        or arrival.size < 3
+        or not np.all(np.isfinite(arrival))
+        or np.any(np.diff(arrival) <= 0.0)
+        or trace_arrival.shape != arrival.shape
+        or departure.shape != arrival.shape
+        or not np.array_equal(trace_arrival, arrival)
+        or not np.all(np.isfinite(departure))
+        or np.any(departure < arrival[0])
+        or np.any(departure > arrival[-1])
+    ):
+        raise ConservativeRemapError("trace remap partition does not match frozen arrival faces")
+    source_indices = np.searchsorted(arrival, departure, side="right") - 1
+    source_indices = np.clip(source_indices, 0, arrival.size - 2).astype(np.int64, copy=False)
+    return CharacteristicRemapPartition(
+        source_cell_indices=source_indices,
+        lower_endpoint_mask=departure == arrival[0],
+        upper_endpoint_mask=departure == arrival[-1],
+        identity_departure_map=bool(np.array_equal(departure, arrival)),
+        lower_no_inflow_face_count=int(trace.lower_no_inflow_face_count),
+        upper_no_inflow_face_count=int(trace.upper_no_inflow_face_count),
+    )
+
+
+def same_characteristic_remap_partition(
+    first: CharacteristicRemapPartition, second: CharacteristicRemapPartition
+) -> bool:
+    """Compare actual CDF/boundary choices without reducing them to a hash."""
+
+    return bool(
+        np.array_equal(first.source_cell_indices, second.source_cell_indices)
+        and np.array_equal(first.lower_endpoint_mask, second.lower_endpoint_mask)
+        and np.array_equal(first.upper_endpoint_mask, second.upper_endpoint_mask)
+        and first.identity_departure_map == second.identity_departure_map
+        and first.lower_no_inflow_face_count == second.lower_no_inflow_face_count
+        and first.upper_no_inflow_face_count == second.upper_no_inflow_face_count
+    )
+
+
+def characteristic_trace_topology(
+    arrival_faces_m: NDArray[np.float64] | np.ndarray,
+    *,
+    trace: CharacteristicTrace,
+    velocity_m_s: Callable[[NDArray[np.float64]], NDArray[np.float64]],
+) -> CharacteristicTraceTopology:
+    """Expose the unchanged time-of-flight branch choices for one trace.
+
+    The result is deliberately an array-valued key rather than a hash so a
+    closure gate can compare the actual finite predicates.  It mirrors the
+    zero-mobility, constant-translation, and time-of-flight branches in
+    :func:`_trace_autonomous_time_of_flight`; it does not call that function
+    and cannot alter a completed trace or remap.
+    """
+
+    arrival = np.asarray(arrival_faces_m, dtype=np.float64)
+    if (
+        arrival.ndim != 1
+        or arrival.size < 3
+        or not np.all(np.isfinite(arrival))
+        or np.any(np.diff(arrival) <= 0.0)
+    ):
+        raise ConservativeRemapError("trace topology arrival faces are invalid")
+    departure = np.asarray(trace.departure_faces_m, dtype=np.float64)
+    midpoint_faces = np.asarray(trace.midpoint_faces_m, dtype=np.float64)
+    trace_arrival = np.asarray(trace.arrival_faces_m, dtype=np.float64)
+    if (
+        trace_arrival.shape != arrival.shape
+        or departure.shape != arrival.shape
+        or midpoint_faces.shape != arrival.shape
+        or not np.array_equal(trace_arrival, arrival)
+        or not np.all(np.isfinite(departure))
+        or not np.all(np.isfinite(midpoint_faces))
+    ):
+        raise ConservativeRemapError("trace topology does not match its frozen arrival faces")
+
+    def checked_velocity(radii_m: NDArray[np.float64], *, label: str) -> NDArray[np.float64]:
+        values = np.asarray(velocity_m_s(radii_m), dtype=np.float64)
+        if values.shape != radii_m.shape or not np.all(np.isfinite(values)):
+            raise ConservativeRemapError(f"trace topology {label} velocity is invalid")
+        return values
+
+    first = checked_velocity(arrival, label="arrival-face")
+    common = {
+        "lower_no_inflow_face_count": int(trace.lower_no_inflow_face_count),
+        "upper_no_inflow_face_count": int(trace.upper_no_inflow_face_count),
+        "identity_departure_map": bool(np.array_equal(departure, arrival)),
+    }
+    if np.array_equal(first, np.zeros_like(first)):
+        return CharacteristicTraceTopology(
+            mode="ZERO_MOBILITY_IDENTITY",
+            node_sign=np.sign(first),
+            gauss_left_sign=np.empty(0, dtype=np.float64),
+            gauss_right_sign=np.empty(0, dtype=np.float64),
+            valid_interval=np.empty(0, dtype=bool),
+            arrival_face_run_id=np.zeros(arrival.shape, dtype=np.int64),
+            **common,
+        )
+    if np.array_equal(first, np.full_like(first, first[0])):
+        return CharacteristicTraceTopology(
+            mode="CONSTANT_TRANSLATION",
+            node_sign=np.sign(first),
+            gauss_left_sign=np.empty(0, dtype=np.float64),
+            gauss_right_sign=np.empty(0, dtype=np.float64),
+            valid_interval=np.empty(0, dtype=bool),
+            arrival_face_run_id=np.zeros(arrival.shape, dtype=np.int64),
+            **common,
+        )
+
+    nodes = _log_subdivided_faces(arrival, subcells_per_cell=_TRACE_SUBCELLS_PER_CELL)
+    node_sign = np.sign(checked_velocity(nodes, label="trace-mesh"))
+    left = nodes[:-1]
+    right = nodes[1:]
+    midpoint = 0.5 * (left + right)
+    half_width = 0.5 * (right - left)
+    gauss_left = midpoint - _GAUSS_ABSCISSA * half_width
+    gauss_right = midpoint + _GAUSS_ABSCISSA * half_width
+    gauss_left_sign = np.sign(checked_velocity(gauss_left, label="left-Gauss"))
+    gauss_right_sign = np.sign(checked_velocity(gauss_right, label="right-Gauss"))
+    interval_sign = node_sign[:-1]
+    valid_interval = (
+        (interval_sign != 0.0)
+        & (node_sign[1:] == interval_sign)
+        & (gauss_left_sign == interval_sign)
+        & (gauss_right_sign == interval_sign)
+    )
+    run_id = np.cumsum(
+        np.concatenate((np.asarray([True]), ~valid_interval)), dtype=np.int64
+    ) - 1
+    original_nodes = np.arange(arrival.size, dtype=np.int64) * _TRACE_SUBCELLS_PER_CELL
+    return CharacteristicTraceTopology(
+        mode="TIME_OF_FLIGHT",
+        node_sign=node_sign,
+        gauss_left_sign=gauss_left_sign,
+        gauss_right_sign=gauss_right_sign,
+        valid_interval=valid_interval,
+        arrival_face_run_id=run_id[original_nodes],
+        **common,
+    )
 
 
 def _log_subdivided_faces(

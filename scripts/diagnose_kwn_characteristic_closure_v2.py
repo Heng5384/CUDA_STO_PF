@@ -39,9 +39,11 @@ from kwn_mvp.characteristic_reference import (  # noqa: E402
     CharacteristicReferenceSolver,
 )
 from kwn_mvp.conservative_remap import (  # noqa: E402
-    _GAUSS_ABSCISSA,
-    _TRACE_SUBCELLS_PER_CELL,
-    _log_subdivided_faces,
+    CharacteristicTraceTopology,
+    ConservativeRemapError,
+    characteristic_remap_partition,
+    characteristic_trace_topology,
+    same_characteristic_remap_partition,
 )
 from kwn_mvp.population_metrics import cell_moments_from_piecewise_constant_cells  # noqa: E402
 from kwn_mvp.solver import RadiusGridOverflowError, SolverConfig  # noqa: E402
@@ -489,6 +491,7 @@ def _replay_to_step244(*, dt_s: float, accepted_step: int) -> tuple[Characterist
                 "fixed_point_iterations": int(diagnostic.fixed_point_iterations),
                 "fixed_point_picard_iterations": int(diagnostic.fixed_point_picard_iterations),
                 "fixed_point_xb_residual": float(diagnostic.fixed_point_xb_residual),
+                "fixed_point_xb_tolerance": float(diagnostic.fixed_point_xb_tolerance),
                 "fixed_point_population_residual": float(diagnostic.fixed_point_population_residual),
                 "fixed_point_cell_measure_residual": float(diagnostic.fixed_point_cell_measure_residual),
                 "fixed_point_convergence_rate": float(diagnostic.fixed_point_convergence_rate),
@@ -964,42 +967,19 @@ def _signature_transition_evidence(
 def _same_cdf_source_partition(
     left: Evaluation, right: Evaluation, *, edges_m: np.ndarray
 ) -> bool:
-    """Compare the CR1 CDF's actual source-cell choices directly.
-
-    Hashes remain useful report provenance, but a root-authority gate must
-    compare the finite source-index arrays themselves.
-    """
+    """Compare the same shared CDF/boundary partition used at runtime."""
 
     if left.trial is None or right.trial is None:
         return False
-    return bool(
-        np.array_equal(
-            _departure_source_indices(edges_m, left.trial.trace.departure_faces_m),
-            _departure_source_indices(edges_m, right.trial.trace.departure_faces_m),
-        )
-    )
+    try:
+        left_partition = characteristic_remap_partition(edges_m, trace=left.trial.trace)
+        right_partition = characteristic_remap_partition(edges_m, trace=right.trial.trace)
+    except (AttributeError, ConservativeRemapError):
+        return False
+    return same_characteristic_remap_partition(left_partition, right_partition)
 
 
-@dataclass(frozen=True)
-class _TraceTopology:
-    """The actual time-of-flight branch choices for one immutable trial.
-
-    A departure source-cell index is a CDF evaluation partition, not by itself
-    a characteristic-trace branch: the piecewise-constant CDF is continuous
-    at its internal cell edges.  This compact, directly comparable key instead
-    mirrors the branch predicates in ``_trace_autonomous_time_of_flight``.
-    It is diagnostic provenance only and never changes CR1 tracing or remap.
-    """
-
-    mode: str
-    node_sign: np.ndarray
-    gauss_left_sign: np.ndarray
-    gauss_right_sign: np.ndarray
-    valid_interval: np.ndarray
-    arrival_face_run_id: np.ndarray
-    lower_no_inflow_face_count: int
-    upper_no_inflow_face_count: int
-    identity_departure_map: bool
+_TraceTopology = CharacteristicTraceTopology
 
 
 def _trace_topology_for_trial(
@@ -1008,22 +988,14 @@ def _trace_topology_for_trial(
     edges_m: np.ndarray,
     evaluation: Evaluation,
 ) -> _TraceTopology:
-    """Reconstruct the unchanged trace's branch predicates without remapping.
-
-    The production trace retains departure faces and boundary counts but not
-    its internal velocity-sign mesh.  This helper re-evaluates only the same
-    frozen velocity law at the same trace nodes, verifies that the solver
-    state remains immutable, and exposes the predicates that select a
-    time-of-flight run.  The synthetic unit-test map has no velocity helper;
-    it gets a deliberately non-authoritative but equality-comparable marker.
-    """
+    """Read the shared, unchanged trace-topology predicates without remapping."""
 
     if evaluation.trial is None:
         raise DiagnosticError("trace topology requires a valid closure trial")
     solver = closure_map.solver
     velocity_at_radii = getattr(solver, "_velocity_at_radii", None)
     if not callable(velocity_at_radii):
-        return _TraceTopology(
+        return CharacteristicTraceTopology(
             mode="SYNTHETIC_TEST_DOUBLE",
             node_sign=np.empty(0, dtype=np.float64),
             gauss_left_sign=np.empty(0, dtype=np.float64),
@@ -1042,94 +1014,16 @@ def _trace_topology_for_trial(
 
     state_arrays = getattr(solver, "state_arrays", None)
     before = _state_signature(solver) if callable(state_arrays) else "NOT_AVAILABLE"
-    arrival = np.asarray(edges_m, dtype=np.float64)
-    midpoint = float(evaluation.trial.midpoint_matrix_xb)
-    first = np.asarray(velocity_at_radii(arrival, midpoint), dtype=np.float64)
-    if first.shape != arrival.shape or not np.all(np.isfinite(first)):
-        raise DiagnosticError("topology audit received an invalid arrival-face velocity")
-    if np.array_equal(first, np.zeros_like(first)):
-        topology = _TraceTopology(
-            mode="ZERO_MOBILITY_IDENTITY",
-            node_sign=np.sign(first),
-            gauss_left_sign=np.empty(0, dtype=np.float64),
-            gauss_right_sign=np.empty(0, dtype=np.float64),
-            valid_interval=np.empty(0, dtype=bool),
-            arrival_face_run_id=np.zeros(arrival.shape, dtype=np.int64),
-            lower_no_inflow_face_count=int(evaluation.trial.trace.lower_no_inflow_face_count),
-            upper_no_inflow_face_count=int(evaluation.trial.trace.upper_no_inflow_face_count),
-            identity_departure_map=bool(
-                np.array_equal(
-                    np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64), arrival
-                )
+    try:
+        topology = characteristic_trace_topology(
+            np.asarray(edges_m, dtype=np.float64),
+            trace=evaluation.trial.trace,
+            velocity_m_s=lambda radii: velocity_at_radii(
+                radii, float(evaluation.trial.midpoint_matrix_xb)
             ),
         )
-    elif np.array_equal(first, np.full_like(first, first[0])):
-        topology = _TraceTopology(
-            mode="CONSTANT_TRANSLATION",
-            node_sign=np.sign(first),
-            gauss_left_sign=np.empty(0, dtype=np.float64),
-            gauss_right_sign=np.empty(0, dtype=np.float64),
-            valid_interval=np.empty(0, dtype=bool),
-            arrival_face_run_id=np.zeros(arrival.shape, dtype=np.int64),
-            lower_no_inflow_face_count=int(evaluation.trial.trace.lower_no_inflow_face_count),
-            upper_no_inflow_face_count=int(evaluation.trial.trace.upper_no_inflow_face_count),
-            identity_departure_map=bool(
-                np.array_equal(
-                    np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64), arrival
-                )
-            ),
-        )
-    else:
-        nodes = _log_subdivided_faces(
-            arrival, subcells_per_cell=_TRACE_SUBCELLS_PER_CELL
-        )
-        node_velocity = np.asarray(velocity_at_radii(nodes, midpoint), dtype=np.float64)
-        if node_velocity.shape != nodes.shape or not np.all(np.isfinite(node_velocity)):
-            raise DiagnosticError("topology audit received an invalid trace-mesh velocity")
-        node_sign = np.sign(node_velocity)
-        left = nodes[:-1]
-        right = nodes[1:]
-        midpoint_nodes = 0.5 * (left + right)
-        half_width = 0.5 * (right - left)
-        gauss_left = midpoint_nodes - _GAUSS_ABSCISSA * half_width
-        gauss_right = midpoint_nodes + _GAUSS_ABSCISSA * half_width
-        gauss_left_velocity = np.asarray(velocity_at_radii(gauss_left, midpoint), dtype=np.float64)
-        gauss_right_velocity = np.asarray(velocity_at_radii(gauss_right, midpoint), dtype=np.float64)
-        if (
-            gauss_left_velocity.shape != gauss_left.shape
-            or gauss_right_velocity.shape != gauss_right.shape
-            or not np.all(np.isfinite(gauss_left_velocity))
-            or not np.all(np.isfinite(gauss_right_velocity))
-        ):
-            raise DiagnosticError("topology audit received an invalid Gauss-mesh velocity")
-        gauss_left_sign = np.sign(gauss_left_velocity)
-        gauss_right_sign = np.sign(gauss_right_velocity)
-        interval_sign = node_sign[:-1]
-        valid_interval = (
-            (interval_sign != 0.0)
-            & (node_sign[1:] == interval_sign)
-            & (gauss_left_sign == interval_sign)
-            & (gauss_right_sign == interval_sign)
-        )
-        run_id = np.cumsum(
-            np.concatenate((np.asarray([True]), ~valid_interval)), dtype=np.int64
-        ) - 1
-        original_nodes = np.arange(arrival.size, dtype=np.int64) * _TRACE_SUBCELLS_PER_CELL
-        topology = _TraceTopology(
-            mode="TIME_OF_FLIGHT",
-            node_sign=node_sign,
-            gauss_left_sign=gauss_left_sign,
-            gauss_right_sign=gauss_right_sign,
-            valid_interval=valid_interval,
-            arrival_face_run_id=run_id[original_nodes],
-            lower_no_inflow_face_count=int(evaluation.trial.trace.lower_no_inflow_face_count),
-            upper_no_inflow_face_count=int(evaluation.trial.trace.upper_no_inflow_face_count),
-            identity_departure_map=bool(
-                np.array_equal(
-                    np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64), arrival
-                )
-            ),
-        )
+    except (AttributeError, ConservativeRemapError, ValueError, FloatingPointError) as error:
+        raise DiagnosticError("topology audit received an invalid characteristic trace") from error
     if callable(state_arrays) and _state_signature(solver) != before:
         raise DiagnosticError("trace-topology audit mutated immutable state_244")
     return topology

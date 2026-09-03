@@ -51,7 +51,9 @@ from kwn_mvp.characteristic_reference import (  # noqa: E402
     FIXED_POINT_CLOSURE,
     FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT,
     FIXED_POINT_PERIODIC_CYCLE_PERIODS,
+    FIXED_POINT_PERIODIC_ROOT_TRIGGER,
     FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
+    FIXED_POINT_SAFEGUARDED_ROOT_TRIGGER,
     REMAP_ORDER,
     TRACE_INTEGRATOR,
     CharacteristicReferenceSolver,
@@ -731,6 +733,7 @@ def _run_characteristic(
                         "fixed_point_iterations": int(diagnostic.fixed_point_iterations),
                         "fixed_point_picard_iterations": int(diagnostic.fixed_point_picard_iterations),
                         "fixed_point_xb_residual": float(diagnostic.fixed_point_xb_residual),
+                        "fixed_point_xb_tolerance": float(diagnostic.fixed_point_xb_tolerance),
                         "fixed_point_population_residual": float(diagnostic.fixed_point_population_residual),
                         "fixed_point_cell_measure_residual": float(diagnostic.fixed_point_cell_measure_residual),
                         "fixed_point_convergence_rate": float(diagnostic.fixed_point_convergence_rate),
@@ -745,6 +748,7 @@ def _run_characteristic(
                         "fixed_point_bracket_right_signed_residual": float(diagnostic.fixed_point_bracket_right_signed_residual),
                         "fixed_point_root_trial_xb_residual": float(diagnostic.fixed_point_root_trial_xb_residual),
                         "fixed_point_root_verification_population_residual": float(diagnostic.fixed_point_root_verification_population_residual),
+                        "fixed_point_root_verification_kind": diagnostic.fixed_point_root_verification_kind,
                         "inventory_relative_residual": float(diagnostic.inventory.relative_residual),
                         "rmin_number_loss_m3": float(diagnostic.rmin_number_loss_m3),
                         "rmin_mol_b_loss_mol_m3": float(diagnostic.rmin_mol_b_loss_mol_m3),
@@ -805,20 +809,33 @@ def _run_characteristic(
 def _fixed_point_root_summary(runs: Mapping[str, RunResult]) -> dict[str, Any]:
     """Summarize strict scalar roots, never accepting a periodic-cycle state."""
 
-    roots = [
+    periodic_roots = [
         row
         for run in runs.values()
         for row in run.trace_rows
         if row.get("fixed_point_convergence_mode") == "BRACKETED_SCALAR_ROOT"
     ]
+    safeguarded_roots = [
+        row
+        for run in runs.values()
+        for row in run.trace_rows
+        if row.get("fixed_point_convergence_mode") == "SAFEGUARDED_SCALAR_ROOT_V1"
+    ]
+    roots = periodic_roots + safeguarded_roots
     return {
-        "bracketed_scalar_root_step_count": len(roots),
+        "strict_scalar_root_step_count": len(roots),
+        "bracketed_scalar_root_step_count": len(periodic_roots),
+        "safeguarded_scalar_root_step_count": len(safeguarded_roots),
         "bracketed_scalar_root_cycle_period_counts": {
             str(period): sum(
                 int(row.get("fixed_point_periodic_cycle_period", 0)) == period
-                for row in roots
+                for row in periodic_roots
             )
             for period in FIXED_POINT_PERIODIC_CYCLE_PERIODS
+        },
+        "root_verification_kind_counts": {
+            kind: sum(str(row.get("fixed_point_root_verification_kind", "NONE")) == kind for row in roots)
+            for kind in ("MAP_SUCCESSOR", "SAME_X_IMMUTABLE_REPLAY")
         },
         "total_bisection_iterations": sum(int(row["fixed_point_bracketed_root_iterations"]) for row in roots),
         "maximum_picard_iterations": max(
@@ -2184,11 +2201,15 @@ def _write_outputs(
                 "contract": FIXED_POINT_CLOSURE,
                 "direct_picard_max_iterations": FIXED_POINT_PICARD_MAX_ITERATIONS_DEFAULT,
                 "scalar_root_max_iterations": FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
-                "scalar_root_trigger": "EXACT_BITWISE_RAW_PICARD_PERIOD_2_OR_4_CYCLE_ONLY",
+                "periodic_scalar_root_trigger": FIXED_POINT_PERIODIC_ROOT_TRIGGER,
+                "safeguarded_scalar_root_trigger": FIXED_POINT_SAFEGUARDED_ROOT_TRIGGER,
                 "scalar_root_cycle_periods": list(FIXED_POINT_PERIODIC_CYCLE_PERIODS),
                 "periodic_cycle_is_accepted_state": False,
                 "requires_original_xb_tolerance": True,
-                "requires_map_verification_population_check": True,
+                "periodic_requires_map_successor_population_check": True,
+                "safeguarded_requires_same_cdf_source_partition": True,
+                "safeguarded_requires_same_trace_topology": True,
+                "safeguarded_root_verification": "SAME_X_IMMUTABLE_REPLAY",
                 "fixed_point_iterations_trace_field": "total_closure_map_evaluations",
                 "fixed_point_picard_iterations_trace_field": "raw_picard_evaluations_before_acceptance_or_root_trigger",
             },

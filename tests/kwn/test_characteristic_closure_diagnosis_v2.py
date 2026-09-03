@@ -24,7 +24,9 @@ from scripts.diagnose_kwn_characteristic_closure_v2 import (
     _raw_picard,
     _replay_to_step244,
     _scalar_scan,
+    _same_cdf_source_partition,
     _solve_brackets,
+    _trace_topology_for_trial,
     _trace_topology_pair_evidence,
 )
 from tests.kwn.test_characteristic_reference import (
@@ -82,7 +84,9 @@ class _SyntheticClosureMap:
                 matrix_fraction=1.0,
             ),
             trace=SimpleNamespace(
+                arrival_faces_m=np.array([1.0, 2.0, 3.0], dtype=np.float64),
                 departure_faces_m=departure_faces,
+                midpoint_faces_m=np.array([1.0, 2.0, 3.0], dtype=np.float64),
                 lower_no_inflow_face_count=0,
                 upper_no_inflow_face_count=0,
             ),
@@ -174,6 +178,41 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
             left=first,
             right=repeat,
         )
+        diagnostic_topology = _trace_topology_for_trial(
+            closure_map,
+            edges_m=solver.population("beta").grid.edges_m,
+            evaluation=first,
+        )
+        self.assertIsNotNone(first.trial)
+        runtime_topology = solver._trace_topology(first.trial)
+        self.assertIsNotNone(runtime_topology)
+        assert runtime_topology is not None
+        self.assertEqual(diagnostic_topology.mode, runtime_topology.mode)
+        np.testing.assert_array_equal(diagnostic_topology.node_sign, runtime_topology.node_sign)
+        np.testing.assert_array_equal(
+            diagnostic_topology.gauss_left_sign, runtime_topology.gauss_left_sign
+        )
+        np.testing.assert_array_equal(
+            diagnostic_topology.gauss_right_sign, runtime_topology.gauss_right_sign
+        )
+        np.testing.assert_array_equal(
+            diagnostic_topology.valid_interval, runtime_topology.valid_interval
+        )
+        np.testing.assert_array_equal(
+            diagnostic_topology.arrival_face_run_id, runtime_topology.arrival_face_run_id
+        )
+        self.assertEqual(
+            diagnostic_topology.lower_no_inflow_face_count,
+            runtime_topology.lower_no_inflow_face_count,
+        )
+        self.assertEqual(
+            diagnostic_topology.upper_no_inflow_face_count,
+            runtime_topology.upper_no_inflow_face_count,
+        )
+        self.assertEqual(
+            diagnostic_topology.identity_departure_map,
+            runtime_topology.identity_departure_map,
+        )
         self.assertEqual(evidence["trace_topology_status"], "PASS_SAME_TRACE_TOPOLOGY")
         self.assertEqual(evidence["left_trace_topology"]["trace_topology_mode"], "CONSTANT_TRANSLATION")
         for key, expected in before.items():
@@ -250,6 +289,45 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
                 for item in brackets
                 if item.get("bracket_kind") == "SIGN_CHANGE"
             )
+        )
+
+    def test_cdf_partition_requires_endpoint_masks_and_no_inflow_counts(self) -> None:
+        """The diagnosis must consume the runtime's full six-part CDF key."""
+
+        edges = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+
+        def evaluation(*, departure: np.ndarray, lower_no_inflow: int, identifier: int) -> Evaluation:
+            return Evaluation(
+                evaluation_id=identifier,
+                phase="unit_cdf_partition",
+                x_guess=0.5,
+                trial=SimpleNamespace(
+                    trace=SimpleNamespace(
+                        arrival_faces_m=edges.copy(),
+                        departure_faces_m=departure,
+                        midpoint_faces_m=edges.copy(),
+                        lower_no_inflow_face_count=lower_no_inflow,
+                        upper_no_inflow_face_count=0,
+                    )
+                ),
+                state_hash_before="state244",
+                state_hash_after="state244",
+                error_type=None,
+                error_message=None,
+            )
+
+        at_lower_endpoint = evaluation(
+            departure=np.array([1.0, 1.5, 2.5], dtype=np.float64),
+            lower_no_inflow=1,
+            identifier=1,
+        )
+        just_inside_lower = evaluation(
+            departure=np.array([np.nextafter(1.0, np.inf), 1.5, 2.5], dtype=np.float64),
+            lower_no_inflow=0,
+            identifier=2,
+        )
+        self.assertFalse(
+            _same_cdf_source_partition(at_lower_endpoint, just_inside_lower, edges_m=edges)
         )
 
     def test_narrow_same_branch_sign_bracket_samples_midpoint_and_repeats_same_x(self) -> None:
@@ -509,6 +587,7 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
             fixed_point_iterations=2,
             fixed_point_picard_iterations=2,
             fixed_point_xb_residual=1.0e-13,
+            fixed_point_xb_tolerance=1.0e-12,
             fixed_point_population_residual=2.0e-13,
             fixed_point_cell_measure_residual=3.0e-13,
             fixed_point_convergence_rate=4.0e-5,

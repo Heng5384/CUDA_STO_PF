@@ -6,8 +6,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 from unittest.mock import patch
 
 import numpy as np
@@ -17,6 +16,8 @@ from kwn_mvp.characteristic_reference import (
     CharacteristicReferenceSolver,
 )
 from kwn_mvp.conservative_remap import (
+    CharacteristicTrace,
+    ConservativeRemapResult,
     conservative_remap_piecewise_constant,
     piecewise_constant_cdf,
 )
@@ -161,6 +162,63 @@ class _RestartVelocityCharacteristic(CharacteristicReferenceSolver):
         return np.full(np.asarray(radii_m).shape, -1.0e-12, dtype=np.float64)
 
 
+class _SafeguardedRestartCharacteristic(CharacteristicReferenceSolver):
+    """A restartable test double that reaches only the new terminal bracket."""
+
+    _root_offset = 1.0e-13
+
+    def _velocity_at_radii(self, radii_m: np.ndarray, matrix_xb: float) -> np.ndarray:
+        del matrix_xb
+        return np.full(np.asarray(radii_m).shape, 1.0, dtype=np.float64)
+
+    def _scripted_trace(self) -> CharacteristicTrace:
+        edges = np.asarray(self.population("beta").grid.edges_m, dtype=np.float64)
+        departure = edges.copy()
+        departure[1:-1] = np.nextafter(departure[1:-1], np.inf)
+        return CharacteristicTrace(
+            arrival_faces_m=edges.copy(),
+            departure_faces_m=departure,
+            midpoint_faces_m=edges.copy(),
+            lower_no_inflow_face_count=0,
+            upper_no_inflow_face_count=0,
+        )
+
+    def _trace_faces(self, *, dt_s: float, midpoint_matrix_xb: float) -> CharacteristicTrace:
+        del dt_s, midpoint_matrix_xb
+        return self._scripted_trace()
+
+    def _remap_once(
+        self,
+        old_cell_number_m3: np.ndarray,
+        *,
+        dt_s: float,
+        midpoint_matrix_xb: float,
+    ) -> tuple[CharacteristicTrace, ConservativeRemapResult]:
+        del dt_s
+        x_start = float(self.matrix_xb)
+        x_guess = 2.0 * float(midpoint_matrix_xb) - x_start
+        root = x_start + self._root_offset
+        target_matrix_xb = root - 10.0 * (x_guess - root)
+        beta = self.population("beta")
+        total = float(self.ledger.total_b_mol_m3)
+        matrix_term = target_matrix_xb / float(self.ledger.matrix_molar_volume_m3_mol)
+        beta_term = float(beta.parameters.x_b) / float(beta.parameters.molar_volume_m3_mol)
+        target_fraction = (total - matrix_term) / (beta_term - matrix_term)
+        old_population = self._beta_population_from_numbers(
+            np.asarray(old_cell_number_m3, dtype=np.float64)
+        )
+        old_fraction = old_population.volume_fraction()
+        values = np.asarray(old_cell_number_m3, dtype=np.float64) * (target_fraction / old_fraction)
+        return self._scripted_trace(), ConservativeRemapResult(
+            cell_number_m3=values,
+            lower_number_loss_m3=0.0,
+            upper_number_loss_m3=0.0,
+            old_number_m3=float(np.sum(values, dtype=np.float64)),
+            new_number_m3=float(np.sum(values, dtype=np.float64)),
+            conservation_residual_m3=0.0,
+        )
+
+
 class CharacteristicReferenceContracts(unittest.TestCase):
     """CR1--CR9: conservative remapping, closure, restart, and no-CFL behavior."""
 
@@ -171,6 +229,9 @@ class CharacteristicReferenceContracts(unittest.TestCase):
         initial_xb: float,
         fixed_point_max_iterations: int = 128,
         assert_state_unchanged: bool = False,
+        branch_for_x: Callable[[float], str] | None = None,
+        topology_sign_for_x: Callable[[float], float] | None = None,
+        record_x_guesses: list[float] | None = None,
     ) -> Any:
         """Exercise the scalar fixed-point controller with closed trial states."""
 
@@ -193,21 +254,51 @@ class CharacteristicReferenceContracts(unittest.TestCase):
         )
         state: dict[str, float] = {}
 
-        def remap_once(*args: Any, **kwargs: Any) -> tuple[object, SimpleNamespace]:
+        edges = solver.population("beta").grid.edges_m
+
+        def remap_once(*args: Any, **kwargs: Any) -> tuple[CharacteristicTrace, ConservativeRemapResult]:
             del args
             midpoint = float(kwargs["midpoint_matrix_xb"])
-            state["x_guess"] = 2.0 * midpoint - float(initial_xb)
-            return object(), SimpleNamespace(cell_number_m3=candidate_a)
+            x_guess = 2.0 * midpoint - float(initial_xb)
+            state["x_guess"] = x_guess
+            if record_x_guesses is not None:
+                record_x_guesses.append(x_guess)
+            departure = np.asarray(edges, dtype=np.float64).copy()
+            if branch_for_x is not None and branch_for_x(x_guess) != "A":
+                face = departure.size // 2
+                departure[face] = departure[face + 1]
+            trace = CharacteristicTrace(
+                arrival_faces_m=np.asarray(edges, dtype=np.float64).copy(),
+                departure_faces_m=departure,
+                midpoint_faces_m=np.asarray(edges, dtype=np.float64).copy(),
+                lower_no_inflow_face_count=0,
+                upper_no_inflow_face_count=0,
+            )
+            remap = ConservativeRemapResult(
+                cell_number_m3=candidate_a.copy(),
+                lower_number_loss_m3=0.0,
+                upper_number_loss_m3=0.0,
+                old_number_m3=float(np.sum(candidate_a, dtype=np.float64)),
+                new_number_m3=float(np.sum(candidate_a, dtype=np.float64)),
+                conservation_residual_m3=0.0,
+            )
+            return trace, remap
 
         def recover_matrix(candidate: np.ndarray) -> float:
             del candidate
             return float(closure_map(state["x_guess"]))
+
+        def topology_velocity(radii: np.ndarray, midpoint_matrix_xb: float) -> np.ndarray:
+            x_guess = 2.0 * float(midpoint_matrix_xb) - float(initial_xb)
+            sign = 1.0 if topology_sign_for_x is None else float(topology_sign_for_x(x_guess))
+            return np.full(np.asarray(radii).shape, sign, dtype=np.float64)
 
         before = solver.state_arrays() if assert_state_unchanged else {}
         with (
             patch.object(solver, "_remap_once", side_effect=remap_once),
             patch.object(solver, "_recover_matrix_xb", side_effect=recover_matrix),
             patch.object(solver, "_inventory_snapshot", return_value=snapshot),
+            patch.object(solver, "_velocity_at_radii", side_effect=topology_velocity),
         ):
             try:
                 return solver._solve_fixed_point(
@@ -385,6 +476,7 @@ class CharacteristicReferenceContracts(unittest.TestCase):
         self.assertLessEqual(result.root_trial_xb_residual, 5.1e-12)
         self.assertLessEqual(result.xb_residual, 5.1e-12)
         self.assertLessEqual(result.root_verification_population_residual, 1.0e-12)
+        self.assertEqual(result.root_verification_kind, "MAP_SUCCESSOR")
         self.assertEqual(result.inventory.relative_residual, 0.0)
 
     def test_exact_two_cycle_with_discontinuous_map_fails_closed(self) -> None:
@@ -413,6 +505,7 @@ class CharacteristicReferenceContracts(unittest.TestCase):
         self.assertLessEqual(result.root_trial_xb_residual, 5.1e-12)
         self.assertLessEqual(result.xb_residual, 5.1e-12)
         self.assertLessEqual(result.root_verification_population_residual, 1.0e-12)
+        self.assertEqual(result.root_verification_kind, "MAP_SUCCESSOR")
         self.assertEqual(result.inventory.relative_residual, 0.0)
 
     def test_exact_four_cycle_with_discontinuous_map_fails_closed(self) -> None:
@@ -446,7 +539,100 @@ class CharacteristicReferenceContracts(unittest.TestCase):
             self._scripted_scalar_closure(
                 closure_map=lambda x: x + 1.0e-8,
                 initial_xb=root,
+                fixed_point_max_iterations=4,
+                assert_state_unchanged=True,
             )
+
+    def test_noncontractive_same_branch_raw_cap_uses_safeguarded_scalar_root(self) -> None:
+        initial_xb = 0.0062
+        root = initial_xb + 1.0e-13
+        closure_map = lambda x: root - 10.0 * (x - root)
+        guesses: list[float] = []
+        result = self._scripted_scalar_closure(
+            closure_map=closure_map,
+            initial_xb=initial_xb,
+            fixed_point_max_iterations=4,
+            assert_state_unchanged=True,
+            record_x_guesses=guesses,
+        )
+        self.assertEqual(result.convergence_mode, "SAFEGUARDED_SCALAR_ROOT_V1")
+        self.assertEqual(result.periodic_cycle_period, 0)
+        self.assertEqual(result.picard_iterations, 4)
+        self.assertGreaterEqual(result.bracketed_root_iterations, 1)
+        self.assertLessEqual(result.root_trial_xb_residual, 5.1e-12)
+        self.assertEqual(result.root_verification_kind, "SAME_X_IMMUTABLE_REPLAY")
+        self.assertEqual(result.root_verification_population_residual, 0.0)
+        self.assertEqual(result.inventory.relative_residual, 0.0)
+        self.assertTrue(np.all(result.cell_number_m3 >= 0.0))
+        self.assertTrue(any(left == right for left, right in zip(guesses, guesses[1:])))
+        accepted_x = guesses[-1]
+        self.assertGreater(abs(closure_map(closure_map(accepted_x)) - closure_map(accepted_x)), 5.1e-12)
+
+    def test_safeguarded_scalar_root_rejects_cross_cdf_partition_sign_pair(self) -> None:
+        initial_xb = 0.0062
+        root = initial_xb + 1.0e-13
+        with self.assertRaisesRegex(CharacteristicReferenceError, "CDF partition or trace topology"):
+            self._scripted_scalar_closure(
+                closure_map=lambda x: root - 10.0 * (x - root),
+                initial_xb=initial_xb,
+                fixed_point_max_iterations=4,
+                assert_state_unchanged=True,
+                branch_for_x=lambda x: "A" if x < root else "B",
+            )
+
+    def test_safeguarded_scalar_root_rejects_midpoint_cdf_partition_transition(self) -> None:
+        initial_xb = 0.0062
+        root = initial_xb + 1.0e-13
+        with self.assertRaisesRegex(CharacteristicReferenceError, "within its bracket"):
+            self._scripted_scalar_closure(
+                closure_map=lambda x: root - 10.0 * (x - root),
+                initial_xb=initial_xb,
+                fixed_point_max_iterations=4,
+                assert_state_unchanged=True,
+                branch_for_x=lambda x: (
+                    "B" if root + 4.0e-11 < x < root + 5.0e-11 else "A"
+                ),
+            )
+
+    def test_safeguarded_scalar_root_rejects_trace_topology_transition(self) -> None:
+        initial_xb = 0.0062
+        root = initial_xb + 1.0e-13
+        with self.assertRaisesRegex(CharacteristicReferenceError, "within its bracket"):
+            self._scripted_scalar_closure(
+                closure_map=lambda x: root - 10.0 * (x - root),
+                initial_xb=initial_xb,
+                fixed_point_max_iterations=4,
+                assert_state_unchanged=True,
+                topology_sign_for_x=lambda x: (
+                    -1.0 if root + 4.0e-11 < x < root + 5.0e-11 else 1.0
+                ),
+            )
+
+    def test_safeguarded_scalar_root_is_repeatable_and_restartable(self) -> None:
+        numbers = _numbers(bins=44) * 1.0e2
+        config = SolverConfig.from_mapping(_mapping(bins=44, beta_numbers_m3=numbers))
+        one_step_states: list[dict[str, np.ndarray]] = []
+        for _ in range(10):
+            solver = _SafeguardedRestartCharacteristic(config, fixed_point_max_iterations=4)
+            diagnostic = solver.advance_one(maximum_dt_s=1.0)
+            self.assertEqual(diagnostic.fixed_point_convergence_mode, "SAFEGUARDED_SCALAR_ROOT_V1")
+            self.assertEqual(diagnostic.fixed_point_root_verification_kind, "SAME_X_IMMUTABLE_REPLAY")
+            one_step_states.append(solver.state_arrays())
+        for observed in one_step_states[1:]:
+            for key, expected in one_step_states[0].items():
+                np.testing.assert_array_equal(expected, observed[key], err_msg=key)
+
+        continuous = _SafeguardedRestartCharacteristic(config, fixed_point_max_iterations=4)
+        continuous.run_to_time(2.0, maximum_step_s=1.0)
+        split = _SafeguardedRestartCharacteristic(config, fixed_point_max_iterations=4)
+        split.advance_one(maximum_dt_s=1.0)
+        with tempfile.TemporaryDirectory() as temporary:
+            checkpoint = Path(temporary) / "safeguarded_characteristic.npz"
+            split.save_checkpoint(checkpoint)
+            resumed = _SafeguardedRestartCharacteristic.load_checkpoint(config=config, path=checkpoint)
+            resumed.advance_one(maximum_dt_s=1.0)
+        for key, expected in continuous.state_arrays().items():
+            np.testing.assert_array_equal(expected, resumed.state_arrays()[key], err_msg=key)
 
     def test_cr7_restart_matches_continuous_state(self) -> None:
         numbers = _numbers(bins=40)

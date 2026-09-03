@@ -10,8 +10,9 @@
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null
 
-# Deterministic, CPU-only step-245 CR1 closure diagnosis.  This is not a
-# PF/CUDA run and it never accepts a candidate macro step.
+# Deterministic, CPU-only step-245 CR1 closure work.  Select only one narrow
+# mode with CLOSURE_V2_MODE: ``diagnose`` (default) or ``closure-regression``.
+# Neither mode launches PF/CUDA or changes physics/registered timesteps.
 
 set -euo pipefail
 
@@ -24,6 +25,26 @@ set -euo pipefail
 readonly BASE_COMMIT="2ee679437421c750ccf2f2173d208df73bf28475"
 readonly REQUIRED_BRANCH="codex/kwn-characteristic-closure-v2"
 readonly TASK_NAME="kwn_characteristic_closure_v2"
+: "${CLOSURE_V2_MODE:=diagnose}"
+
+case "${CLOSURE_V2_MODE}" in
+  diagnose)
+    runner_script="${SOURCE_ROOT}/scripts/diagnose_kwn_characteristic_closure_v2.py"
+    runner_command="diagnose"
+    status_label="KWN_CHARACTERISTIC_CLOSURE_DIAGNOSIS_V2"
+    scope_label="KWN_STEP245_DIAGNOSTIC_ONLY_NO_PF_CUDA"
+    ;;
+  closure-regression)
+    runner_script="${SOURCE_ROOT}/scripts/run_kwn_characteristic_closure_v2.py"
+    runner_command="closure-regression"
+    status_label="KWN_CHARACTERISTIC_CLOSURE_LOCAL_REGRESSION_V2"
+    scope_label="KWN_STEP245_SAFEGUARDED_CLOSURE_LOCAL_REGRESSION_NO_PF_CUDA"
+    ;;
+  *)
+    printf '[fatal] unsupported CLOSURE_V2_MODE=%s\n' "${CLOSURE_V2_MODE}" >&2
+    exit 2
+    ;;
+esac
 
 [[ ! -e "${RUN_ROOT}" ]] || { echo "[fatal] refusing to overwrite RUN_ROOT=${RUN_ROOT}" >&2; exit 2; }
 mkdir -- "${RUN_ROOT}"
@@ -32,13 +53,25 @@ exec >"${RUN_ROOT}/logs/driver.stdout.log" 2>"${RUN_ROOT}/logs/driver.stderr.log
 
 preflight_fail() {
   printf '[fatal] %s\n' "$*" >&2
-  printf 'NONPASS_KWN_CHARACTERISTIC_CLOSURE_DIAGNOSIS_V2_PREFLIGHT\n' >"${RUN_ROOT}/status.txt"
+  printf 'NONPASS_%s_PREFLIGHT\n' "${status_label}" >"${RUN_ROOT}/status.txt"
   exit 2
 }
 
 [[ -e "${SOURCE_ROOT}/.git" ]] || preflight_fail "SOURCE_ROOT must be a Git worktree"
 [[ -x "${PYTHON_BIN}" ]] || preflight_fail "PYTHON_BIN must be executable"
 [[ -r "${FORMAL_TRACE_CSV}" ]] || preflight_fail "formal step-244 trace is unavailable"
+runtime_python_version="$("${PYTHON_BIN}" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')" || \
+  preflight_fail "could not query frozen Python version"
+runtime_numpy_version="$("${PYTHON_BIN}" -c 'import numpy; print(numpy.__version__)')" || \
+  preflight_fail "could not import NumPy in frozen runtime"
+runtime_scipy_version="$("${PYTHON_BIN}" -c 'import scipy; print(scipy.__version__)')" || \
+  preflight_fail "could not import SciPy in frozen runtime"
+[[ "${runtime_python_version}" == "3.11.13" ]] || \
+  preflight_fail "frozen Python version differs: ${runtime_python_version}"
+[[ "${runtime_numpy_version}" == "2.0.2" ]] || \
+  preflight_fail "frozen NumPy version differs: ${runtime_numpy_version}"
+[[ "${runtime_scipy_version}" == "1.13.1" ]] || \
+  preflight_fail "frozen SciPy version differs: ${runtime_scipy_version}"
 
 source_commit="$(git -C "${SOURCE_ROOT}" rev-parse HEAD)" || preflight_fail "could not resolve source commit"
 source_branch="$(git -C "${SOURCE_ROOT}" branch --show-current)" || preflight_fail "could not resolve source branch"
@@ -103,6 +136,8 @@ fixture_input_hashes="${RUN_ROOT}/fixture_input_sha256.txt"
     sha256sum "${fixture_profile_root}/${fixture_file}"
   done
 ) >"${fixture_input_hashes}"
+fixture_input_set_sha256="$(sha256sum "${fixture_input_hashes}" | awk '{print $1}')"
+formal_trace_sha256="$(sha256sum "${FORMAL_TRACE_CSV}" | awk '{print $1}')"
 
 {
   printf 'hostname=%s\n' "$(hostname)"
@@ -113,8 +148,9 @@ fixture_input_hashes="${RUN_ROOT}/fixture_input_sha256.txt"
   printf 'source_status=%s\n' "${source_status}"
   printf 'base_commit=%s\n' "${BASE_COMMIT}"
   printf 'python_bin=%s\n' "${PYTHON_BIN}"
-  printf 'python_version=%s\n' "$("${PYTHON_BIN}" -c 'import sys; print(sys.version.replace("\n", " "))')"
-  printf 'numpy_version=%s\n' "$("${PYTHON_BIN}" -c 'import numpy; print(numpy.__version__)')"
+  printf 'python_version=%s\n' "${runtime_python_version}"
+  printf 'numpy_version=%s\n' "${runtime_numpy_version}"
+  printf 'scipy_version=%s\n' "${runtime_scipy_version}"
   printf 'fixture_profile_root=%s\n' "${fixture_profile_root}"
   printf 'fixture_profile_realpath=%s\n' "${fixture_profile_realpath}"
   printf 'runtime_fixture_link=%s\n' "${runtime_fixture_link}"
@@ -123,12 +159,15 @@ fixture_input_hashes="${RUN_ROOT}/fixture_input_sha256.txt"
   printf 'runtime_profile_root=%s\n' "${runtime_profile_root}"
   printf 'runtime_profile_realpath=%s\n' "${runtime_profile_realpath}"
   printf 'fixture_input_sha256_file=%s\n' "${fixture_input_hashes}"
+  printf 'fixture_input_set_sha256=%s\n' "${fixture_input_set_sha256}"
   printf 'formal_trace_csv=%s\n' "${FORMAL_TRACE_CSV}"
-  printf 'scope=KWN_STEP245_DIAGNOSTIC_ONLY_NO_PF_CUDA\n'
+  printf 'formal_trace_sha256=%s\n' "${formal_trace_sha256}"
+  printf 'closure_v2_mode=%s\n' "${CLOSURE_V2_MODE}"
+  printf 'scope=%s\n' "${scope_label}"
 } >"${RUN_ROOT}/launch_provenance.txt"
 
 set +e
-"${PYTHON_BIN}" "${SOURCE_ROOT}/scripts/diagnose_kwn_characteristic_closure_v2.py" diagnose \
+"${PYTHON_BIN}" "${runner_script}" "${runner_command}" \
   --output-root "${RUN_ROOT}/outputs/${TASK_NAME}" \
   --report-root "${RUN_ROOT}/reports/${TASK_NAME}" \
   --formal-trace-csv "${FORMAL_TRACE_CSV}"
@@ -137,8 +176,8 @@ set -e
 
 printf '%s\n' "${runner_rc}" >"${RUN_ROOT}/runner_exit_code.txt"
 if [[ "${runner_rc}" -eq 0 ]]; then
-  printf 'PASS_KWN_CHARACTERISTIC_CLOSURE_DIAGNOSIS_V2\n' >"${RUN_ROOT}/status.txt"
+  printf 'PASS_%s\n' "${status_label}" >"${RUN_ROOT}/status.txt"
 else
-  printf 'NONPASS_KWN_CHARACTERISTIC_CLOSURE_DIAGNOSIS_V2\n' >"${RUN_ROOT}/status.txt"
+  printf 'NONPASS_%s\n' "${status_label}" >"${RUN_ROOT}/status.txt"
 fi
 exit "${runner_rc}"
