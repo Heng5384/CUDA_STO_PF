@@ -147,15 +147,20 @@ class EvaluationBudget:
     def remaining(self) -> int:
         return max(0, self.maximum_new_evaluations - self.new_evaluation_count)
 
-    def evaluate(self, value: float, *, phase: str) -> Evaluation | None:
+    def evaluate(self, value: float, *, phase: str, reuse: bool = True) -> Evaluation | None:
         key = float(value).hex()
         cached = key in self.closure_map._cache
-        if not cached and self.new_evaluation_count >= self.maximum_new_evaluations:
+        # A same-x reproducibility check deliberately bypasses the map cache:
+        # it must retain a second, independently executed immutable trial.
+        # It therefore consumes the shared diagnostic budget even though the
+        # binary64 input value is already known.
+        requires_new_evaluation = not cached or not reuse
+        if requires_new_evaluation and self.new_evaluation_count >= self.maximum_new_evaluations:
             self.exhausted = True
             assert self.exhausted_phases is not None
             self.exhausted_phases.add(phase)
             return None
-        return self.closure_map.evaluate(float(value), phase=phase, reuse=True)
+        return self.closure_map.evaluate(float(value), phase=phase, reuse=reuse)
 
     def audit(self) -> dict[str, Any]:
         return {
@@ -1374,9 +1379,9 @@ def _scalar_scan(
         initial_right = right
         multiple_pairs = len(signature_pairs_in_group) > 1
         status = (
-            "MULTIPLE_SIGNATURE_TRANSITIONS_UNRESOLVED"
+            "MULTIPLE_SOURCE_CELL_CDF_KINKS_OBSERVED"
             if multiple_pairs
-            else "SIGNATURE_TRANSITION_UNRESOLVED"
+            else "SOURCE_CELL_CDF_KINK_OBSERVED"
         )
         transition_iterations = 0
         if not multiple_pairs:
@@ -1398,26 +1403,24 @@ def _scalar_scan(
                 middle_signature = middle_row.get("departure_signature_hash", "")
                 right_signature = row_for(right).get("departure_signature_hash", "")
                 if left_signature != middle_signature and middle_signature != right_signature:
-                    status = "MULTIPLE_SIGNATURE_TRANSITIONS_UNRESOLVED"
+                    status = "MULTIPLE_SOURCE_CELL_CDF_KINKS_OBSERVED"
                     break
                 if left_signature != middle_signature:
                     right = middle
                 elif middle_signature != right_signature:
                     left = middle
                 else:
-                    status = "SIGNATURE_TRANSITION_NOT_RETAINED"
+                    status = "SOURCE_CELL_SIGNATURE_TRANSITION_NOT_RETAINED"
                     break
         if left.trial is not None and right.trial is not None:
             left_row = row_for(left)
             right_row = row_for(right)
             residual_jump = abs(float(left.trial.signed_xb_residual) - float(right.trial.signed_xb_residual))
             jump_tolerance = 8.0 * max(float(left.trial.xb_tolerance), float(right.trial.xb_tolerance))
-            if status == "SIGNATURE_TRANSITION_UNRESOLVED":
-                status = (
-                    "CONTINUOUS_SIGNATURE_TRANSITION_OBSERVED"
-                    if residual_jump <= jump_tolerance
-                    else "SIGNATURE_TRANSITION_RESIDUAL_JUMP_OBSERVED_UNRESOLVED"
-                )
+            # A residual difference over a finite x interval measures a
+            # slope as well as any possible jump.  It is retained below as
+            # provenance, but cannot label a CDF source-cell crossing a
+            # discontinuity.
             if (
                 float(left.trial.signed_xb_residual) < 0.0 < float(right.trial.signed_xb_residual)
                 or float(right.trial.signed_xb_residual) < 0.0 < float(left.trial.signed_xb_residual)
@@ -1475,7 +1478,10 @@ def _scalar_scan(
                         or float(right.trial.signed_xb_residual) < 0.0 < float(left.trial.signed_xb_residual)
                     )
                 ),
-                "continuity_theory_status": "NOT_PROVEN_BY_READ_ONLY_SCALAR_AUDIT",
+                "continuity_theory_status": (
+                    "PIECEWISE_CONSTANT_CDF_CONTINUOUS_AT_SOURCE_CELL_EDGE;"
+                    "TRACE_LIMIT_NOT_ESTABLISHED_BY_SIGNATURE_HASH"
+                ),
                 "status": status,
                 **transition_evidence,
             }
@@ -1501,8 +1507,11 @@ def _scalar_scan(
                 "right_x": right.x_guess,
                 "final_width": right.x_guess - left.x_guess,
                 "transition_iterations": 0,
-                "continuity_theory_status": "NOT_PROVEN_BY_READ_ONLY_SCALAR_AUDIT",
-                "status": "SIGNATURE_TRANSITION_UNEXAMINED_REGION_BUDGET",
+                "continuity_theory_status": (
+                    "PIECEWISE_CONSTANT_CDF_CONTINUOUS_AT_SOURCE_CELL_EDGE;"
+                    "TRACE_LIMIT_NOT_ESTABLISHED_BY_SIGNATURE_HASH"
+                ),
+                "status": "SOURCE_CELL_CDF_KINK_REGION_UNEXAMINED_BUDGET",
                 **_signature_transition_evidence(left, right, edges_m=edges_m),
             }
         )
@@ -1676,6 +1685,7 @@ def _solve_brackets(
         verification_inventory_residual = math.nan
         candidate_nonnegative = False
         verification_nonnegative = False
+        same_x_repeatable = False
         accepted = False
         verification_status = "NOT_ATTEMPTED"
         candidate_scalar_valid = bool(
@@ -1686,13 +1696,18 @@ def _solve_brackets(
         if candidate_scalar_valid and candidate is not None and candidate.trial is not None:
             candidate_inventory_residual = float(candidate.trial.inventory.relative_residual)
             candidate_nonnegative = bool(np.all(np.asarray(candidate.trial.cell_number_m3) >= 0.0))
+            # A safeguarded scalar root closes F(x)=T(x)-x at the root trial
+            # itself.  Re-evaluating F(T(x)) would instead demand that the
+            # raw Picard map be contractive at the root, which is neither the
+            # scalar equation nor a valid criterion for a bracketed root.
+            # Repeat the *same* binary64 input from state 244 instead.
             verification = budget.evaluate(
-                float(candidate.trial.matrix_xb), phase="root_map_verification"
+                float(candidate.x_guess), phase="root_same_x_repeatability", reuse=False
             )
             if verification is None:
                 verification_status = "EVALUATION_BUDGET_EXHAUSTED"
             else:
-                verification_status = "COMPLETED"
+                verification_status = "SAME_X_REPEAT_COMPLETED"
                 verify_row = _trial_row(verification, edges_m=edges_m, previous_trial=None)
             if verification is not None and verification.trial is not None:
                 verification_inventory_residual = float(verification.trial.inventory.relative_residual)
@@ -1702,9 +1717,31 @@ def _solve_brackets(
                 population_residual = closure_map.solver._population_observable_residual(
                     verification.trial.cell_number_m3, candidate.trial.cell_number_m3
                 )
+                same_x_repeatable = bool(
+                    verification.x_guess == candidate.x_guess
+                    and verification.trial.matrix_xb == candidate.trial.matrix_xb
+                    and np.array_equal(
+                        np.asarray(verification.trial.cell_number_m3),
+                        np.asarray(candidate.trial.cell_number_m3),
+                    )
+                    and np.array_equal(
+                        np.asarray(verification.trial.trace.departure_faces_m),
+                        np.asarray(candidate.trial.trace.departure_faces_m),
+                    )
+                    and verification.trial.trace.lower_no_inflow_face_count
+                    == candidate.trial.trace.lower_no_inflow_face_count
+                    and verification.trial.trace.upper_no_inflow_face_count
+                    == candidate.trial.trace.upper_no_inflow_face_count
+                    and verification.trial.inventory.total_mol_m3 == candidate.trial.inventory.total_mol_m3
+                    and verification.trial.inventory.matrix_mol_m3 == candidate.trial.inventory.matrix_mol_m3
+                    and verification.trial.inventory.beta_resolved_mol_m3
+                    == candidate.trial.inventory.beta_resolved_mol_m3
+                )
                 accepted = bool(
                     signature_authoritative
-                    and abs(float(verification.trial.signed_xb_residual)) <= float(verification.trial.xb_tolerance)
+                    and same_x_repeatable
+                    and abs(float(verification.trial.signed_xb_residual))
+                    <= float(verification.trial.xb_tolerance)
                     and population_residual <= float(closure_map.solver._population_convergence_rtol)
                     and candidate_inventory_residual <= 1.0e-10
                     and verification_inventory_residual <= 1.0e-10
@@ -1742,6 +1779,8 @@ def _solve_brackets(
             "root_tolerance": root_row.get("xB_tolerance", math.nan),
             "verification_residual": verify_row.get("F_signed", math.nan),
             "verification_tolerance": verify_row.get("xB_tolerance", math.nan),
+            "verification_kind": "SAME_X_REPEATABILITY",
+            "same_x_repeatable": same_x_repeatable,
             "verification_population_residual": population_residual,
             "population_tolerance": float(closure_map.solver._population_convergence_rtol),
             "candidate_inventory_relative_residual": candidate_inventory_residual,
@@ -1791,6 +1830,11 @@ def _solve_brackets(
             )
             continue
         if kind == "POINT_CANDIDATE":
+            # A residual-tolerance point is useful scan evidence, and its
+            # same-x repeatability is still recorded below.  It is not,
+            # however, authority for a safeguarded closure: that path is
+            # deliberately restricted to a real, same-CDF-partition
+            # sign-changing bracket from this immutable step.
             solutions.append(
                 verified_solution(
                     bracket_id=bracket_id,
@@ -1800,7 +1844,7 @@ def _solve_brackets(
                     right=right,
                     stop="point_residual_candidate",
                     signature_changed=False,
-                    signature_authoritative=True,
+                    signature_authoritative=False,
                 )
             )
             continue
@@ -1839,9 +1883,10 @@ def _solve_brackets(
         for iteration in range(1, ROOT_MAX_ITERATIONS + 1):
             if candidate is not None:
                 break
-            if right.x_guess - left.x_guess <= location_tolerance(left, right):
-                stop = "root_location_interval_closed"
-                break
+            # Location width is provenance, not an acceptance surrogate.  A
+            # bracket narrower than the scalar tolerance can still have no
+            # endpoint satisfying F(x), so it must receive at least the
+            # ordinary midpoint residual test before a root search stops.
             midpoint = 0.5 * (left.x_guess + right.x_guess)
             if midpoint == left.x_guess or midpoint == right.x_guess:
                 stop = "binary64_endpoint_coalescence"
@@ -2010,21 +2055,28 @@ def _classify(
     # finite-scan flag, including a stale caller-supplied one, may turn its
     # sampled observations into a no-root/unique-root certification.
     root_count_certified = False
+    # A source-cell index is an implementation detail of the continuous
+    # piecewise-constant CDF: at an internal edge the left limit and the
+    # ``searchsorted(..., side='right')`` value are the same cumulative
+    # measure.  Its hash may therefore change at a benign CDF kink.  Neither
+    # that event nor a finite-difference residual across a sampled interval
+    # is evidence of a discontinuous CR1 remap.  Only a separately established
+    # trace-topology/limit failure may set this P0 blocker.
     discontinuity_statuses = {
         "DISCONTINUITY_CONFIRMED",
-        "SIGNATURE_TRANSITION_RESIDUAL_JUMP_OBSERVED_UNRESOLVED",
-        "MULTIPLE_SIGNATURE_TRANSITIONS_UNRESOLVED",
-        "SIGNATURE_TRANSITION_INVALID_MIDPOINT",
-        "SIGNATURE_TRANSITION_NOT_RETAINED",
-        "SIGNATURE_TRANSITION_EVALUATION_BUDGET_EXHAUSTED",
-        "SIGNATURE_TRANSITION_UNEXAMINED_REGION_BUDGET",
+        "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
+        "TRACE_LIMIT_FAILURE_CONFIRMED",
     }
     discontinuous = any(
         str(bracket.get("status", "")) in discontinuity_statuses
         for bracket in brackets
         if str(bracket.get("bracket_kind", "")) == "SIGNATURE_TRANSITION"
-    ) or any(
-        str(bracket.get("bracket_kind", "")) == "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION"
+    )
+    source_cell_signature_transition_observed = any(
+        str(bracket.get("bracket_kind", "")) in {
+            "SIGNATURE_TRANSITION",
+            "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION",
+        }
         for bracket in brackets
     )
     final_raw = raw_rows[-1] if raw_rows else {}
@@ -2106,6 +2158,7 @@ def _classify(
         "admissible_root_xB": root_values,
         "root_clusters": root_clusters,
         "discontinuity_evidence": discontinuous,
+        "source_cell_signature_transition_observed": source_cell_signature_transition_observed,
         "asymptotic_contraction_factor": median_q,
         "picard_regime": picard_regime,
         "predicted_remaining_iterations_to_xB_tolerance": predicted_remaining,

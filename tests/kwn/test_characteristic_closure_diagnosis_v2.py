@@ -14,6 +14,7 @@ import numpy as np
 from kwn_mvp.solver import SolverConfig
 from scripts.diagnose_kwn_characteristic_closure_v2 import (
     Evaluation,
+    EvaluationBudget,
     ImmutableStep245Map,
     MAX_POST_RAW_MAP_EVALUATIONS,
     _classify,
@@ -23,6 +24,7 @@ from scripts.diagnose_kwn_characteristic_closure_v2 import (
     _raw_picard,
     _replay_to_step244,
     _scalar_scan,
+    _solve_brackets,
 )
 from tests.kwn.test_characteristic_reference import (
     _ConstantVelocityCharacteristic,
@@ -39,6 +41,10 @@ class _SyntheticClosureMap:
         self._next_id = 1
         self._cache: dict[str, Evaluation] = {}
         self.evaluations: list[Evaluation] = []
+        self.solver = SimpleNamespace(
+            _population_convergence_rtol=1.0e-9,
+            _population_observable_residual=lambda _candidate, _previous: 0.0,
+        )
 
     def evaluate(self, x_guess: float, *, phase: str, reuse: bool = False) -> Evaluation:
         value = float(x_guess)
@@ -218,6 +224,90 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
                 if item.get("bracket_kind") == "SIGN_CHANGE"
             )
         )
+
+    def test_narrow_same_branch_sign_bracket_samples_midpoint_and_repeats_same_x(self) -> None:
+        """A location-width report must not skip the actual scalar residual test."""
+
+        closure_map = _SyntheticClosureMap(lambda value: (value - 0.5, "A"))
+        left = 0.5 - 2.0e-12
+        right = 0.5 + 2.0e-12
+        budget = EvaluationBudget(
+            closure_map=closure_map,
+            maximum_new_evaluations=32,
+            start_evaluation_count=0,
+        )
+        roots, _audit = _solve_brackets(
+            closure_map,
+            edges_m=np.array([1.0, 2.0, 3.0], dtype=np.float64),
+            brackets=[
+                {
+                    "bracket_kind": "SIGN_CHANGE",
+                    "reason": "unit",
+                    "left_x": left,
+                    "right_x": right,
+                    "sign_change": True,
+                    "root_search_selected": True,
+                }
+            ],
+            budget=budget,
+        )
+        self.assertEqual(len(roots), 1)
+        root = roots[0]
+        self.assertTrue(root["root_found"])
+        self.assertEqual(root["stop_reason"], "midpoint_scalar_tolerance")
+        self.assertEqual(root["verification_kind"], "SAME_X_REPEATABILITY")
+        self.assertTrue(root["same_x_repeatable"])
+        self.assertLessEqual(abs(float(root["root_residual"])), float(root["root_tolerance"]))
+        self.assertGreaterEqual(budget.new_evaluation_count, 4)
+
+    def test_point_candidate_is_not_root_authority_without_a_sign_bracket(self) -> None:
+        """A tolerance-valid scan point cannot authorize the safeguarded path alone."""
+
+        closure_map = _SyntheticClosureMap(lambda value: (value - 0.5, "A"))
+        budget = EvaluationBudget(
+            closure_map=closure_map,
+            maximum_new_evaluations=16,
+            start_evaluation_count=0,
+        )
+        roots, _audit = _solve_brackets(
+            closure_map,
+            edges_m=np.array([1.0, 2.0, 3.0], dtype=np.float64),
+            brackets=[
+                {
+                    "bracket_kind": "POINT_CANDIDATE",
+                    "reason": "unit",
+                    "left_x": 0.5,
+                    "right_x": 0.5,
+                    "root_search_selected": True,
+                }
+            ],
+            budget=budget,
+        )
+        self.assertEqual(len(roots), 1)
+        root = roots[0]
+        self.assertTrue(root["root_candidate_within_scalar_tolerance"])
+        self.assertTrue(root["same_x_repeatable"])
+        self.assertFalse(root["root_authority_signature_continuous"])
+        self.assertFalse(root["root_found"])
+
+    def test_source_cell_cdf_kink_does_not_by_itself_classify_a_discontinuous_remap(self) -> None:
+        """A source-index hash change is not a proof that the CDF map jumps."""
+
+        result = _classify(
+            raw_rows=[{"abs_F": 1.0e-8, "xB_tolerance": 1.0e-12}],
+            cycles=[],
+            contraction={"last_64": {"median_q_F": 1.01}},
+            roots=[],
+            brackets=[
+                {
+                    "bracket_kind": "SIGNATURE_TRANSITION",
+                    "status": "MULTIPLE_SOURCE_CELL_CDF_KINKS_OBSERVED",
+                }
+            ],
+        )
+        self.assertEqual(result["step245_classification"], "OTHER_WITH_EXPLICIT_EVIDENCE")
+        self.assertFalse(result["discontinuity_evidence"])
+        self.assertTrue(result["source_cell_signature_transition_observed"])
 
     def test_tangent_targeting_skips_a_cross_branch_local_minimum(self) -> None:
         """Only a three-point same-branch minimum enters the tangent-target refinement plan."""
