@@ -612,6 +612,10 @@ def _workflow(arguments: argparse.Namespace) -> dict[str, Any]:
         raise ClosureRegressionError("frozen canonical context has an unexpected validation-contract hash")
     output_root.mkdir(parents=True, exist_ok=False)
     report_root.mkdir(parents=True, exist_ok=False)
+    solver: CharacteristicReferenceSolver | None = None
+    local_rows: list[dict[str, Any]] = []
+    state244: Mapping[str, Any] | None = None
+    formal_replay: Mapping[str, Any] | None = None
     try:
         state244_solver, state244_formal_rows, local_rows = _replay_to_step(
             context=context,
@@ -755,11 +759,20 @@ def _workflow(arguments: argparse.Namespace) -> dict[str, Any]:
         )
         return final
     except Exception as error:
-        failure = {
-            "STATUS": "FAIL_STEP244_DETERMINISTIC_REPLAY"
+        failed_candidate_step = int(solver.step) + 1 if solver is not None else None
+        failure_status = (
+            "FAIL_STEP244_DETERMINISTIC_REPLAY"
             if "step-244" in str(error)
-            else "FAIL_CHARACTERISTIC_LOCAL_CLOSURE_REGRESSION",
+            else "FAIL_CHARACTERISTIC_LOCAL_CLOSURE_REGRESSION"
+        )
+        failure = {
+            "STATUS": failure_status,
             "reason": f"{type(error).__name__}: {error}",
+            "last_committed_step": int(solver.step) if solver is not None else None,
+            "failed_candidate_step": failed_candidate_step,
+            "partial_local_window_steps": [int(row["step"]) for row in local_rows],
+            "state_244": state244,
+            "formal_step244_replay": formal_replay,
             "source": source,
             "runtime": _runtime_context(),
             "validation_contract_hash": context.contract_hash,
@@ -770,7 +783,18 @@ def _workflow(arguments: argparse.Namespace) -> dict[str, Any]:
             "PHYSICAL_RETUNING": False,
             "GP_RELEASE_RUN": False,
         }
+        if local_rows:
+            _write_csv(
+                output_root / "local_240_260_trace.csv",
+                local_rows,
+                fallback_fields=("step", "time_s", "fixed_point_convergence_mode"),
+            )
         _write_json(output_root / "analysis_provenance.json", failure)
+        _write_markdown(
+            report_root / "07_local_240_260_regression.md",
+            "Local 240–260 regression",
+            "```json\n" + json.dumps(_json_safe(failure), indent=2, sort_keys=True) + "\n```\n",
+        )
         _write_markdown(
             report_root / "12_final_acceptance_report.md",
             "Final acceptance report",
