@@ -1697,11 +1697,20 @@ def _scalar_scan(
                 closure_map, edges_m=edges_m, left=left, right=right
             )
             if topology_evidence["trace_topology_status"] == "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED":
-                # Unlike a CDF source-cell crossing, a changed velocity-sign
-                # or time-of-flight run is an actual trace-topology branch.
-                # It remains a fail-closed P0 diagnostic result until a
-                # one-sided limit audit resolves it.
-                status = "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED"
+                topology_transition_has_sign_change = bool(
+                    float(left.trial.signed_xb_residual) < 0.0 < float(right.trial.signed_xb_residual)
+                    or float(right.trial.signed_xb_residual) < 0.0 < float(left.trial.signed_xb_residual)
+                )
+                # A trace-topology transition elsewhere in the physical
+                # interval is observation/provenance, not proof that the
+                # local root bracket is discontinuous.  It becomes P0 only
+                # if it spans a sign-changing candidate (or enters the
+                # selected root bisection below).
+                status = (
+                    "TRACE_TOPOLOGY_TRANSITION_SIGN_CHANGE_UNRESOLVED"
+                    if topology_transition_has_sign_change
+                    else "TRACE_TOPOLOGY_TRANSITION_OBSERVED_NONROOT"
+                )
         else:
             left_row = row_for(left)
             right_row = row_for(right)
@@ -2178,8 +2187,8 @@ def _solve_brackets(
                 {
                     "bracket_id": bracket_id,
                     "bracket_kind": kind,
-                    "root_search_status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
-                    "status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
+                    "root_search_status": "TRACE_TOPOLOGY_TRANSITION_WITHIN_ROOT_BRACKET_UNRESOLVED",
+                    "status": "TRACE_TOPOLOGY_TRANSITION_WITHIN_ROOT_BRACKET_UNRESOLVED",
                     "left_x": left.x_guess,
                     "right_x": right.x_guess,
                     "left_signature": initial_signature,
@@ -2253,8 +2262,8 @@ def _solve_brackets(
                 stop = "trace_topology_transition_within_sign_bracket"
                 row.update(
                     {
-                        "root_search_status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
-                        "status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
+                        "root_search_status": "TRACE_TOPOLOGY_TRANSITION_WITHIN_ROOT_BRACKET_UNRESOLVED",
+                        "status": "TRACE_TOPOLOGY_TRANSITION_WITHIN_ROOT_BRACKET_UNRESOLVED",
                         "left_trace_topology": _trace_topology_summary(initial_topology),
                         "right_trace_topology": _trace_topology_summary(middle_topology),
                     }
@@ -2427,7 +2436,8 @@ def _classify(
     # trace-topology/limit failure may set this P0 blocker.
     discontinuity_statuses = {
         "DISCONTINUITY_CONFIRMED",
-        "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
+        "TRACE_TOPOLOGY_TRANSITION_SIGN_CHANGE_UNRESOLVED",
+        "TRACE_TOPOLOGY_TRANSITION_WITHIN_ROOT_BRACKET_UNRESOLVED",
         "TRACE_LIMIT_FAILURE_CONFIRMED",
     }
     discontinuous = any(

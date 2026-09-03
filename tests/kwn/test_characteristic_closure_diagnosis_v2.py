@@ -361,7 +361,11 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
         )
         self.assertEqual(roots, [])
         self.assertTrue(
-            any(row.get("status") == "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED" for row in audit)
+            any(
+                row.get("status")
+                == "TRACE_TOPOLOGY_TRANSITION_WITHIN_ROOT_BRACKET_UNRESOLVED"
+                for row in audit
+            )
         )
         classification = _classify(
             raw_rows=[{"abs_F": 1.0e-8, "xB_tolerance": 1.0e-12}],
@@ -393,6 +397,25 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
         self.assertEqual(result["step245_classification"], "OTHER_WITH_EXPLICIT_EVIDENCE")
         self.assertFalse(result["discontinuity_evidence"])
         self.assertTrue(result["source_cell_signature_transition_observed"])
+
+    def test_nonroot_trace_topology_observation_is_not_a_root_discontinuity(self) -> None:
+        """An unrelated topology transition cannot veto a separate root bracket."""
+
+        result = _classify(
+            raw_rows=[{"abs_F": 1.0e-8, "xB_tolerance": 1.0e-12}],
+            cycles=[],
+            contraction={"last_64": {"median_q_F": 1.01}},
+            roots=[],
+            brackets=[
+                {
+                    "bracket_kind": "SIGNATURE_TRANSITION",
+                    "status": "TRACE_TOPOLOGY_TRANSITION_OBSERVED_NONROOT",
+                    "sign_change": False,
+                }
+            ],
+        )
+        self.assertEqual(result["step245_classification"], "OTHER_WITH_EXPLICIT_EVIDENCE")
+        self.assertFalse(result["discontinuity_evidence"])
 
     def test_tangent_targeting_skips_a_cross_branch_local_minimum(self) -> None:
         """Only a three-point same-branch minimum enters the tangent-target refinement plan."""
