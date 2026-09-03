@@ -38,6 +38,11 @@ from kwn_mvp.characteristic_reference import (  # noqa: E402
     CharacteristicReferenceError,
     CharacteristicReferenceSolver,
 )
+from kwn_mvp.conservative_remap import (  # noqa: E402
+    _GAUSS_ABSCISSA,
+    _TRACE_SUBCELLS_PER_CELL,
+    _log_subdivided_faces,
+)
 from kwn_mvp.population_metrics import cell_moments_from_piecewise_constant_cells  # noqa: E402
 from kwn_mvp.solver import RadiusGridOverflowError, SolverConfig  # noqa: E402
 from scripts.frozen_canonical_smooth_population_v1 import (  # noqa: E402
@@ -956,6 +961,252 @@ def _signature_transition_evidence(
     return evidence
 
 
+def _same_cdf_source_partition(
+    left: Evaluation, right: Evaluation, *, edges_m: np.ndarray
+) -> bool:
+    """Compare the CR1 CDF's actual source-cell choices directly.
+
+    Hashes remain useful report provenance, but a root-authority gate must
+    compare the finite source-index arrays themselves.
+    """
+
+    if left.trial is None or right.trial is None:
+        return False
+    return bool(
+        np.array_equal(
+            _departure_source_indices(edges_m, left.trial.trace.departure_faces_m),
+            _departure_source_indices(edges_m, right.trial.trace.departure_faces_m),
+        )
+    )
+
+
+@dataclass(frozen=True)
+class _TraceTopology:
+    """The actual time-of-flight branch choices for one immutable trial.
+
+    A departure source-cell index is a CDF evaluation partition, not by itself
+    a characteristic-trace branch: the piecewise-constant CDF is continuous
+    at its internal cell edges.  This compact, directly comparable key instead
+    mirrors the branch predicates in ``_trace_autonomous_time_of_flight``.
+    It is diagnostic provenance only and never changes CR1 tracing or remap.
+    """
+
+    mode: str
+    node_sign: np.ndarray
+    gauss_left_sign: np.ndarray
+    gauss_right_sign: np.ndarray
+    valid_interval: np.ndarray
+    arrival_face_run_id: np.ndarray
+    lower_no_inflow_face_count: int
+    upper_no_inflow_face_count: int
+    identity_departure_map: bool
+
+
+def _trace_topology_for_trial(
+    closure_map: ImmutableStep245Map,
+    *,
+    edges_m: np.ndarray,
+    evaluation: Evaluation,
+) -> _TraceTopology:
+    """Reconstruct the unchanged trace's branch predicates without remapping.
+
+    The production trace retains departure faces and boundary counts but not
+    its internal velocity-sign mesh.  This helper re-evaluates only the same
+    frozen velocity law at the same trace nodes, verifies that the solver
+    state remains immutable, and exposes the predicates that select a
+    time-of-flight run.  The synthetic unit-test map has no velocity helper;
+    it gets a deliberately non-authoritative but equality-comparable marker.
+    """
+
+    if evaluation.trial is None:
+        raise DiagnosticError("trace topology requires a valid closure trial")
+    solver = closure_map.solver
+    velocity_at_radii = getattr(solver, "_velocity_at_radii", None)
+    if not callable(velocity_at_radii):
+        return _TraceTopology(
+            mode="SYNTHETIC_TEST_DOUBLE",
+            node_sign=np.empty(0, dtype=np.float64),
+            gauss_left_sign=np.empty(0, dtype=np.float64),
+            gauss_right_sign=np.empty(0, dtype=np.float64),
+            valid_interval=np.empty(0, dtype=bool),
+            arrival_face_run_id=np.empty(0, dtype=np.int64),
+            lower_no_inflow_face_count=int(evaluation.trial.trace.lower_no_inflow_face_count),
+            upper_no_inflow_face_count=int(evaluation.trial.trace.upper_no_inflow_face_count),
+            identity_departure_map=bool(
+                np.array_equal(
+                    np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64),
+                    np.asarray(edges_m, dtype=np.float64),
+                )
+            ),
+        )
+
+    state_arrays = getattr(solver, "state_arrays", None)
+    before = _state_signature(solver) if callable(state_arrays) else "NOT_AVAILABLE"
+    arrival = np.asarray(edges_m, dtype=np.float64)
+    midpoint = float(evaluation.trial.midpoint_matrix_xb)
+    first = np.asarray(velocity_at_radii(arrival, midpoint), dtype=np.float64)
+    if first.shape != arrival.shape or not np.all(np.isfinite(first)):
+        raise DiagnosticError("topology audit received an invalid arrival-face velocity")
+    if np.array_equal(first, np.zeros_like(first)):
+        topology = _TraceTopology(
+            mode="ZERO_MOBILITY_IDENTITY",
+            node_sign=np.sign(first),
+            gauss_left_sign=np.empty(0, dtype=np.float64),
+            gauss_right_sign=np.empty(0, dtype=np.float64),
+            valid_interval=np.empty(0, dtype=bool),
+            arrival_face_run_id=np.zeros(arrival.shape, dtype=np.int64),
+            lower_no_inflow_face_count=int(evaluation.trial.trace.lower_no_inflow_face_count),
+            upper_no_inflow_face_count=int(evaluation.trial.trace.upper_no_inflow_face_count),
+            identity_departure_map=bool(
+                np.array_equal(
+                    np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64), arrival
+                )
+            ),
+        )
+    elif np.array_equal(first, np.full_like(first, first[0])):
+        topology = _TraceTopology(
+            mode="CONSTANT_TRANSLATION",
+            node_sign=np.sign(first),
+            gauss_left_sign=np.empty(0, dtype=np.float64),
+            gauss_right_sign=np.empty(0, dtype=np.float64),
+            valid_interval=np.empty(0, dtype=bool),
+            arrival_face_run_id=np.zeros(arrival.shape, dtype=np.int64),
+            lower_no_inflow_face_count=int(evaluation.trial.trace.lower_no_inflow_face_count),
+            upper_no_inflow_face_count=int(evaluation.trial.trace.upper_no_inflow_face_count),
+            identity_departure_map=bool(
+                np.array_equal(
+                    np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64), arrival
+                )
+            ),
+        )
+    else:
+        nodes = _log_subdivided_faces(
+            arrival, subcells_per_cell=_TRACE_SUBCELLS_PER_CELL
+        )
+        node_velocity = np.asarray(velocity_at_radii(nodes, midpoint), dtype=np.float64)
+        if node_velocity.shape != nodes.shape or not np.all(np.isfinite(node_velocity)):
+            raise DiagnosticError("topology audit received an invalid trace-mesh velocity")
+        node_sign = np.sign(node_velocity)
+        left = nodes[:-1]
+        right = nodes[1:]
+        midpoint_nodes = 0.5 * (left + right)
+        half_width = 0.5 * (right - left)
+        gauss_left = midpoint_nodes - _GAUSS_ABSCISSA * half_width
+        gauss_right = midpoint_nodes + _GAUSS_ABSCISSA * half_width
+        gauss_left_velocity = np.asarray(velocity_at_radii(gauss_left, midpoint), dtype=np.float64)
+        gauss_right_velocity = np.asarray(velocity_at_radii(gauss_right, midpoint), dtype=np.float64)
+        if (
+            gauss_left_velocity.shape != gauss_left.shape
+            or gauss_right_velocity.shape != gauss_right.shape
+            or not np.all(np.isfinite(gauss_left_velocity))
+            or not np.all(np.isfinite(gauss_right_velocity))
+        ):
+            raise DiagnosticError("topology audit received an invalid Gauss-mesh velocity")
+        gauss_left_sign = np.sign(gauss_left_velocity)
+        gauss_right_sign = np.sign(gauss_right_velocity)
+        interval_sign = node_sign[:-1]
+        valid_interval = (
+            (interval_sign != 0.0)
+            & (node_sign[1:] == interval_sign)
+            & (gauss_left_sign == interval_sign)
+            & (gauss_right_sign == interval_sign)
+        )
+        run_id = np.cumsum(
+            np.concatenate((np.asarray([True]), ~valid_interval)), dtype=np.int64
+        ) - 1
+        original_nodes = np.arange(arrival.size, dtype=np.int64) * _TRACE_SUBCELLS_PER_CELL
+        topology = _TraceTopology(
+            mode="TIME_OF_FLIGHT",
+            node_sign=node_sign,
+            gauss_left_sign=gauss_left_sign,
+            gauss_right_sign=gauss_right_sign,
+            valid_interval=valid_interval,
+            arrival_face_run_id=run_id[original_nodes],
+            lower_no_inflow_face_count=int(evaluation.trial.trace.lower_no_inflow_face_count),
+            upper_no_inflow_face_count=int(evaluation.trial.trace.upper_no_inflow_face_count),
+            identity_departure_map=bool(
+                np.array_equal(
+                    np.asarray(evaluation.trial.trace.departure_faces_m, dtype=np.float64), arrival
+                )
+            ),
+        )
+    if callable(state_arrays) and _state_signature(solver) != before:
+        raise DiagnosticError("trace-topology audit mutated immutable state_244")
+    return topology
+
+
+def _same_trace_topology(left: _TraceTopology, right: _TraceTopology) -> bool:
+    """Compare actual trace branch predicates directly, not through a hash."""
+
+    return bool(
+        left.mode == right.mode
+        and np.array_equal(left.node_sign, right.node_sign)
+        and np.array_equal(left.gauss_left_sign, right.gauss_left_sign)
+        and np.array_equal(left.gauss_right_sign, right.gauss_right_sign)
+        and np.array_equal(left.valid_interval, right.valid_interval)
+        and np.array_equal(left.arrival_face_run_id, right.arrival_face_run_id)
+        and left.lower_no_inflow_face_count == right.lower_no_inflow_face_count
+        and left.upper_no_inflow_face_count == right.upper_no_inflow_face_count
+        and left.identity_departure_map == right.identity_departure_map
+    )
+
+
+def _trace_topology_summary(topology: _TraceTopology) -> dict[str, Any]:
+    """Persist compact, deterministic topology provenance for reports."""
+
+    arrays = {
+        "node_sign": topology.node_sign,
+        "gauss_left_sign": topology.gauss_left_sign,
+        "gauss_right_sign": topology.gauss_right_sign,
+        "valid_interval": topology.valid_interval,
+        "arrival_face_run_id": topology.arrival_face_run_id,
+    }
+    return {
+        "trace_topology_mode": topology.mode,
+        "trace_topology_hash": _array_hash(arrays),
+        "node_sign_hash": _array_hash({"node_sign": topology.node_sign}),
+        "gauss_left_sign_hash": _array_hash({"gauss_left_sign": topology.gauss_left_sign}),
+        "gauss_right_sign_hash": _array_hash({"gauss_right_sign": topology.gauss_right_sign}),
+        "valid_interval_hash": _array_hash({"valid_interval": topology.valid_interval}),
+        "arrival_face_run_id_hash": _array_hash(
+            {"arrival_face_run_id": topology.arrival_face_run_id}
+        ),
+        "valid_interval_count": int(np.count_nonzero(topology.valid_interval)),
+        "arrival_face_run_count": int(np.unique(topology.arrival_face_run_id).size),
+        "lower_no_inflow_face_count": topology.lower_no_inflow_face_count,
+        "upper_no_inflow_face_count": topology.upper_no_inflow_face_count,
+        "identity_departure_map": topology.identity_departure_map,
+    }
+
+
+def _trace_topology_pair_evidence(
+    closure_map: ImmutableStep245Map,
+    *,
+    edges_m: np.ndarray,
+    left: Evaluation,
+    right: Evaluation,
+) -> dict[str, Any]:
+    """Record whether two immutable trials remain on one trace topology."""
+
+    if left.trial is None or right.trial is None:
+        return {"trace_topology_status": "INVALID_ENDPOINT"}
+    left_topology = _trace_topology_for_trial(
+        closure_map, edges_m=edges_m, evaluation=left
+    )
+    right_topology = _trace_topology_for_trial(
+        closure_map, edges_m=edges_m, evaluation=right
+    )
+    same = _same_trace_topology(left_topology, right_topology)
+    return {
+        "trace_topology_status": (
+            "PASS_SAME_TRACE_TOPOLOGY" if same else "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED"
+        ),
+        "trace_topology_continuous": same,
+        "left_trace_topology": _trace_topology_summary(left_topology),
+        "right_trace_topology": _trace_topology_summary(right_topology),
+    }
+
+
 def _scalar_scan(
     closure_map: ImmutableStep245Map,
     *,
@@ -1148,7 +1399,7 @@ def _scalar_scan(
                 else:
                     cross_signature_sign_changes.append(
                         {
-                            "bracket_kind": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION",
+                            "bracket_kind": "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION",
                             "reason": f"{reason_prefix}_F_SIGN_CHANGE",
                             "left_x": left.x_guess,
                             "right_x": right.x_guess,
@@ -1159,7 +1410,7 @@ def _scalar_scan(
                             "final_width": right.x_guess - left.x_guess,
                             "sign_change": True,
                             "root_search_selected": False,
-                            "status": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION_UNRESOLVED",
+                            "status": "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION_UNRESOLVED",
                         }
                     )
             if left_signature != right_signature:
@@ -1427,7 +1678,7 @@ def _scalar_scan(
             ):
                 cross_signature_sign_changes.append(
                     {
-                        "bracket_kind": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION",
+                        "bracket_kind": "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION",
                         "reason": "SIGNATURE_LOCALIZATION_F_SIGN_CHANGE",
                         "left_x": left.x_guess,
                         "right_x": right.x_guess,
@@ -1438,16 +1689,26 @@ def _scalar_scan(
                         "final_width": right.x_guess - left.x_guess,
                         "sign_change": True,
                         "root_search_selected": False,
-                        "status": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION_UNRESOLVED",
+                        "status": "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION_UNRESOLVED",
                     }
                 )
             transition_evidence = _signature_transition_evidence(left, right, edges_m=edges_m)
+            topology_evidence = _trace_topology_pair_evidence(
+                closure_map, edges_m=edges_m, left=left, right=right
+            )
+            if topology_evidence["trace_topology_status"] == "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED":
+                # Unlike a CDF source-cell crossing, a changed velocity-sign
+                # or time-of-flight run is an actual trace-topology branch.
+                # It remains a fail-closed P0 diagnostic result until a
+                # one-sided limit audit resolves it.
+                status = "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED"
         else:
             left_row = row_for(left)
             right_row = row_for(right)
             residual_jump = math.nan
             jump_tolerance = math.nan
             transition_evidence = _signature_transition_evidence(left, right, edges_m=edges_m)
+            topology_evidence = {"trace_topology_status": "INVALID_ENDPOINT"}
         signature_outputs.append(
             {
                 "bracket_kind": "SIGNATURE_TRANSITION",
@@ -1484,6 +1745,7 @@ def _scalar_scan(
                 ),
                 "status": status,
                 **transition_evidence,
+                **topology_evidence,
             }
         )
     for group in omitted_signature_groups:
@@ -1513,6 +1775,7 @@ def _scalar_scan(
                 ),
                 "status": "SOURCE_CELL_CDF_KINK_REGION_UNEXAMINED_BUDGET",
                 **_signature_transition_evidence(left, right, edges_m=edges_m),
+                "trace_topology_status": "UNEXAMINED_BUDGET",
             }
         )
 
@@ -1624,7 +1887,7 @@ def _scalar_scan(
         "signature_transition_region_budget": MAX_SIGNATURE_TRANSITION_REGIONS,
         "unexamined_signature_transition_regions": len(omitted_signature_groups),
         "signature_transition_statuses": transition_statuses,
-        "finite_scan_branch_monotonicity_observed": branch_monotonicity,
+        "finite_scan_cdf_source_partition_monotonicity_observed": branch_monotonicity,
         "finite_audit_complete_under_declared_budget": bool(
             not budget.exhausted
             and not unexamined_target_regions
@@ -1656,6 +1919,16 @@ def _solve_brackets(
     solutions: list[dict[str, Any]] = []
     audit_rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
+    topology_cache: dict[int, _TraceTopology] = {}
+
+    def topology_for(item: Evaluation) -> _TraceTopology:
+        cached = topology_cache.get(item.evaluation_id)
+        if cached is None:
+            cached = _trace_topology_for_trial(
+                closure_map, edges_m=edges_m, evaluation=item
+            )
+            topology_cache[item.evaluation_id] = cached
+        return cached
 
     def location_tolerance(*items: Evaluation) -> float:
         tolerances = [
@@ -1676,6 +1949,7 @@ def _solve_brackets(
         stop: str,
         signature_changed: bool,
         signature_authoritative: bool,
+        topology_authoritative: bool,
     ) -> dict[str, Any]:
         root_row = _trial_row(candidate, edges_m=edges_m, previous_trial=None) if candidate is not None else {}
         verification: Evaluation | None = None
@@ -1686,6 +1960,9 @@ def _solve_brackets(
         candidate_nonnegative = False
         verification_nonnegative = False
         same_x_repeatable = False
+        same_trace_topology_repeatable = False
+        candidate_topology: _TraceTopology | None = None
+        verification_topology: _TraceTopology | None = None
         accepted = False
         verification_status = "NOT_ATTEMPTED"
         candidate_scalar_valid = bool(
@@ -1694,6 +1971,7 @@ def _solve_brackets(
             and abs(float(candidate.trial.signed_xb_residual)) <= float(candidate.trial.xb_tolerance)
         )
         if candidate_scalar_valid and candidate is not None and candidate.trial is not None:
+            candidate_topology = topology_for(candidate)
             candidate_inventory_residual = float(candidate.trial.inventory.relative_residual)
             candidate_nonnegative = bool(np.all(np.asarray(candidate.trial.cell_number_m3) >= 0.0))
             # A safeguarded scalar root closes F(x)=T(x)-x at the root trial
@@ -1717,9 +1995,15 @@ def _solve_brackets(
                 population_residual = closure_map.solver._population_observable_residual(
                     verification.trial.cell_number_m3, candidate.trial.cell_number_m3
                 )
+                verification_topology = topology_for(verification)
+                same_trace_topology_repeatable = _same_trace_topology(
+                    candidate_topology, verification_topology
+                )
                 same_x_repeatable = bool(
                     verification.x_guess == candidate.x_guess
                     and verification.trial.matrix_xb == candidate.trial.matrix_xb
+                    and verification.trial.signed_xb_residual
+                    == candidate.trial.signed_xb_residual
                     and np.array_equal(
                         np.asarray(verification.trial.cell_number_m3),
                         np.asarray(candidate.trial.cell_number_m3),
@@ -1736,9 +2020,17 @@ def _solve_brackets(
                     and verification.trial.inventory.matrix_mol_m3 == candidate.trial.inventory.matrix_mol_m3
                     and verification.trial.inventory.beta_resolved_mol_m3
                     == candidate.trial.inventory.beta_resolved_mol_m3
+                    and verification.trial.remap.lower_number_loss_m3
+                    == candidate.trial.remap.lower_number_loss_m3
+                    and verification.trial.remap.upper_number_loss_m3
+                    == candidate.trial.remap.upper_number_loss_m3
+                    and verification.trial.remap.conservation_residual_m3
+                    == candidate.trial.remap.conservation_residual_m3
+                    and same_trace_topology_repeatable
                 )
                 accepted = bool(
                     signature_authoritative
+                    and topology_authoritative
                     and same_x_repeatable
                     and abs(float(verification.trial.signed_xb_residual))
                     <= float(verification.trial.xb_tolerance)
@@ -1768,7 +2060,12 @@ def _solve_brackets(
             "root_location_tolerance": location_tolerance(left, right, *( [candidate] if candidate is not None else [] )),
             "stop_reason": stop,
             "signature_changed_within_bracket": signature_changed,
-            "root_authority_signature_continuous": signature_authoritative,
+            "cdf_source_partition_changed_within_bracket": signature_changed,
+            "root_authority_signature_continuous": bool(
+                signature_authoritative and topology_authoritative
+            ),
+            "root_authority_cdf_source_partition_continuous": signature_authoritative,
+            "root_authority_trace_topology_continuous": topology_authoritative,
             "root_found": accepted,
             "root_candidate_within_scalar_tolerance": candidate_scalar_valid,
             "root_candidate_within_final_interval": bool(
@@ -1781,6 +2078,7 @@ def _solve_brackets(
             "verification_tolerance": verify_row.get("xB_tolerance", math.nan),
             "verification_kind": "SAME_X_REPEATABILITY",
             "same_x_repeatable": same_x_repeatable,
+            "same_trace_topology_repeatable": same_trace_topology_repeatable,
             "verification_population_residual": population_residual,
             "population_tolerance": float(closure_map.solver._population_convergence_rtol),
             "candidate_inventory_relative_residual": candidate_inventory_residual,
@@ -1791,6 +2089,18 @@ def _solve_brackets(
             "verification_status": verification_status,
             "verification_signature": verify_row.get("departure_signature_hash", ""),
             "root_signature": root_row.get("departure_signature_hash", ""),
+            "root_trial": root_row,
+            "same_x_repeat_trial": verify_row,
+            "root_trace_topology": (
+                _trace_topology_summary(candidate_topology)
+                if candidate_topology is not None
+                else {}
+            ),
+            "same_x_repeat_trace_topology": (
+                _trace_topology_summary(verification_topology)
+                if verification_topology is not None
+                else {}
+            ),
         }
 
     for bracket_id, bracket in enumerate(brackets, start=1):
@@ -1845,6 +2155,7 @@ def _solve_brackets(
                     stop="point_residual_candidate",
                     signature_changed=False,
                     signature_authoritative=False,
+                    topology_authoritative=False,
                 )
             )
             continue
@@ -1856,21 +2167,49 @@ def _solve_brackets(
         right_signature = _trial_row(right, edges_m=edges_m, previous_trial=None).get(
             "departure_signature_hash", ""
         )
-        if initial_signature != right_signature:
+        endpoint_cdf_partition_same = _same_cdf_source_partition(
+            left, right, edges_m=edges_m
+        )
+        initial_topology = topology_for(left)
+        right_topology = topology_for(right)
+        endpoint_topology_same = _same_trace_topology(initial_topology, right_topology)
+        if not endpoint_topology_same:
             audit_rows.append(
                 {
                     "bracket_id": bracket_id,
                     "bracket_kind": kind,
-                    "root_search_status": "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION_UNRESOLVED",
+                    "root_search_status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
+                    "status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
                     "left_x": left.x_guess,
                     "right_x": right.x_guess,
                     "left_signature": initial_signature,
                     "right_signature": right_signature,
+                    "trace_topology_continuous": False,
+                    "left_trace_topology": _trace_topology_summary(initial_topology),
+                    "right_trace_topology": _trace_topology_summary(right_topology),
+                }
+            )
+            continue
+        if not endpoint_cdf_partition_same:
+            audit_rows.append(
+                {
+                    "bracket_id": bracket_id,
+                    "bracket_kind": kind,
+                    "root_search_status": "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION_UNRESOLVED",
+                    "status": "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION_UNRESOLVED",
+                    "left_x": left.x_guess,
+                    "right_x": right.x_guess,
+                    "left_signature": initial_signature,
+                    "right_signature": right_signature,
+                    "trace_topology_continuous": True,
+                    "left_trace_topology": _trace_topology_summary(initial_topology),
+                    "right_trace_topology": _trace_topology_summary(right_topology),
                 }
             )
             continue
         stop = "root_location_iteration_cap"
         signature_changed = False
+        topology_changed = False
         candidate: Evaluation | None = None
         if abs(float(left.trial.signed_xb_residual)) <= float(left.trial.xb_tolerance):
             candidate = left
@@ -1908,9 +2247,30 @@ def _solve_brackets(
             if middle.trial is None:
                 stop = "invalid_midpoint"
                 break
-            signature_changed = row.get("departure_signature_hash") != initial_signature
+            middle_topology = topology_for(middle)
+            topology_changed = not _same_trace_topology(initial_topology, middle_topology)
+            if topology_changed:
+                stop = "trace_topology_transition_within_sign_bracket"
+                row.update(
+                    {
+                        "root_search_status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
+                        "status": "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED",
+                        "left_trace_topology": _trace_topology_summary(initial_topology),
+                        "right_trace_topology": _trace_topology_summary(middle_topology),
+                    }
+                )
+                break
+            signature_changed = not _same_cdf_source_partition(
+                left, middle, edges_m=edges_m
+            )
             if signature_changed:
-                stop = "signature_transition_within_sign_bracket"
+                stop = "cdf_source_partition_transition_within_sign_bracket"
+                row.update(
+                    {
+                        "root_search_status": "CDF_SOURCE_PARTITION_TRANSITION_UNRESOLVED",
+                        "status": "CDF_SOURCE_PARTITION_TRANSITION_UNRESOLVED",
+                    }
+                )
                 break
             middle_f = float(middle.trial.signed_xb_residual)
             if abs(middle_f) <= float(middle.trial.xb_tolerance):
@@ -1922,6 +2282,8 @@ def _solve_brackets(
                 right = middle
             else:
                 left = middle
+        if signature_changed or topology_changed:
+            continue
         if candidate is None:
             candidate = min(
                 (left, right),
@@ -1937,6 +2299,7 @@ def _solve_brackets(
                 stop=stop,
                 signature_changed=signature_changed,
                 signature_authoritative=not signature_changed,
+                topology_authoritative=not topology_changed,
             )
         )
     return solutions, audit_rows
@@ -2070,12 +2433,11 @@ def _classify(
     discontinuous = any(
         str(bracket.get("status", "")) in discontinuity_statuses
         for bracket in brackets
-        if str(bracket.get("bracket_kind", "")) == "SIGNATURE_TRANSITION"
     )
     source_cell_signature_transition_observed = any(
         str(bracket.get("bracket_kind", "")) in {
             "SIGNATURE_TRANSITION",
-            "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION",
+            "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION",
         }
         for bracket in brackets
     )
@@ -2395,7 +2757,7 @@ def _diagnose(arguments: argparse.Namespace) -> dict[str, Any]:
         cycles=cycles,
         contraction=contraction,
         roots=roots,
-        brackets=brackets,
+        brackets=[*brackets, *root_audit_rows],
         scan_audit=scalar_scan_audit,
     )
 

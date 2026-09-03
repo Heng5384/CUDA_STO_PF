@@ -25,6 +25,7 @@ from scripts.diagnose_kwn_characteristic_closure_v2 import (
     _replay_to_step244,
     _scalar_scan,
     _solve_brackets,
+    _trace_topology_pair_evidence,
 )
 from tests.kwn.test_characteristic_reference import (
     _ConstantVelocityCharacteristic,
@@ -152,6 +153,32 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
         for key, expected in before.items():
             np.testing.assert_array_equal(expected, solver.state_arrays()[key], err_msg=key)
 
+    def test_trace_topology_audit_is_read_only_on_a_real_characteristic_trial(self) -> None:
+        """The topology key mirrors a real trace without touching state 244."""
+
+        solver = _ConstantVelocityCharacteristic(
+            SolverConfig.from_mapping(_mapping(bins=40, beta_numbers_m3=_numbers(bins=40))),
+            velocity_m_s=-1.0e-12,
+        )
+        before = {key: value.copy() for key, value in solver.state_arrays().items()}
+        closure_map = ImmutableStep245Map(
+            solver,
+            old_cell_number_m3=solver._beta_cell_numbers(),
+            dt_s=1.0,
+        )
+        first = closure_map.evaluate(solver.matrix_xb, phase="unit_topology")
+        repeat = closure_map.evaluate(solver.matrix_xb, phase="unit_topology_repeat")
+        evidence = _trace_topology_pair_evidence(
+            closure_map,
+            edges_m=solver.population("beta").grid.edges_m,
+            left=first,
+            right=repeat,
+        )
+        self.assertEqual(evidence["trace_topology_status"], "PASS_SAME_TRACE_TOPOLOGY")
+        self.assertEqual(evidence["left_trace_topology"]["trace_topology_mode"], "CONSTANT_TRANSLATION")
+        for key, expected in before.items():
+            np.testing.assert_array_equal(expected, solver.state_arrays()[key], err_msg=key)
+
     def test_targeted_scalar_scan_is_bounded_and_never_certifies_root_count(self) -> None:
         """The real immutable-map path uses coarse plus bounded local probes, not dense expansion."""
 
@@ -213,7 +240,7 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
         self.assertGreater(audit["cross_signature_sign_change_count"], 0)
         self.assertTrue(
             any(
-                item.get("bracket_kind") == "SIGN_CHANGE_ACROSS_SIGNATURE_TRANSITION"
+                item.get("bracket_kind") == "SIGN_CHANGE_ACROSS_CDF_SOURCE_PARTITION"
                 for item in brackets
             )
         )
@@ -226,9 +253,13 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
         )
 
     def test_narrow_same_branch_sign_bracket_samples_midpoint_and_repeats_same_x(self) -> None:
-        """A location-width report must not skip the actual scalar residual test."""
+        """A noncontractive root uses same-x replay, not an extra Picard step."""
 
-        closure_map = _SyntheticClosureMap(lambda value: (value - 0.5, "A"))
+        root_x = 0.5 + 5.0e-14
+        # T(x) = root_x - 10 (x - root_x), so F(x) = -11 (x - root_x).
+        # The first midpoint is tolerance-valid but not exact; one extra
+        # Picard step multiplies |F| by ten and fails the scalar tolerance.
+        closure_map = _SyntheticClosureMap(lambda value: (-11.0 * (value - root_x), "A"))
         left = 0.5 - 2.0e-12
         right = 0.5 + 2.0e-12
         budget = EvaluationBudget(
@@ -258,6 +289,16 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
         self.assertEqual(root["verification_kind"], "SAME_X_REPEATABILITY")
         self.assertTrue(root["same_x_repeatable"])
         self.assertLessEqual(abs(float(root["root_residual"])), float(root["root_tolerance"]))
+        old_style = closure_map.evaluate(
+            float(root["root_xB"]) + float(root["root_residual"]),
+            phase="unit_old_picard_style_probe",
+            reuse=False,
+        )
+        self.assertIsNotNone(old_style.trial)
+        self.assertGreater(
+            abs(float(old_style.trial.signed_xb_residual)),
+            float(old_style.trial.xb_tolerance),
+        )
         self.assertGreaterEqual(budget.new_evaluation_count, 4)
 
     def test_point_candidate_is_not_root_authority_without_a_sign_bracket(self) -> None:
@@ -289,6 +330,50 @@ class CharacteristicClosureDiagnosisV2Tests(unittest.TestCase):
         self.assertTrue(root["same_x_repeatable"])
         self.assertFalse(root["root_authority_signature_continuous"])
         self.assertFalse(root["root_found"])
+
+    def test_trace_topology_transition_fails_closed_as_a_p0_bracket(self) -> None:
+        """A real trace-branch change cannot be hidden by equal CDF indices."""
+
+        closure_map = _SyntheticClosureMap(lambda value: (value - 0.5, "A"))
+        closure_map.solver._velocity_at_radii = lambda radii, midpoint: np.full_like(
+            radii, -1.0 if midpoint < 0.5 else 1.0
+        )
+        closure_map.solver.state_arrays = lambda: {}
+        budget = EvaluationBudget(
+            closure_map=closure_map,
+            maximum_new_evaluations=16,
+            start_evaluation_count=0,
+        )
+        roots, audit = _solve_brackets(
+            closure_map,
+            edges_m=np.array([1.0, 2.0, 3.0], dtype=np.float64),
+            brackets=[
+                {
+                    "bracket_kind": "SIGN_CHANGE",
+                    "reason": "unit",
+                    "left_x": 0.49,
+                    "right_x": 0.51,
+                    "sign_change": True,
+                    "root_search_selected": True,
+                }
+            ],
+            budget=budget,
+        )
+        self.assertEqual(roots, [])
+        self.assertTrue(
+            any(row.get("status") == "TRACE_TOPOLOGY_TRANSITION_UNRESOLVED" for row in audit)
+        )
+        classification = _classify(
+            raw_rows=[{"abs_F": 1.0e-8, "xB_tolerance": 1.0e-12}],
+            cycles=[],
+            contraction={"last_64": {"median_q_F": 1.01}},
+            roots=[],
+            brackets=audit,
+        )
+        self.assertEqual(
+            classification["step245_classification"],
+            "STEP245_DISCONTINUOUS_REMAP_ROOT_UNRESOLVED",
+        )
 
     def test_source_cell_cdf_kink_does_not_by_itself_classify_a_discontinuous_remap(self) -> None:
         """A source-index hash change is not a proof that the CDF map jumps."""
