@@ -838,7 +838,13 @@ class CharacteristicReferenceSolver(KWNSolver):
             f"exact fixed-point period-{period} cycle did not provide an adjacent oppositely signed scalar bracket"
         )
 
-    def _solve_fixed_point(self, *, old_cell_number_m3: NDArray[np.float64], dt_s: float) -> _FixedPointResult:
+    def _solve_fixed_point(
+        self,
+        *,
+        old_cell_number_m3: NDArray[np.float64],
+        dt_s: float,
+        allow_final_raw_picard_safeguard: bool = True,
+    ) -> _FixedPointResult:
         x_start = float(self.matrix_xb)
         x_guess = x_start
         previous_trial: _ClosureTrial | None = None
@@ -949,7 +955,8 @@ class CharacteristicReferenceSolver(KWNSolver):
         # the configured raw-Picard cap.  It is not a global bracket search,
         # a history scan, or an adaptive-step policy.
         if (
-            self.under_relaxation == 1.0
+            allow_final_raw_picard_safeguard
+            and self.under_relaxation == 1.0
             and two_back_trial is not None
             and previous_trial is not None
             and two_back_trial.signed_xb_residual * previous_trial.signed_xb_residual < 0.0
@@ -973,8 +980,21 @@ class CharacteristicReferenceSolver(KWNSolver):
             raise ValueError("maximum_dt_s must be finite and positive when supplied")
         return min(float(self.config.max_dt_s), maximum)
 
-    def advance_one(self, maximum_dt_s: float | None = None) -> CharacteristicStepDiagnostics:
-        """Advance exactly one fully coupled CR1 step without any CFL limiter."""
+    def _advance_one(
+        self,
+        maximum_dt_s: float | None,
+        *,
+        allow_final_raw_picard_safeguard: bool,
+    ) -> CharacteristicStepDiagnostics:
+        """Commit one fully closed CR1 step under an explicit closure policy.
+
+        ``allow_final_raw_picard_safeguard`` affects only the legacy final
+        adjacent-raw-Picard scalar-root path.  Direct Picard and the already
+        qualified exact P2/P4-cycle closures retain their frozen behaviour.
+        Crucially, every path below mutates accepted state only after
+        ``_solve_fixed_point`` returns, so a rejected closure trial remains
+        side-effect free.
+        """
 
         self._assert_beta_only_non_nucleating_scope()
         dt_s = self._choose_step_dt(maximum_dt_s)
@@ -1045,7 +1065,11 @@ class CharacteristicReferenceSolver(KWNSolver):
             )
             self.history.append(diagnostic)
             return diagnostic
-        result = self._solve_fixed_point(old_cell_number_m3=old_cell_number, dt_s=dt_s)
+        result = self._solve_fixed_point(
+            old_cell_number_m3=old_cell_number,
+            dt_s=dt_s,
+            allow_final_raw_picard_safeguard=allow_final_raw_picard_safeguard,
+        )
 
         beta.number_density_per_m4[:] = result.cell_number_m3 / beta.grid.widths_m
         self.matrix_xb = result.matrix_xb
@@ -1111,6 +1135,31 @@ class CharacteristicReferenceSolver(KWNSolver):
         )
         self.history.append(diagnostic)
         return diagnostic
+
+    def advance_one(self, maximum_dt_s: float | None = None) -> CharacteristicStepDiagnostics:
+        """Advance one CR1 step with the frozen legacy closure behaviour."""
+
+        return self._advance_one(
+            maximum_dt_s,
+            allow_final_raw_picard_safeguard=True,
+        )
+
+    def advance_one_ordinary_or_qualified_cycle(
+        self, maximum_dt_s: float | None = None
+    ) -> CharacteristicStepDiagnostics:
+        """Advance without the legacy final raw-Picard scalar-root safeguard.
+
+        This is the only solver entry point permitted to
+        ``CHARACTERISTIC_DT_CONTINUATION_V1``.  On ordinary closure failure it
+        raises before state commit, allowing an external controller to reject
+        the whole candidate macro interval and retry from its immutable
+        accepted state at a smaller local timestep.
+        """
+
+        return self._advance_one(
+            maximum_dt_s,
+            allow_final_raw_picard_safeguard=False,
+        )
 
     def run_to_time(
         self, end_time_s: float, *, maximum_step_s: float | None = None
