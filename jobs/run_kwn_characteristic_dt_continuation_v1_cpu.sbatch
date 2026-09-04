@@ -139,6 +139,19 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export CUDA_VISIBLE_DEVICES=""
 
+test_log="${RUN_ROOT}/logs/full_unittest.log"
+set +e
+(
+  cd "${SOURCE_ROOT}"
+  "${PYTHON_BIN}" -m unittest discover -s tests -v
+) >"${test_log}" 2>&1
+test_rc=$?
+set -e
+[[ "${test_rc}" -eq 0 ]] || preflight_fail "full unit-test suite failed; see ${test_log}"
+test_summary="$(grep -E '^Ran [0-9]+ tests' "${test_log}" | tail -n 1 || true)"
+[[ -n "${test_summary}" ]] || preflight_fail "full unit-test suite emitted no test-count summary"
+test_status="PASS_REMOTE_FULL_UNITTEST_DISCOVER:${test_summary}"
+
 {
   printf 'hostname=%s\n' "$(hostname)"
   printf 'slurm_job_id=%s\n' "${SLURM_JOB_ID:-UNSCHEDULED}"
@@ -164,6 +177,8 @@ export CUDA_VISIBLE_DEVICES=""
   printf 'fixture_input_set_sha256=%s\n' "${fixture_input_set_sha256}"
   printf 'runtime_fixture_link=%s\n' "${runtime_fixture_link}"
   printf 'runtime_fixture_link_created=%s\n' "${runtime_fixture_link_created}"
+  printf 'full_unit_test_log=%s\n' "${test_log}"
+  printf 'full_unit_test_status=%s\n' "${test_status}"
   printf 'phase=%s\n' "${PHASE_A_COMMAND}"
   printf 'scope=CHARACTERISTIC_DT_CONTINUATION_V1_PHASE_A_LOCAL_WINDOW_CPU_ONLY_NO_PF_CUDA_NO_CR1_NO_COHORT\n'
 } >"${RUN_ROOT}/launch_provenance.txt"
@@ -172,7 +187,8 @@ set +e
 "${PYTHON_BIN}" "${SOURCE_ROOT}/scripts/run_kwn_characteristic_dt_continuation_v1.py" "${PHASE_A_COMMAND}" \
   --output-root "${RUN_ROOT}/outputs/${TASK_NAME}" \
   --report-root "${RUN_ROOT}/reports/${TASK_NAME}" \
-  --formal-trace-csv "${FORMAL_TRACE_CSV}"
+  --formal-trace-csv "${FORMAL_TRACE_CSV}" \
+  --test-status "${test_status}"
 runner_rc=$?
 set -e
 

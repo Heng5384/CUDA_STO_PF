@@ -520,6 +520,45 @@ class CharacteristicDtContinuationContracts(unittest.TestCase):
         )
         self.assertEqual(off_branch["status"], "OLD_ROOT_OFF_CONTINUATION_BRANCH")
 
+    def test_old_root_comparison_lists_all_successful_refinements_but_uses_finest_envelope(self) -> None:
+        edges = np.asarray([RMIN_M, 2.0 * RMIN_M, 3.0 * RMIN_M], dtype=np.float64)
+        m8 = self._endpoint_for_comparison(m=8, matrix_xb=0.0062, m0=1.2, cells=np.array([1.2, 1.2]))
+        m16 = self._endpoint_for_comparison(m=16, matrix_xb=0.0062, m0=1.1, cells=np.array([1.1, 1.1]))
+        m32 = self._endpoint_for_comparison(m=32, matrix_xb=0.0062, m0=1.001, cells=np.array([1.001, 1.001]))
+        m64 = self._endpoint_for_comparison(m=64, matrix_xb=0.0062, m0=1.0, cells=np.array([1.0, 1.0]))
+        legacy = Endpoint(
+            m=1,
+            status="PASS_LEGACY_DIAGNOSTIC",
+            reason=None,
+            solver=None,
+            rows=(),
+            snapshot={key: 1.01 * float(value) for key, value in dict(m64.snapshot or {}).items()},
+            cells=np.array([1.01, 1.01]),
+        )
+
+        rows, summary = _old_root_comparison(
+            legacy=legacy,
+            endpoints={8: m8, 16: m16, 32: m32, 64: m64},
+            selected_m=32,
+            edges_m=edges,
+        )
+
+        comparisons = {str(row["comparison"]) for row in rows}
+        self.assertTrue(
+            {
+                "legacy_root_vs_m8",
+                "legacy_root_vs_m16",
+                "legacy_root_vs_m32",
+                "legacy_root_vs_m64",
+            }.issubset(comparisons)
+        )
+        self.assertEqual(summary["comparison_finest_m"], 64)
+        self.assertGreater(
+            float(summary["observed_error"]["M0_m3"]),
+            float(summary["refinement_envelope"]["M0_m3"]),
+        )
+        self.assertEqual(summary["status"], "OLD_ROOT_OFF_CONTINUATION_BRANCH")
+
 
 if __name__ == "__main__":
     unittest.main()

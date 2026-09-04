@@ -468,6 +468,11 @@ def _endpoint_from_checkpoint(
             diagnostic = solver.advance_one_ordinary_or_qualified_cycle(maximum_dt_s=dt_s)
         except (CharacteristicReferenceError, RadiusGridOverflowError, ValueError, FloatingPointError) as error:
             unchanged = accepted_state_hash(solver) == before_hash and tuple(solver.history) == before_history
+            if not unchanged:
+                raise ContinuationWorkflowError(
+                    "a rejected fixed-substep trial mutated the immutable accepted state "
+                    f"at substep={substep}/{m}"
+                ) from error
             status = "FULL_STEP_NOT_ADMISSIBLE" if m == 1 else "NONCLOSING_SUBSTEP"
             return Endpoint(
                 m=m,
@@ -655,57 +660,99 @@ def _old_root_comparison(
     edges_m: np.ndarray,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    if selected_m is None or legacy.status != "PASS_LEGACY_DIAGNOSTIC" or legacy.snapshot is None:
+    if legacy.status != "PASS_LEGACY_DIAGNOSTIC" or legacy.snapshot is None:
         return rows, {
             "status": "OLD_ROOT_DIFFERENCE_UNRESOLVED",
-            "reason": "a converged continuation endpoint or legacy diagnostic is unavailable",
+            "reason": "legacy diagnostic is unavailable",
         }
-    finest_m = 32 if 64 not in endpoints else 64
-    finest = endpoints[finest_m]
-    prior_m = 16 if finest_m == 32 else 32
-    prior = endpoints[prior_m]
-    if finest.status != "PASS" or prior.status != "PASS" or finest.snapshot is None or prior.snapshot is None:
-        return rows, {"status": "OLD_ROOT_DIFFERENCE_UNRESOLVED", "reason": "refinement envelope is unavailable"}
+
+    metric_names = ("matrix_xB", "M0_m3", "M1_m2", "M2_m", "M3_dimensionless", "Q_beta_mol_m3")
+    report_multiplicities = tuple(m for m in (8, 16, 32, 64) if m in endpoints)
+    finest_m: int | None = 64 if 64 in endpoints else 32
+    prior_m: int | None = 32 if finest_m == 64 else 16
     envelope: dict[str, float] = {}
     observed: dict[str, float] = {}
-    for metric in ("matrix_xB", "M0_m3", "M1_m2", "M2_m", "M3_dimensionless", "Q_beta_mol_m3"):
-        envelope[metric] = _relative_or_absolute(float(prior.snapshot[metric]), float(finest.snapshot[metric]))
-        observed[metric] = _relative_or_absolute(float(legacy.snapshot[metric]), float(finest.snapshot[metric]))
-        rows.append({
-            "comparison": f"legacy_root_vs_m{finest_m}",
-            "metric": metric,
-            "legacy_value": legacy.snapshot[metric],
-            "continuation_value": finest.snapshot[metric],
-            "observed_error": observed[metric],
-            "actual_refinement_envelope": envelope[metric],
-            "within_envelope": observed[metric] <= envelope[metric],
-        })
-    legacy_distance = _state_distance(legacy, finest, edges_m=edges_m)
-    refinement_distance = _state_distance(prior, finest, edges_m=edges_m)
-    for metric, key in (
-        ("population_normalized_L1", "population_normalized_L1"),
-        ("PSD_Wasserstein_m", "PSD_Wasserstein_m"),
-    ):
-        observed[metric] = legacy_distance[key]
-        envelope[metric] = refinement_distance[key]
-        rows.append({
-            "comparison": f"legacy_root_vs_m{finest_m}",
-            "metric": metric,
-            "legacy_value": observed[metric],
-            "continuation_value": 0.0,
-            "observed_error": observed[metric],
-            "actual_refinement_envelope": envelope[metric],
-            "within_envelope": observed[metric] <= envelope[metric],
-        })
-    status = "OLD_ROOT_ON_CONTINUATION_BRANCH" if all(
-        float(observed[key]) <= float(envelope[key]) for key in observed
-    ) else "OLD_ROOT_OFF_CONTINUATION_BRANCH"
+    classification_reason = ""
+    if selected_m is None:
+        finest_m = None
+        prior_m = None
+        classification_reason = "a converged continuation endpoint is unavailable"
+    else:
+        assert finest_m is not None and prior_m is not None
+        finest = endpoints.get(finest_m)
+        prior = endpoints.get(prior_m)
+        if (
+            finest is None
+            or prior is None
+            or finest.status != "PASS"
+            or prior.status != "PASS"
+            or finest.snapshot is None
+            or prior.snapshot is None
+        ):
+            classification_reason = "refinement envelope is unavailable"
+            finest_m = None
+            prior_m = None
+        else:
+            for metric in metric_names:
+                envelope[metric] = _relative_or_absolute(float(prior.snapshot[metric]), float(finest.snapshot[metric]))
+                observed[metric] = _relative_or_absolute(float(legacy.snapshot[metric]), float(finest.snapshot[metric]))
+            legacy_distance = _state_distance(legacy, finest, edges_m=edges_m)
+            refinement_distance = _state_distance(prior, finest, edges_m=edges_m)
+            for metric in ("population_normalized_L1", "PSD_Wasserstein_m"):
+                observed[metric] = legacy_distance[metric]
+                envelope[metric] = refinement_distance[metric]
+
+    for m in report_multiplicities:
+        endpoint = endpoints[m]
+        comparison = f"legacy_root_vs_m{m}"
+        if endpoint.status != "PASS" or endpoint.snapshot is None:
+            rows.append({
+                "comparison": comparison,
+                "status": "UNAVAILABLE",
+                "reason": f"continuation endpoint status={endpoint.status}",
+            })
+            continue
+        for metric in metric_names:
+            error = _relative_or_absolute(float(legacy.snapshot[metric]), float(endpoint.snapshot[metric]))
+            rows.append({
+                "comparison": comparison,
+                "metric": metric,
+                "legacy_value": legacy.snapshot[metric],
+                "continuation_value": endpoint.snapshot[metric],
+                "observed_error": error,
+                "classification_reference": m == finest_m,
+                "actual_refinement_envelope": envelope.get(metric) if m == finest_m else None,
+                "within_envelope": None if m != finest_m or metric not in envelope else error <= envelope[metric],
+            })
+        distance = _state_distance(legacy, endpoint, edges_m=edges_m)
+        for metric in ("population_normalized_L1", "PSD_Wasserstein_m"):
+            error = distance[metric]
+            rows.append({
+                "comparison": comparison,
+                "metric": metric,
+                "legacy_value": error,
+                "continuation_value": 0.0,
+                "observed_error": error,
+                "classification_reference": m == finest_m,
+                "actual_refinement_envelope": envelope.get(metric) if m == finest_m else None,
+                "within_envelope": None if m != finest_m or metric not in envelope else error <= envelope[metric],
+            })
+
+    if finest_m is None:
+        status = "OLD_ROOT_DIFFERENCE_UNRESOLVED"
+    else:
+        status = "OLD_ROOT_ON_CONTINUATION_BRANCH" if all(
+            float(observed[key]) <= float(envelope[key]) for key in observed
+        ) else "OLD_ROOT_OFF_CONTINUATION_BRANCH"
     return rows, {
         "status": status,
         "legacy_root_xB": float(legacy.snapshot["matrix_xB"]),
         "published_legacy_root_xB": OLD_ROOT_XB,
         "legacy_root_xB_difference_from_published": abs(float(legacy.snapshot["matrix_xB"]) - OLD_ROOT_XB),
         "comparison_finest_m": finest_m,
+        "comparison_prior_m": prior_m,
+        "reported_comparison_multiplicities": list(report_multiplicities),
+        "reason": classification_reason,
         "refinement_envelope": envelope,
         "observed_error": observed,
     }
@@ -737,6 +784,7 @@ def _controller_window(
                 "status": "FAIL_DT_CONTINUATION_NONCLOSING_SUBSTEP",
                 "detail_status": "FAIL_DT_CONTINUATION_MIN_DT",
                 "old_step": old_step,
+                "old_step249_failure_reappears": old_step == 249,
                 "physical_time_s": float(solver.time_s),
                 "reason": str(error),
             }
@@ -744,6 +792,7 @@ def _controller_window(
             return solver, macro_rows, controller.events, {
                 "status": "FAIL_CHARACTERISTIC_LOCAL_WELL_POSEDNESS",
                 "old_step": old_step,
+                "old_step249_failure_reappears": old_step == 249,
                 "physical_time_s": float(solver.time_s),
                 "reason": f"{type(error).__name__}: {error}",
             }
@@ -757,6 +806,7 @@ def _controller_window(
             return solver, macro_rows, controller.events, {
                 "status": "FAIL_CHARACTERISTIC_LOCAL_WELL_POSEDNESS",
                 "old_step": old_step,
+                "old_step249_failure_reappears": old_step == 249,
                 "physical_time_s": float(solver.time_s),
                 "reason": "forbidden scalar-root closure appeared in controller event stream",
             }
@@ -782,6 +832,7 @@ def _controller_window(
         "status": "PASS_CHARACTERISTIC_DT_CONTINUATION_LOCAL_WINDOW",
         "detail_status": "PASS",
         "old_step": end_old_step,
+        "old_step249_failure_reappears": False,
         "physical_time_s": float(solver.time_s),
         "reason": "",
     }
@@ -945,8 +996,12 @@ def _final_fields(
         "OLD_ROOT_XB_ERROR": None if old_root is None else old_root.get("observed_error", {}).get("matrix_xB"),
         "OLD_ROOT_POPULATION_ERROR": None if old_root is None else old_root.get("observed_error", {}).get("population_normalized_L1"),
         "LOCAL_WINDOW_GATE": None if local is None else local.get("status"),
-        "OLD_STEP249_FAILURE_REAPPEARS": None if local is None else local.get("status") != "PASS_CHARACTERISTIC_DT_CONTINUATION_LOCAL_WINDOW",
-        "NEW_FAILURE_PHYSICAL_TIME": None if local is None else local.get("physical_time_s"),
+        "OLD_STEP249_FAILURE_REAPPEARS": None if local is None else bool(local.get("old_step249_failure_reappears", False)),
+        "NEW_FAILURE_PHYSICAL_TIME": (
+            None
+            if local is None or local.get("status") == "PASS_CHARACTERISTIC_DT_CONTINUATION_LOCAL_WINDOW"
+            else local.get("physical_time_s")
+        ),
         "REFINED_MACRO_INTERVALS": None if frequency is None else frequency.get("macro_intervals_requiring_refinement"),
         "REFINEMENT_FRACTION": None if frequency is None else frequency.get("refinement_fraction"),
         "MAX_REFINEMENT_DEPTH": None if frequency is None else frequency.get("maximum_refinement_depth"),
@@ -999,7 +1054,7 @@ def _run_local_window(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     restart_summary: dict[str, Any] | None = None
     top_status = "FAIL_CHARACTERISTIC_LOCAL_WELL_POSEDNESS"
     next_action = "Inspect the phase-A report; do not enter CR1 ladder or cohort parity."
-    test_status = "NOT_RUN_BY_PHASE_A_RUNNER"
+    test_status = str(args.test_status)
     provenance: dict[str, Any] = {}
     try:
         source = _source_identity(require_clean=not bool(args.allow_dirty_source))
@@ -1233,6 +1288,11 @@ def _parser() -> argparse.ArgumentParser:
             "--allow-dirty-source",
             action="store_true",
             help="local development only; a production sbatch always requires a clean source tree",
+        )
+        command.add_argument(
+            "--test-status",
+            default="NOT_RUN_BY_PHASE_A_RUNNER",
+            help="externally verified regression-test status recorded in the final provenance",
         )
     return parser
 
