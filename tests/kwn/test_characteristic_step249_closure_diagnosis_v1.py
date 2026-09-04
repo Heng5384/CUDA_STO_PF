@@ -188,6 +188,20 @@ class CharacteristicStep249DiagnosisV1Tests(unittest.TestCase):
         self.assertEqual(status, "STEP249_SAME_CLASS_NATURAL_BRACKET_DIAGNOSIS_ONLY")
         self.assertTrue(bool(gate["eligible"]))
 
+    def test_no_final_bracket_is_not_overstated_as_noncontractive(self) -> None:
+        status, gate = _stage_one_status(
+            reproduction={"status": "PASS_STEP249_FAILURE_REPRODUCTION"},
+            step249={
+                "asymptotic_classification": "OSCILLATORY_APPROACH",
+                "final_pair": {"strict_sign_change": False},
+                "local_map": {},
+            },
+            failure_class="DISTINCT_FAILURE_CLASS",
+            cycle=[],
+        )
+        self.assertEqual(status, "STEP249_NO_NATURAL_ADJACENT_BRACKET")
+        self.assertFalse(bool(gate["eligible"]))
+
 
 if __name__ == "__main__":
     unittest.main()

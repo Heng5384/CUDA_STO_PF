@@ -897,7 +897,12 @@ def _stage_one_status(
     if periodic:
         return "STEP249_PERIODIC_ORBIT", {"eligible": False, "reason": "P1_P16 periodic evidence", "periods": periodic}
     if not pair.get("strict_sign_change", False):
-        return "STEP249_NONCONTRACTIVE_NO_BRACKET", {"eligible": False, "reason": "final raw pair lacks strict sign change"}
+        status = (
+            "STEP249_NONCONTRACTIVE_NO_BRACKET"
+            if step249.get("asymptotic_classification") == "NONCONTRACTIVE"
+            else "STEP249_NO_NATURAL_ADJACENT_BRACKET"
+        )
+        return status, {"eligible": False, "reason": "final raw pair lacks strict sign change"}
     if not pair.get("same_cdf_partition", False) or not pair.get("same_remap_topology", False):
         return "STEP249_TOPOLOGY_SWITCHING", {"eligible": False, "reason": "final pair crosses partition/topology"}
     if local.get("status") == "LOCAL_BRACKET_MULTIPLE_CROSSINGS":
