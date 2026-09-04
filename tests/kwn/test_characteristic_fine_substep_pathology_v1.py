@@ -253,6 +253,7 @@ class CharacteristicFineSubstepPathologyContracts(unittest.TestCase):
                 "EXPECTED_RESTART_VALIDATION_CONTRACT_HASH": contract_hash,
                 "EXPECTED_RESTART_CONTRACT_FILE_SHA256": contract_sha256,
                 "EXPECTED_RESTART_SEMANTIC_CONFIG_HASH": semantic_hash,
+                "FROZEN_RESTART_ARCHIVED_CONTRACT_PATH": "/retired/phase_a/contract.json",
             }
             with patch.multiple("scripts.run_kwn_cr1_fine_substep_pathology_v1", **bindings):
                 rebound, binding = checkpoint_bound_config(

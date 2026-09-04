@@ -78,6 +78,15 @@ EXPECTED_RESTART_VALIDATION_CONTRACT_HASH = "d0ff02973ab0f737043e1a40d4f69893a46
 EXPECTED_RESTART_CONTRACT_FILE_SHA256 = "e85c7533677785f645882421d98dfe0766b7c17f66ae19106bcf99ae4c19e71d"
 EXPECTED_RESTART_SEMANTIC_CONFIG_HASH = "e2cd9bc2abb8dc6988fac1ec5b49ed7f6768bf549f44b70f73b06f33c7287f5c"
 HASH_BOUND_CONTRACT_PATH = "HASH_BOUND_CONTRACT_PATH"
+# This is an archived config-string preimage only.  It is never opened or
+# installed as the runtime contract path; the path is retained so the frozen
+# raw config digest remains independently reproducible after its staging tree
+# was cleaned.
+FROZEN_RESTART_ARCHIVED_CONTRACT_PATH = (
+    "/data/home/luozhiheng/tmp/"
+    "kwn_characteristic_dt_continuation_v1_1ab2c61_20260904T045458Z/"
+    "source/contracts/pf_kwn_validation_contract_v1.json"
+)
 SUBSTEP_MULTIPLICITIES = (2, 4, 8, 16, 32, 64)
 REPORT_TITLES = {
     "00_phase_a_reproduction.md": "Phase-A reproduction",
@@ -255,6 +264,16 @@ def checkpoint_bound_config(
         raise PathologyWorkflowError(
             "canonical configuration differs beyond the permitted contract-path relocation"
         )
+    archived_mapping = deepcopy(context.mapping)
+    archived_thermodynamics = archived_mapping.get("thermodynamics")
+    if not isinstance(archived_thermodynamics, dict):
+        raise PathologyWorkflowError("archived config preimage has no thermodynamics mapping")
+    archived_thermodynamics["contract_path"] = FROZEN_RESTART_ARCHIVED_CONTRACT_PATH
+    archived_config_hash = config_hash(archived_mapping)
+    if archived_config_hash != checkpoint_config_hash:
+        raise PathologyWorkflowError(
+            "archived config hash cannot be reconstructed from the frozen contract-path identity"
+        )
 
     rebound = runtime_config
     path_only_rebind = runtime_config.source_config_hash != checkpoint_config_hash
@@ -277,6 +296,8 @@ def checkpoint_bound_config(
         "runtime_source_config_hash_before_rebind": runtime_config.source_config_hash,
         "semantic_config_hash": semantic_config_hash,
         "expected_semantic_config_hash": EXPECTED_RESTART_SEMANTIC_CONFIG_HASH,
+        "archived_contract_path_in_config_hash": FROZEN_RESTART_ARCHIVED_CONTRACT_PATH,
+        "archived_source_config_hash_reconstructed": archived_config_hash,
         "checkpoint_validation_contract_hash": checkpoint_contract_hash,
         "runtime_validation_contract_hash": runtime_config.validation_contract_hash,
         "runtime_contract_path": runtime_contract_path,
