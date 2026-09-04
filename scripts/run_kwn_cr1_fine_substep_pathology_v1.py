@@ -11,7 +11,8 @@ or physical inputs.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, replace
 import csv
 from fractions import Fraction
 import hashlib
@@ -52,6 +53,7 @@ from kwn_mvp.characteristic_reference import (  # noqa: E402
     CharacteristicReferenceSolver,
     CharacteristicStepDiagnostics,
 )
+from kwn_mvp.config import config_hash  # noqa: E402
 from kwn_mvp.solver import RadiusGridOverflowError, SolverConfig  # noqa: E402
 from scripts.frozen_canonical_smooth_population_v1 import (  # noqa: E402
     build_frozen_canonical_context,
@@ -71,6 +73,11 @@ EXPECTED_FORMAL_TRACE_SHA256 = "e63e546ccd31d93d105b2bf40e3b5abb0fee9e9015f06eac
 EXPECTED_FORMAL_PHASE_A_SHA256 = "a91d1940fe471b7f2ebfde5402e177b06fa7b55056bcacdce93519c668755703"
 EXPECTED_FIXTURE_INPUT_SET_SHA256 = "c97de66ec1a89c00f4badd2d3546e9f744ae9dfd10fdadc10cb9941de10da9ae"
 EXPECTED_RESTART_CHECKPOINT_SHA256 = "c0bc8dd946769550d780763d5a73446b929bac15c5bf7a04895a6288a2314770"
+EXPECTED_RESTART_SOURCE_CONFIG_HASH = "7124bc25872fb28991ebbc7bf2f7426c4dcabb8ea95094c3069f23135fcb64d4"
+EXPECTED_RESTART_VALIDATION_CONTRACT_HASH = "d0ff02973ab0f737043e1a40d4f69893a469cbfe2bc4cd22f9e6a410bd0b1333"
+EXPECTED_RESTART_CONTRACT_FILE_SHA256 = "e85c7533677785f645882421d98dfe0766b7c17f66ae19106bcf99ae4c19e71d"
+EXPECTED_RESTART_SEMANTIC_CONFIG_HASH = "e2cd9bc2abb8dc6988fac1ec5b49ed7f6768bf549f44b70f73b06f33c7287f5c"
+HASH_BOUND_CONTRACT_PATH = "HASH_BOUND_CONTRACT_PATH"
 SUBSTEP_MULTIPLICITIES = (2, 4, 8, 16, 32, 64)
 REPORT_TITLES = {
     "00_phase_a_reproduction.md": "Phase-A reproduction",
@@ -183,6 +190,99 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _checkpoint_metadata(path: Path) -> Mapping[str, Any]:
+    try:
+        with np.load(path, allow_pickle=False) as archive:
+            metadata = json.loads(str(archive["metadata_json"].item()))
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise PathologyWorkflowError("frozen restart checkpoint metadata is invalid") from error
+    if not isinstance(metadata, Mapping):
+        raise PathologyWorkflowError("frozen restart checkpoint metadata is not a mapping")
+    return metadata
+
+
+def checkpoint_bound_config(
+    *, context: Any, restart_checkpoint: Path
+) -> tuple[SolverConfig, dict[str, Any]]:
+    """Bind a relocated diagnostic source to the archived step-244 identity.
+
+    The checkpoint's raw config digest includes an absolute contract location
+    which disappeared when the old Phase-A staging tree was cleaned.  This
+    helper allows only that provenance-string relocation: it binds the exact
+    restart file, its raw config digest, a path-normalized frozen mapping, and
+    the actual contract file loaded from this staging tree.  It never changes
+    a physical, numerical, closure-policy, or tolerance field, and it leaves
+    the core CR1 checkpoint loader strict.
+    """
+
+    checkpoint_sha256 = _sha256_file(restart_checkpoint)
+    if checkpoint_sha256 != EXPECTED_RESTART_CHECKPOINT_SHA256:
+        raise PathologyWorkflowError("restart checkpoint checksum differs from the frozen Phase-A record")
+    metadata = _checkpoint_metadata(restart_checkpoint)
+    checkpoint_config_hash = str(metadata.get("source_config_hash", ""))
+    checkpoint_contract_hash = str(metadata.get("validation_contract_hash", ""))
+    if checkpoint_config_hash != EXPECTED_RESTART_SOURCE_CONFIG_HASH:
+        raise PathologyWorkflowError("restart checkpoint config identity differs from the frozen Phase-A record")
+    if checkpoint_contract_hash != EXPECTED_RESTART_VALIDATION_CONTRACT_HASH:
+        raise PathologyWorkflowError("restart checkpoint contract identity differs from the frozen Phase-A record")
+    if str(context.contract_hash) != EXPECTED_RESTART_VALIDATION_CONTRACT_HASH:
+        raise PathologyWorkflowError("frozen canonical context contract identity differs from the restart")
+
+    runtime_config = SolverConfig.from_mapping(context.mapping)
+    runtime_contract_path = runtime_config.validation_contract_path
+    if runtime_contract_path is None:
+        raise PathologyWorkflowError("frozen canonical context has no validation-contract path")
+    if runtime_config.validation_contract_hash != EXPECTED_RESTART_VALIDATION_CONTRACT_HASH:
+        raise PathologyWorkflowError("runtime validation-contract identity differs from the restart")
+    contract_path = Path(runtime_contract_path)
+    if not contract_path.is_file():
+        raise PathologyWorkflowError("runtime validation-contract file is unavailable")
+    contract_file_sha256 = _sha256_file(contract_path)
+    if contract_file_sha256 != EXPECTED_RESTART_CONTRACT_FILE_SHA256:
+        raise PathologyWorkflowError("runtime validation-contract file differs from the frozen Phase-A record")
+
+    semantic_mapping = deepcopy(context.mapping)
+    thermodynamics = semantic_mapping.get("thermodynamics")
+    if not isinstance(thermodynamics, dict):
+        raise PathologyWorkflowError("frozen canonical context has no thermodynamics mapping")
+    if thermodynamics.get("contract_path") != runtime_contract_path:
+        raise PathologyWorkflowError("runtime contract path does not match the canonical mapping")
+    thermodynamics["contract_path"] = HASH_BOUND_CONTRACT_PATH
+    semantic_config_hash = config_hash(semantic_mapping)
+    if semantic_config_hash != EXPECTED_RESTART_SEMANTIC_CONFIG_HASH:
+        raise PathologyWorkflowError(
+            "canonical configuration differs beyond the permitted contract-path relocation"
+        )
+
+    rebound = runtime_config
+    path_only_rebind = runtime_config.source_config_hash != checkpoint_config_hash
+    if path_only_rebind:
+        rebound = replace(runtime_config, source_config_hash=checkpoint_config_hash)
+    if rebound.source_config_hash != checkpoint_config_hash:
+        raise PathologyWorkflowError("restart configuration identity could not be reconstructed")
+    if rebound.validation_contract_path != runtime_contract_path:
+        raise PathologyWorkflowError("checkpoint rebind changed the runtime contract location")
+    return rebound, {
+        "status": (
+            "PATH_ONLY_CONTRACT_LOCATION_REBIND"
+            if path_only_rebind else "DIRECT_CONFIG_IDENTITY"
+        ),
+        "path_only_rebind": path_only_rebind,
+        "path_field": "thermodynamics.contract_path",
+        "checkpoint_sha256": checkpoint_sha256,
+        "expected_checkpoint_sha256": EXPECTED_RESTART_CHECKPOINT_SHA256,
+        "checkpoint_source_config_hash": checkpoint_config_hash,
+        "runtime_source_config_hash_before_rebind": runtime_config.source_config_hash,
+        "semantic_config_hash": semantic_config_hash,
+        "expected_semantic_config_hash": EXPECTED_RESTART_SEMANTIC_CONFIG_HASH,
+        "checkpoint_validation_contract_hash": checkpoint_contract_hash,
+        "runtime_validation_contract_hash": runtime_config.validation_contract_hash,
+        "runtime_contract_path": runtime_contract_path,
+        "runtime_contract_file_sha256": contract_file_sha256,
+        "expected_runtime_contract_file_sha256": EXPECTED_RESTART_CONTRACT_FILE_SHA256,
+    }
 
 
 def _git(*arguments: str) -> str:
@@ -1349,7 +1449,9 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     if _sha256_file(restart_checkpoint) != EXPECTED_RESTART_CHECKPOINT_SHA256:
         raise PathologyWorkflowError("restart checkpoint checksum differs from the frozen Phase-A record")
     context = build_frozen_canonical_context()
-    config = SolverConfig.from_mapping(context.mapping)
+    config, checkpoint_config_binding = checkpoint_bound_config(
+        context=context, restart_checkpoint=restart_checkpoint
+    )
     loaded = RecordingCharacteristicReferenceSolver.load_checkpoint(config=config, path=restart_checkpoint)
     if accepted_state_hash(loaded) != RESTART_STATE_HASH or int(loaded.step) != RESTART_STEP:
         raise PathologyWorkflowError("restart checkpoint does not bind the frozen state-244 hash")
@@ -1381,6 +1483,7 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             "validation_contract_hash": context.contract_hash,
             "fixture_hash": context.fixture_hash,
             "fixture_input_set_sha256": EXPECTED_FIXTURE_INPUT_SET_SHA256,
+            "checkpoint_config_binding": checkpoint_config_binding,
             "test_status": str(args.test_status),
             "baseline": baseline,
             "stop_reason": "baseline failure location/path differs",
@@ -1578,6 +1681,7 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "SECONDARY_ROOT_CAUSE": root_cause["SECONDARY_ROOT_CAUSE"],
         "M16_AUTHORITY_STATUS": "CONVERGED_DIAGNOSTIC_ENDPOINT_NOT_DT_TO_ZERO_AUTHORITY",
         "TIME_REFERENCE_V2": "NOT_ASSIGNED",
+        "CHECKPOINT_CONFIG_BINDING": checkpoint_config_binding["status"],
         "RECOMMENDED_NEXT_METHOD": recommended,
         "CR2_AUTHORIZED": False,
         "ROOT_SOLVER_REDESIGN_AUTHORIZED": False,
@@ -1603,6 +1707,7 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             **baseline, "restart_checkpoint": str(restart_checkpoint), "restart_checkpoint_sha256": _sha256_file(restart_checkpoint),
             "restart_state_hash": RESTART_STATE_HASH, "formal_trace_sha256": _sha256_file(formal_trace),
             "formal_phase_a_csv": str(formal_phase_a), "formal_phase_a_sha256": _sha256_file(formal_phase_a),
+            "checkpoint_config_binding": checkpoint_config_binding,
             "accepted_rows": {str(m): list(runs[m].accepted_rows) for m in SUBSTEP_MULTIPLICITIES},
             "failure_records": {"m32": m32.failure, "m64": m64.failure}, "repeat_prestates": repeated,
         },
@@ -1651,6 +1756,7 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "restart_state_hash": RESTART_STATE_HASH, "accepted_substep_archive_sha256": accepted_archive_sha,
         "validation_contract_hash": context.contract_hash, "fixture_hash": context.fixture_hash,
         "fixture_input_set_sha256": EXPECTED_FIXTURE_INPUT_SET_SHA256,
+        "checkpoint_config_binding": checkpoint_config_binding,
         "accepted_substep_count": len(accepted_index), "runner_sha256": _sha256_file(Path(__file__)),
         "pathology_module_sha256": _sha256_file(ROOT / "src/kwn_mvp/characteristic_pathology.py"),
         "characteristic_solver_sha256": _sha256_file(ROOT / "src/kwn_mvp/characteristic_reference.py"),

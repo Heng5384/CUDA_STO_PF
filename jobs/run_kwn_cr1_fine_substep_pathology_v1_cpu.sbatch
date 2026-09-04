@@ -128,11 +128,14 @@ sys.path.insert(0, sys.argv[1])
 sys.path.insert(0, str(Path(sys.argv[1]) / "src"))
 from kwn_mvp.characteristic_dt_continuation import accepted_state_hash
 from kwn_mvp.characteristic_reference import CharacteristicReferenceSolver
-from kwn_mvp.solver import SolverConfig
 from scripts.frozen_canonical_smooth_population_v1 import build_frozen_canonical_context
+from scripts.run_kwn_cr1_fine_substep_pathology_v1 import checkpoint_bound_config
 context = build_frozen_canonical_context()
+config, _checkpoint_binding = checkpoint_bound_config(
+    context=context, restart_checkpoint=Path(sys.argv[2])
+)
 solver = CharacteristicReferenceSolver.load_checkpoint(
-    config=SolverConfig.from_mapping(context.mapping), path=sys.argv[2]
+    config=config, path=sys.argv[2]
 )
 print(f"{solver.step} {accepted_state_hash(solver)}")
 PY

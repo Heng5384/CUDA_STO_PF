@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from fractions import Fraction
+import hashlib
+import json
 import math
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -28,12 +33,15 @@ from kwn_mvp.characteristic_pathology import (
 from kwn_mvp.radius_grid import RadiusGrid
 from kwn_mvp.solver import SolverConfig
 from scripts.run_kwn_cr1_fine_substep_pathology_v1 import (
+    HASH_BOUND_CONTRACT_PATH,
     FixedRun,
+    PathologyWorkflowError,
     RecordingCharacteristicReferenceSolver,
     _accepted_trial_evaluation,
     _formal_endpoint_observation,
     _root_cause,
     _same_prestate_different_dt,
+    checkpoint_bound_config,
 )
 
 
@@ -204,6 +212,68 @@ class CharacteristicFineSubstepPathologyContracts(unittest.TestCase):
         self.assertEqual(
             observation["inventory_residual_mol_m3"], state["inventory_residual_mol_m3"]
         )
+
+    def test_checkpoint_rebind_accepts_only_the_hash_bound_contract_path_relocation(self) -> None:
+        mapping = _mapping()
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            contract_path = root / "runtime_contract.json"
+            contract_path.write_text('{"contract":"frozen"}\n', encoding="utf-8")
+            contract_sha256 = hashlib.sha256(contract_path.read_bytes()).hexdigest()
+            contract_hash = "a" * 64
+            mapping["thermodynamics"] = {
+                "mode": "approximate_dilute",
+                "planar_reference_xB": 0.006,
+                "contract_path": str(contract_path),
+                "contract_hash": contract_hash,
+            }
+            semantic_mapping = json.loads(json.dumps(mapping))
+            semantic_mapping["thermodynamics"]["contract_path"] = HASH_BOUND_CONTRACT_PATH
+            semantic_hash = hashlib.sha256(
+                json.dumps(
+                    semantic_mapping, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+                ).encode("utf-8")
+            ).hexdigest()
+            archived_mapping = json.loads(json.dumps(mapping))
+            archived_mapping["thermodynamics"]["contract_path"] = "/retired/phase_a/contract.json"
+            archived_config_hash = SolverConfig.from_mapping(archived_mapping).source_config_hash
+            restart = root / "step244.npz"
+            np.savez(
+                restart,
+                metadata_json=np.asarray(json.dumps({
+                    "source_config_hash": archived_config_hash,
+                    "validation_contract_hash": contract_hash,
+                })),
+            )
+            restart_sha256 = hashlib.sha256(restart.read_bytes()).hexdigest()
+            context = SimpleNamespace(mapping=mapping, contract_hash=contract_hash)
+            bindings = {
+                "EXPECTED_RESTART_CHECKPOINT_SHA256": restart_sha256,
+                "EXPECTED_RESTART_SOURCE_CONFIG_HASH": archived_config_hash,
+                "EXPECTED_RESTART_VALIDATION_CONTRACT_HASH": contract_hash,
+                "EXPECTED_RESTART_CONTRACT_FILE_SHA256": contract_sha256,
+                "EXPECTED_RESTART_SEMANTIC_CONFIG_HASH": semantic_hash,
+            }
+            with patch.multiple("scripts.run_kwn_cr1_fine_substep_pathology_v1", **bindings):
+                rebound, binding = checkpoint_bound_config(
+                    context=context, restart_checkpoint=restart
+                )
+                self.assertEqual(rebound.source_config_hash, archived_config_hash)
+                self.assertEqual(rebound.validation_contract_path, str(contract_path))
+                self.assertTrue(binding["path_only_rebind"])
+                self.assertEqual(binding["status"], "PATH_ONLY_CONTRACT_LOCATION_REBIND")
+
+                changed_mapping = json.loads(json.dumps(mapping))
+                changed_mapping["matrix"]["initial_xB"] = 0.0063
+                with self.assertRaises(PathologyWorkflowError):
+                    checkpoint_bound_config(
+                        context=SimpleNamespace(mapping=changed_mapping, contract_hash=contract_hash),
+                        restart_checkpoint=restart,
+                    )
+
+                contract_path.write_text('{"contract":"changed"}\n', encoding="utf-8")
+                with self.assertRaises(PathologyWorkflowError):
+                    checkpoint_bound_config(context=context, restart_checkpoint=restart)
 
     def test_common_physical_time_alignment_uses_rational_fraction(self) -> None:
         solver = self._solver()
