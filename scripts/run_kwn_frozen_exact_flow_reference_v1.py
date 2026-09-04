@@ -982,7 +982,9 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         ],
         "P0_BLOCKERS": ["TIME_REFERENCE_V2_NOT_ASSIGNED", decision["STATUS"]],
         "NEXT_ACTION": (
-            "Return to separately designed dynamic nonlinear closure/time-reference work."
+            "Proceed only with the separately authorized production trace-integrator audit; CR2 remains unauthorized."
+            if decision["TRACE_INTEGRATOR_AUDIT_AUTHORIZED"]
+            else "Return to separately designed dynamic nonlinear closure/time-reference work."
             if decision["CR2_AUTHORIZED"] is False
             else "Await explicit separately gated CR2 prototype authorization."
         ),
