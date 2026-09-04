@@ -630,9 +630,14 @@ class FrozenAutonomousExactFlow:
         # the fine-time information this reference is meant to retain.
         f_left = self._quad_tau(start, left) - duration
         f_right = self._quad_tau(start, right) - duration
+        # This is the two-sided numerical budget of the independently
+        # evaluated local flight-time integral.  It intentionally stays close
+        # to SciPy's declared quadrature accuracy: a broad safety multiplier
+        # here would convert an otherwise exact reference flow into a
+        # measurable semigroup defect on the smallest physical radii.
         tolerance_s = max(
-            16.0 * self.quad_epsabs_s,
-            32.0 * self.quad_epsrel * max(abs(duration), 1.0e-12),
+            2.0 * self.quad_epsabs_s,
+            2.0 * self.quad_epsrel * max(abs(duration), 1.0e-12),
         )
 
         def residual_tolerance(radius: float) -> float:
