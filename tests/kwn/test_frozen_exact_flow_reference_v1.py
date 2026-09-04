@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 from pathlib import Path
+import tempfile
 import unittest
 
 import numpy as np
@@ -21,6 +23,7 @@ from kwn_mvp.frozen_exact_flow_reference import (
 )
 from kwn_mvp.populations import PopulationParameters
 from kwn_mvp.thermo_adapter import DiluteEquilibriumAdapter
+from scripts.run_kwn_frozen_exact_flow_reference_v1 import _formal_u0_semantic_replay
 
 
 def _law(*, matrix_xb: float, diffusivity: float = 0.2) -> FrozenAutonomousGrowthLaw:
@@ -138,6 +141,40 @@ class FrozenExactFlowReferenceContracts(unittest.TestCase):
         text = source.read_text(encoding="utf-8")
         self.assertNotIn("trace_departure_faces_rk2", text)
         self.assertNotIn("conservative_remap_piecewise_constant", text)
+
+    def test_formal_u0_replay_allows_only_path_rebind_metadata(self) -> None:
+        arrays = {
+            "radius_edges_m": self.edges,
+            "cell_number_m3": self.cells,
+            "matrix_xb": np.asarray([0.6], dtype=np.float64),
+        }
+        formal = {
+            "schema": "TEST",
+            "checkpoint_binding": {
+                "checkpoint_sha256": "bound",
+                "semantic_config_hash": "semantic",
+                "runtime_contract_path": "/old/source/contract.json",
+                "runtime_source_config_hash_before_rebind": "old-path-hash",
+            },
+        }
+        rebound = {
+            "schema": "TEST",
+            "checkpoint_binding": {
+                "checkpoint_sha256": "bound",
+                "semantic_config_hash": "semantic",
+                "runtime_contract_path": "/new/source/contract.json",
+                "runtime_source_config_hash_before_rebind": "new-path-hash",
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "formal_u0.npz"
+            np.savez(path, **arrays, metadata_json=np.asarray(json.dumps(formal, sort_keys=True)))
+            result = _formal_u0_semantic_replay(
+                path,
+                reconstructed_arrays=arrays,
+                reconstructed_metadata=rebound,
+            )
+        self.assertEqual(result["status"], "PASS_FORMAL_U0_BITWISE_ARRAY_AND_SEMANTIC_METADATA_REPLAY")
 
 
 if __name__ == "__main__":

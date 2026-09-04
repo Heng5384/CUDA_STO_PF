@@ -96,6 +96,16 @@ class FrozenExactFlowWorkflowError(RuntimeError):
     """A fail-closed error in this diagnostic-only orchestration layer."""
 
 
+_PATH_DEPENDENT_CHECKPOINT_BINDING_FIELDS = {
+    # A clean bundle clone necessarily changes these two location-derived
+    # values.  All byte/semantic physics and checkpoint fields remain bound
+    # below; accepting any other metadata difference would be a provenance
+    # failure rather than a harmless path-only rebind.
+    "runtime_contract_path",
+    "runtime_source_config_hash_before_rebind",
+}
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, np.generic):
         return _json_safe(value.item())
@@ -245,6 +255,72 @@ def _mpmath_preflight(vendor_root: Path) -> dict[str, Any]:
         "vendor_root": str(root),
         "expected_source_manifest_sha256": EXPECTED_MPMATH_SOURCE_MANIFEST_SHA256,
         "import_isolated_from_runtime": True,
+    }
+
+
+def _formal_u0_semantic_replay(
+    path: Path,
+    *,
+    reconstructed_arrays: Mapping[str, NDArray[np.generic]],
+    reconstructed_metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind a path-rebound U0 to the byte-verified formal U0 artifact.
+
+    The historical ``FROZEN_U0_HASH`` was produced before the task-local
+    contract path was rebound.  Its original helper hashed a Python mapping's
+    insertion order, so it is intentionally retained as a *formal declared
+    identity* rather than recomputed from a location-dependent metadata
+    serialisation.  This function establishes the stronger fact needed here:
+    every U0 array is bitwise equal and every non-path checkpoint field is
+    equal to the verified formal artifact.
+    """
+
+    try:
+        with np.load(path, allow_pickle=False) as archive:
+            if "metadata_json" not in archive.files:
+                raise FrozenExactFlowWorkflowError("formal frozen U0 lacks metadata_json")
+            formal_arrays = {
+                key: np.asarray(archive[key]).copy()
+                for key in archive.files
+                if key != "metadata_json"
+            }
+            formal_metadata = json.loads(str(archive["metadata_json"]))
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise FrozenExactFlowWorkflowError("could not load verified formal frozen U0") from error
+    if set(formal_arrays) != set(reconstructed_arrays):
+        raise FrozenExactFlowWorkflowError("formal and reconstructed frozen U0 array keys differ")
+    unequal = [
+        key
+        for key in sorted(formal_arrays)
+        if not np.array_equal(np.asarray(formal_arrays[key]), np.asarray(reconstructed_arrays[key]))
+    ]
+    if unequal:
+        raise FrozenExactFlowWorkflowError(f"formal and reconstructed frozen U0 arrays differ: {unequal}")
+    if not isinstance(formal_metadata, Mapping):
+        raise FrozenExactFlowWorkflowError("formal frozen U0 metadata is not a mapping")
+    formal_top = {key: value for key, value in formal_metadata.items() if key != "checkpoint_binding"}
+    reconstructed_top = {key: value for key, value in reconstructed_metadata.items() if key != "checkpoint_binding"}
+    if formal_top != reconstructed_top:
+        raise FrozenExactFlowWorkflowError("formal and reconstructed U0 non-checkpoint metadata differ")
+    formal_binding = formal_metadata.get("checkpoint_binding")
+    reconstructed_binding = reconstructed_metadata.get("checkpoint_binding")
+    if not isinstance(formal_binding, Mapping) or not isinstance(reconstructed_binding, Mapping):
+        raise FrozenExactFlowWorkflowError("frozen U0 checkpoint-binding metadata is invalid")
+    formal_semantic = {
+        key: value for key, value in formal_binding.items() if key not in _PATH_DEPENDENT_CHECKPOINT_BINDING_FIELDS
+    }
+    reconstructed_semantic = {
+        key: value for key, value in reconstructed_binding.items() if key not in _PATH_DEPENDENT_CHECKPOINT_BINDING_FIELDS
+    }
+    if formal_semantic != reconstructed_semantic:
+        raise FrozenExactFlowWorkflowError("formal and reconstructed U0 semantic checkpoint binding differs")
+    return {
+        "status": "PASS_FORMAL_U0_BITWISE_ARRAY_AND_SEMANTIC_METADATA_REPLAY",
+        "formal_declared_frozen_u0_hash": EXPECTED_FROZEN_U0_HASH,
+        "array_key_count": len(formal_arrays),
+        "path_dependent_rebind_fields": sorted(_PATH_DEPENDENT_CHECKPOINT_BINDING_FIELDS),
+        "formal_runtime_contract_path": formal_binding.get("runtime_contract_path"),
+        "reconstructed_runtime_contract_path": reconstructed_binding.get("runtime_contract_path"),
     }
 
 
@@ -692,8 +768,14 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     started = time.monotonic()
 
     source, baseline, u0_arrays, u0_metadata = prior._load_exact_u0(Path(args.restart_checkpoint), output_root)
-    if baseline["frozen_u0_content_hash"] != EXPECTED_FROZEN_U0_HASH:
-        raise FrozenExactFlowWorkflowError("reconstructed U0 content hash differs from the frozen authority")
+    formal_u0_replay = _formal_u0_semantic_replay(
+        Path(args.formal_frozen_u0),
+        reconstructed_arrays=u0_arrays,
+        reconstructed_metadata=u0_metadata,
+    )
+    baseline["reconstructed_path_sensitive_content_hash"] = baseline["frozen_u0_content_hash"]
+    baseline["frozen_u0_content_hash"] = EXPECTED_FROZEN_U0_HASH
+    baseline["formal_u0_semantic_replay"] = formal_u0_replay
     baseline["inherited_provenance_inputs"] = inherited
     before_arrays = {key: np.asarray(value).copy() for key, value in source.state_arrays().items()}
     before_history = tuple(source.history)
