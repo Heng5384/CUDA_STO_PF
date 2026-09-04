@@ -254,6 +254,46 @@ class CharacteristicSemigroupAuditContracts(unittest.TestCase):
         )
         self.assertNotEqual(result["PRIMARY_ROOT_CAUSE"], "CR1_REMAP_SEMIGROUP_DEFECT")
 
+    def test_frozen_topology_evidence_includes_the_finest_path(self) -> None:
+        rows = [{
+            "status": "SUCCESS",
+            "topology_path_h_vs_h2x2": {"different_discrete_topology_regimes": False},
+            "topology_path_h2x2_vs_h4x4": {"different_discrete_topology_regimes": True},
+        }]
+        self.assertTrue(runner._frozen_topology_regimes_differ(rows))
+
+    def test_prescribed_x_failure_after_frozen_convergence_is_not_insufficient(self) -> None:
+        result = runner._root_cause(
+            dynamic={"classification": "PHYSICAL_SEMIGROUP_STAGNATION"},
+            frozen={"classification": "PHYSICAL_SEMIGROUP_CONVERGENCE"},
+            prescribed={"classification": "PHYSICAL_SEMIGROUP_DIVERGENCE"},
+            topology_differs_dynamic=False,
+            topology_differs_frozen=False,
+            local={
+                "LOCAL_ROOT_FAMILY": "LOCAL_CONTINUOUS_ROOT_FAMILY_NOT_OBSERVED",
+                "DELTA_X_OVER_H_CONVERGENCE": "NOT_ESTABLISHED",
+            },
+            timeline={"event_order": "SAME_EVENTS_DIFFERENT_DISCRETE_TIMING"},
+            localization=[],
+        )
+        self.assertEqual(result["PRIMARY_ROOT_CAUSE"], "MIXED_TIME_REMAP_COUPLING_DEFECT")
+
+    def test_insufficient_semigroup_levels_do_not_become_an_event_or_mixed_defect(self) -> None:
+        result = runner._root_cause(
+            dynamic={"classification": "INSUFFICIENT_SUCCESSFUL_LEVELS"},
+            frozen={"classification": "INSUFFICIENT_SUCCESSFUL_LEVELS"},
+            prescribed={"classification": "INSUFFICIENT_SUCCESSFUL_LEVELS"},
+            topology_differs_dynamic=True,
+            topology_differs_frozen=True,
+            local={
+                "LOCAL_ROOT_FAMILY": "LOCAL_CONTINUOUS_ROOT_FAMILY_NOT_OBSERVED",
+                "DELTA_X_OVER_H_CONVERGENCE": "NOT_ESTABLISHED",
+            },
+            timeline={"event_order": "DIFFERENT_EVENT_ORDER"},
+            localization=[],
+        )
+        self.assertEqual(result["PRIMARY_ROOT_CAUSE"], "INSUFFICIENT_SEMIGROUP_EVIDENCE")
+
     def test_baseline_archive_receives_accepted_state_sequences(self) -> None:
         states = {multiplicity: ("state", multiplicity) for multiplicity in (16, 32, 64)}
         runs = {

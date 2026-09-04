@@ -782,14 +782,21 @@ def _root_cause(
         secondary = "TOPOLOGY_EVENT_CORRELATION"
     elif (
         str(timeline["event_order"]) == "DIFFERENT_EVENT_ORDER"
-        and dynamic_status != "PHYSICAL_SEMIGROUP_CONVERGENCE"
+        and dynamic_status in {"PHYSICAL_SEMIGROUP_DIVERGENCE", "PHYSICAL_SEMIGROUP_STAGNATION"}
     ):
         primary = "EVENT_ORDERING_TIME_DISCRETIZATION_DEFECT"
         secondary = "TOPOLOGY_EVENT_ORDER"
     elif (
-        dynamic_status != "PHYSICAL_SEMIGROUP_CONVERGENCE"
-        and frozen_status != "PHYSICAL_SEMIGROUP_CONVERGENCE"
-        and prescribed_status != "PHYSICAL_SEMIGROUP_CONVERGENCE"
+        frozen_status == "PHYSICAL_SEMIGROUP_CONVERGENCE"
+        and dynamic_status in {"PHYSICAL_SEMIGROUP_DIVERGENCE", "PHYSICAL_SEMIGROUP_STAGNATION"}
+        and prescribed_status in {"PHYSICAL_SEMIGROUP_DIVERGENCE", "PHYSICAL_SEMIGROUP_STAGNATION"}
+    ):
+        primary = "MIXED_TIME_REMAP_COUPLING_DEFECT"
+        secondary = "TIME_DEPENDENT_CHARACTERISTIC_REMAP_REPRESENTATION"
+    elif (
+        dynamic_status in {"PHYSICAL_SEMIGROUP_DIVERGENCE", "PHYSICAL_SEMIGROUP_STAGNATION"}
+        and frozen_status in {"PHYSICAL_SEMIGROUP_DIVERGENCE", "PHYSICAL_SEMIGROUP_STAGNATION"}
+        and prescribed_status in {"PHYSICAL_SEMIGROUP_DIVERGENCE", "PHYSICAL_SEMIGROUP_STAGNATION"}
     ):
         primary = "MIXED_TIME_REMAP_COUPLING_DEFECT"
         secondary = "MULTIPLE_NONCONVERGENT_DIAGNOSTIC_PATHS"
@@ -857,6 +864,19 @@ def _event_time_spread_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, A
         "median_same_event_mode_spread_s": float(np.median(spreads)) if spreads else None,
         "semantics": "only same face plus same selected source boundary are compared across modes",
     }
+
+
+def _frozen_topology_regimes_differ(rows: Sequence[Mapping[str, Any]]) -> bool:
+    """Keep both refinement comparisons in the frozen CR1 event evidence."""
+
+    return any(
+        row.get("status") == "SUCCESS"
+        and (
+            bool(row["topology_path_h_vs_h2x2"]["different_discrete_topology_regimes"])
+            or bool(row["topology_path_h2x2_vs_h4x4"]["different_discrete_topology_regimes"])
+        )
+        for row in rows
+    )
 
 
 def _method_decision(root: Mapping[str, Any]) -> dict[str, Any]:
@@ -1091,11 +1111,7 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     # Frozen paths have no independent m16/m32/m64 trajectory.  Record only
     # the nontrivial difference in their *sets* of CR1 regimes; leaf count is
     # explicitly not an equality gate.
-    topology_differs_frozen = any(
-        row.get("status") == "SUCCESS"
-        and bool(row["topology_path_h_vs_h2x2"]["different_discrete_topology_regimes"])
-        for row in frozen_rows
-    )
+    topology_differs_frozen = _frozen_topology_regimes_differ(frozen_rows)
     root = _root_cause(
         dynamic=dynamic_summary, frozen=frozen_summary, prescribed=prescribed_summary,
         topology_differs_dynamic=topology_differs_dynamic,
