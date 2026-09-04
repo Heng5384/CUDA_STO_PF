@@ -66,6 +66,12 @@ EXPECTED_MPMATH_SOURCE_MANIFEST_SHA256 = "f08fb116da8ea63f88f14b873bfa0f79ae100c
 FINAL_HORIZON_S = 1.0 / 128.0
 H_LADDER_S = tuple(1.0 / float(2**power) for power in range(7, 13))
 OLD_SEMIGROUP_H_S = tuple(1.0 / float(2**power) for power in range(7, 11))
+# Tau is a branch-local time coordinate, whose absolute magnitude varies by
+# many orders across the physical radius domain.  Its independent quadrature
+# shadow is therefore qualified by relative integral precision; radius-map
+# accuracy is separately fail-closed by the exact-flow semigroup and inverse
+# roundtrip checks below.
+TAU_SHADOW_RELATIVE_LIMIT = 1.0e-12
 ALLOWED_TOP_LEVEL_STATUSES = {
     "DIAG_CR1_ASYMPTOTICALLY_CONSISTENT",
     "DIAG_TRACE_INTEGRATOR_ERROR_SUPPORTED",
@@ -655,10 +661,14 @@ def _reference_validation(
         raise FrozenExactFlowWorkflowError("exact pushforward number balance exceeds its float64 reduction budget")
     shadow_rows = flow.tau_shadow_rows(sample_count_per_branch=5, dps=80)
     max_shadow = max(float(row["absolute_discrepancy_s"]) for row in shadow_rows)
-    # The threshold is a reference check rather than a finite-h accuracy gate:
-    # 2e-10 s is below the smallest frozen physical step by over seven orders
-    # and is paired with radius-level semigroup/roundtrip checks below.
-    if max_shadow > 2.0e-10:
+    max_shadow_relative = max(float(row["relative_discrepancy"]) for row in shadow_rows)
+    # Do not turn a large, physically valid Tau interval into a reference
+    # failure merely because its absolute representation is in seconds.  The
+    # independently evaluated 80-dps integral instead must agree to a
+    # scale-free precision that is materially tighter than the CR1 error
+    # regime; physical map closure is checked at radius level immediately
+    # after this validation.
+    if not math.isfinite(max_shadow) or not math.isfinite(max_shadow_relative) or max_shadow_relative > TAU_SHADOW_RELATIVE_LIMIT:
         raise FrozenExactFlowWorkflowError("SciPy versus mpmath Tau shadow discrepancy is too large for the frozen reference")
     return {
         "t0_identity": "PASS_BITWISE_CELL_MEASURE_AND_CDF",
@@ -666,6 +676,9 @@ def _reference_validation(
         "reference_final_number_balance_residual_m3": exact_final.conservation_residual_m3,
         "reference_number_balance_limit_m3": conservation_limit,
         "tau_shadow_max_absolute_discrepancy_s": max_shadow,
+        "tau_shadow_max_relative_discrepancy": max_shadow_relative,
+        "tau_shadow_relative_limit": TAU_SHADOW_RELATIVE_LIMIT,
+        "tau_shadow_precision_status": "PASS_SCIPY_QUAD_VS_MPMATH_RELATIVE_PRECISION",
         "tau_shadow_row_count": len(shadow_rows),
     }, exact_final, shadow_rows
 
@@ -925,6 +938,9 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "TAU_QUADRATURE_ERROR": {
             "scipy_quad_reported_max_s": flow.quadrature_error_max_s,
             "mpmath_shadow_max_absolute_discrepancy_s": reference_validation["tau_shadow_max_absolute_discrepancy_s"],
+            "mpmath_shadow_max_relative_discrepancy": reference_validation["tau_shadow_max_relative_discrepancy"],
+            "mpmath_shadow_relative_limit": reference_validation["tau_shadow_relative_limit"],
+            "shadow_precision_status": reference_validation["tau_shadow_precision_status"],
         },
         "INVERSE_FLOW_ROUNDTRIP_ERROR": roundtrip,
         "EXACT_PUSHFORWARD_REFERENCE": "REF_PC_DIRECT_U0_TO_T_NO_REPEATED_REMAP",

@@ -132,9 +132,9 @@ class FrozenExactFlowReferenceContracts(unittest.TestCase):
             with self.assertRaises(FrozenExactFlowReferenceError):
                 self.growing_flow.mpmath_tau(1.25, 1.6)
             return
-        scipy_value = self.growing_flow._quad_tau(1.25, 1.6)
-        shadow = self.growing_flow.mpmath_tau(1.25, 1.6, dps=80)
-        self.assertLess(abs(scipy_value - shadow), 1.0e-10)
+        rows = self.growing_flow.tau_shadow_rows(sample_count_per_branch=2, dps=80)
+        self.assertGreater(len(rows), 0)
+        self.assertLess(max(float(row["relative_discrepancy"]) for row in rows), 1.0e-12)
 
     def test_reference_module_has_no_cr1_trace_or_remap_import(self) -> None:
         source = Path(__file__).resolve().parents[2] / "src" / "kwn_mvp" / "frozen_exact_flow_reference.py"
