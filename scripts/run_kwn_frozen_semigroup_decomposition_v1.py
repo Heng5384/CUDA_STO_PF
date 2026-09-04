@@ -1055,6 +1055,7 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 "divisor": int(divisor),
                 "status": "SUCCESS",
                 "decomposition": decomposition,
+                "composed_query_audit": dict(decomposition.composed_query_audit),
                 "additive": additive,
                 "additive_budget": additive_budget,
                 "additive_machine_pass": additive_pass,
@@ -1102,6 +1103,13 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 "trace_to_remap_ratio": level["trace_to_remap_ratio"],
                 "trace_remap_cosine": cosine,
                 "trace_remap_relation": level["trace_remap_relation"],
+                "composed_query_mode": level["composed_query_audit"]["mode"],
+                "canonical_edge_bitwise_parity": level["composed_query_audit"][
+                    "canonical_edge_bitwise_parity"
+                ],
+                "composed_query_no_augmented_trace_mesh": level["composed_query_audit"][
+                    "no_augmented_trace_mesh"
+                ],
                 **{f"additive_{key}": value for key, value in additive.items()},
                 **{f"additive_budget_{key}": value for key, value in additive_budget.items()},
                 **{f"total_{key}": value for key, value in total_metrics.items()},
@@ -1127,6 +1135,10 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         raise FrozenSemigroupWorkflowError("frozen decomposition diagnostic mutated the accepted step-244 source")
 
     successful_levels = [item for item in levels if item["status"] == "SUCCESS"]
+    composed_query_audits = [
+        {"h_s": float(item["h_s"]), **dict(item["composed_query_audit"])}
+        for item in successful_levels
+    ]
     _write_csv(output_root / "additive_error_decomposition.csv", additive_rows, ("h_s", "status"))
     _write_csv(output_root / "face_flow_semigroup_error.csv", face_rows, ("h_s", "face_index"))
     _write_csv(output_root / "projection_connectivity_difference.csv", projection_rows, ("h_s", "final_destination_cell"))
@@ -1271,7 +1283,11 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "TESTS": str(args.test_status),
         "FROZEN_U0_HASH": baseline["frozen_u0_content_hash"],
         "THREE_PATHS_DEFINED": "A_DIRECT__B_COMPOSED_FLOW_SINGLE_REMAP__C_SEQUENTIAL_HALF_REMAPS",
-        "ADDITIVE_DECOMPOSITION": "CELLWISE_D_TOTAL_EQUALS_D_TRACE_PLUS_D_REMAP",
+        "ADDITIVE_DECOMPOSITION": (
+            "CELLWISE_D_TOTAL_EQUALS_D_TRACE_PLUS_D_REMAP"
+            if all_successful and len(successful_levels) == len(SEMIGROUP_DIVISORS)
+            else "NOT_EVALUABLE_NO_ADMISSIBLE_THREE_PATH_SET"
+        ),
         "DECOMPOSITION_L1_RESIDUAL": None if first is None else first["additive"]["L1_abs"],
         "DECOMPOSITION_LINF_RESIDUAL": None if first is None else first["additive"]["Linf_abs"],
         "TOTAL_DEFECT_H": None if len(first_three) < 1 else first_three[0]["total_population_L1_abs"],
@@ -1317,6 +1333,12 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "SINGLE_EVENT_CONTROL": synthetic_summary.get("status"),
         "SINGLE_EVENT_CAUSALITY": synthetic_summary.get("remap_projection_support_enriched", False),
         "SINGLE_EVENT_CONTROL_SCOPE": synthetic_summary.get("control_provenance_scope"),
+        "COMPOSED_FLOW_QUERY_CONSTRUCTION": (
+            None if first is None else first["composed_query_audit"].get("mode")
+        ),
+        "COMPOSED_FLOW_CANONICAL_EDGE_BITWISE_PARITY": (
+            None if first is None else first["composed_query_audit"].get("canonical_edge_bitwise_parity")
+        ),
         "H_REFINEMENT_TRACE_TREND": trace_trend,
         "H_REFINEMENT_REMAP_TREND": remap_trend,
         "PRIMARY_ROOT_CAUSE": classification["PRIMARY_ROOT_CAUSE"],
@@ -1361,12 +1383,21 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             "C": "R[F_h_over_2] R[F_h_over_2] U0",
             "B_intermediate_remap": False,
             "B_physical_radius_continuation": True,
+            "B_query_contract": (
+                "fixed canonical production time-of-flight table; canonical-face bitwise parity "
+                "is required before querying first-half physical radii"
+            ),
+            "B_query_fail_closed_scope": (
+                "no augmented query mesh, no new stationary-tail path; non-boundary queries and "
+                "targets must remain in one existing same-sign table run"
+            ),
             "registered_h_s": [DT0_S / float(divisor) for divisor in SEMIGROUP_DIVISORS],
         },
         "03_additive_error_decomposition.md": {"rows": additive_rows},
         "04_face_flow_composition.md": {
             "face_row_count": len(face_rows),
             "output": f"outputs/{TASK_NAME}/face_flow_semigroup_error.csv",
+            "composed_query_audits": composed_query_audits,
             "S_flow_changed": "direct_source_cell_index != composed_source_cell_index",
             "S_near_boundary": "fixed binary64-plus-geometric radius diagnostic only; no population threshold",
         },

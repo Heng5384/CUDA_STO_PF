@@ -15,7 +15,9 @@ import numpy as np
 from kwn_mvp.conservative_remap import trace_departure_faces_rk2
 from kwn_mvp.frozen_semigroup_decomposition import (
     FrozenSemigroupDecomposition,
+    FrozenSemigroupDecompositionError,
     additive_residual_metrics,
+    canonical_table_half_flow_query,
     changed_face_indices,
     decompose_frozen_cr1,
     defect_metrics,
@@ -163,19 +165,19 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         )
 
         points = np.asarray(first_half.departure_faces_m, dtype=np.float64)
-        mesh = np.unique(np.concatenate((self.base_edges, points)))
-        continued = trace_departure_faces_rk2(
-            mesh,
-            dt_s=0.5 * float(decomposition.h_s),
+        continued, audit = canonical_table_half_flow_query(
+            canonical_edges_m=self.base_edges,
+            query_points_m=points,
+            half_dt_s=0.5 * float(decomposition.h_s),
             velocity_m_s=_nonlinear_velocity,
-            lower_radius_m=float(self.base_edges[0]),
-            upper_radius_m=float(self.base_edges[-1]),
+            canonical_public_trace=first_half,
         )
-        indices = np.searchsorted(mesh, points, side="left")
         np.testing.assert_array_equal(
             decomposition.composed_flow.trace.departure_faces_m,
-            continued.departure_faces_m[indices],
+            continued,
         )
+        self.assertTrue(bool(audit["canonical_edge_bitwise_parity"]))
+        self.assertTrue(bool(audit["no_augmented_trace_mesh"]))
 
         naive_double_offset = 2.0 * points - self.base_edges
         interior = slice(2, -2)
@@ -360,6 +362,32 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         self.assertFalse(np.shares_memory(first.direct.cells, cells))
         self.assertFalse(np.shares_memory(first.composed_flow.cells, cells))
         self.assertFalse(np.shares_memory(first.sequential.cells, cells))
+        self.assertEqual(first.composed_query_audit["mode"], "PUBLIC_ZERO_MOBILITY_IDENTITY")
+
+    def test_canonical_table_rejects_a_stationary_query_without_a_new_tail_path(self) -> None:
+        edges = np.asarray([1.0, 1.5, 2.0, 3.0, 4.0], dtype=np.float64)
+
+        def stationary_velocity(radii_m: np.ndarray) -> np.ndarray:
+            return np.asarray(radii_m, dtype=np.float64) - 2.0
+
+        half_trace = trace_departure_faces_rk2(
+            edges,
+            dt_s=0.1,
+            velocity_m_s=stationary_velocity,
+            lower_radius_m=float(edges[0]),
+            upper_radius_m=float(edges[-1]),
+        )
+        with self.assertRaisesRegex(
+            FrozenSemigroupDecompositionError,
+            "B_QUERY_ON_STATIONARY_RADIUS_IS_NOT_ADMISSIBLE",
+        ):
+            canonical_table_half_flow_query(
+                canonical_edges_m=edges,
+                query_points_m=np.asarray([2.0], dtype=np.float64),
+                half_dt_s=0.1,
+                velocity_m_s=stationary_velocity,
+                canonical_public_trace=half_trace,
+            )
 
 
 if __name__ == "__main__":

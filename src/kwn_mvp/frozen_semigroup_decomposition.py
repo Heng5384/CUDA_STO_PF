@@ -32,6 +32,13 @@ from .conservative_remap import (
     CharacteristicTrace,
     ConservativeRemapError,
     ConservativeRemapResult,
+    _GAUSS_ABSCISSA,
+    _TRACE_SUBCELLS_PER_CELL,
+    _checked_velocity,
+    _gauss_time_of_flight,
+    _gauss_time_of_flight_intervals,
+    _invert_time_of_flight,
+    _log_subdivided_faces,
     characteristic_remap_partition,
     conservative_remap_piecewise_constant,
     trace_departure_faces_rk2,
@@ -59,6 +66,30 @@ class FrozenCR1Path:
     intermediate_cells: NDArray[np.float64] | None = None
     first_half_trace: CharacteristicTrace | None = None
     second_half_trace: CharacteristicTrace | None = None
+
+
+@dataclass(frozen=True)
+class _CanonicalTraceRun:
+    """One existing same-sign time-of-flight table from the public tracer."""
+
+    sign: float
+    coordinates_m: NDArray[np.float64]
+    cumulative_time_s: NDArray[np.float64]
+
+
+@dataclass(frozen=True)
+class _CanonicalHalfFlowTable:
+    """Read-only query view of the production canonical trace table.
+
+    This is deliberately narrower than a new characteristic integrator.  It
+    retains the canonical production submesh and its existing Gauss/inversion
+    semantics, and permits only queries and targets that remain strictly
+    inside one already-tabulated same-sign run.  There is no boundary or
+    stationary-tail fallback in this diagnostic interface.
+    """
+
+    edges_m: NDArray[np.float64]
+    runs: tuple[_CanonicalTraceRun, ...]
 
 
 @dataclass(frozen=True)
@@ -198,6 +229,7 @@ class FrozenSemigroupDecomposition:
     P_half_2: SparseCR1Map
     P_compflow: SparseCR1Map
     P_sequential: SparseCR1Map
+    composed_query_audit: Mapping[str, object]
 
 
 def _validate_problem(
@@ -225,7 +257,10 @@ def _validate_problem(
 
 
 def _trace_on_domain_edges(
-    edges: NDArray[np.float64], *, dt_s: float, velocity_m_s: VelocityFunction
+    edges: NDArray[np.float64],
+    *,
+    dt_s: float,
+    velocity_m_s: VelocityFunction,
 ) -> CharacteristicTrace:
     try:
         return trace_departure_faces_rk2(
@@ -239,62 +274,311 @@ def _trace_on_domain_edges(
         raise FrozenSemigroupDecompositionError(f"diagnostic characteristic trace failed: {error}") from error
 
 
-def _trace_arbitrary_physical_points(
+def _build_canonical_half_flow_table(
+    edges_m: NDArray[np.float64], *, velocity_m_s: VelocityFunction
+) -> _CanonicalHalfFlowTable:
+    """Build only the already-existing canonical tracer tables.
+
+    This mirrors the public tracer's fixed 16-subcell log mesh, sign predicates,
+    and Gauss time-of-flight tables.  It intentionally owns neither a new
+    integration rule nor a stationary-tail construction.
+    """
+
+    edges = np.asarray(edges_m, dtype=np.float64)
+    nodes = _log_subdivided_faces(edges, subcells_per_cell=_TRACE_SUBCELLS_PER_CELL)
+    node_velocity = _checked_velocity(velocity_m_s, nodes, label="fixed-canonical trace mesh")
+    node_sign = np.sign(node_velocity)
+    left = nodes[:-1]
+    right = nodes[1:]
+    midpoint = 0.5 * (left + right)
+    half_width = 0.5 * (right - left)
+    gauss_left = midpoint - _GAUSS_ABSCISSA * half_width
+    gauss_right = midpoint + _GAUSS_ABSCISSA * half_width
+    gauss_left_sign = np.sign(
+        _checked_velocity(velocity_m_s, gauss_left, label="fixed-canonical left Gauss")
+    )
+    gauss_right_sign = np.sign(
+        _checked_velocity(velocity_m_s, gauss_right, label="fixed-canonical right Gauss")
+    )
+    valid_interval = (
+        (node_sign[:-1] != 0.0)
+        & (node_sign[1:] == node_sign[:-1])
+        & (gauss_left_sign == node_sign[:-1])
+        & (gauss_right_sign == node_sign[:-1])
+    )
+    run_id = np.cumsum(
+        np.concatenate((np.asarray([True]), ~valid_interval)), dtype=np.int64
+    ) - 1
+    runs: list[_CanonicalTraceRun] = []
+    for identifier in np.unique(run_id):
+        node_indices = np.flatnonzero(run_id == identifier)
+        if node_indices.size < 2:
+            continue
+        start, stop = int(node_indices[0]), int(node_indices[-1])
+        sign = float(node_sign[start])
+        if sign == 0.0:
+            continue
+        if np.any(node_sign[node_indices] != sign):
+            raise FrozenSemigroupDecompositionError(
+                "fixed-canonical trace table has an inconsistent same-sign run"
+            )
+        coordinates = np.asarray(nodes[start : stop + 1], dtype=np.float64)
+        try:
+            interval_time = _gauss_time_of_flight(
+                coordinates, expected_sign=sign, velocity_m_s=velocity_m_s
+            )
+        except ConservativeRemapError as error:
+            raise FrozenSemigroupDecompositionError(
+                f"fixed-canonical trace table construction failed: {error}"
+            ) from error
+        cumulative = np.concatenate(
+            (np.asarray([0.0]), np.cumsum(interval_time, dtype=np.float64))
+        )
+        if np.any(np.diff(cumulative) <= 0.0) or not np.all(np.isfinite(cumulative)):
+            raise FrozenSemigroupDecompositionError("fixed-canonical trace time table is invalid")
+        runs.append(
+            _CanonicalTraceRun(
+                sign=sign,
+                coordinates_m=coordinates.copy(),
+                cumulative_time_s=np.asarray(cumulative, dtype=np.float64).copy(),
+            )
+        )
+    if not runs:
+        raise FrozenSemigroupDecompositionError("fixed-canonical trace table has no queryable run")
+    return _CanonicalHalfFlowTable(edges_m=edges.copy(), runs=tuple(runs))
+
+
+def _query_canonical_half_flow_table(
+    table: _CanonicalHalfFlowTable,
     points_m: NDArray[np.float64],
     *,
-    physical_edges_m: NDArray[np.float64],
-    dt_s: float,
+    half_dt_s: float,
     velocity_m_s: VelocityFunction,
-) -> NDArray[np.float64]:
-    """Trace arbitrary in-domain physical points without inventing boundaries.
+) -> tuple[NDArray[np.float64], dict[str, object]]:
+    """Evaluate physical half-flow points only inside an existing table run.
 
-    A first half map can have repeated no-inflow endpoints.  Passing those
-    directly to the production tracer would either violate its strict-order
-    input contract or make the first/last arbitrary point look like a physical
-    domain boundary.  The diagnostic mesh therefore retains every frozen
-    physical edge, inserts the unique query points, runs the unmodified public
-    tracer once, and scatters its values back to the original query ordering.
+    Exact physical no-inflow at an existing physical table boundary is
+    retained exactly as in the public tracer.  Every non-boundary query and
+    target must remain strictly inside one pre-existing same-sign table; this
+    deliberately fails closed rather than creating a new mesh, stationary
+    tail, or interpolation rule.
     """
 
     points = np.asarray(points_m, dtype=np.float64)
-    edges = np.asarray(physical_edges_m, dtype=np.float64)
-    if points.ndim != 1 or not np.all(np.isfinite(points)):
-        raise FrozenSemigroupDecompositionError("composed-flow query points are invalid")
-    if np.any(points < edges[0]) or np.any(points > edges[-1]):
-        raise FrozenSemigroupDecompositionError("composed-flow query point left physical domain")
-    mesh = np.unique(np.concatenate((edges, points)))
-    if mesh[0] != edges[0] or mesh[-1] != edges[-1] or np.any(np.diff(mesh) <= 0.0):
-        raise FrozenSemigroupDecompositionError("composed-flow physical trace mesh is invalid")
-    trace = _trace_on_domain_edges(mesh, dt_s=dt_s, velocity_m_s=velocity_m_s)
-    indices = np.searchsorted(mesh, points, side="left")
-    if np.any(indices >= mesh.size) or not np.array_equal(mesh[indices], points):
-        raise FrozenSemigroupDecompositionError("composed-flow query scatter is not bitwise exact")
-    return np.asarray(trace.departure_faces_m[indices], dtype=np.float64).copy()
+    edges = np.asarray(table.edges_m, dtype=np.float64)
+    half = float(half_dt_s)
+    if (
+        points.ndim != 1
+        or not np.all(np.isfinite(points))
+        or not math.isfinite(half)
+        or half <= 0.0
+        or np.any(points < edges[0])
+        or np.any(points > edges[-1])
+    ):
+        raise FrozenSemigroupDecompositionError("canonical-table half-flow query is invalid")
+    velocity = _checked_velocity(velocity_m_s, points, label="canonical-table query")
+    signs = np.sign(velocity)
+    if np.any(signs == 0.0):
+        raise FrozenSemigroupDecompositionError(
+            "B_QUERY_ON_STATIONARY_RADIUS_IS_NOT_ADMISSIBLE"
+        )
+    result = np.empty_like(points)
+    lower_endpoint = (points == edges[0]) & (signs > 0.0)
+    upper_endpoint = (points == edges[-1]) & (signs < 0.0)
+    result[lower_endpoint] = edges[0]
+    result[upper_endpoint] = edges[-1]
+    endpoint_assigned = lower_endpoint | upper_endpoint
+    run_assigned = np.zeros(points.shape, dtype=bool)
+    run_query_counts: list[int] = []
+    table_boundary_no_inflow_count = 0
+    for run in table.runs:
+        coordinates = np.asarray(run.coordinates_m, dtype=np.float64)
+        cumulative = np.asarray(run.cumulative_time_s, dtype=np.float64)
+        candidate = (
+            ~endpoint_assigned
+            &
+            (signs == float(run.sign))
+            & (points >= coordinates[0])
+            & (points <= coordinates[-1])
+        )
+        if np.any(candidate & run_assigned):
+            raise FrozenSemigroupDecompositionError("canonical-table query belongs to multiple runs")
+        mask = candidate
+        if not np.any(mask):
+            run_query_counts.append(0)
+            continue
+        query = points[mask]
+        position = np.searchsorted(coordinates, query, side="left")
+        is_node = (position < coordinates.size) & (coordinates[np.minimum(position, coordinates.size - 1)] == query)
+        slot = np.clip(position - 1, 0, coordinates.size - 2)
+        source_time = np.empty_like(query)
+        source_time[is_node] = cumulative[position[is_node]]
+        if np.any(~is_node):
+            try:
+                source_time[~is_node] = cumulative[slot[~is_node]] + _gauss_time_of_flight_intervals(
+                    coordinates[slot[~is_node]],
+                    query[~is_node],
+                    expected_sign=float(run.sign),
+                    velocity_m_s=velocity_m_s,
+                )
+            except ConservativeRemapError as error:
+                raise FrozenSemigroupDecompositionError(
+                    f"canonical-table local source-time query failed: {error}"
+                ) from error
+        target_time = source_time - half if run.sign > 0.0 else source_time + half
+        reaches_physical_lower = (
+            (run.sign > 0.0)
+            & (target_time <= 0.0)
+            & (coordinates[0] == edges[0])
+        )
+        reaches_physical_upper = (
+            (run.sign < 0.0)
+            & (target_time >= cumulative[-1])
+            & (coordinates[-1] == edges[-1])
+        )
+        interior = ~(reaches_physical_lower | reaches_physical_upper)
+        if np.any((target_time <= 0.0) & ~reaches_physical_lower) or np.any(
+            (target_time >= cumulative[-1]) & ~reaches_physical_upper
+        ):
+            raise FrozenSemigroupDecompositionError(
+                "B_QUERY_TARGET_OUTSIDE_CANONICAL_INTERIOR"
+            )
+        local_result = np.empty_like(query)
+        local_result[reaches_physical_lower] = edges[0]
+        local_result[reaches_physical_upper] = edges[-1]
+        if np.any(interior):
+            try:
+                local_result[interior] = _invert_time_of_flight(
+                    target_time[interior],
+                    cumulative,
+                    coordinates,
+                    expected_sign=float(run.sign),
+                    velocity_m_s=velocity_m_s,
+                )
+            except ConservativeRemapError as error:
+                raise FrozenSemigroupDecompositionError(
+                    f"canonical-table local inverse query failed: {error}"
+                ) from error
+        result[mask] = local_result
+        table_boundary_no_inflow_count += int(
+            np.count_nonzero(reaches_physical_lower | reaches_physical_upper)
+        )
+        run_assigned[mask] = True
+        run_query_counts.append(int(np.count_nonzero(mask)))
+    assigned = endpoint_assigned | run_assigned
+    if not np.all(assigned):
+        raise FrozenSemigroupDecompositionError(
+            "B_QUERY_OUTSIDE_CANONICAL_SAME_SIGN_RUN"
+        )
+    if not np.all(np.isfinite(result)):
+        raise FrozenSemigroupDecompositionError("canonical-table half-flow query is non-finite")
+    return np.asarray(result, dtype=np.float64), {
+        "canonical_run_count": len(table.runs),
+        "canonical_run_query_counts": run_query_counts,
+        "physical_endpoint_no_inflow_query_count": int(
+            np.count_nonzero(lower_endpoint | upper_endpoint)
+        ),
+        "physical_table_no_inflow_query_count": table_boundary_no_inflow_count,
+        "all_nonboundary_targets_strictly_interior": True,
+    }
+
+
+def canonical_table_half_flow_query(
+    *,
+    canonical_edges_m: NDArray[np.float64],
+    query_points_m: NDArray[np.float64],
+    half_dt_s: float,
+    velocity_m_s: VelocityFunction,
+    canonical_public_trace: CharacteristicTrace,
+) -> tuple[NDArray[np.float64], dict[str, object]]:
+    """Query B's second physical half-flow from a parity-checked CR1 table.
+
+    The public tracer remains the authority for the canonical half flow.  This
+    function first independently reproduces that map at every canonical face
+    using exactly its existing time-of-flight tables.  Only after bitwise
+    parity does it query the first-half physical departure radii.  It is a
+    frozen diagnostic interface, not a general characteristic solver.
+    """
+
+    edges = np.asarray(canonical_edges_m, dtype=np.float64)
+    expected_arrival = np.asarray(canonical_public_trace.arrival_faces_m, dtype=np.float64)
+    expected_departure = np.asarray(canonical_public_trace.departure_faces_m, dtype=np.float64)
+    if (
+        expected_arrival.shape != edges.shape
+        or expected_departure.shape != edges.shape
+        or not np.array_equal(expected_arrival, edges)
+    ):
+        raise FrozenSemigroupDecompositionError(
+            "canonical public half trace does not bind the frozen grid"
+        )
+    query = np.asarray(query_points_m, dtype=np.float64)
+    if query.ndim != 1 or not np.all(np.isfinite(query)) or np.any(query < edges[0]) or np.any(query > edges[-1]):
+        raise FrozenSemigroupDecompositionError("canonical-table query points are invalid")
+    # This is the public tracer's explicit bitwise identity branch.  It is
+    # not a table interpolation or a special B fallback: every physical
+    # radius is unchanged when the canonical flow itself is literally zero.
+    if np.array_equal(expected_departure, edges):
+        return query.copy(), {
+            "mode": "PUBLIC_ZERO_MOBILITY_IDENTITY",
+            "canonical_face_count": int(edges.size),
+            "canonical_edge_bitwise_parity": True,
+            "canonical_parity_audit": {"identity": True},
+            "query_audit": {"identity": True},
+            "no_augmented_trace_mesh": True,
+            "no_new_boundary_or_stationary_tail_path": True,
+        }
+    table = _build_canonical_half_flow_table(edges, velocity_m_s=velocity_m_s)
+    reproduced, parity_audit = _query_canonical_half_flow_table(
+        table, edges, half_dt_s=half_dt_s, velocity_m_s=velocity_m_s
+    )
+    if not np.array_equal(reproduced, expected_departure):
+        raise FrozenSemigroupDecompositionError(
+            "canonical-table query does not reproduce the public canonical half trace bitwise"
+        )
+    queried, query_audit = _query_canonical_half_flow_table(
+        table,
+        query,
+        half_dt_s=half_dt_s,
+        velocity_m_s=velocity_m_s,
+    )
+    return queried, {
+        "mode": "FIXED_CANONICAL_PRODUCTION_TIME_OF_FLIGHT_TABLE",
+        "canonical_face_count": int(edges.size),
+        "canonical_edge_bitwise_parity": True,
+        "canonical_parity_audit": parity_audit,
+        "query_audit": query_audit,
+        "no_augmented_trace_mesh": True,
+        "no_new_boundary_or_stationary_tail_path": True,
+    }
 
 
 def _composed_half_trace(
-    edges: NDArray[np.float64], *, dt_s: float, velocity_m_s: VelocityFunction
-) -> tuple[CharacteristicTrace, CharacteristicTrace, CharacteristicTrace]:
+    edges: NDArray[np.float64],
+    *,
+    dt_s: float,
+    velocity_m_s: VelocityFunction,
+    first_half_trace: CharacteristicTrace,
+) -> tuple[CharacteristicTrace, dict[str, object]]:
+    """Compose physical half-flow maps through a parity-checked fixed table."""
+
     half = 0.5 * float(dt_s)
-    first = _trace_on_domain_edges(edges, dt_s=half, velocity_m_s=velocity_m_s)
-    second_departure = _trace_arbitrary_physical_points(
-        np.asarray(first.departure_faces_m, dtype=np.float64),
-        physical_edges_m=edges,
-        dt_s=half,
+    second_departure, query_audit = canonical_table_half_flow_query(
+        canonical_edges_m=edges,
+        query_points_m=np.asarray(first_half_trace.departure_faces_m, dtype=np.float64),
+        half_dt_s=half,
         velocity_m_s=velocity_m_s,
+        canonical_public_trace=first_half_trace,
     )
     # The midpoint array is the actual physical radius reached after the first
     # backward half trace, not an addition of two departure offsets.
     composed = CharacteristicTrace(
         arrival_faces_m=edges.copy(),
         departure_faces_m=second_departure,
-        midpoint_faces_m=np.asarray(first.departure_faces_m, dtype=np.float64).copy(),
+        midpoint_faces_m=np.asarray(first_half_trace.departure_faces_m, dtype=np.float64).copy(),
         lower_no_inflow_face_count=int(np.count_nonzero(second_departure == edges[0])),
         upper_no_inflow_face_count=int(np.count_nonzero(second_departure == edges[-1])),
     )
-    # Keep an independently evaluated ordinary grid half trace for Path C.
-    second_grid = _trace_on_domain_edges(edges, dt_s=half, velocity_m_s=velocity_m_s)
-    return composed, first, second_grid
+    return composed, query_audit
 
 
 def _remap_path(
@@ -385,12 +669,14 @@ def decompose_frozen_cr1(
 
     edges, cells, h = _validate_problem(edges_m, initial_cells, h_s)
     direct_trace = _trace_on_domain_edges(edges, dt_s=h, velocity_m_s=velocity_m_s)
-    composed_trace, first_half_trace, second_half_trace = _composed_half_trace(
-        edges, dt_s=h, velocity_m_s=velocity_m_s
-    )
     direct = _remap_path("DIRECT", edges=edges, old_cells=cells, trace=direct_trace)
-    composed = _remap_path("COMPOSED_FLOW_SINGLE_REMAP", edges=edges, old_cells=cells, trace=composed_trace)
+    half = 0.5 * h
+    first_half_trace = _trace_on_domain_edges(edges, dt_s=half, velocity_m_s=velocity_m_s)
     first_half = _remap_path("FIRST_HALF", edges=edges, old_cells=cells, trace=first_half_trace)
+    # Compute the production-equivalent canonical half grid before asking the
+    # new physical-query path to construct B.  Thus B's inability to form a
+    # valid map cannot erase the already completed C evidence.
+    second_half_trace = _trace_on_domain_edges(edges, dt_s=half, velocity_m_s=velocity_m_s)
     sequential = _remap_path(
         "SEQUENTIAL_HALF_STEPS",
         edges=edges,
@@ -400,6 +686,13 @@ def decompose_frozen_cr1(
         first_half_trace=first_half_trace,
         second_half_trace=second_half_trace,
     )
+    composed_trace, composed_query_audit = _composed_half_trace(
+        edges,
+        dt_s=h,
+        velocity_m_s=velocity_m_s,
+        first_half_trace=first_half_trace,
+    )
+    composed = _remap_path("COMPOSED_FLOW_SINGLE_REMAP", edges=edges, old_cells=cells, trace=composed_trace)
     d_total = np.asarray(sequential.cells - direct.cells, dtype=np.float64)
     d_trace = np.asarray(composed.cells - direct.cells, dtype=np.float64)
     d_remap = np.asarray(sequential.cells - composed.cells, dtype=np.float64)
@@ -423,6 +716,7 @@ def decompose_frozen_cr1(
         P_half_2=P_half_2,
         P_compflow=P_compflow,
         P_sequential=P_sequential,
+        composed_query_audit=composed_query_audit,
     )
 
 
