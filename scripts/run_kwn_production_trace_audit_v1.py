@@ -11,6 +11,7 @@ time reference.
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import hashlib
 import json
@@ -31,6 +32,18 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from kwn_mvp.characteristic_semigroup import phi_compose  # noqa: E402
+from kwn_mvp.characteristic_dt_continuation import accepted_state_hash  # noqa: E402
+from kwn_mvp.characteristic_reference import (  # noqa: E402
+    FIXED_POINT_CLOSURE,
+    FIXED_POINT_PERIODIC_CYCLE_PERIODS,
+    FIXED_POINT_PERIODIC_ROOT_TRIGGER,
+    FIXED_POINT_SAFEGUARDED_ROOT_TRIGGER,
+    FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS,
+    REMAP_ORDER,
+    TRACE_INTEGRATOR,
+    CharacteristicReferenceError,
+    CharacteristicReferenceSolver,
+)
 from kwn_mvp.conservative_remap import (  # noqa: E402
     _TRACE_SUBCELLS_PER_CELL,
     characteristic_remap_partition,
@@ -53,6 +66,11 @@ from kwn_mvp.production_trace_audit import (  # noqa: E402
 )
 from scripts import run_kwn_frozen_exact_flow_reference_v1 as exact_prior  # noqa: E402
 from scripts import run_kwn_frozen_semigroup_decomposition_v1 as frozen_prior  # noqa: E402
+from scripts import run_kwn_cr1_fine_substep_pathology_v1 as legacy_checkpoint  # noqa: E402
+from scripts.frozen_canonical_smooth_population_v1 import (  # noqa: E402
+    build_frozen_canonical_context,
+    frozen_canonical_snapshot_provenance,
+)
 
 
 TASK_NAME = "kwn_production_trace_audit_v1"
@@ -60,6 +78,23 @@ REQUIRED_BRANCH = "codex/kwn-production-trace-audit-v1"
 FROZEN_ANCESTOR = "7759c83ca4da7fd930e0d67dfbd15788095702cd"
 EXPECTED_FROZEN_U0_HASH = "7de7d098e1ee4a44e291d4771854fd8dfb8a05cdb5e404ae176d22d7bc88c98a"
 EXPECTED_RESTART_SHA256 = "c0bc8dd946769550d780763d5a73446b929bac15c5bf7a04895a6288a2314770"
+LEGACY_RESTART_STEP = 244
+LEGACY_RESTART_STATE_HASH = "51c243b61f4278fdf8f5bae9afe50672f79a6e0be57260b9c7cc0fdb46dca4c2"
+LEGACY_SOLVER_VERSION = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v5"
+LEGACY_TRACE_INTEGRATOR = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BACKWARD_V1"
+LEGACY_CHECKPOINT_ARRAY_KEYS = frozenset(
+    {
+        "g_number_density_per_m4",
+        "beta_number_density_per_m4",
+        "matrix_xb",
+        "time_s",
+        "step",
+        "cumulative_number_dissolution_m3",
+        "cumulative_beta_volume_dissolution",
+        "cumulative_mol_b_returned_mol_m3",
+        "metadata_json",
+    }
+)
 FINAL_HORIZON_S = 1.0 / 128.0
 H_LADDER_S = tuple(1.0 / float(2**power) for power in range(7, 13))
 LEGACY_SUBCELLS_PER_CELL = 16
@@ -72,6 +107,47 @@ REFERENCE_FLOOR_RELATIVE = max(
     REFERENCE_ROUNDTRIP_RELATIVE,
 )
 TRACE_ENVELOPE_RELATIVE = 10.0 * REFERENCE_FLOOR_RELATIVE
+# This is the existing CR1 acceptance scale used by CR5; the trace audit does
+# not relax it or introduce a new population-conservation tolerance.
+REMAP_CONSERVATION_RELATIVE_TOLERANCE = 1.0e-12
+_REMAP_GUARD_SYMBOLS = (
+    "characteristic_remap_partition",
+    "same_characteristic_remap_partition",
+    "piecewise_constant_cdf",
+    "conservative_remap_piecewise_constant",
+)
+
+# The V1 diagnosis was completed and frozen before the V2 repair.  These are
+# evidence values from its hash-pinned remote report, retained here only so a
+# V2 qualification does not pretend that rerunning a repaired kernel is a
+# second independent reconstruction of the removed V1 fixed-six path.
+HISTORICAL_V1_TRACE_ROOT_CAUSE: dict[str, Any] = {
+    "STATUS": "DIAG_TRACE_INTERPOLATION_OR_INVERSION_ERROR",
+    "PRIMARY_ROOT_CAUSE": "TRACE_INVERSION_ERROR",
+    "SECONDARY_ROOT_CAUSE": "FIXED_SIX_ITERATION_NO_TERMINATION_CRITERION",
+    "legacy_h128_max_relative_error": 1.1248904585492794e-08,
+    "resolution32_h128_max_relative_error": 1.1344280911503236e-08,
+    "resolution64_h128_max_relative_error": 1.132527624980762e-08,
+    "resolution128_h128_max_relative_error": 1.1171999175201331e-08,
+    "bracketed_same_table_h128_max_relative_error": 3.820913359031391e-13,
+    "exact_tau_bracketed_h128_max_relative_error": 3.820913359031391e-13,
+    "table_resolution_gain_16_to_64": 0.9932565296748392,
+    "inversion_gain_production_kernel_to_bracketed": 29440.35503685018,
+    "production_kernel_inverse_max_radius_error_m": 9.021913788141991e-10,
+    "bracketed_inverse_max_radius_error_m": 0.0,
+    "repeated_accumulation_supported": True,
+    "directly_supported_minimal_fix_auxiliary_subcells": None,
+    "trace_reference_envelope_relative": TRACE_ENVELOPE_RELATIVE,
+    "historical_evidence": {
+        "source_commit": "9fecdc1d67469ae88d9765d63675e775de6f06bd",
+        "run_root": (
+            "/data/home/luozhiheng/tmp/"
+            "kwn_production_trace_audit_v1_7759c83ca4da_20260905T050939Z/diagnosis_retry2"
+        ),
+        "report": "reports/kwn_production_trace_audit_v1/16_final_acceptance_report.md",
+        "method": "V1 production GL2 table plus fixed six local inverse iterations",
+    },
+}
 
 REPORT_TITLES = {
     "00_baseline_reproduction.md": "Baseline reproduction",
@@ -206,6 +282,52 @@ def _source_identity() -> dict[str, Any]:
     }
 
 
+def _named_definition_ast(source_text: str, symbol: str) -> str:
+    """Return a location-independent AST for one top-level remap definition."""
+
+    try:
+        tree = ast.parse(source_text)
+    except SyntaxError as error:
+        raise ProductionTraceWorkflowError("could not parse CR1 remap source for frozen comparison") from error
+    candidates = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == symbol
+    ]
+    if len(candidates) != 1:
+        raise ProductionTraceWorkflowError(f"could not identify frozen CR1 remap symbol {symbol}")
+    return ast.dump(candidates[0], annotate_fields=True, include_attributes=False)
+
+
+def _cr1_remap_unchanged_guard() -> dict[str, Any]:
+    """Prove that the frozen CR1 CDF/remap implementation was not edited.
+
+    The trace lives in the same module as the remap, so a file-level diff
+    would be meaningless.  Compare the four actual remap definitions to the
+    required frozen ancestor and permit no semantic edit to them.
+    """
+
+    relative_path = "src/kwn_mvp/conservative_remap.py"
+    current_path = ROOT / relative_path
+    try:
+        frozen_source = _git(("show", f"{FROZEN_ANCESTOR}:{relative_path}"))
+        current_source = current_path.read_text(encoding="utf-8")
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ProductionTraceWorkflowError("could not load frozen CR1 remap for unchanged-operator guard") from error
+    symbols = {
+        symbol: _named_definition_ast(current_source, symbol) == _named_definition_ast(frozen_source, symbol)
+        for symbol in _REMAP_GUARD_SYMBOLS
+    }
+    return {
+        "frozen_ancestor": FROZEN_ANCESTOR,
+        "source_path": relative_path,
+        "checked_symbols": list(_REMAP_GUARD_SYMBOLS),
+        "symbol_ast_matches_frozen": symbols,
+        "CR1_REMAP_IMPLEMENTATION_UNCHANGED": all(symbols.values()),
+        "scope": "CR1 CDF, partition, and piecewise-constant remap definitions only; production trace inversion is audited separately",
+    }
+
+
 def _state_arrays_equal(first: Mapping[str, NDArray[np.generic]], second: Mapping[str, NDArray[np.generic]]) -> bool:
     return set(first) == set(second) and all(np.array_equal(np.asarray(first[key]), np.asarray(second[key])) for key in first)
 
@@ -281,17 +403,234 @@ def _baseline_reproduction(baseline_root: Path) -> dict[str, Any]:
     }
 
 
+def _legacy_checkpoint_options(metadata: Mapping[str, Any], *, config: Any) -> dict[str, Any]:
+    """Validate the one V1 checkpoint contract without relaxing its loader.
+
+    This is intentionally narrower than a legacy compatibility layer: the
+    caller has already pinned one file by SHA-256, and this accepts exactly
+    its V1 CR1 metadata solely to materialize a disposable frozen U0 under
+    the qualified V2 trace kernel.
+    """
+
+    expected_keys = {
+        "fixed_point_atol",
+        "fixed_point_closure",
+        "fixed_point_max_iterations",
+        "fixed_point_periodic_scalar_root_requires_map_successor_population_check",
+        "fixed_point_periodic_scalar_root_trigger",
+        "fixed_point_rtol",
+        "fixed_point_safeguarded_scalar_root_requires_same_cdf_source_partition",
+        "fixed_point_safeguarded_scalar_root_requires_same_trace_topology",
+        "fixed_point_safeguarded_scalar_root_trigger",
+        "fixed_point_safeguarded_scalar_root_verification",
+        "fixed_point_scalar_root_cycle_periods",
+        "fixed_point_scalar_root_max_iterations",
+        "fixed_point_scalar_root_requires_original_xb_tolerance",
+        "remap_order",
+        "solver_version",
+        "source_config_hash",
+        "temperature_K",
+        "total_b_mol_m3",
+        "trace_integrator",
+        "under_relaxation",
+        "validation_contract_hash",
+    }
+    if set(metadata) != expected_keys:
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint metadata schema differs")
+    if metadata.get("solver_version") != LEGACY_SOLVER_VERSION:
+        raise ProductionTraceWorkflowError("pinned checkpoint does not carry the registered V1 CR1 solver")
+    if metadata.get("trace_integrator") != LEGACY_TRACE_INTEGRATOR:
+        raise ProductionTraceWorkflowError("pinned checkpoint does not carry the registered V1 trace kernel")
+    if metadata.get("remap_order") != REMAP_ORDER:
+        raise ProductionTraceWorkflowError("pinned checkpoint remap contract differs")
+    if metadata.get("fixed_point_closure") != FIXED_POINT_CLOSURE:
+        raise ProductionTraceWorkflowError("pinned checkpoint closure contract differs")
+    if int(metadata.get("fixed_point_scalar_root_max_iterations", -1)) != FIXED_POINT_SCALAR_ROOT_MAX_ITERATIONS:
+        raise ProductionTraceWorkflowError("pinned checkpoint scalar-root iteration cap differs")
+    if metadata.get("fixed_point_periodic_scalar_root_trigger") != FIXED_POINT_PERIODIC_ROOT_TRIGGER:
+        raise ProductionTraceWorkflowError("pinned checkpoint periodic scalar-root trigger differs")
+    if metadata.get("fixed_point_safeguarded_scalar_root_trigger") != FIXED_POINT_SAFEGUARDED_ROOT_TRIGGER:
+        raise ProductionTraceWorkflowError("pinned checkpoint safeguarded scalar-root trigger differs")
+    if metadata.get("fixed_point_scalar_root_cycle_periods") != list(FIXED_POINT_PERIODIC_CYCLE_PERIODS):
+        raise ProductionTraceWorkflowError("pinned checkpoint scalar-root cycle contract differs")
+    if metadata.get("fixed_point_scalar_root_requires_original_xb_tolerance") is not True:
+        raise ProductionTraceWorkflowError("pinned checkpoint scalar-root tolerance contract differs")
+    if metadata.get("fixed_point_periodic_scalar_root_requires_map_successor_population_check") is not True:
+        raise ProductionTraceWorkflowError("pinned checkpoint periodic population contract differs")
+    if metadata.get("fixed_point_safeguarded_scalar_root_requires_same_cdf_source_partition") is not True:
+        raise ProductionTraceWorkflowError("pinned checkpoint CDF partition contract differs")
+    if metadata.get("fixed_point_safeguarded_scalar_root_requires_same_trace_topology") is not True:
+        raise ProductionTraceWorkflowError("pinned checkpoint trace topology contract differs")
+    if metadata.get("fixed_point_safeguarded_scalar_root_verification") != "SAME_X_IMMUTABLE_REPLAY":
+        raise ProductionTraceWorkflowError("pinned checkpoint scalar-root verification contract differs")
+    if metadata.get("source_config_hash") != config.source_config_hash:
+        raise ProductionTraceWorkflowError("pinned checkpoint config binding differs")
+    if metadata.get("validation_contract_hash") != config.validation_contract_hash:
+        raise ProductionTraceWorkflowError("pinned checkpoint validation-contract binding differs")
+    if float(metadata.get("temperature_K", math.nan)) != float(config.temperature_k):
+        raise ProductionTraceWorkflowError("pinned checkpoint temperature differs")
+    options = {
+        "fixed_point_rtol": float(metadata["fixed_point_rtol"]),
+        "fixed_point_atol": float(metadata["fixed_point_atol"]),
+        "fixed_point_max_iterations": int(metadata["fixed_point_max_iterations"]),
+        "under_relaxation": float(metadata["under_relaxation"]),
+    }
+    if not math.isfinite(float(metadata.get("total_b_mol_m3", math.nan))):
+        raise ProductionTraceWorkflowError("pinned checkpoint total inventory is invalid")
+    return options
+
+
+def _materialize_pinned_legacy_step244(
+    *, restart_checkpoint: Path, config: Any
+) -> tuple[CharacteristicReferenceSolver, dict[str, Any]]:
+    """Raw-read exactly one historical V1 state into a current V2 solver.
+
+    This is not a checkpoint loader and must never be made general-purpose.
+    Normal ``CharacteristicReferenceSolver.load_checkpoint`` remains the
+    only restart path and deliberately rejects the V1 trace identity.
+    """
+
+    try:
+        with np.load(restart_checkpoint, allow_pickle=False) as archive:
+            if frozenset(archive.files) != LEGACY_CHECKPOINT_ARRAY_KEYS:
+                raise ProductionTraceWorkflowError("pinned legacy checkpoint array schema differs")
+            metadata = json.loads(str(archive["metadata_json"].item()))
+            if not isinstance(metadata, dict):
+                raise ProductionTraceWorkflowError("pinned legacy checkpoint metadata is not an object")
+            options = _legacy_checkpoint_options(metadata, config=config)
+            float_names = (
+                "g_number_density_per_m4",
+                "beta_number_density_per_m4",
+                "matrix_xb",
+                "time_s",
+                "cumulative_number_dissolution_m3",
+                "cumulative_beta_volume_dissolution",
+                "cumulative_mol_b_returned_mol_m3",
+            )
+            for name in float_names:
+                if archive[name].dtype != np.dtype(np.float64):
+                    raise ProductionTraceWorkflowError(f"pinned legacy checkpoint {name} dtype differs")
+            if archive["step"].dtype != np.dtype(np.int64):
+                raise ProductionTraceWorkflowError("pinned legacy checkpoint step dtype differs")
+            values = {name: np.asarray(archive[name]).copy() for name in LEGACY_CHECKPOINT_ARRAY_KEYS - {"metadata_json"}}
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ProductionTraceWorkflowError("could not raw-read the pinned legacy checkpoint") from error
+
+    source = CharacteristicReferenceSolver(config, **options)
+    if float(metadata["total_b_mol_m3"]) != float(source.ledger.total_b_mol_m3):
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint total inventory differs from its config")
+    if metadata["validation_contract_hash"] != source.contract_hash:
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint contract differs from its configured ledger")
+    expected_density_shape = source.population("beta").number_density_per_m4.shape
+    g_density = np.asarray(values["g_number_density_per_m4"], dtype=np.float64)
+    beta_density = np.asarray(values["beta_number_density_per_m4"], dtype=np.float64)
+    scalars = {
+        "matrix_xb": np.asarray(values["matrix_xb"], dtype=np.float64),
+        "time_s": np.asarray(values["time_s"], dtype=np.float64),
+        "step": np.asarray(values["step"], dtype=np.int64),
+        "cumulative_number_dissolution_m3": np.asarray(values["cumulative_number_dissolution_m3"], dtype=np.float64),
+        "cumulative_beta_volume_dissolution": np.asarray(values["cumulative_beta_volume_dissolution"], dtype=np.float64),
+        "cumulative_mol_b_returned_mol_m3": np.asarray(values["cumulative_mol_b_returned_mol_m3"], dtype=np.float64),
+    }
+    if g_density.shape != expected_density_shape or beta_density.shape != expected_density_shape:
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint density shape differs from the frozen grid")
+    if any(value.shape != (1,) for value in scalars.values()):
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint scalar shape differs")
+    if not np.all(np.isfinite(g_density)) or not np.all(np.isfinite(beta_density)) or np.any(g_density < 0.0) or np.any(beta_density < 0.0):
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint density state is invalid")
+    matrix_xb = float(scalars["matrix_xb"][0])
+    time_s = float(scalars["time_s"][0])
+    step = int(scalars["step"][0])
+    cumulative = tuple(
+        float(scalars[name][0])
+        for name in (
+            "cumulative_number_dissolution_m3",
+            "cumulative_beta_volume_dissolution",
+            "cumulative_mol_b_returned_mol_m3",
+        )
+    )
+    if not math.isfinite(matrix_xb) or not 0.0 <= matrix_xb <= 1.0:
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint matrix composition is invalid")
+    if not math.isfinite(time_s) or time_s < 0.0 or step != LEGACY_RESTART_STEP:
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint time/step differs from step 244")
+    if any(not math.isfinite(value) or value < 0.0 for value in cumulative):
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint boundary inventory is invalid")
+    source.population("g").number_density_per_m4[:] = g_density
+    source.population("beta").number_density_per_m4[:] = beta_density
+    source.matrix_xb = matrix_xb
+    source.time_s = time_s
+    source.step = step
+    source.cumulative_number_dissolution_m3 = cumulative[0]
+    source.cumulative_beta_volume_dissolution = cumulative[1]
+    source.cumulative_mol_b_returned_mol_m3 = cumulative[2]
+    source.history = []
+    try:
+        source._assert_beta_only_non_nucleating_scope()
+        source.ledger.snapshot(matrix_xb=source.matrix_xb, populations=source.population_list())
+    except Exception as error:
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint inventory does not close") from error
+    if accepted_state_hash(source) != LEGACY_RESTART_STATE_HASH:
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint accepted-state hash differs")
+    return source, metadata
+
+
 def _load_frozen_state(restart_checkpoint: Path, output_root: Path) -> tuple[Any, dict[str, Any], dict[str, NDArray[np.generic]], dict[str, Any]]:
     if not restart_checkpoint.is_file():
         raise ProductionTraceWorkflowError("step-244 restart checkpoint is unavailable")
     if _sha256(restart_checkpoint) != EXPECTED_RESTART_SHA256:
         raise ProductionTraceWorkflowError("step-244 restart checkpoint hash differs")
     try:
-        source, baseline, arrays, metadata = frozen_prior._load_exact_u0(restart_checkpoint, output_root)
-    except Exception as error:  # the inherited loader owns its specific fail-closed contract
-        raise ProductionTraceWorkflowError("could not reconstruct the frozen U0 state") from error
-    baseline["frozen_u0_content_hash"] = EXPECTED_FROZEN_U0_HASH
-    return source, baseline, arrays, metadata
+        context = build_frozen_canonical_context()
+        config, checkpoint_binding = legacy_checkpoint.checkpoint_bound_config(
+            context=context, restart_checkpoint=restart_checkpoint
+        )
+    except Exception as error:
+        raise ProductionTraceWorkflowError("could not bind the pinned legacy restart configuration") from error
+    try:
+        CharacteristicReferenceSolver.load_checkpoint(config=config, path=restart_checkpoint)
+    except CharacteristicReferenceError as error:
+        if "checkpoint solver version differs" not in str(error):
+            raise ProductionTraceWorkflowError("normal V2 loader rejected legacy input for an unexpected reason") from error
+    else:
+        raise ProductionTraceWorkflowError("normal V2 checkpoint loader unexpectedly accepted a V1 trace identity")
+    first, metadata = _materialize_pinned_legacy_step244(restart_checkpoint=restart_checkpoint, config=config)
+    second, repeated_metadata = _materialize_pinned_legacy_step244(restart_checkpoint=restart_checkpoint, config=config)
+    if metadata != repeated_metadata or not _state_arrays_equal(first.state_arrays(), second.state_arrays()):
+        raise ProductionTraceWorkflowError("pinned legacy checkpoint materialization is not bitwise repeatable")
+    try:
+        arrays, u0_metadata, u0_hash = frozen_prior._u0_arrays_and_metadata(
+            first, checkpoint_binding=checkpoint_binding
+        )
+        u0_repeat = frozen_prior._save_and_repeat_load_u0(
+            output_root / "frozen_u0.npz", arrays=arrays, metadata=u0_metadata, expected_hash=u0_hash
+        )
+    except Exception as error:
+        raise ProductionTraceWorkflowError("could not materialize the pinned frozen U0 artifact") from error
+    baseline = {
+        "status": "PASS_PINNED_LEGACY_V1_U0_MATERIALIZATION",
+        "restart_checkpoint": str(restart_checkpoint),
+        "restart_checkpoint_sha256": EXPECTED_RESTART_SHA256,
+        "restart_step": int(first.step),
+        "restart_state_hash": accepted_state_hash(first),
+        # The formal historical U0 content digest embeds its staging-tree
+        # contract path.  Its physical identity is instead pinned above by
+        # the restart SHA and accepted-state hash; record both digests rather
+        # than falsely demanding a path-dependent byte identity.
+        "frozen_u0_content_hash": EXPECTED_FROZEN_U0_HASH,
+        "materialized_frozen_u0_content_hash": u0_hash,
+        "frozen_xB": float(first.matrix_xb),
+        "normal_loader_legacy_checkpoint": "REJECTED_BY_STRICT_V2_LOADER",
+        "checkpoint_repeat_materialization": "PASS_BITWISE",
+        "frozen_u0_repeat_load": u0_repeat,
+        "checkpoint_config_binding": checkpoint_binding,
+        "frozen_canonical_context": frozen_canonical_snapshot_provenance(),
+        "legacy_input_solver_version": LEGACY_SOLVER_VERSION,
+        "legacy_input_trace_integrator": LEGACY_TRACE_INTEGRATOR,
+        "qualified_solver_version": CharacteristicReferenceSolver.solver_version,
+        "qualified_trace_integrator": TRACE_INTEGRATOR,
+        "scope": "PINNED_LEGACY_U0_FOR_FROZEN_DISPOSABLE_TRACE_AND_PHI_COMPOSE_ONLY",
+    }
+    return first, baseline, arrays, u0_metadata
 
 
 def _production_velocity(source: Any, frozen_xb: float) -> Any:
@@ -535,7 +874,7 @@ def _table_resolution_rows(
                     "rms_absolute_radius_error_m": float(math.sqrt(float(np.mean(np.square(delta))))),
                     "max_relative_radius_error": float(np.max(np.abs(delta) / scale)),
                     "status_mismatch_count": int(np.count_nonzero(query.status != exact.status)),
-                    "inversion_mode": "PRODUCTION_FIXED_6",
+                    "inversion_mode": "PRODUCTION_KERNEL",
                     "table_kind": "PRODUCTION_GL2",
                 }
             )
@@ -610,28 +949,27 @@ def _inversion_audit_rows(
                     "expected_radius_m": expected_radius,
                     "production_table_target_s": target_production,
                     "exact_tau_target_s": target_exact,
-                    "production_fixed_same_table_radius_m": prod_same.radius_m,
-                    "production_fixed_same_table_error_m": abs(prod_same.radius_m - expected_radius),
-                    "production_fixed_exact_target_status": exact_target_status,
-                    "production_fixed_exact_target_radius_m": None if prod_exact_target is None else prod_exact_target.radius_m,
-                    "production_fixed_exact_target_error_m": None if prod_exact_target is None else abs(prod_exact_target.radius_m - expected_radius),
+                    "production_kernel_same_table_radius_m": prod_same.radius_m,
+                    "production_kernel_same_table_error_m": abs(prod_same.radius_m - expected_radius),
+                    "production_kernel_exact_target_status": exact_target_status,
+                    "production_kernel_exact_target_radius_m": None if prod_exact_target is None else prod_exact_target.radius_m,
+                    "production_kernel_exact_target_error_m": None if prod_exact_target is None else abs(prod_exact_target.radius_m - expected_radius),
                     "bracketed_same_table_radius_m": bracket_same.radius_m,
                     "bracketed_same_table_error_m": abs(bracket_same.radius_m - expected_radius),
                     "exact_tau_bracketed_radius_m": exact_bracket.radius_m,
                     "exact_tau_bracketed_error_m": abs(exact_bracket.radius_m - expected_radius),
-                    "production_fixed_iteration_count": prod_same.iteration_count,
-                    "production_fixed_bracket_width_m": prod_same.bracket_width_m,
-                    "production_fixed_residual_s": prod_same.residual_s,
+                    "production_kernel_iteration_count": prod_same.iteration_count,
+                    "production_kernel_bracket_width_m": prod_same.bracket_width_m,
+                    "production_kernel_residual_s": prod_same.residual_s,
                     "bracketed_iteration_count": bracket_same.iteration_count,
                     "bracketed_bracket_width_m": bracket_same.bracket_width_m,
                     "bracketed_residual_s": bracket_same.residual_s,
                 }
             )
     return rows, {
-        "production_fixed_inverse_max_radius_error_m": max_production_error,
+        "production_kernel_inverse_max_radius_error_m": max_production_error,
         "bracketed_inverse_max_radius_error_m": max_bracketed_error,
-        "production_inversion_has_fixed_iterations": True,
-        "production_inversion_iteration_count": 6,
+        "production_kernel_iteration_telemetry": "NOT_EXPOSED_BY_PUBLIC_TRACE_KERNEL",
     }
 
 
@@ -655,12 +993,12 @@ def _component_ablation_rows(
             ),
         ),
         (
-            "TRACE_MODE_3_EXACT_TAU_TABLE_NODES_PLUS_PRODUCTION_STYLE_LOCAL_INVERSION",
+            "TRACE_MODE_3_EXACT_TAU_TABLE_NODES_PLUS_PRODUCTION_KERNEL_INVERSION",
             ProductionAutonomousTOFTable(
                 edges_m=edges_m,
                 velocity_m_s=velocity,
                 exact_flow=flow,
-                config=ProductionTraceAuditConfig(table_kind="EXACT_TAU", inversion_mode="PRODUCTION_FIXED_6"),
+                config=ProductionTraceAuditConfig(table_kind="EXACT_TAU", inversion_mode="PRODUCTION_KERNEL"),
             ),
         ),
         (
@@ -752,10 +1090,18 @@ def _representative_radii(
     *, edges_m: NDArray[np.float64], velocity_m_s: NDArray[np.float64]
 ) -> tuple[list[tuple[str, float]], dict[str, Any]]:
     labels, conditioning, rule = _region_labels(edges_m=edges_m, velocity_m_s=velocity_m_s)
+    required_regions = (
+        "SHRINKING_BULK",
+        "GROWING_BULK",
+        "NEAR_CRITICAL_CONDITIONING_Q95",
+        "NEAR_RMIN_GRID_LOCAL",
+    )
     choices: list[tuple[str, float]] = []
-    for wanted in ("SHRINKING_BULK", "GROWING_BULK", "NEAR_CRITICAL_CONDITIONING_Q95", "NEAR_RMIN_GRID_LOCAL"):
+    missing: list[str] = []
+    for wanted in required_regions:
         indices = np.flatnonzero(labels == wanted)
         if indices.size == 0:
+            missing.append(wanted)
             continue
         if wanted == "NEAR_CRITICAL_CONDITIONING_Q95":
             index = int(indices[np.argmax(conditioning[indices])])
@@ -764,9 +1110,64 @@ def _representative_radii(
         else:
             index = int(indices[indices.size // 2])
         choices.append((wanted, float(edges_m[index])))
-    if len(choices) < 3:
-        raise ProductionTraceWorkflowError("could not select sufficient representative frozen trace radii")
-    return choices, rule
+    if missing:
+        raise ProductionTraceWorkflowError(
+            f"could not select every required representative frozen trace region: {missing}"
+        )
+    return choices, {**rule, "required_repeated_trace_regions": list(required_regions)}
+
+
+def _classify_repeated_accumulation(
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[str, list[dict[str, Any]], bool]:
+    """Classify every adjacent refinement pair without endpoint shortcuts."""
+
+    ordered = sorted(rows, key=lambda row: float(row["h_s"]), reverse=True)
+    if [float(row["h_s"]) for row in ordered] != list(H_LADDER_S):
+        raise ProductionTraceWorkflowError("repeated trace rows do not carry the complete registered h ladder")
+    relative = [float(row["final_accumulated_relative_error"]) for row in ordered]
+    if not all(math.isfinite(value) and value >= 0.0 for value in relative):
+        raise ProductionTraceWorkflowError("repeated trace accumulation produced an invalid relative error")
+    pair_rows: list[dict[str, Any]] = []
+    n_like_pair = False
+    exponents: list[float] = []
+    for coarse, fine, coarse_relative, fine_relative in zip(ordered[:-1], ordered[1:], relative[:-1], relative[1:]):
+        h_ratio = float(coarse["h_s"]) / float(fine["h_s"])
+        if h_ratio <= 1.0:
+            raise ProductionTraceWorkflowError("repeated trace h ladder is not strictly refined")
+        if coarse_relative == 0.0:
+            exponent = math.inf if fine_relative > 0.0 else math.nan
+        elif fine_relative == 0.0:
+            exponent = -math.inf
+        else:
+            exponent = math.log(fine_relative / coarse_relative) / math.log(h_ratio)
+        above_reference = fine_relative > TRACE_ENVELOPE_RELATIVE
+        is_n_like = above_reference and exponent >= 0.75
+        n_like_pair = n_like_pair or is_n_like
+        if math.isfinite(exponent):
+            exponents.append(exponent)
+        pair_rows.append(
+            {
+                "h_coarse_s": float(coarse["h_s"]),
+                "h_fine_s": float(fine["h_s"]),
+                "coarse_final_relative_error": coarse_relative,
+                "fine_final_relative_error": fine_relative,
+                "accumulation_scaling_exponent": exponent,
+                "fine_above_reference_envelope": above_reference,
+                "n_like_or_faster_accumulation": is_n_like,
+            }
+        )
+    if max(relative) <= TRACE_ENVELOPE_RELATIVE:
+        classification = "TRACE_REPEATED_OTHER_REFERENCE_ENVELOPE"
+    elif n_like_pair:
+        classification = "TRACE_REPEATED_SCALES_AS_N_OR_FASTER"
+    elif exponents and all(0.25 <= value < 0.75 for value in exponents):
+        classification = "TRACE_REPEATED_SCALES_AS_SQRT_N"
+    elif all(fine <= coarse for coarse, fine in zip(relative[:-1], relative[1:])):
+        classification = "TRACE_REPEATED_CONVERGENT"
+    else:
+        classification = "TRACE_REPEATED_OTHER"
+    return classification, pair_rows, n_like_pair
 
 
 def _repeated_trace_rows(
@@ -782,6 +1183,8 @@ def _repeated_trace_rows(
     table = ProductionAutonomousTOFTable(edges_m=edges_m, velocity_m_s=velocity, exact_flow=flow)
     rows: list[dict[str, Any]] = []
     classifications: dict[str, str] = {}
+    scaling_rows: list[dict[str, Any]] = []
+    n_like_regions: list[str] = []
     for label, radius in radii:
         per_radius: list[dict[str, Any]] = []
         exact = flow.evaluate(radius, -FINAL_HORIZON_S)
@@ -800,6 +1203,7 @@ def _repeated_trace_rows(
                     first_status = str(query.status[0])
                 current = float(query.radius_m[0])
             accumulated = abs(current - float(exact.radius_m))
+            accumulated_relative = accumulated / max(abs(float(exact.radius_m)), 1.0e-300)
             row = {
                 "representative_region": label,
                 "initial_radius_m": radius,
@@ -811,20 +1215,27 @@ def _repeated_trace_rows(
                 "exact_backward_departure_radius_m": float(exact.radius_m),
                 "exact_backward_status": str(exact.status),
                 "final_accumulated_error_m": accumulated,
+                "final_accumulated_relative_error": accumulated_relative,
                 "accumulated_over_single_step": accumulated / max(first_error, 1.0e-300),
             }
             per_radius.append(row)
             rows.append(row)
-        errors = [float(row["final_accumulated_error_m"]) for row in per_radius]
-        if errors[-1] > 0.8 * errors[0]:
-            classifications[label] = "TRACE_REPEATED_NONCONVERGENT_OR_GENERATOR_BIAS"
-        else:
-            classifications[label] = "TRACE_REPEATED_CONVERGENT"
+        classification, pairs, n_like = _classify_repeated_accumulation(per_radius)
+        classifications[label] = classification
+        for row in per_radius:
+            row["accumulation_classification"] = classification
+            row["n_like_or_faster_accumulation"] = n_like
+        if n_like:
+            n_like_regions.append(label)
+        scaling_rows.extend({"representative_region": label, **pair} for pair in pairs)
     return rows, {
         "direction": "backward departure composition; exact comparator is Flow_exact(R0, -H), matching the production departure map",
         "horizon_s": FINAL_HORIZON_S,
         "representative_selection": rule,
         "per_region_classification": classifications,
+        "adjacent_refinement_scaling": scaling_rows,
+        "n_like_or_faster_accumulation_regions": n_like_regions,
+        "PASS_TRACE_REPEATED_COMPOSITION": not n_like_regions,
     }
 
 
@@ -839,6 +1250,7 @@ def _cr1_rows_against_exact(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     initial_arrays = {key: np.asarray(value).copy() for key, value in source.state_arrays().items()}
     initial_history = tuple(source.history)
+    initial_number_m3 = max(float(np.sum(u0_cells, dtype=np.float64)), 1.0e-300)
     cr1_rows: list[dict[str, Any]] = []
     projection_rows: list[dict[str, Any]] = []
     for h_s in H_LADDER_S:
@@ -859,6 +1271,25 @@ def _cr1_rows_against_exact(
         production_cells = np.asarray(result.state["population_array"], dtype=np.float64)
         metrics = measure_error_metrics(production_cells, exact_reference.cell_number_m3, edges_m=edges_m)
         history = tuple(result.solver.history[-count:])
+        cumulative_residual = float(sum(float(item.remap_number_conservation_residual_m3) for item in history))
+        running_old_number = initial_number_m3
+        step_relative_residuals: list[float] = []
+        step_old_number_m3: list[float] = []
+        max_abs_residual = 0.0
+        for item in history:
+            residual = float(item.remap_number_conservation_residual_m3)
+            lower_loss = float(item.rmin_number_loss_m3)
+            upper_loss = float(item.rmax_number_loss_m3)
+            if not all(math.isfinite(value) for value in (residual, lower_loss, upper_loss, running_old_number)):
+                raise ProductionTraceWorkflowError("CR1 history carries a non-finite remap conservation value")
+            if lower_loss < 0.0 or upper_loss < 0.0 or running_old_number <= 0.0:
+                raise ProductionTraceWorkflowError("CR1 history carries an invalid remap conservation scale")
+            step_old_number_m3.append(running_old_number)
+            step_relative_residuals.append(abs(residual) / running_old_number)
+            max_abs_residual = max(max_abs_residual, abs(residual))
+            running_old_number = running_old_number - lower_loss - upper_loss - residual
+        if not math.isfinite(running_old_number) or running_old_number < 0.0:
+            raise ProductionTraceWorkflowError("CR1 remap history lost its physical conservation scale")
         cr1_rows.append(
             {
                 "comparison": "CURRENT_PRODUCTION_CR1_VS_REF_PC",
@@ -868,16 +1299,32 @@ def _cr1_rows_against_exact(
                 "cr1_state_hash": str(result.state["accepted_state_hash"]),
                 "rmin_number_loss_m3": float(sum(float(item.rmin_number_loss_m3) for item in history)),
                 "rmax_number_loss_m3": float(sum(float(item.rmax_number_loss_m3) for item in history)),
+                "remap_cumulative_conservation_residual_m3": cumulative_residual,
+                "remap_cumulative_conservation_relative": abs(cumulative_residual) / initial_number_m3,
+                "remap_max_abs_conservation_residual_m3": max_abs_residual,
+                "remap_max_abs_conservation_relative": max(step_relative_residuals, default=0.0),
+                "remap_step_old_number_m3_json": step_old_number_m3,
+                "remap_step_conservation_relative_json": step_relative_residuals,
                 "fixed_point_modes_json": [str(item.fixed_point_convergence_mode) for item in history],
             }
         )
         current = u0_cells.copy()
         departure = np.asarray(exact_departures[float(h_s)], dtype=np.float64)
         conservation = 0.0
+        max_abs_conservation = 0.0
+        max_relative_conservation = 0.0
+        step_old_number_m3: list[float] = []
+        step_relative_residuals: list[float] = []
         for _ in range(count):
             remap = conservative_remap_piecewise_constant(edges_m, current, departure)
             current = np.asarray(remap.cell_number_m3, dtype=np.float64)
             conservation += float(remap.conservation_residual_m3)
+            max_abs_conservation = max(max_abs_conservation, abs(float(remap.conservation_residual_m3)))
+            old_number = max(float(remap.old_number_m3), 1.0e-300)
+            relative_residual = abs(float(remap.conservation_residual_m3)) / old_number
+            step_old_number_m3.append(old_number)
+            step_relative_residuals.append(relative_residual)
+            max_relative_conservation = max(max_relative_conservation, relative_residual)
         projection_rows.append(
             {
                 "comparison": "EXACT_FLOW_PLUS_SAME_CR1_REMAP_VS_REF_PC",
@@ -885,9 +1332,52 @@ def _cr1_rows_against_exact(
                 "substep_count": count,
                 **measure_error_metrics(current, exact_reference.cell_number_m3, edges_m=edges_m),
                 "remap_cumulative_conservation_residual_m3": conservation,
+                "remap_cumulative_conservation_relative": abs(conservation) / initial_number_m3,
+                "remap_max_abs_conservation_residual_m3": max_abs_conservation,
+                "remap_max_abs_conservation_relative": max_relative_conservation,
+                "remap_step_old_number_m3_json": step_old_number_m3,
+                "remap_step_conservation_relative_json": step_relative_residuals,
+            }
+        )
+        trace_induced_metrics = measure_error_metrics(production_cells, current, edges_m=edges_m)
+        cr1_rows[-1].update(
+            {
+                f"trace_induced_{key}": value
+                for key, value in trace_induced_metrics.items()
             }
         )
     return cr1_rows, projection_rows
+
+
+def _conservation_unchanged_summary(
+    *,
+    cr1_rows: Sequence[Mapping[str, Any]],
+    projection_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Apply the existing CR1 remap-conservation contract to both paths."""
+
+    if len(cr1_rows) != len(H_LADDER_S) or len(projection_rows) != len(H_LADDER_S):
+        raise ProductionTraceWorkflowError("conservation gate requires the complete paired CR1 ladder")
+    current_relative = [float(row["remap_max_abs_conservation_relative"]) for row in cr1_rows]
+    projection_relative = [float(row["remap_max_abs_conservation_relative"]) for row in projection_rows]
+    all_relative = current_relative + projection_relative
+    if not all(math.isfinite(value) for value in all_relative):
+        raise ProductionTraceWorkflowError("CR1 conservation gate received a non-finite cumulative residual")
+    return {
+        "criterion": "every CR1 remap substep must meet the existing CR5 remap-conservation relative tolerance; signed cumulative residual is diagnostic only",
+        "relative_tolerance": REMAP_CONSERVATION_RELATIVE_TOLERANCE,
+        "current_cr1_max_abs_substep_relative_residual": max(current_relative),
+        "projection_only_max_abs_substep_relative_residual": max(projection_relative),
+        "current_cr1_per_h_max_abs_substep_relative_residual": {
+            str(int(round(1.0 / float(row["h_s"])))): float(row["remap_max_abs_conservation_relative"])
+            for row in cr1_rows
+        },
+        "projection_only_per_h_max_abs_substep_relative_residual": {
+            str(int(round(1.0 / float(row["h_s"])))): float(row["remap_max_abs_conservation_relative"])
+            for row in projection_rows
+        },
+        "CONSERVATION_UNCHANGED": max(all_relative) <= REMAP_CONSERVATION_RELATIVE_TOLERANCE,
+    }
 
 
 def _trace_induced_rows(
@@ -905,14 +1395,96 @@ def _trace_induced_rows(
                 "h_s": float(full["h_s"]),
                 "full_vs_exact_relative_L1": float(full["population_relative_L1"]),
                 "projection_only_vs_exact_relative_L1": float(projection["population_relative_L1"]),
-                "trace_induced_relative_L1_proxy": abs(
-                    float(full["population_relative_L1"]) - float(projection["population_relative_L1"])
-                ),
+                "trace_induced_relative_L1": float(full["trace_induced_population_relative_L1"]),
                 "full_vs_exact_L1_abs": float(full["population_L1_abs"]),
                 "projection_only_vs_exact_L1_abs": float(projection["population_L1_abs"]),
+                "trace_induced_L1_abs": float(full["trace_induced_population_L1_abs"]),
+                "trace_induced_relative_Linf": float(full["trace_induced_population_relative_Linf"]),
+                "trace_induced_CDF_max_error": float(full["trace_induced_CDF_max_error"]),
+                "trace_induced_Wasserstein_m": float(full["trace_induced_Wasserstein_m"]),
             }
         )
     return rows
+
+
+def _paired_cr1_comparator(
+    *,
+    trace_induced_rows: Sequence[Mapping[str, Any]],
+    baseline_cr1_relative_l1: Sequence[float],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Gate full and trace-induced error against the paired h comparator.
+
+    The h=1/128 projection comparator is exactly zero in the frozen report,
+    so the already-qualified independent reference floor supplies its only
+    meaningful binary64 scale.  A maximum from another h level must never
+    mask a failed paired comparison.
+    """
+
+    if len(trace_induced_rows) != len(H_LADDER_S) or len(baseline_cr1_relative_l1) != len(H_LADDER_S):
+        raise ProductionTraceWorkflowError("paired CR1 comparator requires complete current and frozen h ladders")
+    by_h = {float(row["h_s"]): row for row in trace_induced_rows}
+    if len(by_h) != len(H_LADDER_S) or set(by_h) != set(H_LADDER_S):
+        raise ProductionTraceWorkflowError("paired CR1 comparator h ladder differs from the frozen registration")
+    rows: list[dict[str, Any]] = []
+    for h_s, historical_full in zip(H_LADDER_S, baseline_cr1_relative_l1):
+        row = by_h[float(h_s)]
+        full = float(row["full_vs_exact_relative_L1"])
+        projection = float(row["projection_only_vs_exact_relative_L1"])
+        trace = float(row["trace_induced_relative_L1"])
+        historical = float(historical_full)
+        if not all(math.isfinite(value) and value >= 0.0 for value in (full, projection, trace, historical)):
+            raise ProductionTraceWorkflowError("paired CR1 comparator received an invalid relative error")
+        scale = max(projection, REFERENCE_FLOOR_RELATIVE)
+        full_ratio = full / scale
+        trace_ratio = trace / scale
+        same_order = full_ratio <= 10.0 and trace_ratio <= 10.0
+        rows.append(
+            {
+                **row,
+                "paired_projection_comparator_scale": scale,
+                "full_to_paired_projection_ratio": full_ratio,
+                "trace_induced_to_paired_projection_ratio": trace_ratio,
+                "historical_trace_dominated_full_relative_L1": historical,
+                "trace_induced_reduction_factor_vs_historical": (
+                    math.inf if trace == 0.0 and historical > 0.0 else historical / max(trace, 1.0e-300)
+                ),
+                "trace_induced_below_historical": trace < historical,
+                "same_order_at_h": same_order,
+            }
+        )
+    all_h_same_order = all(bool(row["same_order_at_h"]) for row in rows)
+    all_trace_below_historical = all(bool(row["trace_induced_below_historical"]) for row in rows)
+    all_trace_reduced_one_order = all(
+        float(row["trace_induced_reduction_factor_vs_historical"]) >= 10.0 for row in rows
+    )
+    adjacent_trace_induced_refinement = [
+        {
+            "h_coarse_s": float(coarse["h_s"]),
+            "h_fine_s": float(fine["h_s"]),
+            "trace_induced_fine_to_coarse_ratio": (
+                math.inf
+                if float(coarse["trace_induced_relative_L1"]) == 0.0
+                and float(fine["trace_induced_relative_L1"]) > 0.0
+                else float(fine["trace_induced_relative_L1"])
+                / max(float(coarse["trace_induced_relative_L1"]), 1.0e-300)
+            ),
+        }
+        for coarse, fine in zip(rows[:-1], rows[1:])
+    ]
+    return rows, {
+        "criterion": "at every h, full and direct trace-induced relative-L1 are at most 10 times max(paired projection-only relative-L1, independent reference floor)",
+        "reference_floor_relative": REFERENCE_FLOOR_RELATIVE,
+        "ALL_H_SAME_ORDER": all_h_same_order,
+        "ALL_H_TRACE_INDUCED_BELOW_HISTORICAL": all_trace_below_historical,
+        "ALL_H_TRACE_INDUCED_REDUCED_BY_AT_LEAST_ONE_ORDER": all_trace_reduced_one_order,
+        "TRACE_INDUCED_H_WISE_BOUND": (
+            "BOUNDED_BY_PAIRED_PROJECTION_COMPARATOR_AT_EVERY_H"
+            if all_h_same_order
+            else "NOT_BOUNDED_BY_PAIRED_PROJECTION_COMPARATOR_AT_EVERY_H"
+        ),
+        "adjacent_trace_induced_refinement": adjacent_trace_induced_refinement,
+        "per_h": rows,
+    }
 
 
 def _branch_rows(
@@ -986,8 +1558,7 @@ def _root_cause(
     exact_tau = metric(component_rows, mode="TRACE_MODE_4_EXACT_TAU_PLUS_BRACKETED_INVERSION")
     resolution_gain = legacy / max(resolution64, 1.0e-300)
     inversion_gain = legacy / max(bracketed, 1.0e-300)
-    accumulation_classes = dict(repeated.get("per_region_classification", {}))
-    accumulation_supported = any("NONCONVERGENT" in value for value in accumulation_classes.values())
+    accumulation_supported = bool(repeated.get("n_like_or_faster_accumulation_regions", ()))
     if resolution64 <= TRACE_ENVELOPE_RELATIVE and resolution_gain >= 8.0 and inversion_gain < 4.0:
         primary = "TRACE_TOF_TABLE_RESOLUTION_FLOOR"
         status = "DIAG_TRACE_TOF_TABLE_RESOLUTION_FLOOR"
@@ -997,7 +1568,7 @@ def _root_cause(
         primary = "TRACE_INVERSION_ERROR"
         status = "DIAG_TRACE_INTERPOLATION_OR_INVERSION_ERROR"
         fix_resolution = None
-        secondary = "FIXED_SIX_ITERATION_NO_TERMINATION_CRITERION"
+        secondary = "INVERSION_TERMINATION_OR_LOCAL_RESIDUAL_ERROR"
     elif resolution64 <= TRACE_ENVELOPE_RELATIVE and inversion_gain >= 4.0:
         primary = "MIXED_TRACE_NUMERICAL_ERROR"
         status = "DIAG_MIXED_TRACE_NUMERICAL_ERROR"
@@ -1024,8 +1595,8 @@ def _root_cause(
         "bracketed_same_table_h128_max_relative_error": bracketed,
         "exact_tau_bracketed_h128_max_relative_error": exact_tau,
         "table_resolution_gain_16_to_64": resolution_gain,
-        "inversion_gain_fixed_to_bracketed": inversion_gain,
-        "production_fixed_inverse_max_radius_error_m": inversion["production_fixed_inverse_max_radius_error_m"],
+        "inversion_gain_production_kernel_to_bracketed": inversion_gain,
+        "production_kernel_inverse_max_radius_error_m": inversion["production_kernel_inverse_max_radius_error_m"],
         "bracketed_inverse_max_radius_error_m": inversion["bracketed_inverse_max_radius_error_m"],
         "repeated_accumulation_supported": accumulation_supported,
         "directly_supported_minimal_fix_auxiliary_subcells": fix_resolution,
@@ -1040,7 +1611,7 @@ def _architecture_report() -> dict[str, Any]:
             "trace_departure_faces_rk2",
             "same-sign branch classification on log auxiliary submesh",
             "two-node Gauss-Legendre |dR/G| table per same-sign run",
-            "linear table bracket plus six fixed Gauss/Newton/bisection iterations",
+            "exact table-knot return plus local GL2 Newton/binary64 bracket inversion",
             "Rmin/Rmax no-inflow or stationary-tail handling",
             "departure faces supplied unchanged to CR1 CDF remap",
         ],
@@ -1048,13 +1619,13 @@ def _architecture_report() -> dict[str, Any]:
             "growth_kernel": "src/kwn_mvp/characteristic_reference.py: CharacteristicReferenceSolver._velocity_at_radii",
             "trace_entry": "src/kwn_mvp/conservative_remap.py: trace_departure_faces_rk2",
             "auxiliary_table": "_log_subdivided_faces, _gauss_time_of_flight, np.cumsum",
-            "inversion": "_invert_time_of_flight: fixed six iterations with no residual termination",
+            "inversion": "_invert_time_of_flight: exact knot fast path; local residual with binary64 bracket closure",
             "physical_branch_tail": "_stationary_root and _stationary_tail_from_endpoint",
             "remap": "conservative_remap_piecewise_constant",
         },
         "precision": "binary64 throughout production trace; no persistent cross-step cache or quantization",
         "production_default_auxiliary_subcells_per_population_cell": int(_TRACE_SUBCELLS_PER_CELL),
-        "interpolation": "linear lookup only to seed an inverse; local GL2 re-integration is used in each fixed inverse iteration",
+        "interpolation": "linear lookup only selects a local table interval; local GL2 re-integration closes its binary64 inverse",
         "reference_difference": "independent frozen exact flow uses SciPy adaptive quadrature and residual-qualified safeguarded inverse; it does not import production trace or CR1 remap",
     }
 
@@ -1065,6 +1636,9 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     if output_root.exists() or report_root.exists():
         raise ProductionTraceWorkflowError("refusing to overwrite trace-audit output or report roots")
     source_identity = _source_identity()
+    remap_guard = _cr1_remap_unchanged_guard()
+    if not remap_guard["CR1_REMAP_IMPLEMENTATION_UNCHANGED"]:
+        raise ProductionTraceWorkflowError("CR1 remap implementation differs from the frozen ancestor")
     baseline_reproduction = _baseline_reproduction(Path(args.baseline_root))
     try:
         mpmath = exact_prior._mpmath_preflight(Path(args.mpmath_vendor_root))
@@ -1133,11 +1707,19 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     component_rows = _component_ablation_rows(
         source=source, flow=flow, edges_m=edges, frozen_xb=frozen_xb
     )
-    root_cause = _root_cause(
+    current_component_reaudit = _root_cause(
         table_resolution_rows=resolution_rows,
         component_rows=component_rows,
         inversion=inversion_summary,
         repeated=repeated_summary,
+    )
+    root_cause = (
+        {
+            **HISTORICAL_V1_TRACE_ROOT_CAUSE,
+            "post_fix_current_kernel_component_reaudit": current_component_reaudit,
+        }
+        if args.phase == "qualify"
+        else current_component_reaudit
     )
     if not _state_arrays_equal(before_arrays, source.state_arrays()) or tuple(source.history) != before_history:
         raise ProductionTraceWorkflowError("read-only trace audit modified accepted frozen U0")
@@ -1148,6 +1730,14 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     projection_rows: list[dict[str, Any]] = []
     trace_induced: list[dict[str, Any]] = []
     post_fix_repeated: dict[str, Any] = {"status": "NOT_RUN_IN_DIAGNOSIS_PHASE"}
+    trace_kernel_face_and_composition_pass = False
+    cr1_projection_comparator_same_order: bool | None = None
+    cr1_comparator_summary: dict[str, Any] = {
+        "ALL_H_SAME_ORDER": None,
+        "ALL_H_TRACE_INDUCED_REDUCED_BY_AT_LEAST_ONE_ORDER": None,
+        "status": "NOT_RUN_IN_DIAGNOSIS_PHASE",
+    }
+    conservation_summary: dict[str, Any] = {"CONSERVATION_UNCHANGED": None, "status": "NOT_RUN_IN_DIAGNOSIS_PHASE"}
     final_status = root_cause["STATUS"]
     fix_description = "NO_FIX_IMPLEMENTED_IN_DIAGNOSIS_PHASE"
     if args.phase == "qualify":
@@ -1156,7 +1746,6 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             and float(summary["max_relative_radius_error"]) <= TRACE_ENVELOPE_RELATIVE
             for summary in face_summaries.values()
         )
-        repeat_pass = all("NONCONVERGENT" not in value for value in repeated_summary["per_region_classification"].values())
         cr1_rows, projection_rows = _cr1_rows_against_exact(
             source=source,
             edges_m=edges,
@@ -1166,18 +1755,36 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             exact_departures=exact_departures,
         )
         trace_induced = _trace_induced_rows(cr1_rows=cr1_rows, projection_rows=projection_rows)
-        projection_scale = max(float(row["population_relative_L1"]) for row in projection_rows)
-        full_scale = max(float(row["population_relative_L1"]) for row in cr1_rows)
-        same_order = full_scale <= 10.0 * max(projection_scale, 1.0e-300)
-        qualified_trace = all_face_pass and repeat_pass
+        trace_induced, cr1_comparator_summary = _paired_cr1_comparator(
+            trace_induced_rows=trace_induced,
+            baseline_cr1_relative_l1=baseline_reproduction["cr1_relative_l1"],
+        )
+        conservation_summary = _conservation_unchanged_summary(cr1_rows=cr1_rows, projection_rows=projection_rows)
+        same_order = bool(cr1_comparator_summary["ALL_H_SAME_ORDER"])
+        trace_induced_reduced = bool(
+            cr1_comparator_summary["ALL_H_TRACE_INDUCED_REDUCED_BY_AT_LEAST_ONE_ORDER"]
+        )
+        branch_pass = branch_summary["branch_or_status_mismatch_count"] == 0
+        repeat_pass = bool(repeated_summary["PASS_TRACE_REPEATED_COMPOSITION"])
+        trace_kernel_face_and_composition_pass = all_face_pass and branch_pass and repeat_pass
+        cr1_projection_comparator_same_order = same_order
+        # The frozen trace kernel is not fully qualified until the unchanged
+        # CR1 remap also lands at the projection-only comparator scale.
+        qualified_trace = (
+            trace_kernel_face_and_composition_pass
+            and same_order
+            and trace_induced_reduced
+            and bool(conservation_summary["CONSERVATION_UNCHANGED"])
+        )
         post_fix_repeated = {"status": "PASS_TRACE_REPEATED_COMPOSITION" if repeat_pass else "FAIL_TRACE_REPEATED_COMPOSITION", **repeated_summary}
         fix_description = (
             f"Current production auxiliary TOF table uses {_TRACE_SUBCELLS_PER_CELL} subcells per population cell; "
+            "V2 returns exact table knots and otherwise closes the same local GL2 interval at binary64 bracket resolution; "
             "the frozen qualification reuses the unchanged CR1 remap, grid, thermodynamics, and growth kernel."
         )
-        if qualified_trace and same_order:
+        if qualified_trace:
             final_status = "PASS_PRODUCTION_TRACE_KERNEL_FROZEN_QUALIFICATION"
-        elif qualified_trace:
+        elif trace_kernel_face_and_composition_pass:
             final_status = "DIAG_TRACE_FIX_INSUFFICIENT_OTHER_OPERATOR_ERROR"
         else:
             final_status = root_cause["STATUS"]
@@ -1194,11 +1801,16 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     _write_csv(output_root / "trace_branch_classification.csv", branch_rows, ("h_s", "face_index"))
     _write_csv(output_root / "trace_h_scaling.csv", scaling_rows, ("face_index", "h_coarse_s"))
     _write_csv(output_root / "repeated_trace_accumulation.csv", repeated_rows, ("representative_region", "h_s"))
+    _write_csv(
+        output_root / "repeated_trace_refinement_scaling.csv",
+        repeated_summary["adjacent_refinement_scaling"],
+        ("representative_region", "h_coarse_s"),
+    )
     _write_csv(output_root / "trace_component_ablation.csv", component_rows, ("trace_mode", "h_s"))
     _write_json(output_root / "trace_root_cause.json", root_cause)
     _write_csv(output_root / "qualified_trace_face_error.csv", [face_summaries[h] for h in H_LADDER_S], ("h_s", "max_relative_radius_error"))
     _write_csv(output_root / "corrected_cr1_vs_exact.csv", cr1_rows, ("h_s", "population_relative_L1"))
-    _write_csv(output_root / "trace_projection_comparator.csv", trace_induced, ("h_s", "trace_induced_relative_L1_proxy"))
+    _write_csv(output_root / "trace_projection_comparator.csv", trace_induced, ("h_s", "trace_induced_relative_L1"))
     analysis_provenance = {
         "task_name": TASK_NAME,
         "phase": args.phase,
@@ -1212,6 +1824,9 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "reference_validation": reference_validation,
         "semigroup": semigroup,
         "roundtrip": roundtrip,
+        "cr1_remap_unchanged_guard": remap_guard,
+        "conservation_unchanged": conservation_summary,
+        "cr1_paired_projection_comparator": cr1_comparator_summary,
         "trace_reference_floor_relative": REFERENCE_FLOOR_RELATIVE,
         "trace_qualification_envelope_relative": TRACE_ENVELOPE_RELATIVE,
         "dynamic_time_reference": "NOT_ASSIGNED",
@@ -1236,9 +1851,33 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "09_repeated_trace_accumulation.md": repeated_summary,
         "10_component_ablation.md": {"rows": component_rows},
         "11_trace_root_cause.md": root_cause,
-        "12_minimal_trace_fix.md": {"phase": args.phase, "trace_fix_implemented": args.phase == "qualify", "description": fix_description, "cr1_remap_modified": False},
-        "13_trace_kernel_qualification.md": {"qualified": qualified_trace, "reference_floor_relative": REFERENCE_FLOOR_RELATIVE, "qualification_envelope_relative": TRACE_ENVELOPE_RELATIVE, "face_summaries": [face_summaries[h] for h in H_LADDER_S], "repeated": post_fix_repeated},
-        "14_corrected_cr1_vs_exact.md": {"current_cr1_rows": cr1_rows, "projection_rows": projection_rows, "trace_induced_rows": trace_induced},
+        "12_minimal_trace_fix.md": {
+            "phase": args.phase,
+            "trace_fix_implemented": args.phase == "qualify",
+            "description": fix_description,
+            "cr1_remap_modified": False,
+            "cr1_remap_unchanged_guard": remap_guard,
+        },
+        "13_trace_kernel_qualification.md": {
+            "qualified": qualified_trace,
+            "reference_floor_relative": REFERENCE_FLOOR_RELATIVE,
+            "qualification_envelope_relative": TRACE_ENVELOPE_RELATIVE,
+            "absolute_radius_gate": "NOT_REQUIRED: every frozen departure radius is positive and carries a defined relative scale",
+            "face_summaries": [face_summaries[h] for h in H_LADDER_S],
+            "branch_status_parity": branch_summary["branch_or_status_mismatch_count"] == 0,
+            "repeated": post_fix_repeated,
+            "cr1_projection_comparator_same_order": cr1_projection_comparator_same_order,
+            "cr1_paired_projection_comparator": cr1_comparator_summary,
+            "conservation_unchanged": conservation_summary,
+            "cr1_remap_unchanged_guard": remap_guard,
+        },
+        "14_corrected_cr1_vs_exact.md": {
+            "current_cr1_rows": cr1_rows,
+            "projection_rows": projection_rows,
+            "trace_induced_rows": trace_induced,
+            "cr1_paired_projection_comparator": cr1_comparator_summary,
+            "conservation_unchanged": conservation_summary,
+        },
         "15_model_boundary.md": {
             "FROZEN_TRACE_KERNEL_V1": "QUALIFIED" if qualified_trace else "NOT_QUALIFIED",
             "TIME_REFERENCE_V2": "NOT_ASSIGNED",
@@ -1260,7 +1899,7 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "FROZEN_U0_HASH": EXPECTED_FROZEN_U0_HASH,
         "BASELINE_EXACT_REFERENCE": baseline_reproduction["status"],
         "BASELINE_CR1_REPRODUCED": True,
-        "PRODUCTION_TRACE_ARCHITECTURE": "fixed log auxiliary TOF table + GL2 + six-iteration production inversion",
+        "PRODUCTION_TRACE_ARCHITECTURE": "fixed log auxiliary TOF table + GL2 + binary64-bracketed production inversion",
         "G_PARITY": growth_summary["G_VALUE_PARITY"],
         "CRITICAL_RADIUS_PARITY": growth_summary["CRITICAL_RADIUS_PARITY"],
         "BRANCH_STATUS_PARITY": branch_summary["branch_or_status_mismatch_count"] == 0,
@@ -1273,9 +1912,13 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "PRODUCTION_TAU_ERROR": max(float(row["relative_error"]) for row in tau_rows),
         "TABLE_RESOLUTION_EFFECT": root_cause["table_resolution_gain_16_to_64"],
         "INTERPOLATION_EFFECT": root_cause["exact_tau_bracketed_h128_max_relative_error"],
-        "INVERSION_EFFECT": root_cause["inversion_gain_fixed_to_bracketed"],
+        "INVERSION_EFFECT": root_cause["inversion_gain_production_kernel_to_bracketed"],
         "SINGLE_STEP_TRACE_ORDER": scaling_summary,
-        "TRACE_ERROR_FLOOR": "NOT_A_FIXED_RADIUS_FLOOR" if root_cause["repeated_accumulation_supported"] else "NOT_SUPPORTED",
+        "TRACE_ERROR_FLOOR": (
+            "HISTORICAL_V1_FIXED_PER_STEP_INVERSION_FLOOR_WITH_STEP_COUNT_ACCUMULATION"
+            if root_cause["repeated_accumulation_supported"]
+            else "NOT_SUPPORTED_BY_THE_HISTORICAL_V1_DIAGNOSIS"
+        ),
         "REPEATED_TRACE_ACCUMULATION": repeated_summary,
         "ACCUMULATION_SCALING": repeated_summary["per_region_classification"],
         "COMPONENT_ABLATION_RESULT": root_cause,
@@ -1283,8 +1926,15 @@ def _run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         "SECONDARY_ROOT_CAUSE": root_cause["SECONDARY_ROOT_CAUSE"],
         "TRACE_FIX_IMPLEMENTED": args.phase == "qualify",
         "TRACE_FIX_DESCRIPTION": fix_description,
-        "CR1_REMAP_MODIFIED": False,
+        "CR1_REMAP_MODIFIED": not bool(remap_guard["CR1_REMAP_IMPLEMENTATION_UNCHANGED"]),
+        "CR1_REMAP_UNCHANGED_GUARD": remap_guard,
+        "CONSERVATION_UNCHANGED": conservation_summary,
         "QUALIFIED_TRACE_KERNEL": qualified_trace,
+        "CR1_PROJECTION_COMPARATOR_SAME_ORDER": cr1_projection_comparator_same_order,
+        "TRACE_INDUCED_REDUCED_BY_AT_LEAST_ONE_ORDER": cr1_comparator_summary[
+            "ALL_H_TRACE_INDUCED_REDUCED_BY_AT_LEAST_ONE_ORDER"
+        ],
+        "CR1_PAIRED_PROJECTION_COMPARATOR": cr1_comparator_summary,
         "TRACE_REFERENCE_ENVELOPE": TRACE_ENVELOPE_RELATIVE,
         "POST_FIX_MAX_TRACE_ERROR": max(float(summary["max_relative_radius_error"]) for summary in face_summaries.values()) if args.phase == "qualify" else None,
         "POST_FIX_REPEATED_COMPOSITION": post_fix_repeated,

@@ -70,34 +70,11 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
             velocity_m_s=_nonlinear_velocity,
         )
 
-    @classmethod
-    def _event_case(cls) -> tuple[FrozenSemigroupDecomposition, dict[str, object], np.ndarray, np.ndarray]:
-        """Load the deterministic synthetic topology control only when needed."""
-
-        cached = getattr(cls, "_event_case_cache", None)
-        if cached is None:
-            decomposition, summary = synthetic_single_event_control()
-            if decomposition is None:
-                raise AssertionError(f"synthetic CR1 event control was unavailable: {summary}")
-            edges = np.asarray(decomposition.direct.trace.arrival_faces_m, dtype=np.float64)
-            cached = (decomposition, summary, edges, _synthetic_cells(edges))
-            cls._event_case_cache = cached
-        return cached
-
     def _base_repeat(self) -> FrozenSemigroupDecomposition:
         return decompose_frozen_cr1(
             edges_m=self.base_edges,
             initial_cells=self.base_initial,
             h_s=self.base_h_s,
-            velocity_m_s=_nonlinear_velocity,
-        )
-
-    def _event_repeat(self) -> FrozenSemigroupDecomposition:
-        _decomposition, summary, edges, initial = self._event_case()
-        return decompose_frozen_cr1(
-            edges_m=edges,
-            initial_cells=initial,
-            h_s=float(summary["selected_h_s"]),
             velocity_m_s=_nonlinear_velocity,
         )
 
@@ -194,7 +171,8 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         )
 
     def test_face_flow_rows_expose_all_faces_and_geometric_changed_sets(self) -> None:
-        decomposition, _summary, edges, _initial = self._event_case()
+        decomposition = self.base_decomposition
+        edges = self.base_edges
         rows = face_flow_rows(decomposition, edges_m=edges)
         self.assertEqual(len(rows), edges.size)
         required = {
@@ -213,13 +191,18 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         }
         expected_changed = {int(face) for face in changed_face_indices(decomposition)}
         self.assertEqual(observed_changed, expected_changed)
-        self.assertTrue(expected_changed)
+        # V2's binary64 bracketed inverse removed the old fixed-six source-cell
+        # flip in this smooth control.  A radius-level round-off difference may
+        # remain, but it must not alter the actual CR1 CDF partition.
+        self.assertFalse(expected_changed)
         self.assertTrue(
             all(math.isfinite(float(row["near_boundary_threshold_m"])) for row in rows)
         )
 
     def test_projection_connectivity_uses_geometry_not_population_thresholds(self) -> None:
-        decomposition, summary, edges, initial = self._event_case()
+        decomposition = self.base_decomposition
+        edges = self.base_edges
+        initial = self.base_initial
         rows, changed_cells = projection_connectivity_rows(decomposition)
         self.assertTrue(rows)
         self.assertGreater(changed_cells.size, 0)
@@ -244,15 +227,18 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         alternate_decomposition = decompose_frozen_cr1(
             edges_m=edges,
             initial_cells=alternate,
-            h_s=float(summary["selected_h_s"]),
+            h_s=float(decomposition.h_s),
             velocity_m_s=_nonlinear_velocity,
         )
         _alternate_rows, alternate_changed = projection_connectivity_rows(alternate_decomposition)
         np.testing.assert_array_equal(changed_cells, alternate_changed)
 
-    def test_changed_support_pairing_reports_exact_and_all_required_halos(self) -> None:
-        decomposition, _summary, edges, _initial = self._event_case()
-        flow_faces = changed_face_indices(decomposition)
+    def test_explicit_face_fixture_support_pairing_reports_exact_and_all_required_halos(self) -> None:
+        """Keep support/halo coverage independent of a trace-error artifact."""
+
+        decomposition = self.base_decomposition
+        edges = self.base_edges
+        flow_faces = np.asarray([0, 7, edges.size - 1], dtype=np.int64)
         exact_support = support_from_faces(
             flow_faces, cell_count=decomposition.d_trace.size, halo=0
         )
@@ -260,15 +246,20 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         halo_two = support_from_faces(flow_faces, cell_count=decomposition.d_trace.size, halo=2)
         self.assertTrue(np.all(exact_support <= halo_one))
         self.assertTrue(np.all(halo_one <= halo_two))
+        np.testing.assert_array_equal(np.flatnonzero(exact_support), np.asarray([0, 6, 7, 15]))
+
+        trace_defect = np.zeros(decomposition.d_trace.shape, dtype=np.float64)
+        trace_defect[[0, 6, 7, 15]] = np.asarray([2.0, -3.0, 5.0, -7.0])
 
         trace_pairing = support_pairing_metrics(
-            decomposition.d_trace, edges_m=edges, support=exact_support
+            trace_defect, edges_m=edges, support=exact_support
         )
         self.assertIn("support_population_L1_fraction", trace_pairing)
         self.assertIn("support_absolute_weighted_M3_fraction", trace_pairing)
+        self.assertEqual(float(trace_pairing["support_population_L1_fraction"]), 1.0)
 
         rows = support_expansion_rows(
-            decomposition.d_trace,
+            trace_defect,
             edges_m=edges,
             seed_cells=np.flatnonzero(exact_support),
             kind="D_trace",
@@ -285,17 +276,16 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         self.assertIn("complement_population_Linf_abs", remap_pairing)
         self.assertIn("support_absolute_weighted_M0", remap_pairing)
 
-    def test_zero_event_control_is_found_by_dyadic_search_and_runs_all_paths(self) -> None:
-        _decomposition, summary, edges, initial = self._event_case()
+    def test_zero_event_control_accepts_immediately_when_v2_has_no_source_flip(self) -> None:
         control, rows = search_zero_event_control(
-            edges_m=edges,
-            initial_cells=initial,
+            edges_m=self.base_edges,
+            initial_cells=self.base_initial,
             velocity_m_s=_nonlinear_velocity,
-            starting_h_s=float(summary["selected_h_s"]),
+            starting_h_s=float(self.base_h_s),
             maximum_halvings=32,
         )
         self.assertTrue(rows)
-        self.assertGreater(int(rows[0]["changed_face_count"]), 0)
+        self.assertEqual(int(rows[0]["changed_face_count"]), 0)
         self.assertIsNotNone(control)
         assert control is not None
         self.assertEqual(int(changed_face_indices(control).size), 0)
@@ -303,16 +293,12 @@ class FrozenSemigroupDecompositionContracts(unittest.TestCase):
         self.assertEqual(control.composed_flow.label, "COMPOSED_FLOW_SINGLE_REMAP")
         self.assertEqual(control.sequential.label, "SEQUENTIAL_HALF_STEPS")
 
-    def test_synthetic_single_event_control_is_nonphysical_and_topology_selected(self) -> None:
-        decomposition, summary, _edges, _initial = self._event_case()
-        self.assertEqual(summary["status"], "SYNTHETIC_SINGLE_OR_FEW_EVENT_FOUND")
+    def test_synthetic_control_reports_no_v1_inversion_artifact_under_v2(self) -> None:
+        decomposition, summary = synthetic_single_event_control()
+        self.assertIsNone(decomposition)
+        self.assertEqual(summary["status"], "NO_SYNTHETIC_TOPOLOGY_EVENT_FOUND")
         self.assertFalse(bool(summary["physical_material_state_used"]))
-        self.assertGreaterEqual(int(summary["changed_face_count"]), 1)
-        self.assertLessEqual(int(summary["changed_face_count"]), 4)
-        self.assertEqual(
-            int(changed_face_indices(decomposition).size),
-            int(summary["changed_face_count"]),
-        )
+        self.assertNotIn("selected_h_s", summary)
 
     def test_sparse_operator_identity_reproduces_state_and_decomposition(self) -> None:
         decomposition = self.base_decomposition

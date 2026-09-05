@@ -449,13 +449,14 @@ def _invert_time_of_flight(
     expected_sign: float,
     velocity_m_s: Callable[[NDArray[np.float64]], NDArray[np.float64]],
 ) -> NDArray[np.float64]:
-    """Invert a tabulated flight-time map with local Gauss/Newton refinement.
+    """Invert one branch-local tabulated flight-time map in binary64.
 
-    Linear interpolation is sufficient to locate the enclosing trace
-    interval, but it is only second-order as an inverse.  The safeguarded
-    local solve below re-integrates that one interval with the same
-    Gauss--Legendre rule and restores the intended high-order characteristic
-    accuracy without globally refining every face.
+    A linear table lookup only identifies the existing local interval.  The
+    returned radius is then the deterministic root of that interval's same
+    Gauss--Legendre flight-time rule: it is accepted only at an exact
+    residual or once no representable binary64 radius remains in the bracket.
+    This deliberately does not introduce a tolerance, a cross-branch root,
+    or a new physical trace table.
     """
 
     targets = np.asarray(targets_s, dtype=np.float64)
@@ -467,31 +468,130 @@ def _invert_time_of_flight(
         raise ConservativeRemapError("characteristic cumulative trace time is not strictly increasing")
     if np.any(targets < cumulative_time_s[0]) or np.any(targets > cumulative_time_s[-1]):
         raise ConservativeRemapError("characteristic inversion target left its physical trace table")
-    interval = np.searchsorted(cumulative_time_s, targets, side="right") - 1
+    result = np.empty_like(targets)
+    knot_position = np.searchsorted(cumulative_time_s, targets, side="left")
+    knot_in_table = knot_position < cumulative_time_s.size
+    exact_knot = np.zeros(targets.shape, dtype=bool)
+    exact_knot[knot_in_table] = (
+        cumulative_time_s[knot_position[knot_in_table]] == targets[knot_in_table]
+    )
+    if np.any(exact_knot):
+        result[exact_knot] = coordinates_m[knot_position[exact_knot]]
+
+    active_indices = np.flatnonzero(~exact_knot)
+    if active_indices.size == 0:
+        return result
+
+    active_targets = targets[active_indices]
+    interval = np.searchsorted(cumulative_time_s, active_targets, side="left") - 1
     interval = np.clip(interval, 0, coordinates_m.size - 2)
     left = coordinates_m[interval]
     right = coordinates_m[interval + 1]
     cumulative_left = cumulative_time_s[interval]
+    local_target = active_targets - cumulative_left
     interval_time = cumulative_time_s[interval + 1] - cumulative_left
-    fraction = (targets - cumulative_left) / interval_time
-    estimate = left + fraction * (right - left)
+    estimate = left + (local_target / interval_time) * (right - left)
     low = left.copy()
     high = right.copy()
-    for _ in range(6):
+
+    unresolved = np.ones(active_targets.shape, dtype=bool)
+    initial_terminal = np.nextafter(low, high) == high
+    if np.any(initial_terminal):
+        terminal_indices = np.flatnonzero(initial_terminal)
+        lower_residual = _gauss_time_of_flight_intervals(
+            left[terminal_indices],
+            low[terminal_indices],
+            expected_sign=expected_sign,
+            velocity_m_s=velocity_m_s,
+        ) - local_target[terminal_indices]
+        upper_residual = _gauss_time_of_flight_intervals(
+            left[terminal_indices],
+            high[terminal_indices],
+            expected_sign=expected_sign,
+            velocity_m_s=velocity_m_s,
+        ) - local_target[terminal_indices]
+        choose_lower = np.abs(lower_residual) <= np.abs(upper_residual)
+        result[active_indices[terminal_indices]] = np.where(
+            choose_lower, low[terminal_indices], high[terminal_indices]
+        )
+        unresolved[terminal_indices] = False
+    initial_below = estimate <= low
+    initial_above = estimate >= high
+    estimate = np.where(initial_below, np.nextafter(low, high), estimate)
+    estimate = np.where(initial_above, np.nextafter(high, low), estimate)
+
+    for _ in range(64):
+        current = np.flatnonzero(unresolved)
+        if current.size == 0:
+            break
         partial = _gauss_time_of_flight_intervals(
-            left,
-            estimate,
+            left[current],
+            estimate[current],
             expected_sign=expected_sign,
             velocity_m_s=velocity_m_s,
         )
-        residual = cumulative_left + partial - targets
-        high = np.where(residual > 0.0, estimate, high)
-        low = np.where(residual <= 0.0, estimate, low)
-        local_velocity = _checked_velocity(velocity_m_s, estimate, label="trace inversion")
-        proposal = estimate - residual * np.abs(local_velocity)
-        safe_proposal = (proposal > low) & (proposal < high) & np.isfinite(proposal)
-        estimate = np.where(safe_proposal, proposal, 0.5 * (low + high))
-    return estimate
+        # Keep the residual local to the selected table interval.  Adding the
+        # potentially much larger cumulative anchor back in loses the very
+        # flight-time increment that this inverse is resolving.
+        residual = partial - local_target[current]
+        exact = residual == 0.0
+        if np.any(exact):
+            exact_current = current[exact]
+            result[active_indices[exact_current]] = estimate[exact_current]
+            unresolved[exact_current] = False
+
+        remaining = current[~exact]
+        if remaining.size == 0:
+            continue
+        remaining_residual = residual[~exact]
+        positive = remaining_residual > 0.0
+        high[remaining[positive]] = estimate[remaining[positive]]
+        low[remaining[~positive]] = estimate[remaining[~positive]]
+
+        terminal = np.nextafter(low[remaining], high[remaining]) == high[remaining]
+        if np.any(terminal):
+            terminal_indices = remaining[terminal]
+            lower_residual = _gauss_time_of_flight_intervals(
+                left[terminal_indices],
+                low[terminal_indices],
+                expected_sign=expected_sign,
+                velocity_m_s=velocity_m_s,
+            ) - local_target[terminal_indices]
+            upper_residual = _gauss_time_of_flight_intervals(
+                left[terminal_indices],
+                high[terminal_indices],
+                expected_sign=expected_sign,
+                velocity_m_s=velocity_m_s,
+            ) - local_target[terminal_indices]
+            choose_lower = np.abs(lower_residual) <= np.abs(upper_residual)
+            result[active_indices[terminal_indices]] = np.where(
+                choose_lower, low[terminal_indices], high[terminal_indices]
+            )
+            unresolved[terminal_indices] = False
+
+        continuing = remaining[~terminal]
+        if continuing.size == 0:
+            continue
+        continuing_residual = residual[~exact][~terminal]
+        local_velocity = _checked_velocity(
+            velocity_m_s, estimate[continuing], label="trace inversion"
+        )
+        proposal = estimate[continuing] - continuing_residual * np.abs(local_velocity)
+        safe_proposal = (
+            (proposal > low[continuing])
+            & (proposal < high[continuing])
+            & np.isfinite(proposal)
+        )
+        midpoint = low[continuing] + 0.5 * (high[continuing] - low[continuing])
+        midpoint_is_interior = (midpoint > low[continuing]) & (midpoint < high[continuing])
+        midpoint = np.where(
+            midpoint_is_interior, midpoint, np.nextafter(low[continuing], high[continuing])
+        )
+        estimate[continuing] = np.where(safe_proposal, proposal, midpoint)
+
+    if np.any(unresolved):
+        raise ConservativeRemapError("characteristic time-of-flight inverse did not reach binary64 closure")
+    return result
 
 
 def _stationary_root(

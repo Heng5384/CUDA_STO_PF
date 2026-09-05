@@ -41,7 +41,7 @@ class ProductionTraceAuditError(RuntimeError):
 
 VelocityFunction = Callable[[NDArray[np.float64]], NDArray[np.float64]]
 TableKind = Literal["PRODUCTION_GL2", "EXACT_TAU"]
-InversionMode = Literal["PRODUCTION_FIXED_6", "BRACKETED_TABLE"]
+InversionMode = Literal["PRODUCTION_KERNEL", "BRACKETED_TABLE"]
 
 
 @dataclass(frozen=True)
@@ -50,14 +50,14 @@ class ProductionTraceAuditConfig:
 
     subcells_per_cell: int = 16
     table_kind: TableKind = "PRODUCTION_GL2"
-    inversion_mode: InversionMode = "PRODUCTION_FIXED_6"
+    inversion_mode: InversionMode = "PRODUCTION_KERNEL"
 
     def __post_init__(self) -> None:
         if self.subcells_per_cell <= 0 or self.subcells_per_cell != int(self.subcells_per_cell):
             raise ProductionTraceAuditError("trace-table subcells per cell must be a positive integer")
         if self.table_kind not in {"PRODUCTION_GL2", "EXACT_TAU"}:
             raise ProductionTraceAuditError("unrecognized trace-table representation")
-        if self.inversion_mode not in {"PRODUCTION_FIXED_6", "BRACKETED_TABLE"}:
+        if self.inversion_mode not in {"PRODUCTION_KERNEL", "BRACKETED_TABLE"}:
             raise ProductionTraceAuditError("unrecognized trace inversion mode")
 
 
@@ -266,7 +266,7 @@ class ProductionAutonomousTOFTable:
         slot = int(np.clip(position - 1, 0, coordinates.size - 2))
         return float(run.cumulative_time_s[slot] + self._partial_time(run, float(coordinates[slot]), point))
 
-    def _production_fixed_inverse(self, run: ProductionTraceRun, target_s: float) -> ProductionInversionResult:
+    def _production_kernel_inverse(self, run: ProductionTraceRun, target_s: float) -> ProductionInversionResult:
         target = float(target_s)
         try:
             radius = float(
@@ -279,14 +279,17 @@ class ProductionAutonomousTOFTable:
                 )[0]
             )
         except ConservativeRemapError as error:
-            raise ProductionTraceAuditError("production fixed-iteration inversion failed") from error
+            raise ProductionTraceAuditError("production trace-kernel inversion failed") from error
         slot = int(np.clip(np.searchsorted(run.cumulative_time_s, target, side="right") - 1, 0, run.coordinates_m.size - 2))
         local_target = target - float(run.cumulative_time_s[slot])
         residual = self._partial_time(run, float(run.coordinates_m[slot]), radius) - local_target
         return ProductionInversionResult(
             radius_m=radius,
-            iteration_count=6,
-            bracket_width_m=float(run.coordinates_m[slot + 1] - run.coordinates_m[slot]),
+            # The public kernel deliberately exposes a radius only.  Do not
+            # invent an iteration count or a final bracket width in this
+            # parity companion; -1/NaN explicitly mean "not exposed".
+            iteration_count=-1,
+            bracket_width_m=math.nan,
             residual_s=float(residual),
         )
 
@@ -336,8 +339,8 @@ class ProductionAutonomousTOFTable:
         raise ProductionTraceAuditError("bracketed table inversion did not reach binary64 resolution")
 
     def invert(self, run: ProductionTraceRun, target_s: float) -> ProductionInversionResult:
-        if self.config.inversion_mode == "PRODUCTION_FIXED_6":
-            return self._production_fixed_inverse(run, target_s)
+        if self.config.inversion_mode == "PRODUCTION_KERNEL":
+            return self._production_kernel_inverse(run, target_s)
         return self._bracketed_table_inverse(run, target_s)
 
     def query_departure(self, points_m: NDArray[np.float64] | np.ndarray, duration_s: float) -> ProductionTraceQuery:

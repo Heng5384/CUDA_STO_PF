@@ -17,7 +17,15 @@ from kwn_mvp.production_trace_audit import (
     public_production_trace_probe,
 )
 from kwn_mvp.thermo_adapter import DiluteEquilibriumAdapter
-from scripts.run_kwn_production_trace_audit_v1 import _single_step_scaling_rows
+from scripts.run_kwn_production_trace_audit_v1 import (
+    H_LADDER_S,
+    _classify_repeated_accumulation,
+    _conservation_unchanged_summary,
+    _cr1_remap_unchanged_guard,
+    _paired_cr1_comparator,
+    _single_step_scaling_rows,
+    _trace_induced_rows,
+)
 
 
 def _law(*, gamma: float = 0.0) -> FrozenAutonomousGrowthLaw:
@@ -179,13 +187,14 @@ class ProductionTraceAuditContracts(unittest.TestCase):
         self.assertEqual(inverted.radius_m, float(run.coordinates_m[index]))
         self.assertEqual(inverted.iteration_count, 0)
 
-    def test_production_fixed_inverse_reports_its_fixed_six_iterations(self) -> None:
+    def test_production_kernel_does_not_invent_unexposed_iteration_telemetry(self) -> None:
         table = ProductionAutonomousTOFTable(edges_m=self.edges, velocity_m_s=self.law.velocity)
         run = table.runs[0]
         target = float(0.5 * (run.cumulative_time_s[1] + run.cumulative_time_s[2]))
         inverted = table.invert(run, target)
-        self.assertEqual(inverted.iteration_count, 6)
-        self.assertGreater(inverted.bracket_width_m, 0.0)
+        self.assertEqual(inverted.iteration_count, -1)
+        self.assertTrue(np.isnan(inverted.bracket_width_m))
+        self.assertTrue(np.isfinite(inverted.residual_s))
 
     def test_multiple_durations_retain_public_trace_parity(self) -> None:
         table = ProductionAutonomousTOFTable(edges_m=self.edges, velocity_m_s=self.law.velocity)
@@ -218,6 +227,69 @@ class ProductionTraceAuditContracts(unittest.TestCase):
         self.assertNotIn("conservative_remap_piecewise_constant", text)
         self.assertNotIn("phi_compose", text)
 
+    def test_cr1_remap_definitions_match_the_required_frozen_ancestor(self) -> None:
+        guard = _cr1_remap_unchanged_guard()
+        self.assertTrue(guard["CR1_REMAP_IMPLEMENTATION_UNCHANGED"])
+        self.assertTrue(all(guard["symbol_ast_matches_frozen"].values()))
+
+    def test_conservation_gate_uses_the_existing_cr1_scale_on_both_paired_paths(self) -> None:
+        current = [
+            {
+                "h_s": h_s,
+                "remap_cumulative_conservation_relative": 0.0,
+                "remap_max_abs_conservation_relative": 1.0e-13,
+            }
+            for h_s in H_LADDER_S
+        ]
+        projection = [
+            {
+                "h_s": h_s,
+                "remap_cumulative_conservation_relative": 0.0,
+                "remap_max_abs_conservation_relative": 2.0e-13,
+            }
+            for h_s in H_LADDER_S
+        ]
+        passing = _conservation_unchanged_summary(cr1_rows=current, projection_rows=projection)
+        self.assertTrue(passing["CONSERVATION_UNCHANGED"])
+        # A signed cumulative residual can cancel to zero; the formal gate
+        # must still reject the individual substep that violated CR5.
+        current[-1]["remap_max_abs_conservation_relative"] = 1.1e-12
+        failing = _conservation_unchanged_summary(cr1_rows=current, projection_rows=projection)
+        self.assertFalse(failing["CONSERVATION_UNCHANGED"])
+
+    def test_paired_cr1_comparator_cannot_borrow_another_h_scale(self) -> None:
+        rows = [
+            {
+                "h_s": h_s,
+                "full_vs_exact_relative_L1": 2.0e-12,
+                "projection_only_vs_exact_relative_L1": 1.0e-12,
+                "trace_induced_relative_L1": 1.0e-12,
+            }
+            for h_s in H_LADDER_S
+        ]
+        # A large error at one h cannot be excused by a larger comparator at
+        # another h: every h has to carry its own paired scale.
+        rows[3]["full_vs_exact_relative_L1"] = 1.0e-8
+        enriched, summary = _paired_cr1_comparator(
+            trace_induced_rows=rows,
+            baseline_cr1_relative_l1=[1.0e-9] * len(H_LADDER_S),
+        )
+        self.assertFalse(summary["ALL_H_SAME_ORDER"])
+        self.assertTrue(summary["ALL_H_TRACE_INDUCED_REDUCED_BY_AT_LEAST_ONE_ORDER"])
+        self.assertFalse(enriched[3]["same_order_at_h"])
+        self.assertTrue(enriched[0]["same_order_at_h"])
+
+    def test_repeated_accumulation_checks_an_intermediate_n_like_pair(self) -> None:
+        errors = [1.0e-10, 1.0e-10, 2.0e-10, 1.0e-10, 0.7e-10, 0.7e-10]
+        rows = [
+            {"h_s": h_s, "final_accumulated_relative_error": error}
+            for h_s, error in zip(H_LADDER_S, errors)
+        ]
+        classification, pairs, n_like = _classify_repeated_accumulation(rows)
+        self.assertEqual(classification, "TRACE_REPEATED_SCALES_AS_N_OR_FASTER")
+        self.assertTrue(n_like)
+        self.assertTrue(any(pair["n_like_or_faster_accumulation"] for pair in pairs))
+
     def test_single_step_scaling_accepts_exact_zero_error_pairs(self) -> None:
         rows = [
             {
@@ -232,6 +304,25 @@ class ProductionTraceAuditContracts(unittest.TestCase):
         self.assertEqual(summary["face_class_counts"], {"TRACE_SINGLE_STEP_FIXED_FLOOR": 1})
         self.assertEqual(len(scaling), 3)
         self.assertTrue(all(row["observed_order"] is None for row in scaling))
+
+    def test_trace_induced_metric_is_the_direct_population_distance_not_an_error_difference(self) -> None:
+        rows = _trace_induced_rows(
+            cr1_rows=[
+                {
+                    "h_s": 0.125,
+                    "population_relative_L1": 1.0e-3,
+                    "population_L1_abs": 2.0,
+                    "trace_induced_population_relative_L1": 4.0e-4,
+                    "trace_induced_population_L1_abs": 0.8,
+                    "trace_induced_population_relative_Linf": 3.0e-4,
+                    "trace_induced_CDF_max_error": 2.0e-4,
+                    "trace_induced_Wasserstein_m": 5.0e-12,
+                }
+            ],
+            projection_rows=[{"h_s": 0.125, "population_relative_L1": 1.0e-3, "population_L1_abs": 2.0}],
+        )
+        self.assertEqual(rows[0]["trace_induced_relative_L1"], 4.0e-4)
+        self.assertEqual(rows[0]["trace_induced_L1_abs"], 0.8)
 
 
 if __name__ == "__main__":

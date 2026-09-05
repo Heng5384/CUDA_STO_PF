@@ -45,7 +45,7 @@ from .solver import KWNSolver, RadiusGridOverflowError, SolverConfig, SolverStat
 
 
 REMAP_ORDER = "CR1_piecewise_constant"
-TRACE_INTEGRATOR = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BACKWARD_V1"
+TRACE_INTEGRATOR = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BINARY64_BRACKETED_INVERSE_V2"
 FIXED_POINT_CLOSURE = (
     "PICARD_WITH_EXACT_PERIOD_2_OR_4_CYCLE_BRACKETED_ROOT_OR_"
     "FINAL_RAW_ADJACENT_SAME_BRANCH_SAFEGUARDED_SCALAR_ROOT_V3"
@@ -165,7 +165,7 @@ class CharacteristicReferenceSolver(KWNSolver):
     inventory source and no density clamp.
     """
 
-    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v5"
+    solver_version = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v6"
 
     def __init__(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 import unittest
@@ -648,6 +649,23 @@ class CharacteristicReferenceContracts(unittest.TestCase):
             resumed.run_to_time(1.0, maximum_step_s=0.1)
         for key, expected in continuous.state_arrays().items():
             np.testing.assert_array_equal(expected, resumed.state_arrays()[key], err_msg=key)
+
+    def test_normal_checkpoint_loader_rejects_a_v1_trace_identity(self) -> None:
+        config = SolverConfig.from_mapping(_mapping(bins=40, beta_numbers_m3=_numbers(bins=40)))
+        solver = _RestartVelocityCharacteristic(config)
+        with tempfile.TemporaryDirectory() as temporary:
+            current = Path(temporary) / "current_v2.npz"
+            legacy = Path(temporary) / "forged_v1_metadata.npz"
+            solver.save_checkpoint(current)
+            with np.load(current, allow_pickle=False) as archive:
+                payload = {name: np.asarray(archive[name]).copy() for name in archive.files}
+            metadata = json.loads(str(payload["metadata_json"].item()))
+            metadata["solver_version"] = "kwn_conservative_characteristic_remap_cr1_gl2_bracket_v5"
+            metadata["trace_integrator"] = "AUTONOMOUS_RADIUS_GAUSS_LEGENDRE_2_BACKWARD_V1"
+            payload["metadata_json"] = np.asarray(json.dumps(metadata, sort_keys=True))
+            np.savez(legacy, **payload)
+            with self.assertRaisesRegex(CharacteristicReferenceError, "checkpoint solver version differs"):
+                _RestartVelocityCharacteristic.load_checkpoint(config=config, path=legacy)
 
     def test_cr8_timestep_refinement_converges(self) -> None:
         numbers = _numbers(bins=72) * 1.0e2
