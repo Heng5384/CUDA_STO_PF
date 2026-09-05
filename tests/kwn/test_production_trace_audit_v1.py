@@ -17,6 +17,7 @@ from kwn_mvp.production_trace_audit import (
     public_production_trace_probe,
 )
 from kwn_mvp.thermo_adapter import DiluteEquilibriumAdapter
+from scripts.run_kwn_production_trace_audit_v1 import _single_step_scaling_rows
 
 
 def _law(*, gamma: float = 0.0) -> FrozenAutonomousGrowthLaw:
@@ -216,6 +217,21 @@ class ProductionTraceAuditContracts(unittest.TestCase):
         text = source.read_text(encoding="utf-8")
         self.assertNotIn("conservative_remap_piecewise_constant", text)
         self.assertNotIn("phi_compose", text)
+
+    def test_single_step_scaling_accepts_exact_zero_error_pairs(self) -> None:
+        rows = [
+            {
+                "face_index": 0,
+                "h_s": h_s,
+                "absolute_radius_error_m": 0.0,
+                "arrival_radius_m": 1.0,
+            }
+            for h_s in (1.0 / 128.0, 1.0 / 256.0, 1.0 / 512.0, 1.0 / 1024.0)
+        ]
+        scaling, summary = _single_step_scaling_rows(rows)
+        self.assertEqual(summary["face_class_counts"], {"TRACE_SINGLE_STEP_FIXED_FLOOR": 1})
+        self.assertEqual(len(scaling), 3)
+        self.assertTrue(all(row["observed_order"] is None for row in scaling))
 
 
 if __name__ == "__main__":

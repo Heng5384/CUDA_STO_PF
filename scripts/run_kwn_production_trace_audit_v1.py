@@ -719,7 +719,12 @@ def _single_step_scaling_rows(face_rows: Sequence[Mapping[str, Any]]) -> tuple[l
         h_values = [float(row["h_s"]) for row in ordered]
         errors = [float(row["absolute_radius_error_m"]) for row in ordered]
         order = observed_orders(h_values, errors, metric="single_face_absolute_radius_error")
-        finite = [float(row["observed_order"]) for row in order["pair_rows"] if math.isfinite(float(row["observed_order"]))]
+        finite = [
+            float(value)
+            for row in order["pair_rows"]
+            for value in (row["observed_order"],)
+            if value is not None and math.isfinite(float(value))
+        ]
         late = float(np.median(finite[-2:])) if finite else math.nan
         if not finite:
             classification = "TRACE_SINGLE_STEP_FIXED_FLOOR"
