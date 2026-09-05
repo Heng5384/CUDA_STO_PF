@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 
 import numpy as np
@@ -117,6 +118,104 @@ class ProductionTraceAuditContracts(unittest.TestCase):
             matrix_xb_constant_over_interval=True,
         )
         self.assertEqual(trace.departure_faces_m.shape, self.edges.shape)
+
+    def test_invalid_auxiliary_table_configuration_fails_closed(self) -> None:
+        with self.assertRaises(ProductionTraceAuditError):
+            ProductionTraceAuditConfig(subcells_per_cell=0)
+        with self.assertRaises(ProductionTraceAuditError):
+            ProductionTraceAuditConfig(subcells_per_cell=1.5)  # type: ignore[arg-type]
+
+    def test_exact_tau_representation_requires_the_independent_flow(self) -> None:
+        with self.assertRaisesRegex(ProductionTraceAuditError, "requires the independent frozen flow"):
+            ProductionAutonomousTOFTable(
+                edges_m=self.edges,
+                velocity_m_s=self.law.velocity,
+                config=ProductionTraceAuditConfig(table_kind="EXACT_TAU"),
+            )
+
+    def test_tau_rows_include_node_and_midpoint_samples(self) -> None:
+        table = ProductionAutonomousTOFTable(
+            edges_m=self.edges,
+            velocity_m_s=self.law.velocity,
+            exact_flow=self.flow,
+        )
+        rows = table.tau_rows(include_midpoints=True)
+        kinds = {str(row["sample_kind"]) for row in rows}
+        self.assertEqual(kinds, {"NODE", "MIDPOINT"})
+        self.assertTrue(all(float(row["tau_production_anchor_normalized_s"]) >= 0.0 for row in rows))
+        self.assertTrue(all(float(row["tau_exact_anchor_normalized_s"]) >= 0.0 for row in rows))
+
+    def test_table_query_does_not_mutate_caller_points(self) -> None:
+        points = self.edges.copy()
+        before = points.copy()
+        table = ProductionAutonomousTOFTable(edges_m=self.edges, velocity_m_s=self.law.velocity)
+        table.query_departure(points, 0.1)
+        np.testing.assert_array_equal(points, before)
+
+    def test_bracketed_table_inversion_is_deterministic(self) -> None:
+        table = ProductionAutonomousTOFTable(
+            edges_m=self.edges,
+            velocity_m_s=self.law.velocity,
+            config=ProductionTraceAuditConfig(inversion_mode="BRACKETED_TABLE"),
+        )
+        run = table.runs[0]
+        target = float(0.5 * (run.cumulative_time_s[1] + run.cumulative_time_s[2]))
+        first = table.invert(run, target)
+        second = table.invert(run, target)
+        self.assertEqual(first, second)
+        self.assertGreaterEqual(first.iteration_count, 1)
+
+    def test_exact_tau_bracketed_inverse_preserves_a_table_knot(self) -> None:
+        table = ProductionAutonomousTOFTable(
+            edges_m=self.edges,
+            velocity_m_s=self.law.velocity,
+            exact_flow=self.flow,
+            config=ProductionTraceAuditConfig(table_kind="EXACT_TAU", inversion_mode="BRACKETED_TABLE"),
+        )
+        run = table.runs[0]
+        index = min(3, run.coordinates_m.size - 1)
+        inverted = table.invert(run, float(run.cumulative_time_s[index]))
+        self.assertEqual(inverted.radius_m, float(run.coordinates_m[index]))
+        self.assertEqual(inverted.iteration_count, 0)
+
+    def test_production_fixed_inverse_reports_its_fixed_six_iterations(self) -> None:
+        table = ProductionAutonomousTOFTable(edges_m=self.edges, velocity_m_s=self.law.velocity)
+        run = table.runs[0]
+        target = float(0.5 * (run.cumulative_time_s[1] + run.cumulative_time_s[2]))
+        inverted = table.invert(run, target)
+        self.assertEqual(inverted.iteration_count, 6)
+        self.assertGreater(inverted.bracket_width_m, 0.0)
+
+    def test_multiple_durations_retain_public_trace_parity(self) -> None:
+        table = ProductionAutonomousTOFTable(edges_m=self.edges, velocity_m_s=self.law.velocity)
+        for duration in (0.025, 0.05, 0.1):
+            public = table.require_default_public_parity(duration)
+            queried = table.query_departure(self.edges, duration)
+            np.testing.assert_array_equal(queried.radius_m, public.departure_faces_m)
+
+    def test_qualified_wrapper_matches_public_autonomous_trace(self) -> None:
+        public, _status = public_production_trace_probe(
+            arrival_faces_m=self.edges,
+            duration_s=0.1,
+            velocity_m_s=self.law.velocity,
+            lower_radius_m=float(self.edges[0]),
+            upper_radius_m=float(self.edges[-1]),
+        )
+        qualified = QualifiedAutonomousTOFTraceKernelV1().trace(
+            arrival_faces_m=self.edges,
+            duration_s=0.1,
+            velocity_m_s=self.law.velocity,
+            lower_radius_m=float(self.edges[0]),
+            upper_radius_m=float(self.edges[-1]),
+            matrix_xb_constant_over_interval=True,
+        )
+        np.testing.assert_array_equal(qualified.departure_faces_m, public.departure_faces_m)
+
+    def test_audit_module_does_not_import_or_call_cr1_remap(self) -> None:
+        source = Path(__file__).resolve().parents[2] / "src" / "kwn_mvp" / "production_trace_audit.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertNotIn("conservative_remap_piecewise_constant", text)
+        self.assertNotIn("phi_compose", text)
 
 
 if __name__ == "__main__":

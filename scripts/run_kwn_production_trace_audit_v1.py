@@ -587,9 +587,20 @@ def _inversion_audit_rows(
             target_exact = float(exact_run.cumulative_time_s[int(index)])
             prod_same = production.invert(prod_run, target_production)
             bracket_same = bracketed.invert(bracket_run, target_production)
-            prod_exact_target = production.invert(prod_run, target_exact)
+            # An independently exact target can legitimately fall just
+            # outside a finite production table due to that table's own
+            # quadrature bias.  This is itself an inversion/table diagnostic,
+            # not a reason to silently clamp it or abort the complete audit.
+            try:
+                prod_exact_target = production.invert(prod_run, target_exact)
+                exact_target_status = "SUCCESS"
+            except ProductionTraceAuditError:
+                prod_exact_target = None
+                exact_target_status = "OUT_OF_PRODUCTION_TABLE_RANGE"
             exact_bracket = exact_table.invert(exact_run, target_exact)
-            max_production_error = max(max_production_error, abs(prod_same.radius_m - expected_radius), abs(prod_exact_target.radius_m - expected_radius))
+            max_production_error = max(max_production_error, abs(prod_same.radius_m - expected_radius))
+            if prod_exact_target is not None:
+                max_production_error = max(max_production_error, abs(prod_exact_target.radius_m - expected_radius))
             max_bracketed_error = max(max_bracketed_error, abs(bracket_same.radius_m - expected_radius), abs(exact_bracket.radius_m - expected_radius))
             rows.append(
                 {
@@ -601,8 +612,9 @@ def _inversion_audit_rows(
                     "exact_tau_target_s": target_exact,
                     "production_fixed_same_table_radius_m": prod_same.radius_m,
                     "production_fixed_same_table_error_m": abs(prod_same.radius_m - expected_radius),
-                    "production_fixed_exact_target_radius_m": prod_exact_target.radius_m,
-                    "production_fixed_exact_target_error_m": abs(prod_exact_target.radius_m - expected_radius),
+                    "production_fixed_exact_target_status": exact_target_status,
+                    "production_fixed_exact_target_radius_m": None if prod_exact_target is None else prod_exact_target.radius_m,
+                    "production_fixed_exact_target_error_m": None if prod_exact_target is None else abs(prod_exact_target.radius_m - expected_radius),
                     "bracketed_same_table_radius_m": bracket_same.radius_m,
                     "bracketed_same_table_error_m": abs(bracket_same.radius_m - expected_radius),
                     "exact_tau_bracketed_radius_m": exact_bracket.radius_m,
